@@ -24,12 +24,11 @@ from rest_framework.response import Response
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
@@ -189,23 +188,22 @@ def _fetch_evaluation_runs(
             properties.$ai_evaluation_result as result,
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable
-        FROM events
+        FROM posthog.ai_events AS ai_events
         WHERE {where_clause}
         ORDER BY timestamp DESC
         LIMIT {limit}
         """
     )
 
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
-        query_result = execute_hogql_query(
-            query_type="EvaluationSummaryFetchRuns",
-            query=query,
-            placeholders={
-                "where_clause": ast.And(exprs=where_conditions),
-                "limit": ast.Constant(value=limit),
-            },
-            team=team,
-        )
+    query_result = execute_with_ai_events_fallback(
+        query=query,
+        placeholders={
+            "where_clause": ast.And(exprs=where_conditions),
+            "limit": ast.Constant(value=limit),
+        },
+        team=team,
+        query_type="EvaluationSummaryFetchRuns",
+    )
 
     # Transform to expected format
     # Columns: generation_id (0), result (1), reasoning (2), applicable (3)

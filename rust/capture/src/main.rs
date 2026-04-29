@@ -13,7 +13,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
-use capture::error_tracking_sampler;
 use capture::server::serve;
 use capture::setup;
 
@@ -112,19 +111,12 @@ async fn main() {
     let pod = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     let _root_span = tracing::info_span!("service", pod = %pod).entered();
 
-    // Initialize error tracking pipeline routing
-    error_tracking_sampler::init(
-        config.error_tracking_node_rollout_enabled,
-        config.error_tracking_node_rollout_rate,
-    );
-    if config.error_tracking_node_rollout_enabled {
-        tracing::info!(
-            rollout_rate = config.error_tracking_node_rollout_rate,
-            "Error tracking Node pipeline rollout active"
-        );
-    }
-
-    let mut manager = lifecycle::Manager::builder("capture")
+    // Use OTEL_SERVICE_NAME (set per-variant by the chart's releaseName) as the
+    // lifecycle Manager identity so `common/lifecycle` metrics carry the correct
+    // `service_name` label. This binary is shared by capture, capture-replay,
+    // capture-mirrored, and capture-ai deployments — hardcoding a literal here
+    // would collapse their lifecycle metrics into a single bucket in Grafana.
+    let mut manager = lifecycle::Manager::builder(config.otel_service_name.as_str())
         .with_trap_signals(true)
         .with_prestop_check(true)
         .with_health_poll_interval(Duration::from_secs(2))

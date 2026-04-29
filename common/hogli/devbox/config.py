@@ -10,6 +10,7 @@ from typing import TypedDict
 class DevboxConfig(TypedDict, total=False):
     git_name: str
     git_email: str
+    dotfiles_uri: str
 
 
 def get_config_path() -> Path:
@@ -28,7 +29,7 @@ def load_config() -> DevboxConfig:
         return DevboxConfig()
 
     config = DevboxConfig()
-    for key in ("git_name", "git_email"):
+    for key in ("git_name", "git_email", "dotfiles_uri"):
         value = data.get(key)
         if isinstance(value, str):
             stripped_value = value.strip()
@@ -40,7 +41,7 @@ def load_config() -> DevboxConfig:
 def save_config(config: DevboxConfig) -> None:
     """Persist hogli devbox preferences to disk."""
     normalized = DevboxConfig()
-    for key in ("git_name", "git_email"):
+    for key in ("git_name", "git_email", "dotfiles_uri"):
         value = config.get(key)
         if isinstance(value, str):
             stripped_value = value.strip()
@@ -57,5 +58,13 @@ def save_git_identity(git_name: str, git_email: str) -> DevboxConfig:
     config = load_config()
     config["git_name"] = git_name
     config["git_email"] = git_email
+    save_config(config)
+    return config
+
+
+def save_dotfiles_uri(dotfiles_uri: str) -> DevboxConfig:
+    """Persist dotfiles repo URL for new workspaces."""
+    config = load_config()
+    config["dotfiles_uri"] = dotfiles_uri
     save_config(config)
     return config

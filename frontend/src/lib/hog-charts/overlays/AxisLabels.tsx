@@ -1,16 +1,19 @@
 import React, { useMemo } from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
+    /** Formatter for the right y-axis. Falls back to `yTickFormatter` if not provided. */
+    yRightTickFormatter?: (value: number) => string
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
 }
 
-const LABEL_FONT = '11px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
+export const LABEL_FONT =
+    '12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_PADDING = 20
 
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -21,7 +24,16 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     return measureCtx
 }
 
-function computeVisibleXLabels(
+export function measureLabelWidth(text: string, font: string = LABEL_FONT): number {
+    const ctx = getMeasureCtx()
+    if (!ctx) {
+        return text.length * 7
+    }
+    ctx.font = font
+    return ctx.measureText(text).width
+}
+
+export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
     formatter?: (value: string, index: number) => string | null
@@ -69,7 +81,7 @@ function computeVisibleXLabels(
 
 const TICK_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
-    fontSize: 11,
+    fontSize: 12,
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
 }
@@ -77,17 +89,28 @@ const TICK_STYLE_BASE: React.CSSProperties = {
 export function AxisLabels({
     xTickFormatter,
     yTickFormatter,
+    yRightTickFormatter,
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
 }: AxisLabelsProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChart()
+    const { scales, dimensions, labels } = useChartLayout()
     const yTicks = scales.yTicks()
+
+    const rightAxis = useMemo(() => {
+        if (!scales.yAxes) {
+            return null
+        }
+        return Object.values(scales.yAxes).find((a) => a.position === 'right') ?? null
+    }, [scales.yAxes])
+    const rightTicks = useMemo(() => rightAxis?.ticks() ?? [], [rightAxis])
 
     const visibleXLabels = useMemo(
         () => (hideXAxis ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter)),
         [hideXAxis, labels, scales.x, xTickFormatter]
     )
+
+    const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     return (
         <>
@@ -104,6 +127,30 @@ export function AxisLabels({
                             style={{
                                 ...TICK_STYLE_BASE,
                                 right: dimensions.width - dimensions.plotLeft + 8,
+                                top: y,
+                                transform: 'translateY(-50%)',
+                                color: axisColor,
+                            }}
+                        >
+                            {label}
+                        </div>
+                    )
+                })}
+
+            {!hideYAxis &&
+                rightAxis &&
+                rightTicks.map((tick: number) => {
+                    const y = rightAxis.scale(tick)
+                    if (!isFinite(y)) {
+                        return null
+                    }
+                    const label = rightFormatter ? rightFormatter(tick) : String(tick)
+                    return (
+                        <div
+                            key={`yr-${tick}`}
+                            style={{
+                                ...TICK_STYLE_BASE,
+                                left: dimensions.plotLeft + dimensions.plotWidth + 8,
                                 top: y,
                                 transform: 'translateY(-50%)',
                                 color: axisColor,

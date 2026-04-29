@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconBell, IconClock, IconDownload } from '@posthog/icons'
+import { IconBell, IconClock, IconDownload, IconNotification } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -10,6 +10,7 @@ import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -23,6 +24,7 @@ import { SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
+import { filterSearchItems } from './utils'
 
 // Types for command search results
 export interface SearchItem {
@@ -74,6 +76,8 @@ export const searchLogic = kea<searchLogicType>([
             ['featureFlags'],
             preflightLogic,
             ['isDev'],
+            userLogic,
+            ['user'],
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
@@ -285,14 +289,14 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         appsItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
                     }
-                    if (!isDev && product.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
                     if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
@@ -351,11 +355,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         dataManagementItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allMetadata = getTreeItemsMetadata()
                 const filteredMetadata = allMetadata.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
@@ -402,11 +406,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev],
-            (featureFlags, isDev): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user],
+            (featureFlags, isDev, user): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
@@ -594,6 +598,17 @@ export const searchLogic = kea<searchLogicType>([
                     itemType: null,
                     lastViewedAt: sceneLogViewsByRef['SavedInsights'] ?? null,
                     record: { type: 'alerts' },
+                },
+                {
+                    id: 'misc-subscriptions',
+                    name: 'Subscriptions',
+                    displayName: 'Subscriptions',
+                    category: 'misc',
+                    href: urls.subscriptions(),
+                    icon: <IconNotification />,
+                    itemType: null,
+                    lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
+                    record: { type: 'subscriptions' },
                 },
             ],
         ],
@@ -862,30 +877,12 @@ export const searchLogic = kea<searchLogicType>([
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
-                // Filter items by search term
+                // Filter items by search term using Fuse.js fuzzy search
                 const filterBySearch = (items: SearchItem[]): SearchItem[] => {
                     if (!hasSearch) {
                         return items
                     }
-                    const searchLower = search.toLowerCase()
-                    return items.filter((item) => {
-                        const name = item.name.toLowerCase()
-                        const category = item.category.toLowerCase()
-                        if (name.includes(searchLower) || category.includes(searchLower)) {
-                            return true
-                        }
-                        if (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(searchLower))) {
-                            return true
-                        }
-                        // Chunk matching: every word in the query must match somewhere
-                        const searchChunks = searchLower.split(' ').filter((s) => s)
-                        return searchChunks.every(
-                            (chunk) =>
-                                name.includes(chunk) ||
-                                category.includes(chunk) ||
-                                (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(chunk)) ?? false)
-                        )
-                    })
+                    return filterSearchItems(items, search)
                 }
 
                 // Always show recents first - show loading skeleton until first load completes

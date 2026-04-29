@@ -51,6 +51,8 @@ export type ActivityLogItem = {
     is_system?: boolean
     /** Whether a PostHog team member was impersonating the user when this activity was logged. */
     was_impersonated?: boolean
+    /** SDK or integration that triggered this action (from x-posthog-client header). */
+    client?: string | null
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry

@@ -8,14 +8,16 @@ import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
-    protected name = 'CdpCyclotronWorkerHogFlow'
+    protected override name = 'CdpCyclotronWorkerHogFlow'
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps, 'hogflow')
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
-    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
+    public override async processInvocations(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFlows(invocations)
         return await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
     }
@@ -37,7 +39,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 // Skip execution if the workflow is no longer active (e.g., disabled/archived)
@@ -49,7 +51,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                     skippedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']

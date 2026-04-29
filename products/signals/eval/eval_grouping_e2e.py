@@ -38,9 +38,9 @@ import pytest
 from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_measure
 from tqdm import tqdm
 
-from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+from posthog.temporal.data_imports.signals.pipeline import (
     _check_actionability,
-    _summarize_long_descriptions,
+    summarize_long_descriptions as _summarize_long_descriptions,
 )
 
 from products.signals.backend.temporal.grouping import (

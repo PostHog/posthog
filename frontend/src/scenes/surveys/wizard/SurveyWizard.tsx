@@ -8,7 +8,9 @@ import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,6 +25,7 @@ import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
+import { getSurveyWithTranslatedContent } from '../surveyTranslationUtils'
 import { canUseSurveyWizard, doesSurveyHaveDisplayConditions, getSurveyAudienceSummaryValue } from '../utils'
 import { MaxTip } from './MaxTip'
 import { AppearanceStep } from './steps/AppearanceStep'
@@ -42,7 +45,7 @@ export const scene: SceneExport<SurveyWizardLogicProps> = {
     paramsToProps: ({ params: { id } }): SurveyWizardLogicProps => ({ id: id || 'new' }),
 }
 
-function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
+export function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
     return (
         <BindLogic logic={surveyWizardLogic} props={{ id }}>
             <BindLogic logic={surveyLogic} props={{ id }}>
@@ -68,24 +71,23 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { setSurveyValue, loadSurvey } = useActions(surveyLogic)
 
-    const { preferredEditor } = useValues(surveysLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
 
-    // Redirect to the full editor when appropriate:
-    //  - brand-new survey + user prefers full editor (per-user preference)
-    //  - existing survey that uses wizard-unsupported fields (capability gate)
+    // Redirect existing surveys that use wizard-unsupported fields to the full
+    // editor. Brand-new surveys should always start on template selection,
+    // regardless of the user's editor preference.
     // Hash-carrying deep links (#fromTemplate, #preserveLocalChanges) are
     // respected and bypass the redirect.
     useEffect(() => {
         if (window.location.hash) {
             return
         }
-        if (!isEditing && preferredEditor === 'full') {
-            router.actions.replace(urls.survey('new'))
-        } else if (isEditing && !surveyLoading && !canUseSurveyWizard(survey)) {
+        if (isEditing && !surveyLoading && !canUseSurveyWizard(survey)) {
             router.actions.replace(`${urls.survey(id)}?edit=true`)
         }
-    }, [isEditing, preferredEditor, survey, surveyLoading, id])
+    }, [isEditing, survey, surveyLoading, id])
 
     // register tool so edits from AI will always reload the survey data on-page
     useMaxTool({
@@ -103,6 +105,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
+    const [guidedEditingLanguage, setGuidedEditingLanguage] = useState<string | null>(null)
+    const activeEditingLanguage = surveyTranslationsEnabled ? guidedEditingLanguage : null
 
     const maxPreviewIndex = survey.appearance?.displayThankYouMessage
         ? survey.questions.length
@@ -111,6 +115,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     useEffect(() => {
         setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
     }, [maxPreviewIndex])
+
+    useEffect(() => {
+        if (!surveyTranslationsEnabled && guidedEditingLanguage !== null) {
+            setGuidedEditingLanguage(null)
+        }
+    }, [guidedEditingLanguage, surveyTranslationsEnabled])
 
     const handleCustomizeMore = (): void => {
         setPreferredEditor('full')
@@ -149,7 +159,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     const previewSurvey: NewSurvey = {
-        ...survey,
+        ...getSurveyWithTranslatedContent(survey, activeEditingLanguage),
         id,
     } as NewSurvey
 
@@ -373,7 +383,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     {/* Left: Form */}
                     <div className="space-y-5 lg:col-span-3">
                         <div>
-                            {currentStep === 'questions' && <QuestionsStep />}
+                            {currentStep === 'questions' && (
+                                <QuestionsStep
+                                    editingLanguage={guidedEditingLanguage}
+                                    setEditingLanguage={setGuidedEditingLanguage}
+                                />
+                            )}
                             {currentStep === 'where' && <WhereStep onOpenFullEditor={handleCustomizeMore} />}
                             {currentStep === 'when' && <WhenStep />}
                         </div>

@@ -36,7 +36,7 @@ export const Default: Story = {
                 </Card>
                 <Card className="max-w-sm border border-border rounded-md p-2 text-base">
                     {isLoading ? (
-                        <SkeletonText lines={3} className="text-base" />
+                        <SkeletonText lines={2} className="text-base" />
                     ) : (
                         <p className="text-base">
                             Text base size. Pass in the tailwind text size class to the className prop to match the text

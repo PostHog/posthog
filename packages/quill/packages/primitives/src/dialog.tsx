@@ -1,8 +1,11 @@
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
+import { mergeProps } from '@base-ui/react/merge-props'
+import { useRender } from '@base-ui/react/use-render'
 import { XIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
+import './dialog.css'
 import { cn } from './lib/utils'
 
 /** Note: if you're nesting dialogs, in order for you to click the overlay to close it, you must pass 'mounted: true' to the nested dialog*/
@@ -25,11 +28,10 @@ function DialogClose({ ...props }: DialogPrimitive.Close.Props): React.ReactElem
 function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {
     return (
         <DialogPrimitive.Backdrop
+            data-quill
+            data-quill-portal="modal-overlay"
             data-slot="dialog-overlay"
-            className={cn(
-                'fixed inset-0 min-h-dvh bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 supports-[-webkit-touch-callout:none]:absolute',
-                className
-            )}
+            className={cn('quill-dialog__overlay', className)}
             {...props}
         />
     )
@@ -49,14 +51,10 @@ function DialogContent({
         <DialogPortal>
             <DialogOverlay />
             <DialogPrimitive.Popup
+                data-quill
+                data-quill-portal="modal-content"
                 data-slot="dialog-content"
-                className={cn(
-                    'fixed top-[calc(50%+1.25rem*var(--nested-dialogs))] start-1/2 z-50 grid w-full max-w-[calc(100vw-3rem)] -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 scale-[calc(1-0.1*var(--nested-dialogs))] gap-4 rounded-xl bg-background p-4 text-xs/relaxed ring-1 ring-foreground/10 outline-none transition-all duration-150 sm:max-w-sm',
-                    'data-[starting-style]:scale-90 data-[starting-style]:opacity-0 data-[ending-style]:scale-90 data-[ending-style]:opacity-0',
-                    'data-[nested-dialog-open]:after:absolute data-[nested-dialog-open]:after:inset-0 data-[nested-dialog-open]:after:rounded-[inherit] data-[nested-dialog-open]:after:bg-black/5',
-                    '[&>[data-slot=scroll-area]]:-mx-[calc((var(--spacing)*4)-var(--spacing)))] [&>[data-slot=scroll-area]]:px-4 [&>[data-slot=scroll-area]]:rounded [&>[data-slot=scroll-area]]:overflow-hidden',
-                    className
-                )}
+                className={cn('quill-dialog__content grid gap-4', className)}
                 {...props}
             >
                 {children}
@@ -75,7 +73,7 @@ function DialogContent({
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="dialog-header" className={cn('flex flex-col gap-1', className)} {...props} />
+    return <div data-slot="dialog-header" className={cn('quill-dialog__header flex flex-col gap-1', className)} {...props} />
 }
 
 function DialogFooter({
@@ -89,7 +87,7 @@ function DialogFooter({
     return (
         <div
             data-slot="dialog-footer"
-            className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
+            className={cn('quill-dialog__footer flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
             {...props}
         >
             {children}
@@ -100,20 +98,29 @@ function DialogFooter({
     )
 }
 
+function DialogBody({ className, render, ...props }: useRender.ComponentProps<'div'>): React.ReactElement {
+    return useRender({
+        defaultTagName: 'div',
+        props: mergeProps<'div'>(
+            {
+                className: cn('quill-dialog__body', className),
+            } as Omit<React.ComponentProps<'div'>, 'ref'>,
+            props
+        ),
+        render,
+        state: { slot: 'dialog-body' },
+    })
+}
+
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props): React.ReactElement {
-    return (
-        <DialogPrimitive.Title data-slot="dialog-title" className={cn('text-sm font-medium', className)} {...props} />
-    )
+    return <DialogPrimitive.Title data-slot="dialog-title" className={cn('quill-dialog__title', className)} {...props} />
 }
 
 function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props): React.ReactElement {
     return (
         <DialogPrimitive.Description
             data-slot="dialog-description"
-            className={cn(
-                'text-xs/relaxed text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
-                className
-            )}
+            className={cn('quill-dialog__description', className)}
             {...props}
         />
     )
@@ -126,6 +133,7 @@ export {
     DialogDescription,
     DialogFooter,
     DialogHeader,
+    DialogBody,
     DialogOverlay,
     DialogPortal,
     DialogTitle,

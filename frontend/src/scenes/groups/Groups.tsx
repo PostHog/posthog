@@ -21,7 +21,7 @@ import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
@@ -85,21 +85,20 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: 'cohort',
                 }}
                 actions={
-                    hasCustomerAnalyticsEnabled ? (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            data-attr={`new-group-${groupTypeIndex}`}
-                            onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                        >
-                            New {aggregationLabel(groupTypeIndex).singular}
-                        </LemonButton>
-                    ) : undefined
+                    <>
+                        <FeedbackButton id="customer-analytics-groups-list-feedback-button" />
+                        {hasCustomerAnalyticsEnabled && (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                data-attr={`new-group-${groupTypeIndex}`}
+                                onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                            >
+                                New {aggregationLabel(groupTypeIndex).singular}
+                            </LemonButton>
+                        )}
+                    </>
                 }
-            />
-            <FeedbackBanner
-                feedbackButtonId="groups-list"
-                message="We're improving the groups experience. Send us your feedback!"
             />
 
             <Query

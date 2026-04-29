@@ -36,6 +36,23 @@ export const Default = {
     ),
 } satisfies Story
 
+export const VariantDefault = {
+    render: () => (
+        <div className="flex flex-wrap gap-2">
+            <div className="p-2">
+                <Button>Default</Button>
+                <Button aria-selected>Selected</Button>
+                <Button disabled>Disabled</Button>
+            </div>
+            <div className="p-2 bg-muted">
+                <Button>Default</Button>
+                <Button aria-selected>Selected</Button>
+                <Button disabled>Disabled</Button>
+            </div>
+        </div>
+    ),
+} satisfies Story
+
 export const WithIcons = {
     render: () => (
         <div className="flex flex-wrap gap-2">
@@ -57,6 +74,7 @@ export const WithIcons = {
         </div>
     ),
 } satisfies Story
+
 export const WithKBD = {
     render: () => (
         <div className="flex flex-wrap gap-2">

@@ -17,6 +17,7 @@ import type {
     EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
+    EndpointsOpenapiJsonRetrieveParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
     PaginatedEndpointResponseListApi,
@@ -191,16 +192,33 @@ export const endpointsMaterializationStatusRetrieve = async (
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
-export const getEndpointsOpenapiJsonRetrieveUrl = (projectId: string, name: string) => {
-    return `/api/projects/${projectId}/endpoints/${name}/openapi.json/`
+export const getEndpointsOpenapiJsonRetrieveUrl = (
+    projectId: string,
+    name: string,
+    params?: EndpointsOpenapiJsonRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/openapi.json/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/openapi.json/`
 }
 
 export const endpointsOpenapiJsonRetrieve = async (
     projectId: string,
     name: string,
+    params?: EndpointsOpenapiJsonRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getEndpointsOpenapiJsonRetrieveUrl(projectId, name), {
+    return apiMutator<void>(getEndpointsOpenapiJsonRetrieveUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })

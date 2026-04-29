@@ -1,9 +1,9 @@
 import * as fs from 'fs/promises'
-import { PuppeteerCaptureFormat, capture as captureVideo } from 'puppeteer-capture'
+import { capture as captureVideo } from 'puppeteer-capture'
 
 import { RasterizationError } from '../errors'
 import { type Logger, createLogger } from '../logger'
-import { CaptureConfig, InactivityPeriod, RecordingResult } from '../types'
+import { CaptureConfig, InactivityPeriod, RasterizationProgress, RecordingResult } from '../types'
 import { elapsed } from '../utils'
 import { PlayerController } from './player'
 
@@ -12,6 +12,7 @@ export async function capturePlayback(
     captureConfig: CaptureConfig,
     outputPath: string,
     onProgress: () => void,
+    progress: RasterizationProgress | null = null,
     log: Logger = createLogger()
 ): Promise<
     Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
@@ -27,9 +28,11 @@ export async function capturePlayback(
     const page = player.page
 
     // Start capture — installs virtual time shims before playback.
+    // All format/codec options live in captureConfig.ffmpegOutputOpts so every
+    // output format is configured in one place (buildCaptureConfig).
     const recorder = await captureVideo(page, {
         fps: captureConfig.captureFps,
-        format: PuppeteerCaptureFormat.MP4('veryfast', 'libx264'),
+        format: async () => {}, // no-op — ffmpegOutputOpts carries all format settings
         // eslint-disable-next-line @typescript-eslint/require-await
         customFfmpegConfig: async (ffmpeg: any) => {
             ffmpeg.outputOptions(captureConfig.ffmpegOutputOpts)
@@ -46,6 +49,9 @@ export async function capturePlayback(
     const progressInterval = Math.max(10, captureConfig.captureFps)
     recorder.on('frameCaptured', () => {
         frameCount++
+        if (progress) {
+            progress.frame = frameCount
+        }
         if (frameCount % progressInterval === 0) {
             log.info(
                 {
@@ -88,6 +94,11 @@ export async function capturePlayback(
     let captureAborted: Error | null = null
     let captureAbortReject: ((err: Error) => void) | null = null
     const onCaptureStopped = (): void => {
+        if (captureDone || player.isEnded()) {
+            // Playback finished naturally — ffmpeg exiting is expected.
+            log.info({ frames: frameCount }, 'capture stopped after playback ended')
+            return
+        }
         log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
         const err = new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
         captureAborted = err
@@ -159,10 +170,15 @@ export async function capturePlayback(
         try {
             await recorder.stop()
         } catch (stopErr) {
-            // recorder.stop() throws the stored _error when capture was
-            // terminated by page close, session disconnect, or ffmpeg crash.
-            // Log it so we can see the actual root cause.
-            log.error({ err: stopErr, frames: frameCount }, 'recorder.stop() error (root cause)')
+            if (stopErr instanceof Error && stopErr.message === 'Capture is not in progress') {
+                // Recorder already stopped (ffmpeg exited before we called stop) — harmless.
+                log.info({ frames: frameCount }, 'recorder already stopped')
+            } else {
+                // recorder.stop() throws the stored _error when capture was
+                // terminated by page close, session disconnect, or ffmpeg crash.
+                // Log it so we can see the actual root cause.
+                log.error({ err: stopErr, frames: frameCount }, 'recorder.stop() error (root cause)')
+            }
         }
     }
 

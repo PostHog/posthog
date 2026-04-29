@@ -1,8 +1,8 @@
 """
 Celery tasks for visual_review.
 
-Async entrypoints that call the facade (api/api.py).
-Keep task functions thin - only call facade methods.
+Async entrypoints that call business logic.
+Keep task functions thin — only call logic/diffing methods.
 
 NOTE: Imports are done inside functions to avoid circular imports
 when Celery loads this module at startup.
@@ -13,131 +13,56 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 
+from ..logic import HashIntegrityError
+
 logger = structlog.get_logger(__name__)
 
-# Snapshots with diff below this percentage are reclassified as unchanged.
-# Matches jest-image-snapshot's default 1% threshold — sub-pixel rendering
-# noise (anti-aliasing, font hinting) should not cause baseline churn.
-DIFF_THRESHOLD_PERCENT = 1.0
 
-
-@shared_task(name="products.visual_review.backend.tasks.process_run_diffs", ignore_result=True)
-def process_run_diffs(run_id: str) -> None:
+@shared_task(
+    name="products.visual_review.backend.tasks.process_run_diffs",
+    bind=True,
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+)
+def process_run_diffs(self, run_id: str) -> None:
     """
-    Process diffs for all snapshots in a run.
+    Verify uploads, create artifacts, and process diffs for a run.
 
     Called after CI signals that all artifacts have been uploaded.
+    Verifies hash integrity of new uploads before creating Artifact
+    records and computing diffs.
     """
+    from posthog.models.integration import GitHubRateLimitError
+
     from .. import logic
+    from ..diffing import process_diffs
 
     run_uuid = UUID(run_id)
 
     try:
         logger.info("visual_review.diff_processing_started", run_id=run_id)
-        _process_diffs(run_uuid)
-        logic.mark_run_completed(run_uuid)
+        logic.verify_uploads_and_create_artifacts(run_uuid)
+        process_diffs(run_uuid)
+        logic.finish_processing(run_uuid)
         logger.info("visual_review.diff_processing_completed", run_id=run_id)
+    except HashIntegrityError as e:
+        logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
+        logic.finish_processing(run_uuid, error_message=str(e))
+    except GitHubRateLimitError as e:
+        logger.warning(
+            "visual_review.diff_processing_rate_limited",
+            run_id=run_id,
+            retry=self.request.retries,
+            max_retries=self.max_retries,
+        )
+        try:
+            countdown = e.retry_after or 60
+            self.retry(countdown=min(countdown, 600), exc=e)
+        except self.MaxRetriesExceededError:
+            logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
     except Exception as e:
         logger.exception("visual_review.diff_processing_failed", run_id=run_id, error=str(e))
-        logic.mark_run_completed(run_uuid, error_message=str(e))
+        logic.finish_processing(run_uuid, error_message=str(e))
         raise
-
-
-def _process_diffs(run_id: UUID) -> None:
-    """
-    Process diffs for all changed snapshots in a run.
-
-    After computing pixel diffs, snapshots below DIFF_THRESHOLD_PERCENT
-    are reclassified as UNCHANGED to avoid baseline churn from rendering noise.
-    """
-    from .. import logic
-    from ..facade.enums import SnapshotResult
-
-    snapshots = logic.get_run_snapshots(run_id)
-
-    for snapshot in snapshots:
-        if snapshot.result != SnapshotResult.CHANGED:
-            continue
-
-        if not snapshot.current_artifact or not snapshot.baseline_artifact:
-            continue
-
-        try:
-            _diff_snapshot(snapshot)
-        except Exception as e:
-            logger.warning(
-                "visual_review.snapshot_diff_failed",
-                snapshot_id=str(snapshot.id),
-                identifier=snapshot.identifier,
-                error=str(e),
-            )
-
-
-def _diff_snapshot(snapshot) -> None:
-    """
-    Compute diff between baseline and current artifact.
-
-    Downloads both images, computes pixel diff via pixelmatch, uploads
-    diff image. If the diff is below the threshold, reclassifies the
-    snapshot as UNCHANGED — the old baseline hash is preserved and no
-    churn occurs.
-    """
-    from .. import logic
-    from ..diff import compute_diff
-    from ..facade.enums import SnapshotResult
-
-    repo_id = snapshot.run.repo_id
-
-    baseline_bytes = logic.read_artifact_bytes(repo_id, snapshot.baseline_artifact.content_hash)
-    current_bytes = logic.read_artifact_bytes(repo_id, snapshot.current_artifact.content_hash)
-
-    if not baseline_bytes or not current_bytes:
-        logger.warning(
-            "visual_review.diff_skipped_missing_artifact",
-            snapshot_id=str(snapshot.id),
-            identifier=snapshot.identifier,
-            has_baseline=baseline_bytes is not None,
-            has_current=current_bytes is not None,
-        )
-        return
-
-    result = compute_diff(baseline_bytes, current_bytes)
-
-    if result.diff_percentage < DIFF_THRESHOLD_PERCENT:
-        snapshot.result = SnapshotResult.UNCHANGED
-        snapshot.diff_percentage = result.diff_percentage
-        snapshot.diff_pixel_count = result.diff_pixel_count
-        snapshot.save(update_fields=["result", "diff_percentage", "diff_pixel_count"])
-        logger.info(
-            "visual_review.diff_below_threshold",
-            snapshot_id=str(snapshot.id),
-            identifier=snapshot.identifier,
-            diff_percentage=result.diff_percentage,
-            threshold=DIFF_THRESHOLD_PERCENT,
-        )
-        return
-
-    diff_artifact = logic.write_artifact_bytes(
-        repo_id=repo_id,
-        content_hash=result.diff_hash,
-        content=result.diff_image,
-        width=result.width,
-        height=result.height,
-        team_id=snapshot.team_id,
-    )
-
-    logic.update_snapshot_diff(
-        snapshot_id=snapshot.id,
-        diff_artifact=diff_artifact,
-        diff_percentage=result.diff_percentage,
-        diff_pixel_count=result.diff_pixel_count,
-        team_id=snapshot.team_id,
-    )
-
-    logger.info(
-        "visual_review.diff_computed",
-        snapshot_id=str(snapshot.id),
-        identifier=snapshot.identifier,
-        diff_percentage=result.diff_percentage,
-        diff_pixel_count=result.diff_pixel_count,
-    )

@@ -4,6 +4,8 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
+import type { MonacoMarker } from '~/types'
+
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export interface DashboardTemplateEditorProps {
@@ -73,12 +75,8 @@ export function DashboardTemplateEditor({ inline = false }: DashboardTemplateEdi
                 className="border"
                 language="json"
                 value={editorValue}
-                onChange={(v) => {
-                    setEditorValue(v ?? '')
-                }}
-                onValidate={(markers) => {
-                    updateValidationErrors(markers)
-                }}
+                onChange={(v: string | undefined) => setEditorValue(v ?? '')}
+                onValidate={(markers: MonacoMarker[] | undefined) => updateValidationErrors(markers)}
                 path={id ? `dashboard-templates/${id}.json` : 'dashboard-templates/new.json'}
                 schema={templateSchema}
                 height={600}

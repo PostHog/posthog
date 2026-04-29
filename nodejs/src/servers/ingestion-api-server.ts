@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -13,10 +12,8 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { INGESTION_OUTPUT_DEFINITIONS } from '../ingestion/analytics/config/outputs'
-import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/analytics/config/producers'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -24,20 +21,33 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from '../ingestion/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
+import {
+    KafkaIngestionProducerEnvConfig,
+    KafkaProducerEnvConfig,
+    KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaIngestionProducerEnvConfig,
+    getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaWarpstreamProducerEnvConfig,
+} from '../ingestion/common/config'
 import { EventFilterManager } from '../ingestion/common/event-filters'
+import { ProducerName } from '../ingestion/common/outputs'
+import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
+    IngestionOutputsConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     PersonHogConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
 import { TopHog } from '../ingestion/tophog'
@@ -66,7 +76,11 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
+    IngestionOutputsConfig &
     HogTransformerServiceConfig &
+    KafkaProducerEnvConfig &
+    KafkaWarpstreamProducerEnvConfig &
+    KafkaIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -81,7 +95,6 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
-        | 'TASKS_PER_WORKER'
         | 'TASK_TIMEOUT'
         | 'POSTHOG_API_KEY'
         | 'POSTHOG_HOST_URL'
@@ -139,7 +152,14 @@ export class IngestionApiServer implements NodeServer {
     private topHog!: TopHog
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -190,6 +210,7 @@ export class IngestionApiServer implements NodeServer {
             personhogClient,
             postgresPersonRepository,
             this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
@@ -198,12 +219,12 @@ export class IngestionApiServer implements NodeServer {
             personhogClient,
             postgresGroupRepository,
             this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -218,11 +239,8 @@ export class IngestionApiServer implements NodeServer {
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK, PRODUCER_CONFIG_MAP)
-        const ingestionOutputs = await resolveIngestionOutputs(
-            this.ingestionProducerRegistry,
-            INGESTION_OUTPUT_DEFINITIONS
-        )
+        this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const topicFailures = await ingestionOutputs.checkTopics()
@@ -239,7 +257,6 @@ export class IngestionApiServer implements NodeServer {
             integrationManager,
             monitoringOutputs: ingestionOutputs,
             teamManager,
-            internalCaptureService,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -312,7 +329,7 @@ export class IngestionApiServer implements NodeServer {
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,

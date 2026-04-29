@@ -20,6 +20,8 @@ from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, Person
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
+from products.error_tracking.backend.models import ErrorTrackingIssue
+
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
@@ -125,6 +127,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
 
         response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["insight:invalid"]})
         assert response.status_code == 400
+
+    def test_rejects_internal_scope_objects(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["clickhouse_test_cluster_perf:read"]},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid scope: clickhouse_test_cluster_perf:read"
 
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey.objects.create(
@@ -407,6 +417,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_header_resilient(self):
         key_before = PersonalAPIKey.objects.get(id=self.key.id).secure_value
+        assert key_before is not None
         self.assertTrue(key_before.startswith("sha256$"))
 
         response = self.client.get(
@@ -420,6 +431,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_header_alternative_iteration_count(self):
         key_before = PersonalAPIKey.objects.get(id=self.key_390000.id).secure_value
+        assert key_before is not None
         self.assertTrue(key_before.startswith("pbkdf2_sha256$390000$"))
 
         response = self.client.get(
@@ -614,6 +626,36 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_allows_action_with_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
         assert response.status_code == status.HTTP_200_OK
+
+    def test_allows_custom_error_tracking_read_action(self):
+        self.key.scopes = ["error_tracking:read"]
+        self.key.save()
+        ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/values?key=name&value=Type",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [{"name": "TypeError"}], "refreshing": False}
+
+    def test_allows_custom_error_tracking_write_action(self):
+        self.key.scopes = ["error_tracking:write"]
+        self.key.save()
+        target_issue = ErrorTrackingIssue.objects.create(team=self.team)
+        source_issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{target_issue.id}/merge",
+            {"ids": [str(source_issue.id)]},
+            format="json",
+            headers={"authorization": f"Bearer {self.value}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True}
+        assert ErrorTrackingIssue.objects.filter(team=self.team).count() == 1
 
     def test_errors_for_action_without_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/insights/my_last_viewed")

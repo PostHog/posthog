@@ -50,6 +50,7 @@ class FeedbackCommand(SlashCommand):
                 "$ai_feedback_text": feedback_content,
                 "$ai_session_id": conversation_id,
                 "$ai_trace_id": trace_id,
+                "ai_product": "posthog_ai",
             },
         )
 

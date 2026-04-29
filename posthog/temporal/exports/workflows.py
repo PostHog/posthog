@@ -1,5 +1,4 @@
 import json
-import traceback
 import dataclasses
 from datetime import timedelta
 
@@ -9,9 +8,10 @@ from posthog.event_usage import EventSource
 from posthog.slo.types import SloConfig, SloOutcome
 from posthog.tasks.exports.failure_handler import is_user_query_error_type
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import resolve_exception_class
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
-from posthog.temporal.exports.types import ExportAssetActivityInputs, extract_error_details
+from posthog.temporal.exports.types import ExportAssetActivityInputs
 
 
 @dataclasses.dataclass
@@ -45,13 +45,7 @@ class ExportAssetWorkflow(PostHogWorkflow):
                 retry_policy=EXPORT_RETRY_POLICY,
             )
         except Exception as e:
-            if inputs.slo:
-                err = extract_error_details(e)
-                exception_class = err.exception_class or type(e).__name__
-                inputs.slo.completion_properties["error"] = {
-                    "exception_class": exception_class,
-                    "error_trace": err.error_trace or "\n".join(traceback.format_exception(e)[:5]),
-                }
-                if is_user_query_error_type(exception_class):
-                    inputs.slo.outcome = SloOutcome.SUCCESS
+            # User-query failures aren't an SLO breach -> reclassify as SUCCESS
+            if inputs.slo and is_user_query_error_type(resolve_exception_class(e)):
+                inputs.slo.outcome = SloOutcome.SUCCESS
             raise

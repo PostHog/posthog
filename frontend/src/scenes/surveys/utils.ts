@@ -1,6 +1,5 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
@@ -8,10 +7,11 @@ import { dateStringToDayJs } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
-import { urls } from 'scenes/urls'
 
 import {
     BasicSurveyQuestion,
+    CyclotronJobInvocationGlobals,
+    CyclotronJobFiltersType,
     EventPropertyFilter,
     FeatureFlagFilters,
     LinkSurveyQuestion,
@@ -67,6 +67,9 @@ export function validateSurveyAppearance(
     return {
         backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
         borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        textColor: validateCSSProperty('color', appearance.textColor),
+        inputBackground: validateCSSProperty('background-color', appearance.inputBackground),
+        inputTextColor: validateCSSProperty('color', appearance.inputTextColor),
         // Only validate rating button colors if there's a rating question
         ...(hasRatingQuestions && {
             ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
@@ -94,6 +97,92 @@ export function getSurveyResponseKey(questionIndex: number): string {
 
 export function getSurveyIdBasedResponseKey(questionId: string): string {
     return `${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`
+}
+
+type SurveyExampleContext = Pick<Survey, 'id' | 'name' | 'questions'> | null | undefined
+
+function getExampleSurveyResponseValue(question: SurveyQuestion, index: number): string | string[] | undefined {
+    switch (question.type) {
+        case SurveyQuestionType.Open:
+            return question.question || `Example answer ${index + 1}`
+        case SurveyQuestionType.Rating:
+            return String(question.scale >= 10 ? 9 : Math.min(question.scale, 4))
+        case SurveyQuestionType.SingleChoice:
+            return question.choices[0] || `Option ${index + 1}`
+        case SurveyQuestionType.MultipleChoice:
+            return question.choices.slice(0, Math.min(question.choices.length, 2))
+        case SurveyQuestionType.Link:
+            return undefined
+    }
+}
+
+export function buildSurveyExampleInvocationGlobals({
+    survey,
+    projectId,
+    projectName,
+    projectUrl,
+    source,
+    timestamp = new Date().toISOString(),
+    eventUuid = '00000000-0000-0000-0000-000000000000',
+    distinctId = 'example-distinct-id',
+    personId = 'person-id',
+    personName = 'Jane Doe',
+    personEmail = 'jane@example.com',
+}: {
+    survey: SurveyExampleContext
+    projectId: number
+    projectName: string
+    projectUrl: string
+    source?: CyclotronJobInvocationGlobals['source']
+    timestamp?: string
+    eventUuid?: string
+    distinctId?: string
+    personId?: string
+    personName?: string
+    personEmail?: string
+}): CyclotronJobInvocationGlobals {
+    const responseProperties = Object.fromEntries(
+        (survey?.questions ?? [])
+            .filter((question) => question.id && question.type !== SurveyQuestionType.Link)
+            .map((question, index) => [
+                getSurveyIdBasedResponseKey(question.id!),
+                getExampleSurveyResponseValue(question, index),
+            ])
+            .filter(([, value]) => value !== undefined)
+    )
+
+    return {
+        project: {
+            id: projectId,
+            name: projectName,
+            url: projectUrl,
+        },
+        event: {
+            event: SurveyEventName.SENT,
+            uuid: eventUuid,
+            distinct_id: distinctId,
+            timestamp,
+            elements_chain: '',
+            properties: {
+                [SurveyEventProperties.SURVEY_ID]: survey?.id && survey.id !== NEW_SURVEY.id ? survey.id : 'survey-id',
+                $survey_name: survey?.name || 'Survey',
+                [SurveyEventProperties.SURVEY_COMPLETED]: true,
+                [SurveyEventProperties.SURVEY_SUBMISSION_ID]: 'survey-submission-id',
+                ...responseProperties,
+            },
+            url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(timestamp)}`,
+        },
+        person: {
+            id: personId,
+            name: personName,
+            url: `${projectUrl}/person/${encodeURIComponent(distinctId)}`,
+            properties: {
+                email: personEmail,
+            },
+        },
+        groups: {},
+        ...(source ? { source } : {}),
+    }
 }
 
 // Helper function to generate the response field keys with proper typing
@@ -281,20 +370,15 @@ function escapeSqlString(value: string): string {
 }
 
 export function getSurveyResponse(question: SurveyQuestion, index: number): string {
-    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(index, question.id)
-
+    // Delegate to the backend HogQL helper so survey response typing stays
+    // consistent with PropertyDefinition metadata and materialized column rules.
     if (question.type === SurveyQuestionType.MultipleChoice) {
-        return `if(
-        JSONHas(events.properties, '${idBasedKey}') AND length(JSONExtractArrayRaw(events.properties, '${idBasedKey}')) > 0,
-        JSONExtractArrayRaw(events.properties, '${idBasedKey}'),
-        JSONExtractArrayRaw(events.properties, '${indexBasedKey}')
-    )`
+        return question.id
+            ? `getSurveyResponse(${index}, '${question.id}', true)`
+            : `getSurveyResponse(${index}, '', true)`
     }
 
-    return `COALESCE(
-        NULLIF(JSONExtractString(events.properties, '${idBasedKey}'), ''),
-        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), '')
-    )`
+    return question.id ? `getSurveyResponse(${index}, '${question.id}')` : `getSurveyResponse(${index})`
 }
 
 /**
@@ -492,12 +576,16 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
+export function buildSurveyOptionalBooleanPropertyFilter(
+    propertyName: SurveyEventProperties,
+    excludedValue: 'true' | 'false'
+): string {
+    return `coalesce(JSONExtractString(properties, '${propertyName}'), '') != '${excludedValue}'`
+}
+
 export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
-        return `AND (
-        NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
-        OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
-    )`
+        return `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
     }
 
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
@@ -508,14 +596,15 @@ export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDa
         FROM events
         WHERE and(
             equals(event, '${SurveyEventName.SENT}'),
-            equals(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ID}'), '${survey.id}'),
+            equals(properties.\`${SurveyEventProperties.SURVEY_ID}\`, '${survey.id}'),
             greaterOrEquals(timestamp, '${fromDate}'),
             lessOrEquals(timestamp, '${toDate}')
         )
         GROUP BY
             if(
-                JSONHas(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
-                JSONExtractString(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
+                isNotNull(properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`)
+                    AND properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\` != '',
+                properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`,
                 toString(uuid)
             )
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
@@ -544,7 +633,7 @@ export function buildAggregateQuery(
     const branches: string[] = []
 
     const baseWhere = `event = '${SurveyEventName.SENT}'
-        AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
         ${filters.timestampFilter}
         ${filters.answerFilterHogQLExpression}
         ${filters.archivedResponsesFilter}
@@ -765,9 +854,14 @@ function getTeamTimezone(): string {
     return getAppContext()?.current_team?.timezone || 'UTC'
 }
 
-export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
+export function getSurveyStartDateForQuery(
+    survey: Pick<Survey, 'created_at'> & Partial<Pick<Survey, 'start_date'>>
+): string {
     const tz = getTeamTimezone()
-    return dayjs.tz(survey.created_at, tz).startOf('day').format(DATE_FORMAT)
+    return dayjs
+        .tz(survey.start_date ?? survey.created_at, tz)
+        .startOf('day')
+        .format(DATE_FORMAT)
 }
 
 export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
@@ -783,7 +877,7 @@ export interface SurveyDateRange {
 }
 
 export function getResolvedSurveyDateRange(
-    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): { fromDate: string; toDate: string } {
     let fromDate = getSurveyStartDateForQuery(survey)
@@ -804,7 +898,7 @@ export function getResolvedSurveyDateRange(
 }
 
 export function buildSurveyTimestampFilter(
-    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    survey: Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>>,
     dateRange?: SurveyDateRange | null
 ): string {
     const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
@@ -1022,11 +1116,31 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function newSurveyNotificationUrl(surveyId: string, templateId: string = 'template-webhook'): string {
-    const filters = {
+export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFiltersType {
+    const sentEventProperties: EventPropertyFilter[] = [
+        {
+            key: SurveyEventProperties.SURVEY_ID,
+            type: PropertyFilterType.Event,
+            value: surveyId,
+            operator: PropertyOperator.Exact,
+        },
+        {
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: true,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+
+    return {
         events: [
             {
                 id: SurveyEventName.SENT,
+                type: 'events',
+                properties: sentEventProperties,
+            },
+            {
+                id: SurveyEventName.DISMISSED,
                 type: 'events',
                 properties: [
                     {
@@ -1035,9 +1149,14 @@ export function newSurveyNotificationUrl(surveyId: string, templateId: string = 
                         value: surveyId,
                         operator: PropertyOperator.Exact,
                     },
+                    {
+                        key: SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                        type: PropertyFilterType.Event,
+                        value: true,
+                        operator: PropertyOperator.Exact,
+                    },
                 ],
             },
         ],
     }
-    return combineUrl(urls.hogFunctionNew(templateId), {}, { configuration: { filters } }).url
 }

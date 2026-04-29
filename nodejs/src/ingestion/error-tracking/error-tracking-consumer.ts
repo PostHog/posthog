@@ -37,13 +37,11 @@ import {
 export interface ErrorTrackingConsumerOptions {
     groupId: string
     topic: string
-    dlqTopic: string
-    overflowTopic: string
-    outputTopic: string
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
     cymbalMaxBodyBytes: number
     lane: IngestionLane
+    overflowEnabled: boolean
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
     statefulOverflowEnabled: boolean
@@ -135,7 +133,7 @@ export class ErrorTrackingConsumer {
         })
 
         // Create overflow redirect service for main lane (rate limiting)
-        if (this.overflowEnabled() && config.lane === 'main') {
+        if (config.overflowEnabled && config.lane === 'main') {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: config.statefulOverflowLocalCacheTTLSeconds,
@@ -165,10 +163,7 @@ export class ErrorTrackingConsumer {
         logger.info('🚀', `${this.name} - starting`, {
             groupId: this.config.groupId,
             topic: this.config.topic,
-            outputTopic: this.config.outputTopic,
-            dlqTopic: this.config.dlqTopic,
-            overflowTopic: this.config.overflowTopic,
-            overflowEnabled: this.overflowEnabled(),
+            overflowEnabled: this.config.overflowEnabled,
             lane: this.config.lane,
             statefulOverflowEnabled: this.config.statefulOverflowEnabled,
             cymbalUrl: this.config.cymbalBaseUrl,
@@ -208,21 +203,13 @@ export class ErrorTrackingConsumer {
             cymbalClient: this.cymbalClient,
             groupTypeManager: this.deps.groupTypeManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
+            overflowEnabled: this.config.overflowEnabled,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             topHog: this.topHog,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)
-    }
-
-    /**
-     * Overflow is enabled when the overflow topic is configured and different from the consume topic.
-     * When consuming from the overflow topic itself, overflow is disabled to prevent redirect loops.
-     */
-    private overflowEnabled(): boolean {
-        return !!this.config.overflowTopic && this.config.overflowTopic !== this.config.topic
     }
 
     public async stop(): Promise<void> {

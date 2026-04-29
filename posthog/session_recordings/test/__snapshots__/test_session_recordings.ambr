@@ -67,6 +67,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -127,11 +128,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.11
@@ -187,7 +190,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -198,8 +201,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('new_session',
@@ -211,13 +214,16 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.15
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('new_session',
                                                           'middle_session',
                                                           'old_session')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.2
@@ -311,20 +317,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.3
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -346,6 +339,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.3
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -416,6 +456,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -437,6 +478,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -679,6 +721,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -739,11 +782,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.11
@@ -798,7 +843,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -808,8 +853,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session2',
@@ -820,12 +865,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.15
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('session2',
                                                           'session1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.2
@@ -919,20 +967,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.3
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -954,6 +989,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.3
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1024,6 +1106,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1045,6 +1128,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1287,6 +1371,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1347,11 +1432,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.11
@@ -1405,7 +1492,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -1414,8 +1501,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session_with_duration')
@@ -1425,11 +1512,14 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.15
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('session_with_duration')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.2
@@ -1523,20 +1613,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.3
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1558,6 +1635,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.3
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1628,6 +1752,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1649,6 +1774,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1891,6 +2017,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1951,11 +2078,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.11
@@ -2009,7 +2138,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -2018,8 +2147,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session_many_ids')
@@ -2029,11 +2158,14 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.15
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('session_many_ids')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.2
@@ -2127,20 +2259,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.3
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2162,6 +2281,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.3
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2232,6 +2398,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2253,6 +2420,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2495,6 +2663,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2555,11 +2724,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.11
@@ -2614,7 +2785,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -2624,8 +2795,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
@@ -2636,12 +2807,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
                                                           'at_base_time')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.2
@@ -2735,20 +2909,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.3
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2770,6 +2931,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.3
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2840,6 +3048,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2861,6 +3070,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -3103,6 +3313,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -3163,11 +3374,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.11
@@ -3222,7 +3435,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -3232,8 +3445,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
@@ -3244,12 +3457,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.15
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
                                                           'at_base_time')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.2
@@ -3343,20 +3559,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.3
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -3378,6 +3581,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.3
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -3448,6 +3698,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -3469,6 +3720,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -3711,6 +3963,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -3771,11 +4024,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.11
@@ -3830,7 +4085,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -3840,8 +4095,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time',
@@ -3852,12 +4107,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.15
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('at_base_time',
                                                           'at_base_time_plus_20')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.2
@@ -3951,20 +4209,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.3
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -3986,6 +4231,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.3
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -4056,6 +4348,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -4077,6 +4370,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -4319,6 +4613,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -4355,7 +4650,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.100
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('6',
@@ -4365,6 +4661,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.101
@@ -4427,6 +4725,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -4532,20 +4831,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.104
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -4567,6 +4853,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.104
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -4637,6 +4970,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -4658,6 +4992,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -4910,11 +5245,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.111
@@ -4974,7 +5311,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.113
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -4989,8 +5326,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.114
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('7',
@@ -5006,7 +5343,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.115
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('7',
@@ -5017,6 +5355,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.116
@@ -5079,6 +5419,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -5184,20 +5525,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.119
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -5219,6 +5547,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.119
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -5258,6 +5633,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -5326,6 +5702,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -5347,6 +5724,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -5562,11 +5940,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.126
@@ -5627,7 +6007,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.128
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -5643,8 +6023,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.129
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('8',
@@ -5750,15 +6130,48 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
+         "posthog_team"."business_model",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.130
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('8',
@@ -5770,6 +6183,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.131
@@ -5832,6 +6247,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -5937,20 +6353,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.134
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -5972,6 +6375,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.134
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -6042,6 +6492,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -6063,6 +6514,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -6240,6 +6692,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -6261,6 +6714,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -6323,11 +6777,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.141
@@ -6389,7 +6845,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.143
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -6406,8 +6862,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.144
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('9',
@@ -6425,7 +6881,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.145
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('9',
@@ -6438,6 +6895,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.146
@@ -6500,6 +6959,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -6605,20 +7065,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.149
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -6640,6 +7087,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.149
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -6756,6 +7250,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -6777,6 +7272,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -6992,11 +7488,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.156
@@ -7059,7 +7557,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.158
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -7077,8 +7575,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.159
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('9',
@@ -7103,6 +7601,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -7124,6 +7623,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -7140,7 +7640,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.160
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('9',
@@ -7154,6 +7655,8 @@
                                                           '10',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.17
@@ -7402,8 +7905,40 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
+         "posthog_team"."business_model",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
@@ -7454,11 +7989,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.21
@@ -7512,7 +8049,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.23
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -7521,8 +8058,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.24
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('1')
@@ -7532,11 +8069,14 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.25
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.26
@@ -7599,6 +8139,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -7704,20 +8245,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.29
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -7739,6 +8267,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.29
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -7763,6 +8338,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -7784,6 +8360,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -7854,6 +8431,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -7875,6 +8453,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -8090,11 +8669,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.36
@@ -8149,7 +8730,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.38
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -8159,8 +8740,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.39
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('2',
@@ -8217,12 +8798,15 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.40
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.41
@@ -8285,6 +8869,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -8390,20 +8975,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.44
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -8425,6 +8997,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.44
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -8495,6 +9114,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -8516,6 +9136,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -8693,6 +9314,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -8714,6 +9336,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -8774,11 +9397,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.51
@@ -8834,7 +9459,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.53
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -8845,8 +9470,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.54
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('3',
@@ -8858,13 +9483,16 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.55
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('3',
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.56
@@ -8927,6 +9555,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -9032,20 +9661,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.59
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -9067,6 +9683,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.59
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -9202,6 +9865,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -9223,6 +9887,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -9438,11 +10103,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.66
@@ -9499,7 +10166,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.68
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -9511,8 +10178,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.69
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('4',
@@ -9582,7 +10249,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.70
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('4',
@@ -9590,6 +10258,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.71
@@ -9652,6 +10322,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -9757,20 +10428,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.74
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -9792,6 +10450,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.74
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -9862,6 +10567,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -9883,6 +10589,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -10131,11 +10838,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.81
@@ -10193,7 +10902,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.83
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -10206,8 +10915,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.84
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -10221,7 +10930,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.85
   '''
-  SELECT "ee_single_session_summary"."session_id"
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome"
   FROM "ee_single_session_summary"
   WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
          AND "ee_single_session_summary"."session_id" IN ('5',
@@ -10230,6 +10940,8 @@
                                                           '2',
                                                           '1')
          AND "ee_single_session_summary"."team_id" = 99999)
+  ORDER BY 1 ASC,
+           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.86
@@ -10292,6 +11004,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -10397,20 +11110,7 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.89
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
+         "posthog_team"."business_model",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -10432,6 +11132,53 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.89
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -10494,11 +11241,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.90
@@ -10555,6 +11304,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -10576,6 +11326,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -10791,11 +11542,13 @@
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
+  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousetable"."team_id" = 99999
          AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
+         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
+                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.96
@@ -10854,7 +11607,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.98
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -10868,8 +11621,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.99
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('6',

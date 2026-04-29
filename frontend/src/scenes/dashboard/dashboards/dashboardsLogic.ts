@@ -1,13 +1,15 @@
 import Fuse from 'fuse.js'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectClean } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -54,6 +56,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     tabAwareScene(),
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
+        actions: [listSelectionLogic({ resource: 'dashboards' }), ['bulkUpdateTagsSuccess']],
     })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
@@ -157,9 +160,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         fuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
             (dashboards): DashboardFuse => {
-                return new Fuse<DashboardBasicType>(dashboards, {
+                return createFuse<DashboardBasicType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
-                    threshold: 0.3,
                     // Without this, Fuse favors matches near the start of each field; tail tokens on long titles often miss `threshold`.
                     ignoreLocation: true,
                 })
@@ -190,7 +192,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 return
             }
 
-            router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
+            router.actions.push(router.values.location.pathname, {
+                ...router.values.searchParams,
+                tab,
+            })
         },
         setSearch: ({ search }) => {
             const nextSearch = search ?? ''
@@ -200,7 +205,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 return
             }
 
-            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            const searchParams: Record<string, any> = {
+                ...router.values.searchParams,
+            }
 
             if (nextSearch) {
                 searchParams['search'] = nextSearch
@@ -218,6 +225,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             const search = urlSearchParamToString(searchParams['search'])
             actions.setFilters({ search })
+        },
+    })),
+    listeners(() => ({
+        bulkUpdateTagsSuccess: () => {
+            dashboardsModel.actions.loadDashboards()
         },
     })),
 ])

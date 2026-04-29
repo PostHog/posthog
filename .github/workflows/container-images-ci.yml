@@ -21,7 +21,7 @@ jobs:
         outputs:
             docker_files: ${{ steps.filter.outputs.docker_files }}
         steps:
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
                   predicate-quantifier: 'every'
@@ -90,7 +90,7 @@ jobs:
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files: |
                       **/Dockerfile

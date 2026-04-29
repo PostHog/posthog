@@ -49,6 +49,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     __test__ = False
 
     use_v2: bool = False
+    use_v3: bool = False
 
     # will be provided by inheritance from PostHogTestCase
     team: Team
@@ -126,7 +127,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
         super(ErrorTrackingQueryRunnerTestsMixin, cls).setUpClass()  # type: ignore[misc] # noqa: UP008
 
     def setUp(self):
-        super().setUp()
+        super(ErrorTrackingQueryRunnerTestsMixin, self).setUp()  # type: ignore[misc] # noqa: UP008
 
         with freeze_time("2020-01-10 12:11:00"):
             _create_person(
@@ -204,6 +205,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
                     groupKey=groupKey,
                     groupTypeIndex=groupTypeIndex,
                     useQueryV2=self.use_v2,
+                    useQueryV3=self.use_v3,
                 ),
             )
             .calculate()

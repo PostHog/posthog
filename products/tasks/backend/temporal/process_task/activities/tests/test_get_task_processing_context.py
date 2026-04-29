@@ -1,11 +1,14 @@
 import pytest
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 
 from asgiref.sync import async_to_sync
 
+from posthog.models import OrganizationMembership, User
+
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.temporal.exceptions import TaskNotFoundError
+from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -104,3 +107,123 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.sandbox_environment_name == "Restricted env"
         assert result.allowed_domains == ["example.com"]
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_preserves_empty_restricted_domains(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Restricted empty env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=[],
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_environment_id == str(sandbox_environment.id)
+        assert result.allowed_domains == []
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_keeps_full_access_unrestricted(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Full access env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+            allowed_domains=[],
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_environment_id == str(sandbox_environment.id)
+        assert result.allowed_domains is None
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(
+        self, activity_environment, test_task
+    ):
+        other_user = User.objects.create_user(
+            email="victim@example.com",
+            first_name="Victim",
+            password="password",
+        )
+        OrganizationMembership.objects.create(
+            user=other_user,
+            organization_id=test_task.team.organization_id,
+        )
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=other_user,
+            name="Victim's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with pytest.raises(TaskInvalidStateError):
+            async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "flag_value, expected",
+        [
+            (True, True),
+            (False, False),
+            (None, False),  # the activity coalesces None to False
+        ],
+    )
+    def test_pr_loop_enabled_reflects_feature_flag(self, activity_environment, test_task, flag_value, expected):
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_loop_enabled is expected
+        feature_enabled_mock.assert_called_once()
+        args, kwargs = feature_enabled_mock.call_args
+        assert args[0] == "tasks-pr-loop"
+        assert kwargs["distinct_id"] == (test_task.created_by.distinct_id or "process_task_workflow")
+        org_id = str(test_task.team.organization_id)
+        assert kwargs["groups"] == {"organization": org_id}
+        assert kwargs["group_properties"] == {"organization": {"id": org_id}}
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):
+        custom_prompt = "Re-run the failed mypy checks and push a fix."
+        test_task.ci_prompt = custom_prompt
+        test_task.save(update_fields=["ci_prompt"])
+
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.ci_prompt == custom_prompt
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_exposes_runtime_metadata(self, activity_environment, test_task):
+        task_run = test_task.create_run(
+            extra_state={
+                "runtime_adapter": "codex",
+                "provider": "openai",
+                "model": "gpt-5.3-codex",
+                "reasoning_effort": "high",
+            }
+        )
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.runtime_adapter == "codex"
+        assert result.provider == "openai"
+        assert result.model == "gpt-5.3-codex"
+        assert result.reasoning_effort == "high"

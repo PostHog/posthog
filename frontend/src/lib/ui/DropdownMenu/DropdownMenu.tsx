@@ -10,10 +10,39 @@ import { Label } from '../Label/Label'
 import { MenuSeparator } from '../Menus/Menus'
 
 /* -------------------------------------------------------------------------- */
-/*                           Button Context & Hook                            */
+/*                           Open State Context                               */
 /* -------------------------------------------------------------------------- */
 
-const DropdownMenu = DropdownMenuPrimitive.Root
+const DropdownMenuOpenContext = React.createContext(false)
+
+function DropdownMenu({
+    children,
+    open: controlledOpen,
+    defaultOpen,
+    onOpenChange,
+    ...props
+}: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>): JSX.Element {
+    const [internalOpen, setInternalOpen] = React.useState(defaultOpen ?? false)
+    const isOpen = controlledOpen ?? internalOpen
+
+    const handleOpenChange = React.useCallback(
+        (open: boolean) => {
+            if (controlledOpen === undefined) {
+                setInternalOpen(open)
+            }
+            onOpenChange?.(open)
+        },
+        [controlledOpen, onOpenChange]
+    )
+
+    return (
+        <DropdownMenuOpenContext.Provider value={isOpen}>
+            <DropdownMenuPrimitive.Root open={isOpen} onOpenChange={handleOpenChange} {...props}>
+                {children}
+            </DropdownMenuPrimitive.Root>
+        </DropdownMenuOpenContext.Provider>
+    )
+}
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
@@ -111,7 +140,13 @@ const DropdownMenuContent = React.forwardRef<
             ...props
         },
         ref
-    ): JSX.Element => {
+    ): JSX.Element | null => {
+        const open = React.useContext(DropdownMenuOpenContext)
+
+        if (!open) {
+            return null
+        }
+
         return (
             <DropdownMenuPrimitive.Portal>
                 <DropdownMenuPrimitive.Content

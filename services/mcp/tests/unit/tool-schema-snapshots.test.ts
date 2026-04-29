@@ -27,6 +27,7 @@ function createMockContext(): Context {
             getAiConsentGiven: async () => true,
         } as any,
         sessionManager: new SessionManager({} as any),
+        getDistinctId: async () => 'test-distinct-id',
     }
 }
 

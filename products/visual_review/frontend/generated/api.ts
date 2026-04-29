@@ -16,18 +16,27 @@ import type {
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
+    MarkToleratedInputApi,
+    PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
     PaginatedRunListApi,
     PaginatedSnapshotHistoryEntryListApi,
     PaginatedSnapshotListApi,
+    PaginatedToleratedHashEntryListApi,
     PatchedUpdateRepoRequestInputApi,
+    QuarantineInputApi,
+    QuarantinedIdentifierEntryApi,
+    RecomputeResultApi,
     RepoApi,
     ReviewStateCountsApi,
     RunApi,
+    SnapshotApi,
     VisualReviewReposListParams,
+    VisualReviewReposQuarantineListParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
+    VisualReviewRunsToleratedHashesListParams,
 } from './api.schemas'
 
 /**
@@ -116,6 +125,107 @@ export const visualReviewReposPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUpdateRepoRequestInputApi),
+    })
+}
+
+/**
+ * List quarantined identifiers. Without filter: active only. With identifier: full history.
+ */
+export const getVisualReviewReposQuarantineListUrl = (
+    projectId: string,
+    id: string,
+    params?: VisualReviewReposQuarantineListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/`
+}
+
+export const visualReviewReposQuarantineList = async (
+    projectId: string,
+    id: string,
+    params?: VisualReviewReposQuarantineListParams,
+    options?: RequestInit
+): Promise<PaginatedQuarantinedIdentifierEntryListApi> => {
+    return apiMutator<PaginatedQuarantinedIdentifierEntryListApi>(
+        getVisualReviewReposQuarantineListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Quarantine a snapshot identifier for a specific run type.
+ */
+export const getVisualReviewReposQuarantineCreateUrl = (projectId: string, id: string, runType: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/`
+}
+
+export const visualReviewReposQuarantineCreate = async (
+    projectId: string,
+    id: string,
+    runType: string,
+    quarantineInputApi: QuarantineInputApi,
+    options?: RequestInit
+): Promise<QuarantinedIdentifierEntryApi> => {
+    return apiMutator<QuarantinedIdentifierEntryApi>(getVisualReviewReposQuarantineCreateUrl(projectId, id, runType), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quarantineInputApi),
+    })
+}
+
+/**
+ * Expire all active quarantine entries for an identifier.
+ */
+export const getVisualReviewReposQuarantineExpireCreateUrl = (projectId: string, id: string, runType: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/quarantine/${runType}/expire/`
+}
+
+export const visualReviewReposQuarantineExpireCreate = async (
+    projectId: string,
+    id: string,
+    runType: string,
+    quarantineInputApi: QuarantineInputApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisualReviewReposQuarantineExpireCreateUrl(projectId, id, runType), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quarantineInputApi),
+    })
+}
+
+/**
+ * Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching.
+ */
+export const getVisualReviewReposThumbnailsRetrieveUrl = (projectId: string, id: string, identifier: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
+}
+
+export const visualReviewReposThumbnailsRetrieve = async (
+    projectId: string,
+    id: string,
+    identifier: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -251,6 +361,24 @@ export const visualReviewRunsCompleteCreate = async (
 }
 
 /**
+ * Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+ */
+export const getVisualReviewRunsRecomputeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/recompute/`
+}
+
+export const visualReviewRunsRecomputeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<RecomputeResultApi> => {
+    return apiMutator<RecomputeResultApi>(getVisualReviewRunsRecomputeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Recent change history for a snapshot identifier across runs.
  */
 export const getVisualReviewRunsSnapshotHistoryListUrl = (
@@ -321,6 +449,65 @@ export const visualReviewRunsSnapshotsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Mark a changed snapshot as a known tolerated alternate.
+ */
+export const getVisualReviewRunsTolerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/runs/${id}/tolerate/`
+}
+
+export const visualReviewRunsTolerateCreate = async (
+    projectId: string,
+    id: string,
+    markToleratedInputApi: MarkToleratedInputApi,
+    options?: RequestInit
+): Promise<SnapshotApi> => {
+    return apiMutator<SnapshotApi>(getVisualReviewRunsTolerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(markToleratedInputApi),
+    })
+}
+
+/**
+ * List known tolerated hashes for a snapshot identifier.
+ */
+export const getVisualReviewRunsToleratedHashesListUrl = (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsToleratedHashesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/${id}/tolerated-hashes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/${id}/tolerated-hashes/`
+}
+
+export const visualReviewRunsToleratedHashesList = async (
+    projectId: string,
+    id: string,
+    params: VisualReviewRunsToleratedHashesListParams,
+    options?: RequestInit
+): Promise<PaginatedToleratedHashEntryListApi> => {
+    return apiMutator<PaginatedToleratedHashEntryListApi>(
+        getVisualReviewRunsToleratedHashesListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**

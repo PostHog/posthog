@@ -1,4 +1,4 @@
-import classNames from 'classnames'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { isValidElement, ReactNode, useEffect } from 'react'
 
@@ -132,7 +132,7 @@ export default function ViewRecordingButton({
                           ? 'Recording unavailable'
                           : null
                 }
-                className={classNames(
+                className={clsx(
                     props.className,
                     props.loading && 'opacity-50',
                     props.fullWidth && 'w-full',

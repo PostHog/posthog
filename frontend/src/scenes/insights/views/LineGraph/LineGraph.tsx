@@ -337,7 +337,7 @@ export function LineGraph_({
     const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
+    const { timezone, isTrends, isStickiness, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, currentPeriodResult } = useValues(
@@ -685,6 +685,9 @@ export function LineGraph_({
                 interval: interval ?? 'day',
                 allDays: currentPeriodResult?.days ?? [],
                 timezone,
+                numericTickPrefix: isStickiness
+                    ? `${(interval ?? 'day').slice(0, 1).toUpperCase()}${(interval ?? 'day').slice(1)}`
+                    : undefined,
             })
 
             const gridOptions: Partial<GridLineOptions> = {
@@ -793,13 +796,13 @@ export function LineGraph_({
                                     position: annotation.position ?? 'end',
                                 },
                                 enter: () => {
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
                                     if (tooltipEl) {
                                         tooltipEl.classList.add('opacity-0', 'invisible')
                                     }
                                 },
                                 leave: () => {
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
                                     if (tooltipEl) {
                                         tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }

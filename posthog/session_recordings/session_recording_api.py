@@ -6,7 +6,7 @@ import json
 import struct
 import asyncio
 import builtins
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
 from json import JSONDecodeError
 from typing import Any, Literal, cast
@@ -20,9 +20,8 @@ from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 import requests
 import structlog
 import posthoganalytics
-from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -66,7 +65,6 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -74,6 +72,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -94,12 +93,13 @@ from posthog.session_recordings.utils import (
     query_as_params_to_dict,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session_video_stream
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
-from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
 from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
+from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -263,6 +263,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
+    summary_outcome = serializers.SerializerMethodField()
+    # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
+    expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
+    recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -300,6 +304,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             # Keep this aligned with summarize() default behavior (no extra context).
             extra_summary_context__isnull=True,
         ).exists()
+
+    @extend_schema_field(OutcomeSerializer(allow_null=True))
+    def get_summary_outcome(self, obj: SessionRecording) -> dict | None:
+        return getattr(obj, "summary_outcome", None)
 
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
         """Load external references (linked issues) for this recording"""
@@ -353,6 +361,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "ongoing",
             "activity_score",
             "has_summary",
+            "summary_outcome",
             "external_references",
         ]
 
@@ -486,7 +495,7 @@ def list_recordings_response(
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    response_data = {"results": results, "has_next": more_recordings_available, "version": 4}
+    response_data: dict[str, Any] = {"results": results, "has_next": more_recordings_available, "version": 4}
     if next_cursor is not None:
         response_data["next_cursor"] = next_cursor
 
@@ -575,27 +584,17 @@ def listing_rates() -> dict[str, dict[str, str]]:
 
 LISTING_RATES = listing_rates()
 
-_ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
-
-
-def org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
-    if not features:
-        return "free"
-    feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
-    if feature_keys.intersection(_ENTERPRISE_FEATURE_KEYS):
-        return "enterprise"
-    return "paid"
-
 
 def get_cached_org_tier(team_id: int) -> str:
-    cache_key = f"replay_org_tier_{team_id}"
+    # v2 cache key: classifier was widened to the full ENTERPRISE_FEATURES - SCALE_FEATURES
+    # set plus ACCESS_CONTROL; keyed separately so stale pre-migration values don't serve.
+    cache_key = f"replay_org_tier_v2_{team_id}"
     tier = cache.get(cache_key)
     if tier is not None:
         return tier
 
-    features = Organization.objects.filter(team=team_id).values_list("available_product_features", flat=True).first()
-
-    tier = org_tier_from_features(features)
+    organization = Organization.objects.filter(team=team_id).first()
+    tier = organization.get_plan_tier() if organization is not None else SNAPSHOT_DEFAULT_TIER
     cache.set(cache_key, tier, REPLAY_TIER_CACHE_TTL_SECONDS)
     return tier
 
@@ -1379,41 +1378,42 @@ class SessionRecordingViewSet(
         except:
             return "unknown"
 
-    def _determine_video_based_summarization_enabled(self, user: User) -> bool:
-        """Check if video-based summarization is enabled (uses video as base instead of events)."""
-        return (
-            posthoganalytics.feature_enabled(
-                "max-session-summarization-video-as-base",
-                str(user.distinct_id),
-                groups={"organization": str(self.team.organization_id)},
-                group_properties={"organization": {"id": str(self.team.organization_id)}},
-                send_feature_flag_events=False,
-            )
-            or False
-        )
+    async def _generate_video_based_summary(
+        self,
+        session_id: str,
+        user: User,
+        product_context: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream video-based summarization progress events and final summary to the client.
 
-    def _generate_video_based_summary(self, session_id: str, user: User) -> Generator[str, None, None]:
-        """Execute video-based summarization and yield result as SSE event."""
+        Progress events (``session-summary-progress``) carry the workflow's
+        current phase, a step counter, and — while the rasterizer is running —
+        fine-grained frame progress read from Temporal activity heartbeats.
 
+        This is implemented as an async generator so Django's ``StreamingHttpResponse``
+        under ASGI flushes each chunk as it is produced. A sync generator would
+        hit Django's ``list()``-materialize fallback path and buffer the entire
+        response server-side before any bytes reach the client.
+        """
         try:
-            summary_result = async_to_sync(execute_summarize_session)(
+            async for chunk in execute_summarize_session_video_stream(
                 session_id=session_id,
                 user=user,
                 team=self.team,
-                video_validation_enabled="full",
-            )
-            yield serialize_to_sse_event(
-                event_label="session-summary-stream",
-                event_data=json.dumps(summary_result),
-            )
-
+                product_context=product_context,
+            ):
+                yield chunk
         except Exception as e:
-            # Capture detailed exception server-side while returning a generic error to the client
             capture_exception(e)
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
+
+    def _load_team_product_context(self) -> str | None:
+        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
+        product_context = (team_config.product_context or "").strip()
+        return product_context or None
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -1440,9 +1440,7 @@ class SessionRecordingViewSet(
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled(
-            "ai-session-summary", str(user.distinct_id)
-        ) and not posthoganalytics.feature_enabled(
-            "max-session-summarization",
+            "replay-video-based-summarization",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization_id)},
             group_properties={"organization": {"id": str(self.team.organization_id)}},
@@ -1451,42 +1449,24 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
-        video_based_summarization_enabled = self._determine_video_based_summarization_enabled(user)
+        product_context = self._load_team_product_context()
 
-        if video_based_summarization_enabled:
-            # Use non-streaming workflow for video-based summarization
-            capture_session_summary_started(
-                user=user,
-                team=self.team,
-                tracking_id=tracking_id,
-                summary_source="api",
-                summary_type="single",
-                is_streaming=False,
-                session_ids=[session_id],
-                video_validation_enabled="full",
-            )
-            return StreamingHttpResponse(
-                self._generate_video_based_summary(session_id, user),
-                content_type=ServerSentEventRenderer.media_type,
-            )
-        else:
-            # Use existing streaming workflow for event-based summarization
-            capture_session_summary_started(
-                user=user,
-                team=self.team,
-                tracking_id=tracking_id,
-                summary_source="api",
-                summary_type="single",
-                is_streaming=True,
-                session_ids=[session_id],
-                video_validation_enabled=None,
-            )
-            # If you want to test sessions locally - override `session_id` and `self.team.pk`
-            # with session/team ids of your choice and set `local_reads_prod` to True
-            return StreamingHttpResponse(
-                stream_recording_summary(session_id=session_id, user=user, team=self.team),
-                content_type=ServerSentEventRenderer.media_type,
-            )
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            session_ids=[session_id],
+            video_based=True,
+        )
+        response = StreamingHttpResponse(
+            self._generate_video_based_summary(session_id, user, product_context),
+            content_type=ServerSentEventRenderer.media_type,
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     async def _stream_lts_blob_v2_to_client_async(
         self,
@@ -1873,6 +1853,7 @@ def list_recordings_from_query(
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
     default_summary_session_ids: set[str] = set()
+    summary_outcomes: dict[str, dict] = {}
     if recording_ids_in_list:
         try:
             from ee.models.session_summaries import SingleSessionSummary
@@ -1880,14 +1861,21 @@ def list_recordings_from_query(
             default_summary_session_ids = set()
         else:
             with timer("load_summary_existence"), tracer.start_as_current_span("load_summary_existence"):
-                default_summary_session_ids = set(
+                summaries = (
                     SingleSessionSummary.objects.filter(
                         team_id=team.id,
                         session_id__in=recording_ids_in_list,
                         # Keep this aligned with summarize() default behavior (no extra context).
                         extra_summary_context__isnull=True,
-                    ).values_list("session_id", flat=True)
+                    )
+                    .order_by("session_id", "-created_at")
+                    .distinct("session_id")
+                    .values_list("session_id", "summary__session_outcome")
                 )
+                for session_id, outcome in summaries:
+                    default_summary_session_ids.add(session_id)
+                    if outcome and isinstance(outcome, dict):
+                        summary_outcomes[session_id] = outcome
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
@@ -1898,6 +1886,7 @@ def list_recordings_from_query(
             recording.viewed = recording.session_id in viewed_session_recordings
             recording.viewers = other_viewers.get(recording.session_id, [])
             recording.has_summary = recording.session_id in default_summary_session_ids
+            recording.summary_outcome = summary_outcomes.get(recording.session_id)
             matched_person = distinct_id_to_person.get(recording.distinct_id) if recording.distinct_id else None
             if matched_person:
                 recording.person = matched_person

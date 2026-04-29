@@ -10,7 +10,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -40,6 +39,8 @@ interface DashboardProps {
     backTo?: { url: string; name: string }
 }
 
+const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
 function DashboardSceneWrapper(): JSX.Element {
@@ -49,10 +50,7 @@ function DashboardSceneWrapper(): JSX.Element {
 export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardSceneWrapper,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }) => ({
-        id: parseInt(id as string),
-        placement,
-    }),
+    paramsToProps: ({ params: { id, placement } }) => ({ id: parseDashboardId(id), placement }),
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
@@ -60,7 +58,7 @@ export function Dashboard({ id, dashboard, placement, themes, backTo }: Dashboar
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
             <DashboardScene backTo={backTo} />
         </BindLogic>
     )
@@ -78,22 +76,11 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         accessDeniedToDashboard,
         refreshAnalysisResult,
         analysisRating,
-        showApplyFiltersBanner,
-        loadingPreview,
-        cancellingPreview,
-        hasUrlFilters,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const {
-        reportDashboardViewed,
-        abortAnyRunningQuery,
-        setRefreshAnalysisResult,
-        setAnalysisRating,
-        applyFilters,
-        setDashboardMode,
-        setLayoutZoom,
-    } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult, setAnalysisRating, setLayoutZoom } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useFileSystemLogView({
@@ -161,37 +148,6 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                                         />
                                     </>
                                 )}
-                            </div>
-                        </LemonBanner>
-                    )}
-
-                    {showApplyFiltersBanner && (
-                        <LemonBanner type="info" className="mb-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <span>Filters are not automatically applied on large dashboards.</span>
-                                <div className="flex gap-2 shrink-0">
-                                    <LemonButton
-                                        onClick={() =>
-                                            setDashboardMode(
-                                                hasUrlFilters ? dashboardMode : null,
-                                                DashboardEventSource.DashboardHeaderDiscardChanges
-                                            )
-                                        }
-                                        loading={cancellingPreview}
-                                        type="secondary"
-                                        size="small"
-                                    >
-                                        Cancel
-                                    </LemonButton>
-                                    <LemonButton
-                                        onClick={applyFilters}
-                                        loading={loadingPreview}
-                                        type="primary"
-                                        size="small"
-                                    >
-                                        Apply filters
-                                    </LemonButton>
-                                </div>
                             </div>
                         </LemonBanner>
                     )}

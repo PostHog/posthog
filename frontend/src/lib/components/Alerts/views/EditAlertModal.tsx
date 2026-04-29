@@ -18,12 +18,11 @@ import {
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, formatDate } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -37,7 +36,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
+import { alertFormLogic, canCheckOngoingInterval, getDefaultSimulationRange } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
@@ -45,7 +44,7 @@ import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import type { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
-import { AlertStateTable } from './AlertStateTable'
+import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 import { DetectorSelector, getDefaultWindow } from './DetectorSelector'
 import { InlineAlertNotifications } from './InlineAlertNotifications'
 import { QuietHoursFields } from './QuietHoursFields'
@@ -83,19 +82,6 @@ function getSimulationRangeOptions(interval: AlertCalculationInterval): { label:
     }
 }
 
-function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
-    switch (interval) {
-        case AlertCalculationInterval.HOURLY:
-            return '-48h'
-        case AlertCalculationInterval.DAILY:
-            return '-30d'
-        case AlertCalculationInterval.WEEKLY:
-            return '-12w'
-        case AlertCalculationInterval.MONTHLY:
-            return '-12m'
-    }
-}
-
 function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
         case AlertCalculationInterval.HOURLY:
@@ -128,7 +114,9 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
-    const _alertLogic = alertLogic({ alertId })
+    const alertsHistoryChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
+
+    const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
     const { alert, alertLoading } = useValues(_alertLogic)
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
@@ -154,6 +142,7 @@ export function EditAlertModal({
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
+        historyChartEnabled: alertsHistoryChartEnabled,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -168,12 +157,11 @@ export function EditAlertModal({
         useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
-    const anomalyDetectionEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_ANOMALY_DETECTION]
-    const inlineNotificationsEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS]
-    const quietHoursEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_QUIET_HOURS]
+    const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
+    const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
+    const quietHoursEnabled = useFeatureFlag('ALERTS_QUIET_HOURS')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -241,7 +229,7 @@ export function EditAlertModal({
 
     return (
         <LemonModal onClose={handleClose} isOpen={isOpen} width={750} simple title="">
-            {alertLoading ? (
+            {alertLoading && !alert ? (
                 <SpinnerOverlay />
             ) : (
                 <Form
@@ -496,6 +484,7 @@ export function EditAlertModal({
                                                 <h4 className="m-0">Simulation</h4>
                                                 <LemonSelect
                                                     size="small"
+                                                    data-attr="alertForm-simulate-range"
                                                     value={
                                                         simulationDateFrom ??
                                                         getDefaultSimulationRange(alertForm.calculation_interval)
@@ -506,6 +495,7 @@ export function EditAlertModal({
                                                 <LemonButton
                                                     type="secondary"
                                                     size="small"
+                                                    data-attr="alertForm-simulate"
                                                     onClick={simulateAlert}
                                                     loading={simulationResultLoading}
                                                     tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
@@ -716,7 +706,13 @@ export function EditAlertModal({
                             </div>
                         </div>
 
-                        {alert && <AlertStateTable alert={alert} />}
+                        {!creatingNewAlert && alertId ? (
+                            alert ? (
+                                <AlertHistorySection alertId={alert.id} />
+                            ) : alertLoading ? (
+                                <AlertHistorySectionSkeleton showChartArea={alertsHistoryChartEnabled} />
+                            ) : null
+                        ) : null}
                     </LemonModal.Content>
 
                     <LemonModal.Footer>

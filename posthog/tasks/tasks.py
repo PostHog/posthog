@@ -297,62 +297,6 @@ def ingestion_lag() -> None:
         )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
-def replay_count_metrics() -> None:
-    try:
-        logger.info("[replay_count_metrics] running task")
-
-        from posthog.clickhouse.client import sync_execute
-
-        # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
-        query = """
-        select
-            --team_id,
-            count() as all_recordings,
-            countIf(snapshot_source == 'mobile') as mobile_recordings,
-            countIf(snapshot_source == 'web') as web_recordings,
-            countIf(snapshot_source =='web' and first_url is null) as invalid_web_recordings
-        from (
-            select any(team_id) as team_id, argMinMerge(first_url) as first_url, argMinMerge(snapshot_source) as snapshot_source
-            from session_replay_events
-            where min_first_timestamp >= now() - interval 65 minute
-            and min_first_timestamp <= now() - interval 5 minute
-            group by session_id
-        )
-        --group by team_id
-        """
-
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, name="replay_count_metrics")
-
-        results = sync_execute(
-            query,
-        )
-
-        metrics = [
-            "all_recordings",
-            "mobile_recordings",
-            "web_recordings",
-            "invalid_web_recordings",
-        ]
-        descriptions = [
-            "All recordings that started in the last hour",
-            "Recordings started in the last hour that are from mobile",
-            "Recordings started in the last hour that are from web",
-            "Acts as a proxy for replay sessions which haven't received a full snapshot",
-        ]
-        with pushed_metrics_registry("celery_replay_tracking") as registry:
-            for i in range(0, 4):
-                gauge = Gauge(
-                    f"replay_tracking_{metrics[i]}",
-                    descriptions[i],
-                    registry=registry,
-                )
-                count = results[0][i]
-                gauge.set(count)
-    except Exception as e:
-        logger.exception("Failed to run invalid web replays task", error=e, inc_exc_info=True)
-
-
 KNOWN_CELERY_TASK_IDENTIFIERS = {
     "pluginJob",
     "runEveryHour",
@@ -536,6 +480,107 @@ def redis_celery_queue_depth() -> None:
     except:
         # if we can't generate the metric don't complain about it.
         return
+
+
+_TASKS_RUN_OPEN_STATUSES = ("not_started", "queued", "in_progress")
+_TASKS_RUN_AGE_STATUSES = ("queued", "in_progress")
+_TASKS_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+def capture_task_run_state_metrics() -> None:
+    """Emit gauges describing the current state of the Tasks product's TaskRun table"""
+    from django.db.models import Count, Min
+
+    from products.tasks.backend.models import TaskRun
+
+    try:
+        with pushed_metrics_registry("tasks_run_state") as registry:
+            # NOTE: the label is named `run_environment` (not `environment`) to avoid collision with the
+            # deployment-environment label applied by the pushgateway scrape target, which would otherwise
+            # clobber the TaskRun.Environment value on ingest.
+            runs_in_status_gauge = Gauge(
+                "posthog_tasks_runs_in_status",
+                "Number of open TaskRun rows by status, origin_product, and run_environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "run_environment"],
+            )
+            oldest_age_gauge = Gauge(
+                "posthog_tasks_oldest_open_run_age_seconds",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "run_environment"],
+            )
+            runs_created_1h_gauge = Gauge(
+                "posthog_tasks_runs_created_1h",
+                "Number of TaskRun rows created in the last hour, by origin_product and run_environment.",
+                registry=registry,
+                labelnames=["origin_product", "run_environment"],
+            )
+            runs_terminal_1h_gauge = Gauge(
+                "posthog_tasks_runs_terminal_1h",
+                "Number of TaskRun rows that reached a terminal status in the last hour, by status, origin_product, and run_environment.",
+                registry=registry,
+                labelnames=["status", "origin_product", "run_environment"],
+            )
+
+            counts = (
+                TaskRun.objects.filter(status__in=_TASKS_RUN_OPEN_STATUSES)
+                .values("status", "environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in counts:
+                runs_in_status_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(row["count"])
+
+            oldest = (
+                TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES)
+                .values("status", "environment", "task__origin_product")
+                .annotate(oldest_created_at=Min("created_at"))
+            )
+            now = timezone.now()
+            for row in oldest:
+                age_seconds = (now - row["oldest_created_at"]).total_seconds()
+                oldest_age_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(age_seconds)
+
+            created_1h = (
+                TaskRun.objects.filter(created_at__gte=now - datetime.timedelta(hours=1))
+                .values("environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in created_1h:
+                runs_created_1h_gauge.labels(
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(row["count"])
+
+            # Terminal runs: approximated by updated_at since completed_at can be null for FAILED/CANCELLED
+            # paths that didn't take the happy-path write.
+            terminal_1h = (
+                TaskRun.objects.filter(
+                    status__in=_TASKS_RUN_TERMINAL_STATUSES,
+                    updated_at__gte=now - datetime.timedelta(hours=1),
+                )
+                .values("status", "environment", "task__origin_product")
+                .annotate(count=Count("id"))
+            )
+            for row in terminal_1h:
+                runs_terminal_1h_gauge.labels(
+                    status=row["status"],
+                    origin_product=row["task__origin_product"] or "unknown",
+                    run_environment=row["environment"],
+                ).set(row["count"])
+
+    except Exception as err:
+        logger.exception("capture_task_run_state_metrics", exception=err)
+        capture_exception(err)
 
 
 @shared_task(ignore_result=True)
@@ -812,18 +857,6 @@ def check_flags_to_rollback() -> None:
         pass
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-)
-def count_items_in_playlists() -> None:
-    from posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-        enqueue_recordings_that_match_playlist_filters,
-    )
-
-    enqueue_recordings_that_match_playlist_filters()
-
-
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
 def background_delete_model_task(
     model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
@@ -1086,6 +1119,7 @@ def delete_organization_data_and_notify_task(
         project_names: Names of all projects in the organization (for email notification)
     """
     from posthog.email import is_email_available
+    from posthog.event_usage import report_organization_deletion_completed
     from posthog.models.organization import Organization
     from posthog.tasks.email import send_organization_deleted_email
 
@@ -1107,6 +1141,7 @@ def delete_organization_data_and_notify_task(
             Organization.objects.filter(id=organization_id).delete()
 
         logger.info("Organization data deletion completed", team_ids=team_ids, organization_name=organization_name)
+        report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)
         if is_email_available():
             send_organization_deleted_email.delay(
                 user_id=user_id, organization_name=organization_name, project_names=project_names

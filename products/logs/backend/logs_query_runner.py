@@ -352,6 +352,10 @@ class LogsFilterBuilder:
 
 
 class LogsQueryRunnerMixin(QueryRunner):
+    # Target bucket count for the adaptive interval picker in `query_date_range`.
+    # Subclasses can override per-instance to request a different resolution.
+    BUCKET_TARGET: int = 50
+
     @cached_property
     def settings(self):
         return HogQLGlobalSettings(
@@ -385,7 +389,7 @@ class LogsQueryRunnerMixin(QueryRunner):
             now=dt.datetime.now(),
         )
 
-        _step = (qdr.date_to() - qdr.date_from()) / 50
+        _step = (qdr.date_to() - qdr.date_from()) / self.BUCKET_TARGET
         interval_type = IntervalType.SECOND
 
         def find_closest(target, arr):

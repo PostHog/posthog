@@ -24,7 +24,7 @@ import {
     COMMON_REPLAYER_CONFIG,
     CanvasReplayerPlugin,
     CorsPlugin,
-    HLSPlayerPlugin,
+    createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
 import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
@@ -1253,18 +1253,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const plugins: ReplayPlugin[] = [HLSPlayerPlugin]
+            const hlsPlugin = createHLSPlayerPlugin()
+            const plugins: ReplayPlugin[] = [hlsPlugin]
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
             if (values.preflight?.cloud || window.location.hostname === 'localhost') {
                 plugins.push(CorsPlugin)
             }
 
-            plugins.push(
-                CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
-                    posthog.captureException(error)
-                )
+            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
+                posthog.captureException(error)
             )
+            plugins.push(canvasPlugin)
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging
@@ -1406,6 +1406,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.setPlayer({ replayer, windowId })
 
                     return () => {
+                        canvasPlugin.destroy()
+                        hlsPlugin.destroy()
+
                         if (replayer) {
                             for (const cleanup of iframeCleanups) {
                                 cleanup()
@@ -1722,7 +1725,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // findSegmentForTimestamp can safely return a real segment for
             // past-end timestamps (needed for the image exporter to boot the
             // rrweb replayer). See #49364 and #53550.
-            const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
+            //
+            // Strictly > (not >=): landing exactly on `end` is a valid
+            // "show the last frame" seek (e.g. from a stale ?t= URL that
+            // got clamped by seekToTime). Firing endReached here would
+            // pause the player before tryInitReplayer has created the
+            // rrweb wrapper. Natural playback progression still triggers
+            // endReached via updateAnimation.
+            const isPastEnd = values.sessionPlayerData.end && timestamp > values.sessionPlayerData.end.valueOf()
             if (isPastEnd) {
                 actions.setEndReached(true)
             } else if (segment && !objectsEqual(segment, values.currentSegment)) {
@@ -1789,7 +1799,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const seekToPrevActivityEnd = (segment: RecordingSegment): void => {
                     const prevActivity = findPrevActivitySegment(findSegmentIndex(segment))
                     if (prevActivity) {
-                        targetTime = Math.max(0, prevActivity.endTimestamp - startTimestamp - amount)
+                        const prevStart = prevActivity.startTimestamp - startTimestamp
+                        const prevEnd = prevActivity.endTimestamp - startTimestamp
+                        targetTime = Math.max(prevStart, prevEnd - amount)
                     }
                 }
 
@@ -2226,6 +2238,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
+            }
+        },
+        isWaitingForPlayableFullSnapshot: (isWaiting: boolean, wasWaiting: boolean | undefined) => {
+            // Force a buffering re-check when the scheduler gives up on seek
+            // without loading new snapshots. checkBufferingCompleted normally
+            // fires via syncSnapshotsWithPlayer on new data, but a silent
+            // seek → buffer_ahead transition delivers none, so the player
+            // would stay stuck in BUFFER without this listener (#53893).
+            if (wasWaiting && !isWaiting) {
+                actions.checkBufferingCompleted()
             }
         },
         timestampChangeTracking: (value) => {

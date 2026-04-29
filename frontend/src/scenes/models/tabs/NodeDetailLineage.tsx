@@ -24,10 +24,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { getFormattedNodes } from 'scenes/data-warehouse/scene/modeling/autolayout'
-import { syncIntervalToShorthand } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
-import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType, DataModelingSyncInterval } from '~/types'
+
+import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { NODE_TYPE_TAG_SETTINGS } from '../nodeDetailConstants'
 import { LineageGraphData, nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
@@ -40,7 +41,7 @@ interface LineageNodeData extends Record<string, unknown> {
     isCurrent: boolean
     lastJobStatus?: DataModelingJobStatus
     lastRunAt?: string
-    syncInterval?: DataWarehouseSyncInterval
+    syncInterval?: DataModelingSyncInterval
     upstreamCount: number
     downstreamCount: number
     /** The scene-level node ID, used to key nodeDetailSceneLogic */

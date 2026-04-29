@@ -15,7 +15,9 @@ export function TicketsList(): JSX.Element {
     const { tickets, ticketsLoading } = useValues(sidepanelTicketsLogic)
     const { setCurrentTicket, setView } = useActions(sidepanelTicketsLogic)
 
-    if (!posthog.conversations || !posthog.conversations.isAvailable()) {
+    const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
+
+    if (!hasIdentityMode && (!posthog.conversations || !posthog.conversations.isAvailable())) {
         return (
             <div className="text-center text-muted-alt py-8">
                 <p>Conversations are not available for this team.</p>
@@ -42,12 +44,18 @@ export function TicketsList(): JSX.Element {
             >
                 Create new ticket
             </LemonButton>
-            <p className="text-center text-xs text-muted-alt m-0">
-                Switched browsers?{' '}
-                <Link className="cursor-pointer" onClick={() => setView('restore')} data-attr="sidebar-recover-tickets">
-                    Recover your tickets
-                </Link>
-            </p>
+            {!hasIdentityMode && (
+                <p className="text-center text-xs text-muted-alt m-0">
+                    Switched browsers?{' '}
+                    <Link
+                        className="cursor-pointer"
+                        onClick={() => setView('restore')}
+                        data-attr="sidebar-recover-tickets"
+                    >
+                        Recover your tickets
+                    </Link>
+                </p>
+            )}
             {tickets.length === 0 ? (
                 <div className="text-center text-muted-alt py-8">
                     <p>No tickets yet.</p>

@@ -3,6 +3,7 @@ import re
 import uuid
 import asyncio
 import datetime as dt
+from typing import cast
 
 import pytest
 import unittest.mock
@@ -982,7 +983,7 @@ async def test_run_workflow_revert_materialization(
         assert query.is_materialized is False
 
 
-async def test_run_workflow_timeout_exceeded(
+async def test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures(
     minio_client,
     ateam,
     bucket_name,
@@ -990,6 +991,11 @@ async def test_run_workflow_timeout_exceeded(
     saved_queries,
     temporal_client,
 ):
+    """Timeout should not pause the schedule when there aren't 5 consecutive timeout failures."""
+    for query in saved_queries:
+        query.sync_frequency_interval = dt.timedelta(hours=1)
+        await database_sync_to_async(query.save)()
+
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
 
@@ -1026,7 +1032,6 @@ async def test_run_workflow_timeout_exceeded(
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            # Ensure the team exists in the DB context before running workflow
             await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
             await temporal_client.execute_workflow(
                 RunWorkflow.run,
@@ -1037,9 +1042,8 @@ async def test_run_workflow_timeout_exceeded(
                 execution_timeout=dt.timedelta(seconds=30),
             )
 
-    # Temporal shouldn't reattempt the activity
     assert mock_hogql_table.call_count == 1
-    mock_pause_saved_query_schedule.assert_called()
+    mock_pause_saved_query_schedule.assert_not_called()
 
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
@@ -1049,7 +1053,87 @@ async def test_run_workflow_timeout_exceeded(
     for query in saved_queries:
         await database_sync_to_async(query.refresh_from_db)()
         assert query.is_materialized is False
-        assert query.sync_frequency_interval is None
+        assert query.sync_frequency_interval is not None
+
+
+async def test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures(
+    minio_client,
+    ateam,
+    bucket_name,
+    pageview_events,
+    saved_queries,
+    temporal_client,
+):
+    """Timeout should pause the schedule when there are 5 consecutive timeout failures."""
+    parent_query = saved_queries[0]
+
+    # Create 5 previous timeout failed jobs for this saved query
+    for i in range(5):
+        await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            saved_query=parent_query,
+            status=DataModelingJob.Status.FAILED,
+            error="Query exceeded timeout - we limit queries to a 10-minute timeout.",
+            workflow_id=f"prev-workflow-{i}",
+        )
+
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(team_id=ateam.pk)
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        freeze_time(TEST_TIME),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table") as mock_hogql_table,
+        unittest.mock.patch(
+            "posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"
+        ) as mock_pause_saved_query_schedule,
+    ):
+        mock_hogql_table.side_effect = Exception(
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))"
+        )
+
+        async with temporalio.worker.Worker(
+            temporal_client,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
+            workflows=[RunWorkflow],
+            activities=[
+                start_run_activity,
+                build_dag_activity,
+                run_dag_activity,
+                finish_run_activity,
+                create_job_model_activity,
+                fail_jobs_activity,
+                cleanup_running_jobs_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    assert mock_hogql_table.call_count == 1
+    mock_pause_saved_query_schedule.assert_called()
+
+    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+    assert job is not None
+    assert job.status == DataModelingJob.Status.FAILED
+    assert job.rows_materialized == 0
+
+    await database_sync_to_async(parent_query.refresh_from_db)()
+    assert parent_query.is_materialized is False
+    assert parent_query.sync_frequency_interval is None
 
 
 async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
@@ -1211,7 +1295,8 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
         )
 
         batch1 = pa.RecordBatch.from_arrays(
-            [problematic_data, pa.array([1], type=pa.int64())], names=["high_precision_decimal", "regular_column"]
+            cast(list[pa.Array], [problematic_data, pa.array([1], type=pa.int64())]),
+            names=["high_precision_decimal", "regular_column"],
         )
 
         async def async_generator():
@@ -1283,7 +1368,8 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
         )
 
         batch1 = pa.RecordBatch.from_arrays(
-            [manageable_data, pa.array([1], type=pa.int64())], names=["manageable_decimal", "regular_column"]
+            cast(list[pa.Array], [manageable_data, pa.array([1], type=pa.int64())]),
+            names=["manageable_decimal", "regular_column"],
         )
 
         async def async_generator():
@@ -1336,50 +1422,85 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
         assert saved_query.is_materialized is True
 
 
-async def test_cleanup_running_jobs_activity(activity_environment, ateam):
-    """Test cleanup marks all existing RUNNING jobs as FAILED when starting a new run."""
-    old_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="old-1", workflow_run_id="run-1"
+@pytest.mark.parametrize(
+    "saved_query_ids_fn, expected_a, expected_b",
+    [
+        pytest.param(
+            lambda sq_a, sq_b: [sq_a.id.hex],
+            DataModelingJob.Status.FAILED,
+            DataModelingJob.Status.RUNNING,
+            id="uuid_hex",
+        ),
+        pytest.param(
+            lambda sq_a, sq_b: [sq_a.name],
+            DataModelingJob.Status.FAILED,
+            DataModelingJob.Status.RUNNING,
+            id="name_label",
+        ),
+        pytest.param(
+            lambda sq_a, sq_b: [], DataModelingJob.Status.FAILED, DataModelingJob.Status.FAILED, id="team_wide_fallback"
+        ),
+    ],
+)
+async def test_cleanup_running_jobs_activity(activity_environment, ateam, saved_query_ids_fn, expected_a, expected_b):
+    sq_a = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="query_a", query={"query": "SELECT 1", "kind": "HogQLQuery"}
     )
-    recent_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="recent-1", workflow_run_id="run-2"
+    sq_b = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="query_b", query={"query": "SELECT 2", "kind": "HogQLQuery"}
+    )
+    job_a = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, saved_query=sq_a, status=DataModelingJob.Status.RUNNING, workflow_id="wf-a", workflow_run_id="run-a"
     )
     completed_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.COMPLETED, workflow_id="completed-1", workflow_run_id="run-3"
+        team=ateam,
+        saved_query=sq_a,
+        status=DataModelingJob.Status.COMPLETED,
+        workflow_id="wf-c",
+        workflow_run_id="run-c",
+    )
+    job_b = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, saved_query=sq_b, status=DataModelingJob.Status.RUNNING, workflow_id="wf-b", workflow_run_id="run-b"
     )
 
-    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
+    saved_query_ids = saved_query_ids_fn(sq_a, sq_b)
+    inputs = CleanupRunningJobsActivityInputs(team_id=ateam.pk)
+    if saved_query_ids:
+        inputs.saved_query_ids = saved_query_ids
+    await activity_environment.run(cleanup_running_jobs_activity, inputs)
 
-    await database_sync_to_async(old_job.refresh_from_db)()
-    await database_sync_to_async(recent_job.refresh_from_db)()
+    await database_sync_to_async(job_a.refresh_from_db)()
     await database_sync_to_async(completed_job.refresh_from_db)()
+    await database_sync_to_async(job_b.refresh_from_db)()
 
-    assert old_job.status == DataModelingJob.Status.FAILED
-    assert old_job.rows_materialized == 0
-    assert old_job.error is not None
-    assert "Preempted" in old_job.error
-    assert recent_job.status == DataModelingJob.Status.FAILED
-    assert recent_job.rows_materialized == 0
-    assert recent_job.error is not None
-    assert "Preempted" in recent_job.error
+    assert job_a.status == expected_a
+    assert job_a.error is not None if expected_a == DataModelingJob.Status.FAILED else job_a.error is None
     assert completed_job.status == DataModelingJob.Status.COMPLETED
+    assert job_b.status == expected_b
 
 
 async def test_create_job_model_activity_cleans_up_running_jobs(activity_environment, ateam, temporal_client):
     """Test that orphaned jobs are cleaned up when running the full workflow."""
-    # Create old orphaned job
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
+    )
+
+    # Create old orphaned job for the same saved query
     orphaned_job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="orphaned-1", workflow_run_id="run-1"
+        team=ateam,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="orphaned-1",
+        workflow_run_id="run-1",
     )
     await database_sync_to_async(DataModelingJob.objects.filter(id=orphaned_job.id).update)(
         updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
     )
 
-    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
-        team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
+    await activity_environment.run(
+        cleanup_running_jobs_activity,
+        CleanupRunningJobsActivityInputs(team_id=ateam.pk, saved_query_ids=[saved_query.id.hex]),
     )
-
-    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
 
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED

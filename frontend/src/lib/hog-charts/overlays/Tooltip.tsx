@@ -1,19 +1,24 @@
-import { flip, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
+import { flip, FloatingPortal, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
 import React, { useLayoutEffect, useMemo } from 'react'
 
 import type { TooltipContext } from '../core/types'
 
-interface TooltipProps {
-    context: TooltipContext
-    renderTooltip: (ctx: TooltipContext) => React.ReactNode
+interface TooltipProps<Meta> {
+    context: TooltipContext<Meta>
+    renderTooltip: (ctx: TooltipContext<Meta>) => React.ReactNode
+    placement?: 'follow-data' | 'top'
 }
 
-export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactElement {
+export function Tooltip<Meta = unknown>({
+    context,
+    renderTooltip,
+    placement = 'follow-data',
+}: TooltipProps<Meta>): React.ReactElement {
     const virtualReference = useMemo<VirtualElement>(
         () => ({
             getBoundingClientRect() {
                 const x = context.canvasBounds.left + context.position.x
-                const y = context.canvasBounds.top + context.position.y
+                const y = placement === 'top' ? context.canvasBounds.top : context.canvasBounds.top + context.position.y
                 return {
                     x,
                     y,
@@ -26,36 +31,37 @@ export function Tooltip({ context, renderTooltip }: TooltipProps): React.ReactEl
                 }
             },
         }),
-        [context.position.x, context.position.y, context.canvasBounds]
+        [context.position.x, placement === 'follow-data' ? context.position.y : null, context.canvasBounds, placement]
     )
 
     const { refs, floatingStyles } = useFloating({
-        placement: 'right',
+        placement: placement === 'top' ? 'right-start' : 'right',
         strategy: 'fixed',
         middleware: [offset(12), flip(), shift({ padding: 8 })],
     })
 
-    // useLayoutEffect runs synchronously before paint, so floating-ui has the
-    // virtual reference ready by the first frame — no positioning flash.
     useLayoutEffect(() => {
         refs.setPositionReference(virtualReference)
     }, [virtualReference, refs])
 
     return (
-        <div
-            ref={refs.setFloating}
-            // Marker so the interaction hook can distinguish scroll events that originate
-            // inside the tooltip (e.g. scrollable long content) from chart/page scrolls,
-            // which should dismiss a pinned tooltip.
-            data-hog-charts-tooltip=""
-            style={{
-                ...floatingStyles,
-                pointerEvents: context.isPinned ? 'auto' : 'none',
-                width: 'max-content',
-                zIndex: 10,
-            }}
-        >
-            {renderTooltip(context)}
-        </div>
+        <FloatingPortal>
+            <div
+                ref={refs.setFloating}
+                // Marker so useChartInteraction can identify events originating inside the
+                // tooltip — it lives outside the chart wrapper via FloatingPortal, so DOM
+                // ancestry can't be used to detect it.
+                data-hog-charts-tooltip=""
+                className={context.isPinned ? 'hog-charts-tooltip--pinned' : undefined}
+                style={{
+                    ...floatingStyles,
+                    pointerEvents: context.isPinned ? 'auto' : 'none',
+                    width: 'max-content',
+                    zIndex: 'var(--z-tooltip)',
+                }}
+            >
+                {renderTooltip(context)}
+            </div>
+        </FloatingPortal>
     )
 }

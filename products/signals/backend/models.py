@@ -1,9 +1,14 @@
+import logging
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
+
+logger = logging.getLogger(__name__)
 
 
 class SignalSourceConfig(UUIDModel):
@@ -13,6 +18,7 @@ class SignalSourceConfig(UUIDModel):
         GITHUB = "github", "GitHub"
         LINEAR = "linear", "Linear"
         ZENDESK = "zendesk", "Zendesk"
+        CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
 
     class SourceType(models.TextChoices):
@@ -25,8 +31,8 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
-    source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
-    source_type = models.CharField(max_length=100, choices=SourceType.choices)
+    source_product = models.CharField(max_length=100, choices=SourceProduct)
+    source_type = models.CharField(max_length=100, choices=SourceType)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -43,6 +49,11 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
             return True
 
+        # Session problem signals are emitted as part of session analysis,
+        # so they're gated by the pre-existing session_analysis_cluster config
+        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
+            source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
+
         return cls.objects.filter(
             team_id=team_id,
             source_product=source_product,
@@ -56,6 +67,43 @@ class SignalSourceConfig(UUIDModel):
                 fields=["team", "source_product", "source_type"], name="unique_team_source_product_type"
             )
         ]
+
+
+class AutonomyPriority(models.TextChoices):
+    P0 = "P0", "P0"
+    P1 = "P1", "P1"
+    P2 = "P2", "P2"
+    P3 = "P3", "P3"
+    P4 = "P4", "P4"
+
+
+class SignalTeamConfig(UUIDModel):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_team_config",
+    )
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal team config"
+        verbose_name_plural = "Signal team configs"
+
+
+register_team_extension_signal(SignalTeamConfig, logger=logger)
+
+
+class SignalUserAutonomyConfig(UUIDModel):
+    user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
+    autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal user autonomy config"
+        verbose_name_plural = "Signal user autonomy configs"
 
 
 class InvalidStatusTransition(Exception):
@@ -77,7 +125,7 @@ class SignalReport(UUIDModel):
         SUPPRESSED = "suppressed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.POTENTIAL)
+    status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
 
     total_weight = models.FloatField(default=0.0)
     signal_count = models.IntegerField(default=0)
@@ -176,8 +224,8 @@ class SignalReport(UUIDModel):
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
 
-            # Reset to potential (from in_progress via actionability judge, or from suppressed)
-            case (S.IN_PROGRESS | S.SUPPRESSED, S.POTENTIAL):
+            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
+            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if snooze_for is not None:
@@ -217,6 +265,34 @@ class SignalReport(UUIDModel):
         return list(updated_fields)
 
 
+class SignalEmissionRecord(UUIDModel):
+    """Tracks which source records have been emitted as signals.
+
+    Owned by the signals app so source models (e.g. Ticket) stay decoupled.
+    One row per source record, upserted on emission.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    source_product = models.CharField(max_length=100)
+    source_type = models.CharField(max_length=100)
+    source_id = models.CharField(max_length=200)
+    emitted_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "source_product", "source_type", "source_id"],
+                name="unique_signal_emission_record",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["team", "source_product", "source_type"],
+                name="signals_emission_lookup_idx",
+            )
+        ]
+
+
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -229,11 +305,30 @@ class SignalReportArtefact(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType.choices)
+    type = models.CharField(max_length=100, choices=ArtefactType)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["report"], name="signals_sig_report__idx"),
+            # For JOINs involving matching a report to artifact of a certain type
+            models.Index(fields=["report", "type"], name="signals_sig_report_type_idx"),
         ]
+
+
+class SignalReportTask(UUIDModel):
+    class Relationship(models.TextChoices):
+        REPO_SELECTION = "repo_selection"
+        RESEARCH = "research"
+        IMPLEMENTATION = "implementation"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
+    task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
+    relationship = models.CharField(max_length=200, choices=Relationship)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal report task"
+        verbose_name_plural = "Signal report tasks"

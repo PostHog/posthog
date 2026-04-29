@@ -200,6 +200,7 @@ export interface NewSurvey extends Pick<
     | 'headline_summary'
     | 'headline_response_count'
     | 'form_content'
+    | 'translations'
 > {
     id: 'new'
     linked_flag_id: number | null
@@ -804,3 +805,17 @@ export const surveyThemes: SurveyTheme[] = [
         },
     },
 ]
+
+export function getMatchingSurveyThemeId(appearance?: Partial<SurveyAppearance> | null): string | null {
+    if (!appearance) {
+        return 'clean'
+    }
+
+    const matchingTheme = surveyThemes.find(
+        (theme) =>
+            theme.appearance.backgroundColor === appearance.backgroundColor &&
+            theme.appearance.submitButtonColor === appearance.submitButtonColor
+    )
+
+    return matchingTheme?.id ?? null
+}

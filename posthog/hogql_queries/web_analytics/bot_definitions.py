@@ -40,9 +40,15 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Applebot-Extended": BotDefinition("Apple AI", "ai_search", "AI Agent", "Apple"),
     # AI Assistants (real-time user-facing fetching)
     "ChatGPT-User": BotDefinition("ChatGPT", "ai_assistant", "AI Agent", "OpenAI"),
+    # Lowercase variant first — Meta emits this casing in the wild (matches the bingbot/Bingbot
+    # precedent). Both forms map to the same BotDefinition. Removable once we switch to
+    # multiMatchAnyIndexCaseInsensitive in the HogQL bot detection function.
+    "meta-externalfetcher": BotDefinition("Meta Fetcher", "ai_assistant", "AI Agent", "Meta"),
     "Meta-ExternalFetcher": BotDefinition("Meta Fetcher", "ai_assistant", "AI Agent", "Meta"),
     "DuckAssistBot": BotDefinition("DuckDuckGo AI", "ai_assistant", "AI Agent", "DuckDuckGo"),
     "MistralAI-User": BotDefinition("Mistral AI", "ai_assistant", "AI Agent", "Mistral"),
+    "Manus-User": BotDefinition("Manus", "ai_assistant", "AI Agent", "Manus"),
+    "Google-NotebookLM": BotDefinition("NotebookLM", "ai_assistant", "AI Agent", "Google"),
     # Search Crawlers (Applebot/ avoids matching Applebot-Extended)
     "Applebot/": BotDefinition("Applebot", "ai_search", "AI Agent", "Apple"),
     "Googlebot": BotDefinition("Googlebot", "search_crawler", "Bot", "Google"),
@@ -52,11 +58,17 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Baiduspider": BotDefinition("Baidu", "search_crawler", "Bot", "Baidu"),
     "DuckDuckBot": BotDefinition("DuckDuckGo", "search_crawler", "Bot", "DuckDuckGo"),
     "Slurp": BotDefinition("Yahoo", "search_crawler", "Bot", "Yahoo"),
+    # Search Crawlers (Google variants)
+    "AdsBot-Google": BotDefinition("Google Ads", "search_crawler", "Bot", "Google"),
+    "Google-InspectionTool": BotDefinition("Google Inspection", "search_crawler", "Bot", "Google"),
     # SEO Tools
+    "AhrefsSiteAudit": BotDefinition("Ahrefs Site Audit", "seo_crawler", "Bot", "Ahrefs"),
     "AhrefsBot": BotDefinition("Ahrefs", "seo_crawler", "Bot", "Ahrefs"),
+    "Barkrowler": BotDefinition("Barkrowler", "seo_crawler", "Bot", "Babbar"),
     "SemrushBot": BotDefinition("Semrush", "seo_crawler", "Bot", "Semrush"),
     "MJ12bot": BotDefinition("Majestic", "seo_crawler", "Bot", "Majestic"),
     "DotBot": BotDefinition("Moz", "seo_crawler", "Bot", "Moz"),
+    "Lighthouse": BotDefinition("Lighthouse", "seo_crawler", "Bot", "Google"),
     # Social Crawlers
     "FacebookBot": BotDefinition("Facebook Bot", "social_crawler", "Bot", "Meta"),
     "facebookexternalhit": BotDefinition("Facebook", "social_crawler", "Bot", "Meta"),
@@ -64,6 +76,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "LinkedInBot": BotDefinition("LinkedIn", "social_crawler", "Bot", "LinkedIn"),
     "Pinterest": BotDefinition("Pinterest", "social_crawler", "Bot", "Pinterest"),
     "Slackbot": BotDefinition("Slack", "social_crawler", "Bot", "Salesforce"),
+    "Slack-ImgProxy": BotDefinition("Slack Image Proxy", "social_crawler", "Bot", "Salesforce"),
     "TelegramBot": BotDefinition("Telegram", "social_crawler", "Bot", "Telegram"),
     "WhatsApp": BotDefinition("WhatsApp", "social_crawler", "Bot", "Meta"),
     # Monitoring
@@ -83,7 +96,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Apache-HttpClient": BotDefinition("Apache HTTP", "http_client", "Automation", "Apache"),
     "libwww-perl": BotDefinition("LWP", "http_client", "Automation", "Perl"),
     "Scrapy": BotDefinition("Scrapy", "http_client", "Automation", "Scrapy"),
+    # Prefetch/Proxy
+    "Chrome Privacy Preserving Prefetch Proxy": BotDefinition(
+        "Chrome Prefetch Proxy", "http_client", "Automation", "Google"
+    ),
     # Headless Browsers
+    "Mozlila/": BotDefinition("Mozlila Typo Bot", "headless_browser", "Automation", "Unknown"),
     "HeadlessChrome": BotDefinition("Headless Chrome", "headless_browser", "Automation", "Google"),
     "PhantomJS": BotDefinition("PhantomJS", "headless_browser", "Automation", "PhantomJS"),
     "Puppeteer": BotDefinition("Puppeteer", "headless_browser", "Automation", "Google"),

@@ -4,7 +4,7 @@ use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use serde_json::Value;
 
-use super::event_name::get_event_name;
+use super::providers;
 
 pub struct SpanEvent {
     pub event_name: String,
@@ -112,7 +112,7 @@ pub fn expand_into_events(
         .flat_map(|rs| &rs.scope_spans)
         .map(|ss| ss.spans.len())
         .sum();
-    let mut events = Vec::with_capacity(total_spans);
+    let mut events = Vec::with_capacity(total_spans.min(super::MAX_SPANS_PER_REQUEST));
 
     for rs in &request.resource_spans {
         let resource_attrs = rs
@@ -123,9 +123,12 @@ pub fn expand_into_events(
 
         for ss in &rs.scope_spans {
             for span in &ss.spans {
-                let span_attrs = attributes_to_map(&span.attributes);
+                let Some(provider) = providers::get_provider_raw(&span.attributes) else {
+                    continue;
+                };
 
-                let event_name = get_event_name(&span_attrs).to_string();
+                let span_attrs = attributes_to_map(&span.attributes);
+                let event_name = (provider.classify)(&span_attrs);
 
                 let mut properties = resource_attrs.clone();
                 properties.extend(span_attrs);
@@ -167,7 +170,7 @@ pub fn expand_into_events(
                 let timestamp = nanos_to_datetime(span.start_time_unix_nano);
 
                 events.push(SpanEvent {
-                    event_name,
+                    event_name: event_name.to_string(),
                     distinct_id: distinct_id.to_string(),
                     properties: Value::Object(properties),
                     timestamp,
@@ -317,6 +320,38 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_skips_irrelevant_spans() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![],
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![1; 16],
+                        vec![2; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        1_704_067_201_000_000_000,
+                        "http POST https://us.i.posthog.com/e",
+                        vec![make_kv(
+                            "http.request.method",
+                            any_value::Value::StringValue("POST".to_string()),
+                        )],
+                    )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let events = expand_into_events(&request, "user-1");
+        assert!(events.is_empty());
+    }
+
+    #[test]
     fn test_noisy_resource_attrs_are_filtered() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
@@ -344,7 +379,18 @@ mod tests {
                 }),
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, 0, "", vec![])],
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),
@@ -374,7 +420,10 @@ mod tests {
                         0,
                         0,
                         "",
-                        vec![],
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
                     )],
                     schema_url: String::new(),
                 }],
@@ -394,7 +443,18 @@ mod tests {
                 resource: None,
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, 0, "", vec![])],
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),
