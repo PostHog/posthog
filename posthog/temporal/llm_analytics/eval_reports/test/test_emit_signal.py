@@ -7,14 +7,14 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
-
-from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.temporal.emit_eval_report_signal import (
+from posthog.temporal.llm_analytics.eval_reports.emit_signal import (
     EmitEvalReportSignalInputs,
     EvalReportSignalSummary,
     _build_eval_report_signal_prompt,
     emit_eval_report_signal_activity,
 )
+
+from products.signals.backend.models import SignalSourceConfig
 
 
 @pytest_asyncio.fixture
@@ -155,7 +155,7 @@ class TestEmitEvalReportSignalActivity:
         inputs = _make_inputs(team_id=ateam.id, evaluation_id="eval-123")
         with (
             patch(
-                "products.signals.backend.temporal.emit_eval_report_signal.summarize_report_for_signal"
+                "posthog.temporal.llm_analytics.eval_reports.emit_signal.summarize_report_for_signal"
             ) as mock_summarize,
             patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):
@@ -179,12 +179,12 @@ class TestEmitEvalReportSignalActivity:
         )
         with (
             patch(
-                "products.signals.backend.temporal.emit_eval_report_signal.summarize_report_for_signal",
+                "posthog.temporal.llm_analytics.eval_reports.emit_signal.summarize_report_for_signal",
                 new_callable=AsyncMock,
                 return_value=summary,
             ),
             patch(
-                "products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects.values_list"
+                "posthog.temporal.llm_analytics.eval_reports.emit_signal.EvaluationReportRun.objects.values_list"
             ) as mock_values_list,
             patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):
@@ -224,12 +224,12 @@ class TestEmitEvalReportSignalActivity:
         )
         with (
             patch(
-                "products.signals.backend.temporal.emit_eval_report_signal.summarize_report_for_signal",
+                "posthog.temporal.llm_analytics.eval_reports.emit_signal.summarize_report_for_signal",
                 new_callable=AsyncMock,
                 return_value=summary,
             ),
             patch(
-                "products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects.values_list"
+                "posthog.temporal.llm_analytics.eval_reports.emit_signal.EvaluationReportRun.objects.values_list"
             ) as mock_values_list,
             patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):

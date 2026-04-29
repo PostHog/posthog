@@ -40,6 +40,10 @@ from posthog.temporal.llm_analytics.eval_reports.constants import (
     UPDATE_SCHEDULE_RETRY_POLICY,
     WORKFLOW_EXECUTION_TIMEOUT,
 )
+from posthog.temporal.llm_analytics.eval_reports.emit_signal import (
+    EmitEvalReportSignalInputs,
+    EmitEvalReportSignalWorkflow,
+)
 from posthog.temporal.llm_analytics.eval_reports.types import (
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
@@ -49,11 +53,6 @@ from posthog.temporal.llm_analytics.eval_reports.types import (
     ScheduleAllEvalReportsWorkflowInputs,
     StoreReportRunInput,
     UpdateNextDeliveryDateInput,
-)
-
-from products.signals.backend.temporal.emit_eval_report_signal import (
-    EmitEvalReportSignalInputs,
-    EmitEvalReportSignalWorkflow,
 )
 
 logger = get_logger(__name__)

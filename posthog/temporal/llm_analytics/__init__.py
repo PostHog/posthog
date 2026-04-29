@@ -7,6 +7,10 @@ from posthog.temporal.llm_analytics.eval_reports.activities import (
     store_report_run_activity,
     update_next_delivery_date_activity,
 )
+from posthog.temporal.llm_analytics.eval_reports.emit_signal import (
+    EmitEvalReportSignalWorkflow,
+    emit_eval_report_signal_activity,
+)
 from posthog.temporal.llm_analytics.eval_reports.workflow import (
     CheckCountTriggeredReportsWorkflow,
     GenerateAndDeliverEvalReportWorkflow,
@@ -60,10 +64,6 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     summarize_and_save_activity,
 )
 
-from products.signals.backend.temporal.emit_eval_report_signal import (
-    EmitEvalReportSignalWorkflow,
-    emit_eval_report_signal_activity,
-)
 from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_activity
 
 EVAL_WORKFLOWS = [

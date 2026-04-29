@@ -1,14 +1,20 @@
 """Emit a signal per evaluation report run.
 
-Parallel to `emit_eval_signal.py` which emits one signal per individual
-`$ai_evaluation` result. This module emits one signal per report run, which
-is strictly more useful because a report already aggregates the underlying
-results into an analytical narrative (trend, patterns, citations) — the
-signal inherits that narrative rather than the per-result verdict.
+Parallel to `products/signals/backend/temporal/emit_eval_signal.py` which emits
+one signal per individual `$ai_evaluation` result. This module emits one signal
+per report run, which is strictly more useful because a report already aggregates
+the underlying results into an analytical narrative (trend, patterns, citations)
+— the signal inherits that narrative rather than the per-result verdict.
 
 The same `SignalSourceConfig(LLM_ANALYTICS, EVALUATION)` toggle gates both:
 enabling signals for an evaluation lights up per-result AND per-report-run
 emission. No new config surface.
+
+Lives in `posthog/temporal/llm_analytics/` (not `products/signals/`) because
+this is fundamentally an LLMA operation: it runs on the LLMA worker, reads the
+LLMA `EvaluationReportRun` model, and only the terminal `emit_signal` call
+crosses into Signals. Keeping it here also satisfies tach's rule that
+`products.signals` cannot depend on `products.llm_analytics`.
 """
 
 import json
@@ -27,6 +33,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.llm_analytics.backend.models.evaluation_reports import EvaluationReportRun
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.llm import call_llm
 
@@ -178,8 +185,6 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
         return
 
     def _fetch_report_content() -> dict[str, Any]:
-        from products.llm_analytics.backend.models.evaluation_reports import EvaluationReportRun
-
         return EvaluationReportRun.objects.values_list("content", flat=True).get(id=inputs.report_run_id)
 
     content = await database_sync_to_async(_fetch_report_content, thread_sensitive=False)()
