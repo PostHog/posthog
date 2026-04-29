@@ -375,6 +375,10 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.api.documentation.custom_postprocessing_hook",
+        # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
+        # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
+        # so `--fail-on-warn` in `hogli build:openapi-schema` catches them in CI.
+        "posthog.api.documentation.lint_spec_consistency_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
         # Overrides fall into two categories depending on how drf-spectacular hashes them:

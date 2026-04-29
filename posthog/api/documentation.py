@@ -4,6 +4,7 @@ from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
 
+from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
@@ -743,6 +744,10 @@ def _fix_pydantic_schema_for_openapi(schema):
     Pydantic v2 generates valid JSON Schema but not valid OpenAPI 3.0:
     - anyOf with {"type": "null"} -> nullable: true
     - const: "value" -> enum: ["value"]
+
+    OpenAPI 3.0 also forbids siblings on ``$ref`` (the spec says "$ref MUST be the only key").
+    When the non-null half of an Optional union is a ``$ref``, we wrap it in ``allOf`` so
+    ``nullable``/``default``/``description`` can sit alongside the reference legally.
     """
     if not isinstance(schema, dict):
         return schema
@@ -758,15 +763,27 @@ def _fix_pydantic_schema_for_openapi(schema):
         if has_null and non_null_schemas:
             del schema["anyOf"]
             if len(non_null_schemas) == 1:
-                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
+                single = _fix_pydantic_schema_for_openapi(non_null_schemas[0])
+                if "$ref" in single:
+                    # Wrap in allOf to keep $ref alone — siblings are illegal in OpenAPI 3.0.
+                    schema["allOf"] = [single]
+                else:
+                    schema.update(single)
                 schema["nullable"] = True
             else:
-                schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
+                fixed = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
+                # Any branch carrying a $ref must be isolated in its own allOf wrapper too.
+                schema["anyOf"] = [{"allOf": [s]} if "$ref" in s else s for s in fixed]
                 schema["nullable"] = True
         elif non_null_schemas:
             if len(non_null_schemas) == 1:
                 del schema["anyOf"]
-                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
+                single = _fix_pydantic_schema_for_openapi(non_null_schemas[0])
+                if "$ref" in single and any(k in schema for k in ("default", "description", "title", "example")):
+                    # Have non-trivial siblings to preserve — wrap in allOf.
+                    schema["allOf"] = [single]
+                else:
+                    schema.update(single)
             else:
                 schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
         else:  # all schemas in anyOf are null types
@@ -797,7 +814,61 @@ def _fix_pydantic_schema_for_openapi(schema):
     if "oneOf" in schema:
         schema["oneOf"] = [_fix_pydantic_schema_for_openapi(s) for s in schema["oneOf"]]
 
+    # OpenAPI 3.0: ``$ref`` MUST be the only key. If we ended up with siblings (e.g. Pydantic
+    # emits ``{"$ref": "...", "description": "..."}`` for a non-Optional ref with a docstring),
+    # wrap the ref in ``allOf`` so the siblings live legally on the parent.
+    if "$ref" in schema and len(schema) > 1:
+        ref_value = schema.pop("$ref")
+        schema["allOf"] = [{"$ref": ref_value}]
+
     return schema
+
+
+def lint_spec_consistency_hook(result, generator, request, public):
+    """Postprocessing hook that emits drf-spectacular warnings for spec self-inconsistencies.
+
+    Runs as a regular postprocessing hook so the warnings flow through ``GENERATOR_STATS``
+    and are picked up by ``--fail-on-warn`` in CI. Catches the kind of bug where the spec
+    is internally syntactically valid but logically contradictory — e.g. a field declares
+    ``default="days"`` while its ``enum`` lists ``["DAY", ...]``. drf-spectacular itself
+    doesn't cross-validate these, and DRF doesn't either, so the inconsistency silently
+    propagates into the generated TypeScript / MCP definitions until something downstream
+    chokes on it.
+
+    Currently checks:
+
+    * ``default`` is a member of ``enum`` (when both are present).
+    * Every name in ``required`` is declared in ``properties``.
+    * ``$ref`` has no sibling keys (illegal in OpenAPI 3.0).
+    """
+
+    def emit(message: str, location: str) -> None:
+        spectacular_warn(f"spec consistency: {message} at {location}")
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            if "default" in node and isinstance(node.get("enum"), list):
+                if node["default"] not in node["enum"]:
+                    emit(
+                        f"default={node['default']!r} is not a member of enum={node['enum']!r}",
+                        path,
+                    )
+            if isinstance(node.get("required"), list) and isinstance(node.get("properties"), dict):
+                missing = [r for r in node["required"] if r not in node["properties"]]
+                if missing:
+                    emit(f"required field(s) {missing!r} not declared in properties", path)
+            if "$ref" in node and len(node) > 1:
+                # OpenAPI 3.0 forbids siblings on $ref. ``allOf`` wrapping is the workaround.
+                siblings = sorted(k for k in node if k != "$ref")
+                emit(f"$ref has illegal sibling keys {siblings!r}", path)
+            for k, v in node.items():
+                walk(v, f"{path}.{k}")
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{path}[{i}]")
+
+    walk(result, "$")
+    return result
 
 
 def custom_postprocessing_hook(result, generator, request, public):
