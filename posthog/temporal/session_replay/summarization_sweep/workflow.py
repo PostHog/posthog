@@ -18,7 +18,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     FIND_ACTIVITY_TIMEOUT,
-    MAX_SESSIONS_PER_TEAM,
     SESSION_LOOKBACK_MINUTES,
     WORKFLOW_NAME,
 )
@@ -56,7 +55,6 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 FindSessionsInput(
                     team_id=inputs.team_id,
                     lookback_minutes=SESSION_LOOKBACK_MINUTES,
-                    max_sessions=MAX_SESSIONS_PER_TEAM,
                 )
             ],
             start_to_close_timeout=FIND_ACTIVITY_TIMEOUT,

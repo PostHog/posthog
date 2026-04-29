@@ -13,10 +13,12 @@ SCHEDULE_INTERVAL = timedelta(minutes=5)
 # up on the next one.
 SESSION_LOOKBACK_MINUTES = 30
 
-MAX_SESSIONS_PER_TEAM = 10
+SAMPLE_RATE_PRECISION = 10_000
+DEFAULT_SAMPLE_RATE = 1.0
 
 # Stops the redispatch loop on recordings the rasterizer can't process.
 STUCK_RASTERIZE_THRESHOLD = 3
+STUCK_RASTERIZE_LOOKBACK = timedelta(hours=2)
 
 CH_QUERY_MAX_EXECUTION_SECONDS = 180
 
