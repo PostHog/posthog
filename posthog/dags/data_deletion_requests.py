@@ -574,6 +574,14 @@ def load_person_removal_request(
                 f"Request {config.request_id} is not an approved person_removal request.",
             )
 
+        # Defense-in-depth: model.clean() enforces this, but a corrupt row would silently lose
+        # one of the selectors in resolve_persons_for_deletion (which uses if/elif).
+        if request.person_uuids and request.person_distinct_ids:
+            raise dagster.Failure(
+                f"Request {config.request_id} has both person_uuids and person_distinct_ids set; "
+                "they are mutually exclusive."
+            )
+
         request.status = RequestStatus.IN_PROGRESS
         request.save(update_fields=["status", "updated_at"])
 
@@ -630,12 +638,13 @@ def delete_person_events_op(
     if not person_removal.drop_events:
         context.log.info("drop_events=False, skipping event deletion")
         return person_removal
-    # Profiles run *last* in this job, so when distinct_ids are supplied we resolve here so the
-    # union of uuid- and distinct_id-targeted persons all have their events deleted.
+    # The CH events table is keyed by person_id (UUID), so resolve distinct_ids → uuids when
+    # the request was submitted by distinct_id. Selectors are mutually exclusive (enforced in
+    # DataDeletionRequest._clean_person_removal and re-checked in load_person_removal_request).
     if person_removal.person_distinct_ids:
         persons = resolve_persons_for_deletion(
             person_removal.team_id,
-            uuids=person_removal.person_uuids or None,
+            uuids=None,
             distinct_ids=person_removal.person_distinct_ids,
         )
         person_removal.person_uuids = [str(p.uuid) for p in persons]

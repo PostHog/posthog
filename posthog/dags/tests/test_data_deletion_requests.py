@@ -937,6 +937,26 @@ def test_load_person_removal_request_transitions_to_in_progress():
 
 
 @pytest.mark.django_db
+def test_load_person_removal_rejects_both_selectors():
+    # Belt-and-suspenders: model.clean() enforces mutual exclusion at the API boundary, but if
+    # a row is created bypassing clean() (e.g. raw SQL or .objects.create), the dagster job must
+    # still refuse to run because resolve_persons_for_deletion's elif would silently drop one set.
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_distinct_ids=["did-1"],
+        person_drop_profiles=True,
+        person_drop_events=False,
+        person_drop_recordings=False,
+        status=RequestStatus.APPROVED,
+    )
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    with pytest.raises(Exception, match="mutually exclusive"):
+        load_person_removal_request(build_op_context(), config)
+
+
+@pytest.mark.django_db
 def test_load_person_removal_rejects_wrong_type():
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
@@ -999,11 +1019,10 @@ def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_delete_person_events_op_unions_uuids_and_distinct_ids(cluster: ClickhouseCluster):
-    # Regression: when both selectors are populated they must be unioned, otherwise
-    # persons named only by distinct_id get their events left behind in CH.
-    p_by_uuid = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["uuid-only"])
-    p_by_distinct_id = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
+def test_delete_person_events_op_resolves_distinct_ids_to_uuids(cluster: ClickhouseCluster):
+    # When the request was submitted by distinct_id, the events op must resolve to UUIDs
+    # because the CH events table is keyed by person_id (UUID).
+    p = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
     bystander_uuid = str(uuid4())
     now = datetime.now()
 
@@ -1012,8 +1031,7 @@ def test_delete_person_events_op_unions_uuids_and_distinct_ids(cluster: Clickhou
         partial(
             _insert_events_with_person,
             [
-                (TEAM_ID, "$pageview", str(uuid4()), now, str(p_by_uuid.uuid)),
-                (TEAM_ID, "$pageview", str(uuid4()), now, str(p_by_distinct_id.uuid)),
+                (TEAM_ID, "$pageview", str(uuid4()), now, str(p.uuid)),
                 (TEAM_ID, "$pageview", str(uuid4()), now, bystander_uuid),
             ],
         )
@@ -1022,7 +1040,7 @@ def test_delete_person_events_op_unions_uuids_and_distinct_ids(cluster: Clickhou
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
         team_id=TEAM_ID,
-        person_uuids=[str(p_by_uuid.uuid)],
+        person_uuids=[],
         person_distinct_ids=["distinct-only"],
         drop_profiles=False,
         drop_events=True,
@@ -1031,8 +1049,7 @@ def test_delete_person_events_op_unions_uuids_and_distinct_ids(cluster: Clickhou
 
     delete_person_events_op(build_op_context(), cluster, ctx)
 
-    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, str(p_by_uuid.uuid))).result() == 0
-    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, str(p_by_distinct_id.uuid))).result() == 0
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, str(p.uuid))).result() == 0
     assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, bystander_uuid)).result() == 1
 
 
