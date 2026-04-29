@@ -820,23 +820,11 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
         "duration_in_months": IntegerDatabaseField(name="duration_in_months"),
         "max_redemptions": IntegerDatabaseField(name="max_redemptions"),
         "__redeem_by": IntegerDatabaseField(name="redeem_by", hidden=True),
-        # Stripe coupons can omit `redeem_by` (no expiry). Wrap in nullIf so a missing
-        # value (which dlt may persist as 0) surfaces as NULL rather than 1970-01-01.
         "redeem_by": ast.ExpressionField(
             isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
-                args=[
-                    ast.Call(
-                        name="toString",
-                        args=[
-                            ast.Call(
-                                name="nullIf",
-                                args=[ast.Field(chain=["__redeem_by"]), ast.Constant(value=0)],
-                            )
-                        ],
-                    )
-                ],
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__redeem_by"])])],
             ),
             name="redeem_by",
         ),
@@ -871,23 +859,11 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
             name="start",
         ),
         "__end": IntegerDatabaseField(name="end", hidden=True),
-        # Discount.end is null for forever-running discounts. Wrap in nullIf so a
-        # missing value (which dlt may persist as 0) surfaces as NULL rather than 1970-01-01.
         "end": ast.ExpressionField(
             isolate_scope=True,
             expr=ast.Call(
                 name="toDateTime",
-                args=[
-                    ast.Call(
-                        name="toString",
-                        args=[
-                            ast.Call(
-                                name="nullIf",
-                                args=[ast.Field(chain=["__end"]), ast.Constant(value=0)],
-                            )
-                        ],
-                    )
-                ],
+                args=[ast.Call(name="toString", args=[ast.Field(chain=["__end"])])],
             ),
             name="end",
         ),
