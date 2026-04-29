@@ -32,12 +32,11 @@ SATELLITE_NODE_ROLES = [
     NodeRole.AUX,
     NodeRole.OPS,
     NodeRole.SESSIONS,
-    NodeRole.LOGS,
 ]
 
 operations = [
     # Defensive: AUX/AI_EVENTS migrations have already created tables in `posthog`
-    # on those clusters, but OPS/SESSIONS/LOGS are less exercised. No-op when the
+    # on those clusters, but OPS/SESSIONS are less exercised. No-op when the
     # database already exists.
     run_sql_with_exceptions(
         "CREATE DATABASE IF NOT EXISTS posthog",
