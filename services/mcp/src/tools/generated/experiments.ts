@@ -22,6 +22,7 @@ import {
     ExperimentsShipVariantCreateParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveQueryParams,
+    ExperimentsUnarchiveCreateParams,
 } from '@/generated/experiments/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -437,6 +438,22 @@ const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResu
         },
     })
 
+const ExperimentUnarchiveSchema = ExperimentsUnarchiveCreateParams.omit({ project_id: true })
+
+const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithPostHogUrl<Schemas.Experiment>> =>
+    withUiApp('experiment', {
+        name: 'experiment-unarchive',
+        schema: ExperimentUnarchiveSchema,
+        handler: async (context: Context, params: z.infer<typeof ExperimentUnarchiveSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unarchive/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
 const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id: true }).extend(
     ExperimentsPartialUpdateBody.omit({
         start_date: true,
@@ -523,5 +540,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,
+    'experiment-unarchive': experimentUnarchive,
     'experiment-update': experimentUpdate,
 }

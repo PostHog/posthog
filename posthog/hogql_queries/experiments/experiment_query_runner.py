@@ -297,11 +297,15 @@ class ExperimentQueryRunner(QueryRunner):
             except Exception:
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
-            # Precompute metric events for ordered funnel metrics
+            # Precompute metric events for ordered funnel metrics. CUPED extends the
+            # funnel scan back by `lookback_days` to source the pre-exposure covariate;
+            # the precomputed metric_events table only covers the experiment window, so
+            # skip precomputation here and let the builder issue a fresh scan.
             if (
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
+                and not self.cuped_config.enabled
             ):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)

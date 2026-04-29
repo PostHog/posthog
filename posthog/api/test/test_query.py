@@ -41,7 +41,11 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.monitoring import Feature
 from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
-from posthog.clickhouse.query_tagging import Product, QueryTags
+from posthog.clickhouse.query_tagging import (
+    Feature as TagFeature,
+    Product,
+    QueryTags,
+)
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
@@ -1422,3 +1426,25 @@ class TestInferQueryTags(APIBaseTest):
         scene = "DebugQuery"
         query = ActorsQuery(select=["id"], tags=QueryLogTags(scene=scene))
         assert _infer_query_tags(query) == {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY}
+
+    def test_product_key_only_defaults_feature_to_query(self) -> None:
+        # Scenes that only attach `tags.productKey` (e.g. Person, Group) rely on
+        # QueryRunner.run to tag `product` from the productKey. Without a feature default,
+        # those queries would trip UntaggedQueryError in DEBUG.
+        # `_infer_query_tags` returns the query_tagging Feature, not the monitoring one.
+        query = ActorsQuery(
+            select=["id"],
+            tags=QueryLogTags(productKey=ProductKey.CUSTOMER_ANALYTICS),
+        )
+        assert _infer_query_tags(query) == {"feature": TagFeature.QUERY}
+
+    def test_scene_mapping_takes_precedence_over_product_key_fallback(self) -> None:
+        query = ActorsQuery(
+            select=["id"],
+            tags=QueryLogTags(scene="Cohort", productKey=ProductKey.CUSTOMER_ANALYTICS),
+        )
+        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": TagFeature.COHORT}
+
+    def test_unmapped_scene_and_no_product_key_returns_empty(self) -> None:
+        query = ActorsQuery(select=["id"], tags=QueryLogTags(scene="Unknown"))
+        assert _infer_query_tags(query) == {}

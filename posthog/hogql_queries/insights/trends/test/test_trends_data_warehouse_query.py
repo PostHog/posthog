@@ -309,6 +309,50 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             [0, 0, 0, 1, 0, 0, 0],
         ]
 
+    def test_trends_single_item_multi_breakdown_boolean_field(self):
+        # Regression test: a length-1 multi-breakdown over a Bool column previously raised
+        # `TypeError: unhashable type: 'list'` in `_convert_boolean`, since the breakdown value
+        # comes through as a list (e.g. `[True]`) rather than a scalar.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "trends_data_bool.csv",
+            table_name="test_table_bool",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "bool_prop": {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table.name,
+                    table_name=table.name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="bool_prop", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 2
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        # Boolean values are remapped to "true"/"false" strings, but `breakdown_value` stays a list
+        # so it remains consistent with the non-boolean multi-breakdown shape.
+        assert [r["breakdown_value"] for r in breakdown_results] == [["false"], ["true"]]
+        # The series label is the "::"-joined string form, mirroring the frontend.
+        assert [r["label"] for r in breakdown_results] == ["false", "true"]
+
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
 
