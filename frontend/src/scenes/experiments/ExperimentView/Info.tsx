@@ -78,7 +78,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
+            <div className="grid gap-2 grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
@@ -206,12 +206,12 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1100px]:items-end min-w-0">
+                <div className="flex flex-col gap-4 items-start min-[1100px]:items-end min-w-0">
                     {/* Row 1: Duration (date pickers) - only for launched experiments */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Running time, Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1100px]:items-end">
+                    <div className="flex flex-col items-start min-[1100px]:items-end">
                         <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
                             {tabId && (
                                 <RunningTimeNew

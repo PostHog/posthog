@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh, IconWarning } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -135,16 +135,7 @@ export const ExperimentReloadAction = ({
 
     return (
         <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-                <Label intent="menu">Last refreshed</Label>
-                {isOutdated && (
-                    <Tooltip title="Configuration changes detected. Refresh to see updated results.">
-                        <LemonTag type="warning" size="small">
-                            Outdated
-                        </LemonTag>
-                    </Tooltip>
-                )}
-            </div>
+            <Label intent="menu">Last refreshed</Label>
             <div className="relative">
                 <LemonButton
                     onClick={onClick}
@@ -214,6 +205,16 @@ export const ExperimentReloadAction = ({
                     position="top-right"
                     status="muted"
                 />
+                {isOutdated && (
+                    <div className="absolute top-full left-0 mt-1">
+                        <Tooltip title="Refresh to see updated results.">
+                            <span className="text-xs text-warning inline-flex items-center gap-1 whitespace-nowrap">
+                                <IconWarning />
+                                Changes detected
+                            </span>
+                        </Tooltip>
+                    </div>
+                )}
             </div>
         </div>
     )
