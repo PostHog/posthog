@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom'
 import { IconDatabaseBolt } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -17,6 +18,8 @@ import { ChartJsLineChart } from './ChartJsLineChart'
 import { generateBenchData } from './generateBenchData'
 import { HogChartsLineChart } from './HogChartsLineChart'
 import { RealAdaptersCell } from './RealAdaptersCell'
+import { SweepResultsChart } from './SweepResultsChart'
+import type { ChartKind as SweepChartKind, SweepResult } from './sweepTypes'
 
 /**
  * Line-chart benchmark harness. Four chart "kinds":
@@ -37,7 +40,7 @@ import { RealAdaptersCell } from './RealAdaptersCell'
  * iterate a matrix and compare.
  */
 
-type ChartKind = 'hog' | 'chartjs' | 'adapter-hog' | 'adapter-chartjs'
+type ChartKind = SweepChartKind
 
 interface BenchResult {
     chart: ChartKind
@@ -103,6 +106,37 @@ function nextFrame(): Promise<number> {
     })
 }
 
+/** Log-spaced integers between min and max inclusive, deduplicated. */
+function logSpace(min: number, max: number, steps: number): number[] {
+    const lo = Math.max(2, Math.floor(min))
+    const hi = Math.max(lo + 1, Math.floor(max))
+    if (steps <= 1) {
+        return [lo]
+    }
+    const lmin = Math.log10(lo)
+    const lmax = Math.log10(hi)
+    const seen = new Set<number>()
+    const out: number[] = []
+    for (let i = 0; i < steps; i++) {
+        const t = i / (steps - 1)
+        const v = Math.round(Math.pow(10, lmin + (lmax - lmin) * t))
+        if (!seen.has(v)) {
+            seen.add(v)
+            out.push(v)
+        }
+    }
+    return out
+}
+
+function parseSeriesList(raw: string): number[] {
+    return raw
+        .split(',')
+        .map((s) => Number.parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n > 0)
+}
+
+const ALL_CHART_KINDS: ChartKind[] = ['hog', 'chartjs', 'adapter-hog', 'adapter-chartjs']
+
 interface ChartCellProps {
     chart: ChartKind
     series: number
@@ -138,6 +172,17 @@ export function ChartBenchScene(): JSX.Element {
     const [runKey, setRunKey] = useState<number>(0)
     const [result, setResult] = useState<BenchResult | null>(null)
     const [busy, setBusy] = useState<boolean>(false)
+
+    const [sweepMin, setSweepMin] = useState<number>(10)
+    const [sweepMax, setSweepMax] = useState<number>(100_000)
+    const [sweepSteps, setSweepSteps] = useState<number>(10)
+    const [sweepSeriesList, setSweepSeriesList] = useState<string>('1, 10')
+    const [sweepKinds, setSweepKinds] = useState<ChartKind[]>(['hog', 'chartjs'])
+    const [sweepRuns, setSweepRuns] = useState<number>(3)
+    const [sweepLogY, setSweepLogY] = useState<boolean>(true)
+    const [sweepResults, setSweepResults] = useState<SweepResult[]>([])
+    const [sweepProgress, setSweepProgress] = useState<{ done: number; total: number; label: string } | null>(null)
+    const sweepAbortRef = useRef<boolean>(false)
 
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -217,6 +262,101 @@ export function ChartBenchScene(): JSX.Element {
         setBusy(false)
     }, [chart, seriesCount, pointCount, seed, runs, sweepHover])
 
+    const runSweep = useCallback(async () => {
+        const seriesValues = parseSeriesList(sweepSeriesList)
+        const pointValues = logSpace(sweepMin, sweepMax, sweepSteps)
+        if (sweepKinds.length === 0 || seriesValues.length === 0 || pointValues.length === 0) {
+            return
+        }
+        const cells: { chart: ChartKind; series: number; points: number }[] = []
+        for (const ck of sweepKinds) {
+            for (const sv of seriesValues) {
+                for (const pv of pointValues) {
+                    cells.push({ chart: ck, series: sv, points: pv })
+                }
+            }
+        }
+
+        sweepAbortRef.current = false
+        setBusy(true)
+        setSweepResults([])
+        setSweepProgress({ done: 0, total: cells.length, label: '' })
+
+        const collected: SweepResult[] = []
+        for (let idx = 0; idx < cells.length; idx++) {
+            if (sweepAbortRef.current) {
+                break
+            }
+            const cell = cells[idx]
+            setSweepProgress({
+                done: idx,
+                total: cells.length,
+                label: `${cell.chart} · ${cell.series}s × ${cell.points}p`,
+            })
+
+            // Drive the visible cell to this matrix point. flushSync forces
+            // React to commit before we measure, and the runKey bump produces
+            // fresh logic instances for the adapter cells.
+            flushSync(() => {
+                setChart(cell.chart)
+                setSeriesCount(cell.series)
+                setPointCount(cell.points)
+                setRunKey((k) => k + 1)
+            })
+            // Two frames: first to mount/draw, second to ensure any post-paint
+            // chart engine work has settled before we start measuring.
+            await nextFrame()
+            await nextFrame()
+
+            const readySamples: number[] = []
+            const hoverSamples: number[] = []
+            for (let i = 0; i < sweepRuns; i++) {
+                if (sweepAbortRef.current) {
+                    break
+                }
+                const t0 = performance.now()
+                flushSync(() => setRunKey((k) => k + 1))
+                await nextFrame()
+                readySamples.push(performance.now() - t0)
+                hoverSamples.push(await sweepHover())
+                await new Promise((r) => setTimeout(r, 16))
+            }
+
+            const cellResult: SweepResult = {
+                chart: cell.chart,
+                series: cell.series,
+                points: cell.points,
+                runs: readySamples.length,
+                meanReadyMs: round(mean(readySamples)),
+                meanHoverMs: round(mean(hoverSamples)),
+                readyMs: readySamples,
+                hoverMs: hoverSamples,
+            }
+            collected.push(cellResult)
+            setSweepResults([...collected])
+        }
+
+        setSweepProgress(null)
+        setBusy(false)
+    }, [sweepMin, sweepMax, sweepSteps, sweepSeriesList, sweepKinds, sweepRuns, sweepHover])
+
+    const stopSweep = useCallback(() => {
+        sweepAbortRef.current = true
+    }, [])
+
+    const exportSweep = useCallback(() => {
+        if (sweepResults.length === 0) {
+            return
+        }
+        const blob = new Blob([JSON.stringify(sweepResults, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `chart-bench-sweep-${Date.now()}.json`
+        a.click()
+        URL.revokeObjectURL(url)
+    }, [sweepResults])
+
     // Keep the URL in sync with the controls so benchmark runs are shareable
     // and Playwright can parameterize via query string.
     useEffect(() => {
@@ -266,7 +406,7 @@ export function ChartBenchScene(): JSX.Element {
                         type="number"
                         value={pointCount}
                         min={2}
-                        max={5000}
+                        max={1_000_000}
                         onChange={(v) => setPointCount(Number(v) || 2)}
                     />
                 </div>
@@ -327,6 +467,154 @@ export function ChartBenchScene(): JSX.Element {
                     <div>mean hover sweep (30 moves): {result.meanHoverMs} ms</div>
                 </div>
             ) : null}
+
+            <div className="border-t pt-4 mt-4">
+                <h3 className="text-base font-semibold mb-2">Parameter sweep</h3>
+                <div className="text-xs text-muted mb-3">
+                    Walks a log-spaced grid of point counts × series counts × chart kinds, running the benchmark for
+                    each cell and plotting the results. Chart container above is reused for each measurement.
+                </div>
+                <div className="flex flex-wrap gap-4 items-end">
+                    <div>
+                        <LemonLabel>Min points</LemonLabel>
+                        <LemonInput
+                            type="number"
+                            value={sweepMin}
+                            min={2}
+                            onChange={(v) => setSweepMin(Number(v) || 2)}
+                        />
+                    </div>
+                    <div>
+                        <LemonLabel>Max points</LemonLabel>
+                        <LemonInput
+                            type="number"
+                            value={sweepMax}
+                            min={2}
+                            onChange={(v) => setSweepMax(Number(v) || 2)}
+                        />
+                    </div>
+                    <div>
+                        <LemonLabel>Steps</LemonLabel>
+                        <LemonInput
+                            type="number"
+                            value={sweepSteps}
+                            min={2}
+                            max={50}
+                            onChange={(v) => setSweepSteps(Number(v) || 2)}
+                        />
+                    </div>
+                    <div>
+                        <LemonLabel>Series (comma-separated)</LemonLabel>
+                        <LemonInput value={sweepSeriesList} onChange={(v) => setSweepSeriesList(v)} />
+                    </div>
+                    <div>
+                        <LemonLabel>Runs / cell</LemonLabel>
+                        <LemonInput
+                            type="number"
+                            value={sweepRuns}
+                            min={1}
+                            max={20}
+                            onChange={(v) => setSweepRuns(Number(v) || 1)}
+                        />
+                    </div>
+                    <LemonSwitch label="Log Y" checked={sweepLogY} onChange={setSweepLogY} />
+                </div>
+                <div className="flex flex-wrap gap-4 items-center mt-2">
+                    <span className="text-sm text-muted">Charts:</span>
+                    {ALL_CHART_KINDS.map((k) => (
+                        <LemonCheckbox
+                            key={k}
+                            label={k}
+                            checked={sweepKinds.includes(k)}
+                            onChange={(checked) =>
+                                setSweepKinds((prev) => (checked ? [...prev, k] : prev.filter((p) => p !== k)))
+                            }
+                        />
+                    ))}
+                </div>
+                <div className="flex flex-wrap gap-2 items-center mt-3">
+                    <LemonButton
+                        type="primary"
+                        onClick={runSweep}
+                        loading={busy && !!sweepProgress}
+                        disabledReason={
+                            sweepKinds.length === 0
+                                ? 'Pick at least one chart'
+                                : parseSeriesList(sweepSeriesList).length === 0
+                                  ? 'Series list is empty'
+                                  : undefined
+                        }
+                        data-attr="chart-bench-sweep-run"
+                    >
+                        Run sweep
+                    </LemonButton>
+                    {sweepProgress ? (
+                        <LemonButton type="secondary" onClick={stopSweep}>
+                            Stop
+                        </LemonButton>
+                    ) : null}
+                    {sweepResults.length > 0 ? (
+                        <LemonButton type="secondary" onClick={exportSweep}>
+                            Export JSON
+                        </LemonButton>
+                    ) : null}
+                    {sweepProgress ? (
+                        <span className="font-mono text-xs">
+                            {sweepProgress.done}/{sweepProgress.total} — {sweepProgress.label}
+                        </span>
+                    ) : null}
+                    {!sweepProgress && sweepResults.length > 0 ? (
+                        <span className="font-mono text-xs text-muted">
+                            {sweepResults.length} cells · grid: {logSpace(sweepMin, sweepMax, sweepSteps).join(', ')}
+                        </span>
+                    ) : null}
+                </div>
+
+                {sweepResults.length > 0 ? (
+                    <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <SweepResultsChart
+                            results={sweepResults}
+                            metric="meanReadyMs"
+                            title="Mount → post-paint (ms)"
+                            logY={sweepLogY}
+                        />
+                        <SweepResultsChart
+                            results={sweepResults}
+                            metric="meanHoverMs"
+                            title="Hover sweep, 30 moves (ms)"
+                            logY={sweepLogY}
+                        />
+                    </div>
+                ) : null}
+
+                {sweepResults.length > 0 ? (
+                    <details className="mt-4">
+                        <summary className="text-sm cursor-pointer">Raw table ({sweepResults.length} rows)</summary>
+                        <table className="font-mono text-xs mt-2">
+                            <thead>
+                                <tr>
+                                    <th className="text-left pr-4">chart</th>
+                                    <th className="text-right pr-4">series</th>
+                                    <th className="text-right pr-4">points</th>
+                                    <th className="text-right pr-4">ready ms</th>
+                                    <th className="text-right pr-4">hover ms</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sweepResults.map((r, i) => (
+                                    <tr key={i}>
+                                        <td className="pr-4">{r.chart}</td>
+                                        <td className="text-right pr-4">{r.series}</td>
+                                        <td className="text-right pr-4">{r.points}</td>
+                                        <td className="text-right pr-4">{r.meanReadyMs}</td>
+                                        <td className="text-right pr-4">{r.meanHoverMs}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </details>
+                ) : null}
+            </div>
         </SceneContent>
     )
 }
