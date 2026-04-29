@@ -16348,7 +16348,7 @@ export namespace Schemas {
       ExitOnlyAtEnd: 'exit_only_at_end',
     } as const;
 
-    export type ExperimentFeatureFlag = {[key: string]: unknown};
+    export type ExperimentFeatureFlag = { [key: string]: unknown };
 
     export interface ExperimentHoldout {
       readonly id: number;
@@ -27254,7 +27254,7 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
-    export type PatchedExperimentFeatureFlag = {[key: string]: unknown};
+    export type PatchedExperimentFeatureFlag = { [key: string]: unknown };
 
     /**
      * Mixin for serializers to add user access control fields
