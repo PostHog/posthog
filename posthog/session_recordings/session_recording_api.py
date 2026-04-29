@@ -33,7 +33,7 @@ from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ValidationError
 from rest_framework import exceptions, request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, Throttled
+from rest_framework.exceptions import Throttled
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
@@ -1157,56 +1157,63 @@ class SessionRecordingViewSet(
 
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         timer = ServerTimingsGathered()
-
-        with timer("get_recording"):
-            recording: SessionRecording = self.get_object()
-
-        trace.get_current_span().set_attribute("team_id", self.team_id)
-        trace.get_current_span().set_attribute("session_id", str(recording.session_id))
-
-        auth_type = _request_auth_type(request)
-        is_personal_api_key = auth_type == "personal_api_key"
-        serializer = SessionRecordingSnapshotsRequestSerializer(
-            data=request.GET.dict(),
-            context={"is_personal_api_key": is_personal_api_key, "if_none_match": request.headers.get("If-None-Match")},
-        )
-        serializer.is_valid(raise_exception=True)
-        validated_data = serializer.validated_data
-
-        source = validated_data.get("source")
-        source_log_label = source or "listing"
-
-        decompress: bool = validated_data.get("decompress", True)
-
-        if not recording.full_recording_v2_path and not SessionReplayEvents().exists(
-            session_id=str(recording.session_id), team=self.team
-        ):
-            raise exceptions.NotFound("Recording not found")
-
-        SNAPSHOT_SOURCE_REQUESTED.labels(
-            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower(), auth_type=auth_type
-        ).inc()
-
-        if is_personal_api_key:
-            personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
-            used_key = personal_api_authenticator.personal_api_key
-            SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
-            # we want to track personal api key usage of this endpoint
-            # with better visibility than just the token in a counter
-            posthoganalytics.capture(
-                distinct_id=self._distinct_id_from_request(request),
-                event="snapshots_api_called_with_personal_api_key",
-                properties={
-                    "key_label": used_key.label,
-                    "key_scopes": used_key.scopes,
-                    "key_scoped_teams": used_key.scoped_teams,
-                    "session_requested": recording.session_id,
-                    "recording_start_time": recording.start_time,
-                    "source": source_log_label,
-                },
-            )
+        # Track recording outside the try so the exception handler can include the session id
+        # whether the failure occurred before or after `get_object()` succeeded.
+        recording: SessionRecording | None = None
+        source_log_label: str = "unknown"
 
         try:
+            with timer("get_recording"):
+                recording = self.get_object()
+
+            trace.get_current_span().set_attribute("team_id", self.team_id)
+            trace.get_current_span().set_attribute("session_id", str(recording.session_id))
+
+            auth_type = _request_auth_type(request)
+            is_personal_api_key = auth_type == "personal_api_key"
+            serializer = SessionRecordingSnapshotsRequestSerializer(
+                data=request.GET.dict(),
+                context={
+                    "is_personal_api_key": is_personal_api_key,
+                    "if_none_match": request.headers.get("If-None-Match"),
+                },
+            )
+            serializer.is_valid(raise_exception=True)
+            validated_data = serializer.validated_data
+
+            source = validated_data.get("source")
+            source_log_label = source or "listing"
+
+            decompress: bool = validated_data.get("decompress", True)
+
+            if not recording.full_recording_v2_path and not SessionReplayEvents().exists(
+                session_id=str(recording.session_id), team=self.team
+            ):
+                raise exceptions.NotFound("Recording not found")
+
+            SNAPSHOT_SOURCE_REQUESTED.labels(
+                source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower(), auth_type=auth_type
+            ).inc()
+
+            if is_personal_api_key:
+                personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
+                used_key = personal_api_authenticator.personal_api_key
+                SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER.labels(key_label=used_key.label, source=source_log_label).inc()
+                # we want to track personal api key usage of this endpoint
+                # with better visibility than just the token in a counter
+                posthoganalytics.capture(
+                    distinct_id=self._distinct_id_from_request(request),
+                    event="snapshots_api_called_with_personal_api_key",
+                    properties={
+                        "key_label": used_key.label,
+                        "key_scopes": used_key.scopes,
+                        "key_scoped_teams": used_key.scoped_teams,
+                        "session_requested": recording.session_id,
+                        "recording_start_time": recording.start_time,
+                        "source": source_log_label,
+                    },
+                )
+
             response: Response | HttpResponse
             if source == "blob_v2" and "min_blob_key" in validated_data:
                 response = self._stream_blob_v2_to_client(
@@ -1236,13 +1243,26 @@ class SessionRecordingViewSet(
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
-        except NotFound:
+        except (
+            exceptions.NotFound,
+            exceptions.NotAuthenticated,
+            exceptions.AuthenticationFailed,
+            exceptions.PermissionDenied,
+            exceptions.ValidationError,
+            exceptions.Throttled,
+            exceptions.MethodNotAllowed,
+            exceptions.NotAcceptable,
+            exceptions.UnsupportedMediaType,
+            exceptions.ParseError,
+        ):
+            # These DRF exceptions carry meaningful detail and are rendered correctly by the
+            # default exception handler — let them propagate so the client sees the real reason.
             raise
         except RecordingDeletedError as e:
             logger.info(
                 "recording_permanently_deleted",
-                session_id=str(recording.session_id),
-                team_id=self.team.id,
+                session_id=str(recording.session_id) if recording else None,
+                team_id=self.team_id,
                 deleted_at=e.deleted_at,
                 deleted_by=e.deleted_by,
             )
@@ -1256,12 +1276,29 @@ class SessionRecordingViewSet(
                 status=status.HTTP_410_GONE,
             )
         except Exception as e:
+            # Any remaining exception — including bare `APIException()` whose default detail
+            # ("A server error occurred.") would otherwise leak to the client unwrapped — is
+            # converted to a structured `{error, message}` body so the frontend can render
+            # something useful and we always have a captured event with full context.
+            is_bare_api_exception = (
+                isinstance(e, exceptions.APIException) and str(getattr(e, "detail", "")) == exceptions.APIException.default_detail
+            )
+            logger.exception(
+                "session_recording_snapshots_unhandled_exception",
+                session_id=str(recording.session_id) if recording else None,
+                team_id=self.team_id,
+                source=source_log_label,
+                exception_class=e.__class__.__name__,
+                bare_api_exception=is_bare_api_exception,
+            )
             posthoganalytics.capture_exception(
                 e,
                 distinct_id=self._distinct_id_from_request(request),
                 properties={
                     "location": "session_recording_api.snapshots",
                     "session_id": str(recording.session_id) if recording else None,
+                    "source": source_log_label,
+                    "bare_api_exception": is_bare_api_exception,
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )

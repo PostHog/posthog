@@ -6789,6 +6789,20 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
             }
 
             if (typeof data.detail === 'string') {
+                // DRF renders a bare `APIException()` (no `detail`) as the literal
+                // "A server error occurred." default. Surfacing that to users hides
+                // the actual failure and offers no actionable context — substitute a
+                // generic-but-clearer message on 5xx so callers can render something
+                // useful while we still keep the original detail on `ApiError.detail`.
+                const drfDefault = 'A server error occurred.'
+                if (response.status >= 500 && data.detail === drfDefault) {
+                    throw new ApiError(
+                        `Server error (${response.status}). Please try again — if it keeps happening, contact support.`,
+                        response.status,
+                        response.headers,
+                        data
+                    )
+                }
                 throw new ApiError(data.detail, response.status, response.headers, data)
             }
         }

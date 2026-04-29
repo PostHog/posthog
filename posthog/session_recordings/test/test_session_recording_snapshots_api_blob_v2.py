@@ -3,9 +3,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import exceptions as drf_exceptions, status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorCannotScheduleTask
 from posthog.models import Person, PersonalAPIKey, SessionRecording
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -1019,3 +1020,78 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_410_GONE
         assert response.json()["error"] == "recording_deleted"
         assert response.json()["deleted_at"] == 1700000000
+
+    # Tests for unhandled exceptions producing structured error bodies
+    # (regression: bare APIException previously leaked DRF's default
+    # "A server error occurred." detail to clients during the listing path)
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        side_effect=drf_exceptions.APIException(),
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_bare_api_exception_returns_structured_500(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        """A bare ``APIException()`` raised before/inside the dispatcher should be converted to a
+        structured ``{"error": "..."}`` 500 instead of leaking DRF's default
+        ``{"detail": "A server error occurred."}``."""
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        body = response.json()
+        # Must use the structured `error` key (matching the existing 410/503 patterns)
+        # rather than DRF's default `detail`.
+        assert "error" in body
+        assert body["error"] == "An unexpected error has occurred. Please try again later."
+        assert body.get("detail") != "A server error occurred."
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        side_effect=CHQueryErrorCannotScheduleTask("clickhouse over capacity", code=159),
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_clickhouse_overloaded_during_existence_check_returns_503(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        """A ClickHouse capacity error raised during the pre-dispatch existence check should be
+        translated into a 503 with a clear retry message — previously this path was outside the
+        try/except and surfaced as a generic 500 with DRF's default detail."""
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["error"] == "ClickHouse over capacity. Please retry"
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=False,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_not_found_still_propagates_with_message(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        """``NotFound`` raised inside the now-wider try block should still reach DRF's exception
+        handler so the client receives the actual reason ("Recording not found") rather than the
+        generic 500 body."""
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["detail"] == "Recording not found"
