@@ -167,6 +167,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
         )
 
+    @staticmethod
+    def _activity_error_properties(error: Exception) -> dict[str, Any]:
+        if not isinstance(error, temporalio.exceptions.ActivityError):
+            return {}
+
+        retry_state = error.retry_state
+        properties: dict[str, Any] = {
+            "temporal_activity_id": error.activity_id,
+            "temporal_activity_type": error.activity_type,
+            "temporal_activity_identity": error.identity,
+            "temporal_activity_retry_state": retry_state.name if retry_state else None,
+            "temporal_activity_scheduled_event_id": error.scheduled_event_id,
+            "temporal_activity_started_event_id": error.started_event_id,
+        }
+
+        if error.cause:
+            properties.update(
+                {
+                    "cause_error_type": type(error.cause).__name__,
+                    "cause_error_message": str(error.cause)[:500],
+                }
+            )
+
+        return properties
+
     async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
             lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None
@@ -487,9 +512,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     {
                         "run_id": run_id,
                         "task_id": self.context.task_id,
+                        "repository": self.context.repository,
+                        "origin_product": self.context.origin_product,
+                        "environment": self.context.environment,
+                        "mode": self.context.mode,
+                        "run_source": self.context.run_source,
+                        "runtime_adapter": self.context.runtime_adapter,
+                        "provider": self.context.provider,
+                        "model": self.context.model,
+                        "reasoning_effort": self.context.reasoning_effort,
                         "error_type": type(e).__name__,
                         "error_message": error_message,
                         "sandbox_id": current_sandbox_id,
+                        **self._activity_error_properties(e),
                     },
                 )
                 await self._update_task_run_status("failed", error_message=error_message)

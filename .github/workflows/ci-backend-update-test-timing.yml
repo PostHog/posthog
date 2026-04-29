@@ -1,4 +1,4 @@
-name: Backend CI - Update test timing
+name: Backend & Dagster CI - Update test timing
 
 on:
     pull_request:
@@ -44,8 +44,8 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
-            - name: Find CI run to use
-              id: find-run
+            - name: Find Backend CI run to use
+              id: find-backend-run
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   INPUT_RUN_ID: ${{ inputs.run_id }}
@@ -60,7 +60,7 @@ jobs:
                   # Most runs skip tests due to path filtering (~20 sec), so filter by duration first
                   # Runs that actually execute tests take 15+ minutes
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
-                  echo "Searching for CI run with timing artifacts..."
+                  echo "Searching for Backend CI run with timing artifacts..."
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
@@ -81,21 +81,68 @@ jobs:
                       done)
 
                   if [ -z "$run_id" ]; then
-                      echo "::error::No suitable CI run found with timing artifacts"
+                      echo "::error::No suitable Backend CI run found with timing artifacts"
                       exit 1
                   fi
 
                   echo "run_id=$run_id" >> $GITHUB_OUTPUT
-                  echo "Found CI run: $run_id"
+                  echo "Found Backend CI run: $run_id"
+
+            - name: Find Dagster CI run to use
+              id: find-dagster-run
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # Find a recent successful ci-dagster.yml run with timing artifacts
+                  # Only consider runs from the past 14 days to ensure artifacts haven't expired
+                  echo "Searching for Dagster CI run with timing artifacts..."
+
+                  # Calculate date 14 days ago in ISO 8601 format
+                  cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
+                  # Get runs that took more than 5 minutes (300 seconds) - likely ran tests
+                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-dagster.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                      --jq '.workflow_runs[] | select(
+                          (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                      ) | .id' | head -5 | \
+                      while read id; do
+                          count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
+                              --jq '[.artifacts[] | select(.name | startswith("timing_data-Dagster-")) | select(.expired == false)] | length' 2>/dev/null)
+                          echo "Run $id has $count Dagster timing artifacts" >&2
+                          # Expect at least 3 Dagster shards
+                          if [ "$count" -ge "3" ]; then
+                              echo "$id"
+                              break
+                          fi
+                      done)
+
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No suitable Dagster CI run found with timing artifacts - skipping Dagster"
+                      echo "run_id=" >> $GITHUB_OUTPUT
+                  else
+                      echo "run_id=$run_id" >> $GITHUB_OUTPUT
+                      echo "Found Dagster CI run: $run_id"
+                  fi
 
             - name: Download timing artifacts
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
+                  BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
+                  DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
-                  gh run download "$RUN_ID" --pattern "timing_data-*" --dir timing_artifacts
+                  # Download backend timing artifacts
+                  gh run download "$BACKEND_RUN_ID" --pattern "timing_data-*" --dir timing_artifacts
+
+                  # Download dagster timing artifacts if available
+                  if [ -n "$DAGSTER_RUN_ID" ]; then
+                      gh run download "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
+                      echo "Downloaded Dagster timing artifacts"
+                  else
+                      echo "Skipping Dagster timing artifacts (no suitable run found)"
+                  fi
 
             - name: Process timing data
+              env:
+                  DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
                   # Process each segment separately, then merge
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
@@ -105,11 +152,18 @@ jobs:
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
                       --segment Products
 
-                  # Merge into single file (Core → Temporal → Products, later segments overwrite overlaps)
+                  # Process Dagster segment if available
+                  if [ -n "$DAGSTER_RUN_ID" ]; then
+                      uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/dagster_durations \
+                          --segment Dagster
+                      echo "Processed Dagster timing data"
+                  fi
+
+                  # Merge into single file (Core → Temporal → Products → Dagster, later segments overwrite overlaps)
                   python3 -c "
                   import json
                   durations = {}
-                  for path in ['/tmp/core_durations', '/tmp/temporal_durations', '/tmp/products_durations']:
+                  for path in ['/tmp/core_durations', '/tmp/temporal_durations', '/tmp/products_durations', '/tmp/dagster_durations']:
                       try:
                           with open(path) as f: durations.update(json.load(f))
                       except FileNotFoundError: pass
@@ -118,7 +172,7 @@ jobs:
                       f.write('\n')
                   print(f'Merged {len(durations)} tests')
                   "
-                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
+                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
 
             - name: Check for changes
               id: check-changes
@@ -137,7 +191,7 @@ jobs:
               if: steps.check-changes.outputs.changed == 'true' && github.event_name == 'pull_request'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  commit_message: 'chore(ci): update backend test timings'
+                  commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
               env:
@@ -181,7 +235,7 @@ jobs:
               if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  commit_message: 'chore(ci): update backend test timings'
+                  commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: chore/update-test-timings
               env:
@@ -191,18 +245,29 @@ jobs:
               if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
+                  BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
+                  DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
                   REPO: ${{ github.repository }}
               run: |
                   existing_pr=$(gh pr list --head "chore/update-test-timings" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
                     echo "PR #$existing_pr already exists — updated by commit"
                   else
-                    gh pr create \
-                      --title "chore(ci): update backend test timings" \
-                      --body "Automated update of backend test timing data from CI run [${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID}).
+                    body="Automated update of test timing data.
 
-                  This keeps pytest-split sharding balanced." \
+                  **Sources:**
+                  - Backend CI: [${BACKEND_RUN_ID}](https://github.com/${REPO}/actions/runs/${BACKEND_RUN_ID})"
+                    if [ -n "$DAGSTER_RUN_ID" ]; then
+                      body+="
+                  - Dagster CI: [${DAGSTER_RUN_ID}](https://github.com/${REPO}/actions/runs/${DAGSTER_RUN_ID})"
+                    fi
+                    body+="
+
+                  This keeps pytest-split sharding balanced."
+
+                    gh pr create \
+                      --title "chore(ci): update backend and dagster test timings" \
+                      --body "$body" \
                       --base master \
                       --head chore/update-test-timings \
                       --reviewer "PostHog/team-devex"
