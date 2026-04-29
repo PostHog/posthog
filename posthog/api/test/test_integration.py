@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -2039,3 +2040,384 @@ class TestGitHubBranches:
         assert first == "develop"
         assert second == "develop"
         assert mock_get.call_count == 1
+
+
+class TestGitHubLinkExisting:
+    """Tests for POST /integrations/github/link_existing/ — clones a GitHub Integration
+    row from another team in the same organization onto the current team without
+    going through the GitHub install flow.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        from posthog.models.user_integration import UserIntegration
+
+        self.organization = Organization.objects.create(name="Test Org")
+        self.source_team = Team.objects.create(organization=self.organization, name="Source Team")
+        self.dest_team = Team.objects.create(organization=self.organization, name="Dest Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+        self.source_integration = Integration.objects.create(
+            team=self.source_team,
+            kind="github",
+            integration_id="12345",
+            config={
+                "installation_id": "12345",
+                "expires_in": 3600,
+                "refreshed_at": int(time.time()),
+                "repository_selection": "all",
+                "account": {"type": "Organization", "name": "acme"},
+                "connecting_user_github_login": "octocat",
+            },
+            sensitive_config={"access_token": "ghs_source"},
+            created_by=self.user,
+        )
+
+        # Personal GitHub integration that proves the requesting user has access to the
+        # GitHub installation — required by the link_existing security check.
+        self.user_github_integration = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"account": {"type": "Organization", "name": "acme"}},
+            sensitive_config={"access_token": "ghu_user"},
+        )
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_clones_integration_to_dest_team(self, mock_from_install, mock_verify, client: HttpClient):
+        client.force_login(self.user)
+
+        cloned = Integration.objects.create(
+            team=self.dest_team,
+            kind="github",
+            integration_id="12345",
+            config={
+                "installation_id": "12345",
+                "expires_in": 3600,
+                "refreshed_at": int(time.time()),
+                "repository_selection": "all",
+                "account": {"type": "Organization", "name": "acme"},
+            },
+            sensitive_config={"access_token": "ghs_cloned"},
+            created_by=self.user,
+        )
+        mock_from_install.return_value = cloned
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": self.source_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_verify.assert_called_once_with("12345", "ghu_user")
+        mock_from_install.assert_called_once_with("12345", self.dest_team.pk, self.user)
+
+        cloned.refresh_from_db()
+        assert cloned.config.get("connecting_user_github_login") == "octocat"
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_rejects_cross_organization(self, mock_from_install, client: HttpClient):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        Integration.objects.create(
+            team=other_team,
+            kind="github",
+            integration_id="99999",
+            config={"installation_id": "99999"},
+            sensitive_config={"access_token": "ghs_foreign"},
+        )
+
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": other_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Source team not found in your organization" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_rejects_team_without_github_integration(self, mock_from_install, client: HttpClient):
+        slack_only_team = Team.objects.create(organization=self.organization, name="Slack Only Team")
+        Integration.objects.create(
+            team=slack_only_team,
+            kind="slack",
+            config={"team_id": "T123"},
+            sensitive_config={"access_token": "xoxb_test"},
+        )
+
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": slack_only_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Source team does not have a GitHub integration" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_rejects_source_missing_installation_id(self, mock_from_install, client: HttpClient):
+        broken_team = Team.objects.create(organization=self.organization, name="Broken Team")
+        Integration.objects.create(
+            team=broken_team,
+            kind="github",
+            integration_id="broken",
+            config={},
+            sensitive_config={},
+        )
+
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": broken_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "missing installation_id" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_by_installation_id_links_to_dest_team(
+        self, mock_from_install, mock_verify, client: HttpClient
+    ):
+        client.force_login(self.user)
+
+        cloned = Integration.objects.create(
+            team=self.dest_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_cloned"},
+            created_by=self.user,
+        )
+        mock_from_install.return_value = cloned
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"installation_id": "12345"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_verify.assert_called_once_with("12345", "ghu_user")
+        mock_from_install.assert_called_once_with("12345", self.dest_team.pk, self.user)
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_by_installation_id_rejects_unknown_installation(self, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"installation_id": "99999"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "No team in your organization" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_by_installation_id_rejects_non_numeric(self, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"installation_id": "not-a-number"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid installation_id" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    def test_link_existing_requires_source_team_id_or_installation_id(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "source_team_id or installation_id is required" in response.json()["detail"]
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_rejects_user_without_personal_github(
+        self, mock_from_install, mock_verify, client: HttpClient
+    ):
+        # Stranger from the same org has no personal GitHub UserIntegration; can't prove access.
+        stranger = User.objects.create_and_join(
+            self.organization, "stranger@posthog.com", "stranger", level=OrganizationMembership.Level.ADMIN
+        )
+        client.force_login(stranger)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": self.source_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "connect your personal GitHub account" in response.json()["detail"]
+        mock_verify.assert_not_called()
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=False)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_rejects_user_without_installation_access(
+        self, mock_from_install, mock_verify, client: HttpClient
+    ):
+        # User has a personal GitHub integration but GitHub says they can't see this installation.
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": self.source_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "connect your personal GitHub account" in response.json()["detail"]
+        mock_verify.assert_called_once_with("12345", "ghu_user")
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_surfaces_verify_network_failures(self, mock_from_install, mock_verify, client: HttpClient):
+        import requests as _requests
+
+        mock_verify.side_effect = _requests.RequestException("boom")
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": self.source_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Failed to verify installation access" in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+
+class TestGitHubOAuthAuthorize:
+    """Tests for POST /integrations/github/oauth_authorize/ — mints a User OAuth URL
+    so the frontend can recover from `setup_action=update` redirects (no code).
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_oauth_authorize_returns_github_url_with_state_in_cache(self, client: HttpClient):
+        client.force_login(self.user)
+
+        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
+                {"installation_id": "12345", "next": "/some/return/path"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "oauth_url" in body
+        assert body["oauth_url"].startswith("https://github.com/login/oauth/authorize?")
+        assert "client_id=test-client-id" in body["oauth_url"]
+
+        # Pull the state token out of the URL and verify the cache entry is bound
+        # to user_id + team_id + installation_id.
+        token_match = re.search(r"state=token%3D([^&]+)", body["oauth_url"])
+        assert token_match is not None
+        token = token_match.group(1)
+        cached = cache.get(f"github_user_install_state:{token}")
+        assert cached is not None
+        assert cached["user_id"] == self.user.id
+        assert cached["team_id"] == self.team.pk
+        assert cached["installation_id"] == "12345"
+        assert cached["flow"] == "team_oauth_authorize"
+        assert cached["next"] == "/some/return/path"
+
+    def test_oauth_authorize_requires_installation_id(self, client: HttpClient):
+        client.force_login(self.user)
+
+        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
+                {},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "installation_id is required" in response.json()["detail"]
+
+    def test_oauth_authorize_rejects_non_numeric_installation_id(self, client: HttpClient):
+        client.force_login(self.user)
+
+        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
+                {"installation_id": "abc"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid installation_id" in response.json()["detail"]
+
+    def test_oauth_authorize_rejects_absolute_next_url(self, client: HttpClient):
+        client.force_login(self.user)
+
+        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
+                {"installation_id": "12345", "next": "https://evil.com/steal"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "next must be a relative path" in response.json()["detail"]
+
+    def test_oauth_authorize_rejects_protocol_relative_next_url(self, client: HttpClient):
+        client.force_login(self.user)
+
+        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
+                {"installation_id": "12345", "next": "//evil.com/steal"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "next must be a relative path" in response.json()["detail"]
+
+    def test_oauth_authorize_requires_client_id_configured(self, client: HttpClient):
+        client.force_login(self.user)
+
+        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", ""):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
+                {"installation_id": "12345"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "GitHub App client ID is not configured" in response.json()["detail"]

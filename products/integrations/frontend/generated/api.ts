@@ -570,6 +570,61 @@ export const integrationsDomainConnectCheckRetrieve = async (
 }
 
 /**
+ * Clone a GitHub Integration row from another team in the same organization onto the current team.
+
+GitHub's installation flow has no usable callback when the App is already installed on the
+target org (the user lands on the Configure page and there is no automatic redirect back).
+This endpoint lets users opt in to reusing an existing GitHub installation that's already
+linked to a sibling team in the same PostHog organization, without going through GitHub.
+ */
+export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/link_existing/`
+}
+
+export const integrationsGithubLinkExistingCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+/**
+ * Mint a User OAuth round-trip URL for an existing GitHub App installation.
+
+Used when GitHub redirects the install flow back without an OAuth `code`
+(the App was already installed on the org and the user landed on the
+Configure page). Without `code` we can't run `verify_user_installation_access`,
+so the auto-link via link_existing only works when a sibling team in the
+org has already captured the installation. For the orphan case — installation
+exists on GitHub but no PostHog team has linked it yet — we send the user
+through GitHub's User OAuth flow to mint a fresh `code`. State is bound
+server-side to (user_id, team_id, installation_id) and is single-use.
+The ``/complete/github-link/`` callback handles the return.
+ */
+export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
+}
+
+export const integrationsGithubOauthAuthorizeCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+/**
  * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
  * @summary List personal GitHub integrations
  */
