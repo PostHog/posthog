@@ -352,47 +352,42 @@ function UsageMetricsForm(): JSX.Element {
 
 function DataWarehouseFilterFields(): JSX.Element {
     return (
-        <LemonField
-            name="filters"
-            label="Data warehouse table"
-            help="Pick the table and type the columns that map to the timestamp and the group key."
-        >
+        <LemonField name="filters" label="Data warehouse table">
             {({ value, onChange }) => {
                 const dwFilters = (value ?? { source: 'data_warehouse' }) as UsageMetricFiltersDataWarehouse
-                const setField = (key: keyof UsageMetricFiltersDataWarehouse, fieldValue: string | null): void => {
-                    onChange({ ...dwFilters, source: 'data_warehouse', [key]: fieldValue })
-                }
-
                 return (
-                    <div className="grid grid-cols-3 gap-2">
-                        <div className="flex flex-col gap-1">
-                            <LemonLabel>Table</LemonLabel>
-                            <TaxonomicStringPopover
-                                groupType={TaxonomicFilterGroupType.DataWarehouse}
-                                value={dwFilters.table_name ?? null}
-                                onChange={(newValue) => setField('table_name', newValue)}
-                                placeholder="Select table"
-                                data-attr="usage-metric-dw-table"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <LemonLabel>Timestamp column</LemonLabel>
-                            <LemonInput
-                                value={dwFilters.timestamp_field ?? ''}
-                                onChange={(newValue) => setField('timestamp_field', newValue || null)}
-                                placeholder="created_at"
-                                data-attr="usage-metric-dw-timestamp"
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <LemonLabel>Group key column</LemonLabel>
-                            <LemonInput
-                                value={dwFilters.group_key_field ?? ''}
-                                onChange={(newValue) => setField('group_key_field', newValue || null)}
-                                placeholder="customer_id"
-                                data-attr="usage-metric-dw-group-key"
-                            />
-                        </div>
+                    <div className="flex flex-col gap-1">
+                        <TaxonomicStringPopover
+                            groupType={TaxonomicFilterGroupType.DataWarehouse}
+                            value={dwFilters.table_name ?? null}
+                            filter={
+                                {
+                                    table_name: dwFilters.table_name,
+                                    timestamp_field: dwFilters.timestamp_field,
+                                    key_field: dwFilters.key_field,
+                                } as any
+                            }
+                            dataWarehousePopoverFields={[
+                                { key: 'timestamp_field', label: 'Timestamp column', allowHogQL: true },
+                                { key: 'key_field', label: 'Group key column' },
+                            ]}
+                            onChange={(tableName, _groupType, item) => {
+                                onChange({
+                                    source: 'data_warehouse',
+                                    table_name: tableName,
+                                    timestamp_field: item?.timestamp_field ?? null,
+                                    key_field: item?.key_field ?? null,
+                                })
+                            }}
+                            placeholder="Select table"
+                            data-attr="usage-metric-dw-table"
+                        />
+                        {dwFilters.table_name && (
+                            <span className="text-xs text-secondary">
+                                Timestamp: <code>{dwFilters.timestamp_field || '—'}</code> · Group key:{' '}
+                                <code>{dwFilters.key_field || '—'}</code>
+                            </span>
+                        )}
                     </div>
                 )
             }}

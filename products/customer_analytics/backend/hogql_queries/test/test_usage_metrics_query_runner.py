@@ -1126,7 +1126,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
         assert by_name["Events count"]["value"] == 2.0
         assert by_name["DW count"]["value"] == 3.0
 
-    def test_data_warehouse_metric_rejects_person_query(self):
+    def test_data_warehouse_metric_skipped_on_person_query(self):
         person = _create_person(distinct_ids=["dw-person"], team=self.team, properties={})
         flush_persons_and_events()
         table_name = self._setup_dw_table()
@@ -1146,8 +1146,9 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
         )
 
         with freeze_time("2025-10-09T12:11:00"):
-            with pytest.raises(ValueError, match="data_warehouse metrics are not supported for person queries"):
-                self._calculate(person_id=str(person.uuid))
+            results = self._calculate(person_id=str(person.uuid))["results"]
+
+        assert results == []
 
     def test_cache_invalidates_when_data_warehouse_field_edited(self):
         self._setup_group()

@@ -128,6 +128,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         for metric in metrics:
             if metric.math == GroupUsageMetric.Math.SUM and not metric.math_property:
                 continue
+            if metric.is_data_warehouse and self._is_person_query:
+                # DW metrics only render on group profiles in v1.
+                continue
             with self.timings.measure("get_metric_filter_expr"):
                 filter_expr = metric.get_expr()
             if not metric.is_data_warehouse and filter_expr == ast.Constant(value=True):
@@ -319,8 +322,6 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def _entity_filter_for(self, source_sig: SourceSignature) -> ast.Expr:
         if source_sig[0] == GroupUsageMetric.Source.DATA_WAREHOUSE:
-            if not self._is_group_query:
-                raise ValueError("data_warehouse metrics are not supported for person queries")
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=parse_expr(source_sig[3]),
