@@ -114,16 +114,13 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
 
             const relativeX = e.clientX - rect.x
             const newPercentage = Math.max(Math.min(relativeX / rect.width, 1), 0)
-
-            if (newPercentage !== percentage) {
-                setPercentage(newPercentage)
-            }
+            setPercentage(newPercentage)
         }
 
         const seekBar = seekBarRef.current
         seekBar.addEventListener('mousemove', handleMouseMove)
         return () => seekBar.removeEventListener('mousemove', handleMouseMove)
-    }, [seekBarRef, percentage])
+    }, [seekBarRef])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>
