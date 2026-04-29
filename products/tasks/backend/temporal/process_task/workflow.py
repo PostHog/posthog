@@ -73,23 +73,17 @@ class TaskEvent(StrEnum):
     CI_FOLLOW_UP = "ci_follow_up"
 
 
-<<<<<<< New base: resume from last checkpoint
 class CIFollowUpDecision(StrEnum):
     FIRE = "fire"
     SKIP = "skip"
     NO_PR = "no_pr"
 
 
-INACTIVITY_TIMEOUT = timedelta(minutes=5)
-||||||| Common ancestor
-INACTIVITY_TIMEOUT = timedelta(minutes=5)
-=======
 # Default 5 min in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
 # for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
 # shutdown for resume-flow testing). When overridden, the CI follow-up floor
 # below is bypassed so the timer actually fires that fast.
 INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 300)
->>>>>>> Current commit: resume from last checkpoint
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
