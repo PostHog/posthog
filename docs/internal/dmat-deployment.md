@@ -67,48 +67,71 @@ Migration `0244_add_dmat_string_columns_10_99` does this in order:
 3. **ALTER** `sharded_events`, `events`, and (cloud-only) `writable_events` to add
    `dmat_string_10..99`.
 4. **CREATE** the kafka tables and MVs from the updated schema.
+5. **CREATE** `dmat_slot_assignments` (table) and `dmat_slot_assignments_dict`
+   (dictionary) ON CLUSTER. The weekly backfill workflow writes this table on every host
+   and reloads the dictionary before submitting its mutation; the mutation reads the
+   `(team_id, column_index) → property_name` mapping out of the dictionary so the SQL
+   stays a constant size regardless of how many teams have adopted dmat. Empty until the
+   first workflow run populates it; an empty dict makes `dictHas` return 0 and the
+   mutation's SET expression falls through to the no-op fallback.
 
 There is a brief gap between steps 1 and 4 where new events will not flow into
 `writable_events`. They land in Kafka, are not consumed during the gap, and are picked
 up once the recreated MV resumes. Plan to run the migration during a low-traffic
 window.
 
-### 3. Register the weekly Temporal cron schedule
+### 3. Register the weekly Temporal cron schedules
 
-The schedule definition lives in
-`posthog/temporal/backfill_materialized_property/schedule.py` but is **not** auto-wired
+Two independent schedules need to exist — one for compaction and one for PENDING
+allocation. They run on different days of the week so a long compaction mutation has time
+to finish (and free its old columns) before the allocation workflow looks at the free
+pool. Both definitions live in
+`posthog/temporal/backfill_materialized_property/schedule.py` but are **not** auto-wired
 into worker startup. Run this from a Django shell on a host that can reach Temporal:
 
 ```python
 import asyncio
 from posthog.temporal.backfill_materialized_property.schedule import (
     create_or_update_weekly_dmat_backfill_schedule,
+    create_or_update_weekly_dmat_compact_schedule,
 )
 from posthog.temporal.common.client import async_connect
 
 async def main():
     client = await async_connect()
+    await create_or_update_weekly_dmat_compact_schedule(client)
     await create_or_update_weekly_dmat_backfill_schedule(client)
 
 asyncio.run(main())
 ```
 
-The schedule fires every Sunday at 00:00 UTC and uses `ScheduleOverlapPolicy.SKIP` so a
-long-running mutation never gets a duplicate firing alongside it.
+- `weekly-dmat-compact` fires Saturday 00:00 UTC. Self-skips when the global free-column
+  count is at or above `COMPACTION_FREE_COLUMN_THRESHOLD` (10), so most weeks are no-ops.
+- `weekly-dmat-backfill` fires Sunday 00:00 UTC. Allocates columns for any PENDING slots
+  and runs the historical backfill mutation.
 
-### 4. Verify the worker has the new workflow registered
+Both schedules use `ScheduleOverlapPolicy.SKIP` so a long-running mutation never gets a
+duplicate firing alongside it. The 24h gap between Saturday and Sunday firings is the
+buffer that lets compaction's mutation finish before allocation reads the free pool.
 
-The worker needs to know about both `BackfillMaterializedPropertyWorkflow` (legacy, kept
-for in-flight runs) and `BackfillMaterializedPropertiesBatchWorkflow` (new). Both are
-registered in `posthog/temporal/product_analytics/__init__.py:WORKFLOWS`. Restart the
-analytics-platform Temporal worker so it picks up the new workflow definition.
+### 4. Verify the worker has the new workflows registered
+
+The worker needs to know about three workflows:
+
+- `BackfillMaterializedPropertyWorkflow` — legacy per-slot, kept for in-flight runs.
+- `BackfillMaterializedPropertiesBatchWorkflow` — weekly PENDING allocation.
+- `CompactMaterializedColumnsWorkflow` — weekly compaction (self-skips most weeks).
+
+All three are registered in `posthog/temporal/product_analytics/__init__.py:WORKFLOWS`.
+Restart the analytics-platform Temporal worker so it picks up the new workflow
+definition.
 
 ### 5. Smoke test on staging
 
 Before turning this on for production teams:
 
 - Add 1–2 PENDING slots for a low-volume staging team via the staff UI.
-- Trigger the workflow manually (don't wait a week):
+- Trigger the PENDING-allocation workflow manually (don't wait a week):
 
   ```python
   await client.execute_workflow(
@@ -122,6 +145,22 @@ Before turning this on for production teams:
 - Confirm the slot transitions PENDING → BACKFILL → READY, that
   `dmat_string_<n>` is populated for new and historical events, and that HogQL queries
   on the property hit the column (check `EXPLAIN` or the query log).
+- To smoke-test compaction without driving the column pool to the threshold, manually
+  set `compaction_target_slot_index` on a small READY staging slot to a free column
+  index, then trigger:
+
+  ```python
+  await client.execute_workflow(
+      "compact-materialized-columns",
+      CompactMaterializedColumnsInputs(cache_refresh_wait_seconds=180),
+      id="dmat-compact-staging-smoke-1",
+      task_queue=settings.TEMPORAL_TASK_QUEUE,
+  )
+  ```
+
+  The workflow will treat the hand-set target as in-flight, run the mutation, and
+  finalize the swap. Verify the slot's `slot_index` ends up at the new column and the
+  old `dmat_string_<n>` is no longer being read by HogQL.
 
 ### 6. Roll out to production teams
 
@@ -131,15 +170,16 @@ candidates (e.g. via query log analysis) and posts the slot through the staff UI
 ## Alerts
 
 Two non-exception bad states emit `posthoganalytics.capture_exception(...)` from the
-weekly workflow's activities — Sentry's normal dedup + PagerDuty rules carry them to
+weekly workflows' activities — Sentry's normal dedup + PagerDuty rules carry them to
 oncall. Workflow / activity _failures_ are auto-captured by the Temporal interceptor in
 `posthog/temporal/common/posthog_client.py`, so this list only covers states the
-workflow recovers from on its own but that still need operator attention.
+workflows recover from on their own but that still need operator attention.
 
-| Alert message                                                            | Trigger                                                                                                    | Operator response                                                                                                                                                                |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dmat: stranded BACKFILL slots require operator action`                  | A weekly run finds slots in BACKFILL whose `backfill_temporal_workflow_id` is from a prior, dead run.      | Reset the slot(s) back to PENDING via the staff API so the next weekly cycle picks them up. Slots stay harmless (HogQL falls back to JSON for state != READY) but waste columns. |
-| `dmat: compaction planner skipped slots — column pool may be exhausting` | The compaction planner couldn't fit one or more slots into a fresh column (per-team uniqueness collision). | One firing is fine — the next weekly run retries. Sustained firings mean compaction is stalling and the column pool is draining; investigate `MAX_SLOTS_PER_TEAM` / cycle.       |
+| Alert message                                                                                    | Trigger                                                                                                                                 | Operator response                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dmat: stranded BACKFILL slots require operator action`                                          | A weekly run finds slots in BACKFILL whose `backfill_temporal_workflow_id` is from a prior, dead run.                                   | Reset the slot(s) back to PENDING via the staff API so the next weekly cycle picks them up. Slots stay harmless (HogQL falls back to JSON for state != READY) but waste columns.                                                                                                 |
+| `dmat: compaction planner skipped slots — column pool may be exhausting`                         | The compaction planner couldn't fit one or more slots into a fresh column (per-team uniqueness collision).                              | One firing is fine — the next weekly run retries. Sustained firings mean compaction is stalling and the column pool is draining; investigate `MAX_SLOTS_PER_TEAM` / cycle.                                                                                                       |
+| `dmat: PENDING allocation refused — free column pool below threshold; compaction must run first` | The PENDING-allocation workflow saw `free_count < COMPACTION_FREE_COLUMN_THRESHOLD` and skipped fresh allocation to protect compaction. | Compaction either failed last firing or is still running. Check the compaction workflow's last run in Temporal — if it failed, investigate the underlying mutation error. PENDING slots stay PENDING and get picked up automatically once compaction succeeds and frees columns. |
 
 Workflow duration / mutation latency are covered by Temporal's built-in
 `temporal_activity_execution_latency_seconds{activity_name="run_batched_mutation"}` —
@@ -147,7 +187,8 @@ no custom histogram needed.
 
 The on-call's pre-firing check ("no other large mutation queued on `sharded_events`")
 should be on the same Grafana dashboard — query `system.mutations WHERE table='sharded_events'
-AND is_done=0` and compare against the cron firing time.
+AND is_done=0` and compare against both cron firing times (Saturday 00:00 UTC for
+compaction, Sunday 00:00 UTC for PENDING allocation).
 
 ## Emergency kill switch (plugin-server ingestion)
 
@@ -181,27 +222,6 @@ refresh, and the column is freed for the next workflow run.
 These are the things this branch deliberately does not solve. Tracking them here so
 they don't get forgotten.
 
-### Crash-recovery between mutation completion and finalize
-
-The workflow does:
-
-```text
-assign → wait → mutation → activate(PENDING→READY) → finalize_compaction(swap)
-```
-
-If the worker crashes between the mutation finishing on ClickHouse and the
-`finalize_compaction` activity running, slots stay in their pre-swap state with
-`compaction_target_slot_index` still set. Plugin-server keeps dual-writing to both
-columns (correct), HogQL keeps reading the old column (correct), but no automatic
-recovery happens. The next weekly run won't re-trigger compaction for those slots
-because the `compaction_target_slot_index` filter excludes them.
-
-**Recovery:** an operator runs `finalize_compaction` manually for the stuck slot IDs,
-or transitions them back to "no target" via the Django shell to free the columns.
-
-**Long-term fix:** the next workflow run should detect "BACKFILL slots / compacting
-slots from a stale workflow_id" and either re-finalize or roll back.
-
 ### Mutation queue coordination
 
 A long-running dmat mutation on `sharded_events` blocks every other mutation on the
@@ -209,25 +229,49 @@ table — most notably person-ID squashing and session-on-events squashing. Runn
 weekly is the only mitigation in this branch. The RFC mentions folding dmat updates
 into the person-ID squashing mutation as future work; not done.
 
-**Mitigation today:** the on-call should confirm no other large mutation is queued on
-`sharded_events` before the weekly cron fires (Sunday 00:00 UTC).
+The two-workflow design also means a compaction week submits **two** mutations across
+the weekend: the compaction firing on Saturday and the PENDING-allocation firing on
+Sunday. Both are large writes against `sharded_events`. This is the cost of the naive
+split — we accept a roughly doubled cluster write load for the ~2 weeks per year
+compaction actually fires, in exchange for the planner staying so trivially correct
+that nothing competes for the same free pool inside a single transaction.
 
-### Mutation-too-large is detected, but a single oversized column isn't split
+**Mitigation today:** on-call should confirm no other large mutation is queued on
+`sharded_events` before either weekly cron fires (Saturday 00:00 UTC for compaction,
+Sunday 00:00 UTC for PENDING allocation).
 
-`run_batched_mutation` chunks assignments at column boundaries when the total branch
-count exceeds `MAX_MULTIIF_BRANCHES_PER_MUTATION = 500`. A single column with more
-branches than the cap is submitted as its own chunk — we never split a `multiIf`
-across mutations because each `multiIf` is self-contained per column. This is fine
-today (max teams per column ≤ team count, which is far under 500) but if a single
-column ever crosses the cap it will probably hit `max_query_size` and the activity
-will fail loudly via the warning log line plus the mutation submission error.
+### Mutation SQL is constant-size via dict-backed dispatch
+
+`run_batched_mutation` no longer encodes per-team `multiIf` branches in the SQL. Each
+affected `dmat_string_<idx>` column gets a single
+`if(dictHas('dmat_slot_assignments_dict', (team_id, idx)), <extract>, dmat_string_<idx>)`
+SET clause; the team and property mapping lives in the dictionary at runtime. The WHERE
+uses `team_id IN (SELECT DISTINCT team_id FROM dmat_slot_assignments)` for primary-key
+part pruning on `sharded_events`. SQL stays a few KB regardless of team count.
+
+The dict is populated by the `populate_slot_assignments` activity which runs in both
+the PENDING and compaction workflows between the assign step and the cache-refresh
+sleep. The activity calls `cluster.map_all_hosts(...)` twice — first to TRUNCATE+INSERT
+the per-host local table, then to `SYSTEM RELOAD DICTIONARY` on every host. A failure
+on any host raises before the reload step runs, so the mutation never sees a half-
+populated cluster. Retry is end-state idempotent.
+
+The mutation also embeds a 32-bit hash of `workflow_run_id` as a no-op
+`AND <int> = <int>` in WHERE so `AlterTableMutationRunner.find_existing_mutations`
+distinguishes cycles. Without it, the dict-based SQL would be byte-identical across
+cycles and a fresh cycle would falsely reattach to the prior cycle's completed
+mutation.
 
 ### Real ClickHouse integration test for the batched mutation is missing
 
-All Python tests for the new workflow mock `get_cluster()` and
-`AlterTableMutationRunner`. The legacy per-slot activity has integration tests against
-a real ClickHouse, but the batched `multiIf` mutation has not been exercised against
-a real cluster. The plan is to validate it on staging during step 5 above.
+The dict-backed SQL is exercised end-to-end on a real ClickHouse via
+`posthog/temporal/tests/backfill_materialized_property/test_coercion_parity.py::TestDictBackedDispatchCoercion`
+(dispatch + extraction parity for every fixture case),
+`posthog/clickhouse/test/test_dmat_dictionary.py` (dict round-trip), and
+`posthog/clickhouse/test/test_cluster.py::test_cycle_marker_survives_format_query`
+(cross-cycle dedup). The full `run_batched_mutation` activity itself is still mocked in
+the workflow tests; staging validation in step 5 is what proves the wire-level shape
+on a multi-shard cluster.
 
 ### Frontend kea-typegen file is not regenerated
 
@@ -258,6 +302,39 @@ test is the only data point.
 
 If the per-team uniqueness invariant means a slot can't be packed into the new dense
 range, the planner skips it and logs a warning. The next weekly run picks it up after
-some columns are freed. Worst case: the global `free_count < 5` check stays true for
-multiple cycles until enough capacity opens up. Not a correctness issue, just possibly
-slow to converge — `dmat_compaction_skipped_slots_total` is the metric to watch.
+some columns are freed. Worst case: the global `free_count < COMPACTION_FREE_COLUMN_THRESHOLD`
+check stays true for multiple cycles until enough capacity opens up. Not a correctness
+issue, just possibly slow to converge — `dmat_compaction_skipped_slots_total` is the
+metric to watch.
+
+## Things to verify before shipping
+
+Items specific to the dict-backed mutation. Each one is small but worth a sanity check
+the first time the workflow runs against a real cluster.
+
+- **Dictionary cardinality at adoption rate.** `dmat_slot_assignments_dict` uses
+  `LAYOUT(COMPLEX_KEY_HASHED())`, which holds entries in RAM. Each row is roughly 100
+  bytes (UInt64 + UInt8 + small property name string). At 100k `(team, column_index)`
+  pairs that's about 10 MB per replica — invisible. Only worth revisiting if dmat
+  adoption ever crosses ~5M entries (≈ 500 MB), at which point switching to
+  `SSD_CACHE` would bound memory use.
+- **Cycle marker collision is irrelevant.** The marker is a 32-bit hash of
+  `workflow_run_id`. Collision rate per cycle is ~1/2³² — never going to fire.
+- **Per-host populate semantics.** A populate failure on any host raises an
+  `ExceptionGroup` from `cluster.map_all_hosts(...)`, the activity fails, and the
+  mutation never runs against a half-populated state. Temporal retries the activity;
+  TRUNCATE+INSERT is end-state idempotent so the retry converges. If you see a
+  populate retrying repeatedly, look at the failing host first — the failure is on the
+  CH side, not in the activity logic.
+- **Mutation rewrites parts that overlap the IN-list.** The WHERE
+  `team_id IN (SELECT DISTINCT team_id FROM dmat_slot_assignments)` lets the merge-tree
+  engine skip parts that contain none of the selected teams. Parts that overlap are
+  rewritten, with the SET applied only to matching rows — this is normal mutation
+  behavior, not a regression. If the dict-source table is empty, the IN-list is empty
+  and the mutation is a complete no-op.
+- **ON CLUSTER DDL covers fresh replicas.** The migration creates the table and
+  dictionary `ON CLUSTER`, so a replica added to the cluster after the migration
+  inherits both via the standard `system.distributed_ddl_queue` path. The first
+  `populate_slot_assignments` after the new replica joins will write to its local
+  copy and reload its local dict, so it ends up consistent with the rest of the
+  cluster on the next workflow firing.

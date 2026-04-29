@@ -17,10 +17,14 @@ MAX_SLOTS_PER_TEAM = 5
 MAX_SLOT_INDEX = 99
 
 # Compaction triggers when fewer than this many free string columns remain across all teams.
-# Picked to match a single weekly cycle's worst-case demand: every onboarded team uses up to
-# MAX_SLOTS_PER_TEAM columns. Below the threshold the workflow re-packs all existing
-# assignments into a small dense range, freeing the rest for the next ~19 weeks.
-COMPACTION_FREE_COLUMN_THRESHOLD = 5
+# Compaction and PENDING allocation run as two separate workflows that each consume up to
+# MAX_SLOTS_PER_TEAM (5) columns from the global free pool. Setting the threshold to
+# 2 * MAX_SLOTS_PER_TEAM = 10 guarantees that the compaction workflow always has at least
+# MAX_SLOTS_PER_TEAM free columns to allocate dense compaction targets into, even if the
+# preceding non-compaction week burned its full quota on PENDING allocation. Below the
+# threshold the compaction workflow re-packs all existing assignments into a small dense
+# range, freeing the rest for the next ~19 weeks.
+COMPACTION_FREE_COLUMN_THRESHOLD = 10
 
 
 class MaterializedColumnSlotState(models.TextChoices):

@@ -1,6 +1,10 @@
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.models.dmat_slot_assignments.sql import (
+    DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
+    DMAT_SLOT_ASSIGNMENTS_TABLE_SQL,
+)
 from posthog.models.event.sql import (
     ALTER_TABLE_ADD_DMAT_STRING_COLUMNS,
     DROP_EVENTS_JSON_WS_MV_SQL,
@@ -185,3 +189,19 @@ if _is_cloud:
             node_roles=[NodeRole.INGESTION_EVENTS],
         ),
     ]
+
+# Step 4: create the dmat slot-assignments backing table and dictionary on
+# every host. The weekly batched workflow writes the current
+# `(team_id, column_index) → property_name` mapping into this table and reloads
+# the dictionary on every host before submitting the backfill mutation. The
+# mutation reads the mapping via `dictGet`/`dictHas`, which keeps the SQL a
+# constant size regardless of how many teams have adopted dmat. Until the first
+# workflow run populates the table the dict is empty and `dictHas` returns 0
+# for every (team_id, column_index) pair, so the SET expression in the
+# mutation falls through to keep the existing column value — i.e. a no-op.
+# Order matters: the dictionary's SOURCE references the table, so the table
+# must be created first.
+operations += [
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=True)),
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=True)),
+]

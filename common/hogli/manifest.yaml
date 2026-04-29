@@ -787,3 +787,7 @@ environment:
         bin_script: warm-flags-cache-local
         description: 'Warm the feature-flags hypercache against the local dev environment'
         hidden: true
+    dmat:local:smoke:
+        bin_script: dmat-local-smoke.py
+        description: 'TODO: add description for dmat-local-smoke.py'
+        hidden: true

@@ -183,6 +183,76 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
         assert cluster.any_host(MutationWaiter("x", {"y"}).is_done).result()
 
 
+def test_cycle_marker_survives_format_query(cluster: ClickhouseCluster) -> None:
+    """The dmat dict-backed mutation embeds a per-cycle marker as `AND <int> = <int>` in
+    its WHERE clause so that AlterTableMutationRunner.find_existing_mutations distinguishes
+    cycles. The other parts of the mutation SQL are constant across cycles (the SET clause
+    references a dictionary at runtime), so without the marker, fresh cycles would falsely
+    reattach to a stale completed mutation.
+
+    This test pins the load-bearing assumption: that ClickHouse's `formatQuery` preserves
+    a literal-equality conjunct verbatim. Same int → same formatted SQL → dedup hits.
+    Different int → different formatted SQL → dedup misses.
+    """
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    # Seed some data so the mutation has rows to scan.
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+
+    sentinel_uuid_a = uuid.uuid1()
+    sentinel_uuid_b = uuid.uuid1()
+    # Make the cycle markers unique per test run so a previous run's mutation rows
+    # in system.mutations don't collide with this run's expected-empty state. Time-based
+    # is fine — the marker just needs to be a valid 32-bit-ish int.
+    cycle_a = int(sentinel_uuid_a.int % 2_000_000_000)
+    cycle_b = int(sentinel_uuid_b.int % 2_000_000_000)
+    assert cycle_a != cycle_b, "uuid collision — re-run the test"
+
+    def _runner(uuid_param, cycle_int: int) -> AlterTableMutationRunner:
+        return AlterTableMutationRunner(
+            table=table,
+            commands={
+                f"""
+                UPDATE person_id = %(uuid)s
+                WHERE 1 = 1 AND {cycle_int} = {cycle_int}
+                """
+            },
+            parameters={"uuid": uuid_param},
+        )
+
+    runner_a = _runner(sentinel_uuid_a, cycle_a)
+    runner_a_again = _runner(sentinel_uuid_a, cycle_a)  # Same cycle marker → must dedup against runner_a.
+    runner_b = _runner(sentinel_uuid_b, cycle_b)  # Different marker → must NOT dedup against runner_a.
+
+    # Initially no existing mutation for any of them.
+    for runner in (runner_a, runner_b):
+        existing = cluster.map_all_hosts(runner.find_existing_mutations).result()
+        assert all(not mutations for mutations in existing.values()), (
+            f"unexpected pre-existing mutation for cycle {runner.commands}"
+        )
+
+    # Submit runner_a, wait for completion.
+    shard_mutations_a = cluster.map_one_host_per_shard(runner_a).result()
+    wait_and_check_mutations_on_shards(cluster, shard_mutations_a)
+
+    # Same cycle marker → identical formatted SQL → re-submission attaches to runner_a's mutation.
+    shard_mutations_a_again = cluster.map_one_host_per_shard(runner_a_again).result()
+    assert shard_mutations_a == shard_mutations_a_again, "same cycle marker must reattach to the existing mutation"
+
+    # Different cycle marker → different formatted SQL → fresh mutation, NOT a reattach.
+    shard_mutations_b = cluster.map_one_host_per_shard(runner_b).result()
+    for host_info, waiter_a in shard_mutations_a.items():
+        waiter_b = shard_mutations_b[host_info]
+        assert waiter_a.mutation_ids != waiter_b.mutation_ids, (
+            f"cycle markers {cycle_a} and {cycle_b} produced colliding mutation_ids — "
+            "formatQuery may have folded the marker, breaking cross-cycle isolation"
+        )
+
+    # Both eventually complete.
+    wait_and_check_mutations_on_shards(cluster, shard_mutations_b)
+
+
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
