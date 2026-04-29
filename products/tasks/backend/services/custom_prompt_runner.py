@@ -99,12 +99,8 @@ async def _create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
-<<<<<<< New base: mark signals tasks as internal
         model=context.model,
-||||||| Common ancestor
-=======
         internal=internal,
->>>>>>> Current commit: mark signals tasks as internal
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
