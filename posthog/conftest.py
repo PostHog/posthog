@@ -326,7 +326,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         database.drop_database()
 
 
-@pytest.fixture(scope="package")
+@pytest.fixture(scope="session")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
