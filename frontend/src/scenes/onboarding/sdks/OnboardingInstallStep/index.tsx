@@ -166,6 +166,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             adblockResult={adblockResult}
             verifyingProperty={teamPropertyToVerify}
             verifyingName={listeningForName}
+            hideInstallationCheck={hideInstallationCheck}
         />
     )
 
