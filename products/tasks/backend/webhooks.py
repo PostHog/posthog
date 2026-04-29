@@ -1,7 +1,7 @@
 import hmac
 import json
-import asyncio
 import uuid
+import asyncio
 import hashlib
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -137,8 +137,6 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
 
 
 def _handle_check_run_event(payload: dict) -> HttpResponse:
-    # This is a placeholder for handling GitHub check_run events if needed in the future.
-    # For now, we simply log the event and return a 200 response.
     logger.info(
         "github_check_run_webhook_received",
         action=payload.get("action"),
@@ -254,6 +252,14 @@ def _forward_pr_activity_to_task(
         logger.debug("github_comment_webhook_no_task_run", pr_url=pr_url)
         return
     user: User = task_run.task.created_by
+    if not user:
+        logger.warning(
+            "github_comment_webhook_no_user",
+            pr_url=pr_url,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+        )
+        return
     org_id = user.current_organization_id
     if not posthoganalytics.feature_enabled(
         "github-comment-auto-resume",
