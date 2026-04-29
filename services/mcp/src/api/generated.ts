@@ -15405,6 +15405,7 @@ export namespace Schemas {
       readonly id: string;
       readonly type: string;
       readonly meta: ErrorTrackingRecommendationMeta;
+      readonly completed: boolean;
       /** @nullable */
       readonly computed_at: string | null;
       /** @nullable */

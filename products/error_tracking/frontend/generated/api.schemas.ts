@@ -809,6 +809,7 @@ export interface ErrorTrackingRecommendationApi {
     readonly id: string
     readonly type: string
     readonly meta: ErrorTrackingRecommendationApiMeta
+    readonly completed: boolean
     /** @nullable */
     readonly computed_at: string | null
     /** @nullable */
