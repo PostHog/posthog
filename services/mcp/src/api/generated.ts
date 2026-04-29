@@ -2957,12 +2957,13 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type AggregationPropertyType = typeof AggregationPropertyType[keyof typeof AggregationPropertyType];
+    export type AggregationPropertyType1 = typeof AggregationPropertyType1[keyof typeof AggregationPropertyType1];
 
 
-    export const AggregationPropertyType = {
+    export const AggregationPropertyType1 = {
       Event: 'event',
       Person: 'person',
+      DataWarehouse: 'data_warehouse',
     } as const;
 
     export type AggregationType = typeof AggregationType[keyof typeof AggregationType];
@@ -3086,8 +3087,8 @@ export namespace Schemas {
        * @nullable
        */
       aggregationProperty?: string | null;
-      /** The type of property to aggregate on (event or person). Defaults to event. */
-      aggregationPropertyType?: AggregationPropertyType | null;
+      /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
+      aggregationPropertyType?: AggregationPropertyType1 | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
       /** @nullable */
