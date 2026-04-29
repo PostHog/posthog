@@ -668,6 +668,39 @@ class TaskRun(models.Model):
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
+    def get_resume_chain(self, max_depth: int = 10) -> list["TaskRun"]:
+        """Walk `state.resume_from_run_id` from this run upward.
+
+        Returns runs ordered oldest-ancestor → ... → parent → this. Bounded
+        depth and a seen-set guard against cycles. The walk is scoped to this
+        task — a stale cross-task `resume_from_run_id` is silently dropped.
+        """
+        chain: list[TaskRun] = [self]
+        seen: set[str] = {str(self.id)}
+        current: TaskRun | None = self
+        depth = 0
+        while current is not None and depth < max_depth:
+            prior_id = (current.state or {}).get("resume_from_run_id")
+            if not prior_id or prior_id in seen:
+                break
+            seen.add(prior_id)
+            current = self.task.runs.filter(id=prior_id).first()
+            if current is None:
+                break
+            chain.append(current)
+            depth += 1
+        chain.reverse()
+        return chain
+
+    def find_artifact_in_resume_chain(self, storage_path: str) -> dict | None:
+        """Find an artifact by storage_path on this run or any ancestor in the resume chain."""
+        # Iterate newest-first since artifact is more likely to be on this run.
+        for run in reversed(self.get_resume_chain()):
+            for entry in run.artifacts or []:
+                if entry.get("storage_path") == storage_path:
+                    return entry
+        return None
+
     @staticmethod
     def _is_agent_message_chunk(entry: dict) -> bool:
         """Check if an entry is an agent_message_chunk event."""

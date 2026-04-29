@@ -1156,46 +1156,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = task_run.get_artifact_s3_prefix()
         return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
-    @staticmethod
-    def _walk_resume_chain(task_run: TaskRun, max_depth: int = 10) -> List[TaskRun]:
-        """Walk `state.resume_from_run_id` from this run upward.
-
-        Returns a list ordered oldest-ancestor → ... → parent → this. Bounded
-        depth and a seen-set guard against cycles. Same-task scope means no
-        extra authz surface — the caller already proved access to the task
-        by passing get_object() on the starting run.
-        """
-        chain: list[TaskRun] = [task_run]
-        seen: set[str] = {str(task_run.id)}
-        current: TaskRun | None = task_run
-        depth = 0
-        while current is not None and depth < max_depth:
-            prior_id = parse_run_state(current.state).resume_from_run_id
-            if not prior_id or prior_id in seen:
-                break
-            seen.add(prior_id)
-            current = task_run.task.runs.filter(id=prior_id).first()
-            if current is None:
-                break
-            chain.append(current)
-            depth += 1
-        chain.reverse()
-        return chain
-
-    @staticmethod
-    def _find_artifact_in_resume_chain(task_run: TaskRun, storage_path: str) -> dict | None:
-        """Look up an artifact on this run, then walk back along resume_from_run_id.
-
-        Cloud→cloud resume creates a new TaskRun whose state.resume_from_run_id
-        points to the prior run; the prior run owns the git checkpoint pack/index
-        artifacts the agent needs on resume.
-        """
-        # Iterate newest-first since artifact is more likely to be on this run.
-        for run in reversed(TaskRunViewSet._walk_resume_chain(task_run)):
-            for entry in run.artifacts or []:
-                if entry.get("storage_path") == storage_path:
-                    return entry
-        return None
 
     @staticmethod
     def _tag_artifact_object(task_run: TaskRun, storage_path: str) -> None:
@@ -1687,7 +1647,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Walk the resume chain so cloud→cloud resume runs can fetch the
         # git checkpoint pack/index that lives on the prior run they were
         # forked from.
-        artifact = self._find_artifact_in_resume_chain(task_run, storage_path)
+        artifact = task_run.find_artifact_in_resume_chain(storage_path)
 
         if artifact is None:
             return Response(
@@ -1745,7 +1705,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run = cast(TaskRun, self.get_object())
         timer = ServerTimingsGathered()
 
-        chain = self._walk_resume_chain(task_run)
+        chain = task_run.get_resume_chain()
         with timer("s3_read"):
             parts: list[str] = []
             for run in chain:

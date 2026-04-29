@@ -3277,7 +3277,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     def test_find_artifact_in_resume_chain_direct_hit(self):
         """Finds artifact on the run itself without walking the chain."""
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         storage_path = "tasks/artifacts/team_1/task_x/run_a/artifact.pack"
@@ -3288,19 +3287,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
             artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
         )
 
-        artifact = TaskRunViewSet._find_artifact_in_resume_chain(run, storage_path)
+        artifact = run.find_artifact_in_resume_chain(storage_path)
         self.assertIsNotNone(artifact)
         self.assertEqual(artifact["storage_path"], storage_path)  # type: ignore
 
     def test_find_artifact_in_resume_chain_miss(self):
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
-        self.assertIsNone(TaskRunViewSet._find_artifact_in_resume_chain(run, "tasks/missing.pack"))
+        self.assertIsNone(run.find_artifact_in_resume_chain("tasks/missing.pack"))
 
     def test_find_artifact_in_resume_chain_walks_one_hop(self):
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         storage_path = "tasks/artifacts/team_1/task_x/run_prior/artifact.pack"
@@ -3316,12 +3313,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
             state={"resume_from_run_id": str(prior_run.id)},
         )
 
-        artifact = TaskRunViewSet._find_artifact_in_resume_chain(new_run, storage_path)
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
         self.assertIsNotNone(artifact)
 
     def test_find_artifact_in_resume_chain_walks_multiple_hops(self):
         """Resumed-from-resumed-from chain still resolves."""
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         storage_path = "tasks/artifacts/team_1/task_x/run_root/artifact.pack"
@@ -3343,12 +3339,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
             state={"resume_from_run_id": str(middle_run.id)},
         )
 
-        artifact = TaskRunViewSet._find_artifact_in_resume_chain(new_run, storage_path)
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
         self.assertIsNotNone(artifact)
 
     def test_find_artifact_in_resume_chain_handles_cycle(self):
         """A self-referencing or circular resume chain doesn't loop forever."""
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         run_a = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
@@ -3362,12 +3357,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run_a.state = {"resume_from_run_id": str(run_b.id)}
         run_a.save(update_fields=["state"])
 
-        result = TaskRunViewSet._find_artifact_in_resume_chain(run_b, "tasks/missing.pack")
+        result = run_b.find_artifact_in_resume_chain("tasks/missing.pack")
         self.assertIsNone(result)
 
     def test_find_artifact_in_resume_chain_does_not_cross_tasks(self):
         """Resume chain lookup is scoped to the same task — sibling tasks are invisible."""
-        from products.tasks.backend.api import TaskRunViewSet
 
         task_a = self.create_task(title="A")
         task_b = self.create_task(title="B")
@@ -3386,21 +3380,19 @@ class TestTaskRunAPI(BaseTaskAPITest):
             state={"resume_from_run_id": str(prior_run_on_a.id)},
         )
 
-        self.assertIsNone(TaskRunViewSet._find_artifact_in_resume_chain(run_on_b, storage_path))
+        self.assertIsNone(run_on_b.find_artifact_in_resume_chain(storage_path))
 
     def test_walk_resume_chain_single_run(self):
         """A run with no resume_from_run_id resolves to a 1-element chain."""
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team)
 
-        chain = TaskRunViewSet._walk_resume_chain(run)
+        chain = run.get_resume_chain()
         self.assertEqual([r.id for r in chain], [run.id])
 
     def test_walk_resume_chain_multi_hop_ordered_oldest_first(self):
         """Chain returns oldest-ancestor → ... → parent → this in order."""
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         root = TaskRun.objects.create(task=task, team=self.team)
@@ -3411,12 +3403,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task, team=self.team, state={"resume_from_run_id": str(middle.id)}
         )
 
-        chain = TaskRunViewSet._walk_resume_chain(leaf)
+        chain = leaf.get_resume_chain()
         self.assertEqual([r.id for r in chain], [root.id, middle.id, leaf.id])
 
     def test_walk_resume_chain_handles_cycle(self):
         """A circular `resume_from_run_id` chain doesn't loop forever."""
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         run_a = TaskRun.objects.create(task=task, team=self.team)
@@ -3426,11 +3417,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run_a.state = {"resume_from_run_id": str(run_b.id)}
         run_a.save(update_fields=["state"])
 
-        chain = TaskRunViewSet._walk_resume_chain(run_b)
+        chain = run_b.get_resume_chain()
         self.assertEqual({r.id for r in chain}, {run_a.id, run_b.id})
 
     def test_walk_resume_chain_respects_max_depth(self):
-        from products.tasks.backend.api import TaskRunViewSet
 
         task = self.create_task()
         prior: TaskRun | None = None
@@ -3444,13 +3434,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
             runs.append(current)
             prior = current
 
-        chain = TaskRunViewSet._walk_resume_chain(runs[-1], max_depth=2)
+        chain = runs[-1].get_resume_chain(max_depth=2)
         # max_depth=2 means we walk at most 2 hops back from the leaf, so the
         # chain should contain exactly 3 entries (leaf + 2 ancestors).
         self.assertEqual(len(chain), 3)
 
     def test_walk_resume_chain_does_not_cross_tasks(self):
-        from products.tasks.backend.api import TaskRunViewSet
 
         task_a = self.create_task(title="A")
         task_b = self.create_task(title="B")
@@ -3460,7 +3449,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task_b, team=self.team, state={"resume_from_run_id": str(run_on_a.id)}
         )
 
-        chain = TaskRunViewSet._walk_resume_chain(run_on_b)
+        chain = run_on_b.get_resume_chain()
         # Walker is scoped via `task_run.task.runs.filter(...)` so a stale
         # cross-task `resume_from_run_id` is silently dropped.
         self.assertEqual([r.id for r in chain], [run_on_b.id])
