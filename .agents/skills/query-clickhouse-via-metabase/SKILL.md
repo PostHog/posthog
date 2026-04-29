@@ -62,6 +62,17 @@ hogli metabase:login --region eu
 blocks Keychain access from agent shells, so the user has to authenticate
 interactively.
 
+### Login can take up to ~30 seconds after SSO completes
+
+Chrome batches cookie writes to its on-disk SQLite store every ~30 seconds
+(`kCommitInterval = base::Seconds(30)` in Chromium's
+`sqlite_persistent_cookie_store.cc`). Until Chrome flushes, the new
+`metabase.SESSION` cookie is invisible to the CLI even though SSO succeeded.
+
+There is no reliable way to force an earlier flush — closing the tab/window
+does **not** trigger a write, and Cmd+Q is racy. The CLI handles this by
+polling once a second up to a 3-minute timeout; just wait.
+
 ### Agents: use `metabase:query`
 
 `hogli metabase:query` reads the cached cookie internally and only emits
