@@ -15,6 +15,7 @@ from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
+from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 from posthog.models import GroupTypeMapping, Insight, Organization, OrganizationMembership, Team, User
 from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
@@ -190,6 +191,12 @@ def copy_demo_data_to_new_team(
         )
 
         MatrixManager._sync_postgres_with_clickhouse_data(master_team_id, team.id)
+
+        # Master team's taxonomy lives in PSQL keyed by team_id and isn't part of the CH copy.
+        # Re-infer from the freshly copied CH events so `read-data-schema` lookups for
+        # canonical properties (`$os`, `$browser`, `$session_duration`, ...) resolve on
+        # per-case teams instead of returning "does not exist in the taxonomy".
+        infer_taxonomy_for_team(team.id)
 
         with override_settings(TEST=False):
             _build_hedgebox_matrix().set_project_up(team, user)

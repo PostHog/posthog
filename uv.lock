@@ -330,18 +330,17 @@ wheels = [
 
 [[package]]
 name = "autoevals"
-version = "0.0.129"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "braintrust-core" },
     { name = "chevron" },
     { name = "jsonschema" },
     { name = "polyleven" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/26/9a8d3b0e1ecbc22f8d7c1a44aa748660e846d6acb321eba4da620e08bf3c/autoevals-0.0.129.tar.gz", hash = "sha256:b7a6e45f8d4dd2bec0666602c78515b2f2c9f1a5c2a6b6275ad6cc3cac63e348", size = 49987, upload-time = "2025-05-13T03:32:33.948Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/fc/7fdfb8da148271da36b0b904c133bac2de5ef50eac803daf14158fded9d0/autoevals-0.2.0.tar.gz", hash = "sha256:dec041989ce85d6043ba30efa959527c213a62f768dc54e77d41364510e1acb6", size = 62512, upload-time = "2026-04-02T17:52:25.347Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/62/1a85254ab1e733270a61dcec18e01f102c11016520316e89122478e7d527/autoevals-0.0.129-py3-none-any.whl", hash = "sha256:7240e4e4bf1843bb5bc688b71fe2c6159596d3b5891bf34576941f17e04fe3ba", size = 53464, upload-time = "2025-05-13T03:32:32.472Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/03/463e8a679b147341ce4dbe4f8c14c42ab14d410ccf595b3fd1c63000b9e2/autoevals-0.2.0-py3-none-any.whl", hash = "sha256:83546e86f716d5bea64de39db2e99f5eaeadd70d3f72481a75b576bc511e21d6", size = 68555, upload-time = "2026-04-02T17:52:23.751Z" },
 ]
 
 [[package]]
@@ -5105,6 +5104,7 @@ dependencies = [
     { name = "blake3" },
     { name = "boto3" },
     { name = "botocore", extra = ["crt"] },
+    { name = "braintrust-core" },
     { name = "brotli" },
     { name = "cachetools" },
     { name = "celery" },
@@ -5364,6 +5364,7 @@ requires-dist = [
     { name = "blake3", specifier = ">=1.0.8" },
     { name = "boto3", specifier = "==1.40.49" },
     { name = "botocore", extras = ["crt"], specifier = "~=1.40.49" },
+    { name = "braintrust-core", specifier = ">=0.0.59" },
     { name = "brotli", specifier = "==1.2.0" },
     { name = "cachetools", specifier = "~=5.5.2" },
     { name = "celery", specifier = "==5.6.3" },
@@ -5533,7 +5534,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aioresponses", specifier = "==0.7.6" },
-    { name = "autoevals", specifier = "==0.0.129" },
+    { name = "autoevals", specifier = "==0.2.0" },
     { name = "boto3-stubs", extras = ["s3"], specifier = "~=1.38.30" },
     { name = "braintrust", specifier = "==0.2.4" },
     { name = "braintrust-langchain", specifier = "==0.0.4" },

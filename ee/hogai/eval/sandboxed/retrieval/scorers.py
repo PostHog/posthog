@@ -21,12 +21,9 @@ from typing import Any
 from braintrust import Score
 from braintrust_core.score import Scorer
 
-from ee.hogai.eval.sandboxed.scorers import iter_successful_tool_calls, normalize_tool_name
+from ee.hogai.eval.sandboxed.log_parser import LogParser
 
 __all__ = ["SkillLoaded", "LookupIdInOutput"]
-
-
-_SKILL_TOOL_NAMES = frozenset({"Skill"})
 
 
 class SkillLoaded(Scorer):
@@ -55,32 +52,30 @@ class SkillLoaded(Scorer):
     def _evaluate(self, output: dict | None) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
-        messages = output.get("messages")
-        if not messages:
-            return Score(name=self._name(), score=None, metadata={"reason": "No parsed messages"})
+        raw_log = output.get("raw_log")
+        if not raw_log:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
-        for tool_use, _ in iter_successful_tool_calls(messages):
-            normalized = normalize_tool_name(tool_use.get("name"))
-            tool_input = tool_use.get("input") or {}
-            if not isinstance(tool_input, dict):
+        parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+
+        for skill_call in parser.get_skill_calls(self.skill_name):
+            if not skill_call.is_error:
+                return Score(
+                    name=self._name(),
+                    score=1.0,
+                    metadata={"matched_via": "skill_tool", "skill": self.skill_name},
+                )
+
+        for read_call in parser.get_tool_calls("Read"):
+            if read_call.is_error:
                 continue
-
-            if normalized in _SKILL_TOOL_NAMES:
-                if tool_input.get("skill") == self.skill_name:
-                    return Score(
-                        name=self._name(),
-                        score=1.0,
-                        metadata={"matched_via": "skill_tool", "skill": self.skill_name},
-                    )
-
-            if normalized == "Read":
-                file_path = tool_input.get("file_path", "")
-                if isinstance(file_path, str) and self._matches_skill_file(file_path):
-                    return Score(
-                        name=self._name(),
-                        score=1.0,
-                        metadata={"matched_via": "read_skill_md", "file_path": file_path},
-                    )
+            file_path = read_call.input.get("file_path", "")
+            if isinstance(file_path, str) and self._matches_skill_file(file_path):
+                return Score(
+                    name=self._name(),
+                    score=1.0,
+                    metadata={"matched_via": "read_skill_md", "file_path": file_path},
+                )
 
         return Score(
             name=self._name(),
