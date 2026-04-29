@@ -329,6 +329,31 @@ class TestProcessTaskWorkflowUnit:
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
 
+    async def test_run_marks_failed_when_context_load_fails(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        get_task_processing_context_mock = AsyncMock(side_effect=RuntimeError("database connection closed"))
+        update_task_run_status_mock = AsyncMock()
+        track_workflow_event_mock = AsyncMock()
+        post_slack_update_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is False
+        assert result.error == "database connection closed"
+        assert result.sandbox_id is None
+        update_task_run_status_mock.assert_awaited_once_with(
+            "failed",
+            error_message="database connection closed",
+            run_id="run-id",
+        )
+        track_workflow_event_mock.assert_not_awaited()
+        post_slack_update_mock.assert_not_awaited()
+
     async def test_get_sandbox_for_repository_skips_clone_and_checkout_for_private_repo_without_github_integration(
         self, monkeypatch
     ):

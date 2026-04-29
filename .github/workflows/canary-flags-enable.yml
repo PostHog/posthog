@@ -329,7 +329,7 @@ jobs:
                   # network/auth/parse failure — that is the bug being fixed.
                   set -euo pipefail
                   tmp=$(mktemp)
-                  gh api --retry-count 3 \
+                  gh api \
                       -H 'Accept: application/vnd.github.raw' \
                       repos/PostHog/charts/contents/state.yaml > "$tmp"
                   enabled=$(yq '.state["feature-flags"].canary.enabled // false' "$tmp")
@@ -561,6 +561,7 @@ jobs:
               env:
                   PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
               with:
+                  github-token: ${{ steps.app-token.outputs.token }}
                   script: |
                       // pr_author is set by pr_info: from the API for workflow_dispatch,
                       // from the event payload for pull_request.
@@ -678,7 +679,16 @@ jobs:
     build_and_enable:
         name: Build feature-flags image and enable canary
         needs: [preflight]
-        if: needs.preflight.outputs.should_proceed == 'true'
+        # `!cancelled()` disables the implicit success() chain check, which
+        # otherwise inherits handle_comment's `skipped` result on a
+        # `pull_request: synchronize` event (handle_comment is gated to
+        # issue_comment) and skips this job before should_proceed is even
+        # evaluated. We then re-assert success on the direct dependency
+        # only and gate on the actual `should_proceed` output.
+        if: |
+            !cancelled() &&
+            needs.preflight.result == 'success' &&
+            needs.preflight.outputs.should_proceed == 'true'
         runs-on: depot-ubuntu-22.04
         timeout-minutes: 30
         permissions:
