@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import certifi
+import structlog
 from bson import Binary, DatetimeMS, ObjectId
 from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
@@ -146,7 +147,8 @@ def get_leading_index_keys(collection: Collection) -> set[str] | None:
             if leading is not None:
                 result.add(leading)
         return result
-    except Exception:
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index keys for MongoDB collection", exc_info=e)
         return None
 
 
