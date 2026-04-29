@@ -4,7 +4,6 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
@@ -13,7 +12,7 @@ import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 
 export function LogsSamplingSection(): JSX.Element {
-    const enabled = useFeatureFlag(FEATURE_FLAGS.LOGS_SAMPLING_RULES)
+    const enabled = useFeatureFlag('LOGS_SAMPLING_RULES')
     if (!enabled) {
         return null
     }

@@ -15,7 +15,6 @@ import {
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -78,7 +77,7 @@ export function LogsServices(): JSX.Element {
         useValues(logsServicesLogic)
     const { setDateFrom } = useActions(logsServicesLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
-    const samplingRulesUi = useFeatureFlag(FEATURE_FLAGS.LOGS_SAMPLING_RULES)
+    const samplingRulesUi = useFeatureFlag('LOGS_SAMPLING_RULES')
 
     const presetItems = DATE_OPTIONS.map((opt) => ({
         label: opt.label,
