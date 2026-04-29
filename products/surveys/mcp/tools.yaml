@@ -71,8 +71,8 @@ tools:
             questions:
                 description: >
                     Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
-                    survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when
-                    the user wants structured answers. Questions can include inline translations on each question.
+                    survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the
+                    user wants structured answers. Questions can include inline translations on each question.
             conditions:
                 description: >
                     Display and targeting conditions for in-app surveys, such as URL matching, event triggers, device
