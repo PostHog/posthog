@@ -20,21 +20,45 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
-                    const response = await toolbarFetch('/api/projects/@current/web_experiments/')
-                    const results = await response.json()
+                    const url = '/api/projects/@current/web_experiments/'
+                    const response = await toolbarFetch(url)
 
-                    if (response.status === 403) {
+                    let body: unknown = null
+                    let parseFailed = false
+                    try {
+                        body = await response.json()
+                    } catch {
+                        parseFailed = true
+                    }
+                    const resultsField = (body as { results?: unknown } | null)?.results
+
+                    if (response.status === 401 || response.status === 403) {
+                        // toolbarFetch's no-token short-circuit returns 401 with `{results: []}`
+                        // — keep that as a silent empty list rather than re-prompting auth.
+                        if (Array.isArray(resultsField)) {
+                            return resultsField as WebExperiment[]
+                        }
                         toolbarConfigLogic.actions.authenticate()
                         return []
                     }
 
                     breakpoint()
 
-                    if (!Array.isArray(results?.results)) {
-                        throw new Error('Error loading experiments!')
+                    const bodySnippet = parseFailed ? '<non-JSON body>' : JSON.stringify(body ?? null).slice(0, 200)
+
+                    if (!response.ok) {
+                        throw new Error(
+                            `Error loading experiments: HTTP ${response.status} from ${url} — ${bodySnippet}`
+                        )
                     }
 
-                    return results.results
+                    if (!Array.isArray(resultsField)) {
+                        throw new Error(
+                            `Error loading experiments: unexpected response shape from ${url} (status ${response.status}) — ${bodySnippet}`
+                        )
+                    }
+
+                    return resultsField as WebExperiment[]
                 },
                 updateExperiment: ({ experiment }: { experiment: WebExperiment }) => {
                     return values.allExperiments.filter((r) => r.id !== experiment.id).concat([experiment])
