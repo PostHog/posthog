@@ -6,6 +6,20 @@ connects, the server forks itself. The child evicts any modules whose
 source files changed since startup (by mtime), then runs the command.
 This means you always get fresh code without needing to restart the daemon.
 
+Caveats:
+    - Pytest's assertion rewriter cannot rewrite already-imported modules, so
+      assertion error introspection is less rich for daemon-cached test
+      dependencies (PytestAssertRewriteWarning is silenced for that reason).
+      Test files imported fresh by pytest still get full rewriting.
+    - Concurrent connections fork serially. For pytest-xdist with many
+      workers, fork startup cost is paid per worker but the parent's
+      single-threaded accept loop still serializes the kickoff.
+    - Module-level mtime invalidation evicts stale code, but it cannot redo
+      django.setup(). For changes that affect Django bootstrap (settings,
+      .env, lockfile), the daemon detects the change at the next request and
+      re-execs itself. The in-flight client falls back to cold start so the
+      user gets a working command immediately.
+
 Usage:
     # Start the daemon (typically via phrocs/mprocs):
     python -m tools.warm_django.server
@@ -22,17 +36,10 @@ import time
 import signal
 import socket
 import struct
-import hashlib
 import importlib
+import threading
 
-SOCKET_DIR = "/tmp"
-
-
-def get_socket_path() -> str:
-    """Deterministic socket path based on the repo root, matching phrocs convention."""
-    repo_root = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    h = hashlib.sha256(repo_root.encode()).hexdigest()[:12]
-    return os.path.join(SOCKET_DIR, f"warm-django-{h}.sock")
+from tools.warm_django._socket import get_socket_path
 
 
 def _send_msg(conn: socket.socket, data: dict) -> None:
@@ -99,6 +106,76 @@ def _snapshot_mtimes(repo_root: str) -> dict[str, float]:
             except OSError:
                 pass
     return mtimes
+
+
+# Files/dirs whose change requires a fresh django.setup() — module reload
+# alone is not enough because Django's app registry, settings cache, and
+# DB/cache pools are global state set up once at boot.
+_CONFIG_PATHS: tuple[str, ...] = (
+    "posthog/settings",
+    ".env",
+    ".env.local",
+    "pyproject.toml",
+    "uv.lock",
+)
+
+
+class _ConfigWatcher:
+    """Background filesystem watcher that flags the daemon for restart on config changes.
+
+    Uses watchdog's native FS events (FSEvents on macOS, inotify on Linux) so
+    detection is push-driven and effectively instantaneous — no per-request
+    stat cost. The accept loop checks ``dirty.is_set()`` before each fork.
+    """
+
+    def __init__(self, repo_root: str) -> None:
+        self.repo_root = repo_root
+        self.dirty = threading.Event()
+        self.changed_path: str | None = None
+        self._observer = None
+        self._watch_count = 0
+
+    def start(self) -> None:
+        from watchdog.events import FileSystemEventHandler
+        from watchdog.observers import Observer
+
+        watcher_self = self
+
+        class _Handler(FileSystemEventHandler):
+            def on_any_event(self, event) -> None:
+                if event.is_directory:
+                    return
+                try:
+                    rel = os.path.relpath(event.src_path, watcher_self.repo_root)
+                except ValueError:
+                    return
+                if not any(rel == p or rel.startswith(p + os.sep) for p in _CONFIG_PATHS):
+                    return
+                watcher_self.changed_path = rel
+                watcher_self.dirty.set()
+
+        observer = Observer()
+        observer.daemon = True
+        watched_dirs: set[str] = set()
+        for rel in _CONFIG_PATHS:
+            path = os.path.join(self.repo_root, rel)
+            if os.path.isdir(path):
+                observer.schedule(_Handler(), path, recursive=True)
+                watched_dirs.add(path)
+                self._watch_count += 1
+            elif os.path.exists(path):
+                # Single file: watch its parent dir non-recursively; the handler filters by path.
+                parent = os.path.dirname(path) or "."
+                if parent not in watched_dirs:
+                    observer.schedule(_Handler(), parent, recursive=False)
+                    watched_dirs.add(parent)
+                    self._watch_count += 1
+        observer.start()
+        self._observer = observer
+
+    @property
+    def watch_count(self) -> int:
+        return self._watch_count
 
 
 def _evict_stale_modules(mtimes: dict[str, float]) -> list[str]:
@@ -221,8 +298,13 @@ def serve() -> None:
     # Phase 3: Snapshot mtimes of all loaded modules
     mtimes = _snapshot_mtimes(repo_root)
 
+    # Phase 4: Start a real filesystem watcher for config-affecting files
+    config_watcher = _ConfigWatcher(repo_root)
+    config_watcher.start()
+
     print(  # noqa: T201
-        f"warm-django: ready in {warm_time:.1f}s — tracking {len(mtimes)} modules",
+        f"warm-django: ready in {warm_time:.1f}s — tracking {len(mtimes)} modules, "
+        f"watching {config_watcher.watch_count} config dir(s)",
         flush=True,
     )
 
@@ -257,6 +339,23 @@ def serve() -> None:
             conn, _ = sock.accept()
         except OSError:
             break
+
+        # Settings or env changed since warm-up — re-exec instead of forking
+        # with stale Django state. Tells the in-flight client to fall back to
+        # cold start so it gets a working command immediately.
+        if config_watcher.dirty.is_set():
+            changed = config_watcher.changed_path or "<unknown>"
+            try:
+                _send_msg(conn, {"type": "fallback", "reason": f"config changed: {changed}"})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            conn.close()
+            print(f"warm-django: config changed ({changed}) — re-execing daemon", flush=True)  # noqa: T201
+            sock.close()
+            if os.path.exists(socket_path):
+                os.unlink(socket_path)
+            os.execv(sys.executable, [sys.executable, "-m", "tools.warm_django.server"])
+            return  # unreachable
 
         msg = _recv_msg(conn)
         if not msg or msg.get("type") != "run":

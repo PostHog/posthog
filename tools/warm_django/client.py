@@ -16,13 +16,14 @@ import time
 import socket
 import struct
 
+from tools.warm_django._socket import get_socket_path
 
-def _get_socket_path() -> str:
-    import hashlib
-
-    repo_root = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    h = hashlib.sha256(repo_root.encode()).hexdigest()[:12]
-    return os.path.join("/tmp", f"warm-django-{h}.sock")
+# Env vars to forward to the daemon. Whitelisted prefixes only — the daemon's
+# Django setup is a long-running process with its own env, and forwarding
+# everything would leak shell-local junk. If you rely on a different env var
+# (e.g. PYTEST_*, CI, custom DJANGO_SETTINGS_MODULE override), add the prefix
+# here.
+_ENV_FORWARD_PREFIXES = ("POSTHOG_", "DEBUG", "TEST", "DATABASE_")
 
 
 def _send_msg(conn: socket.socket, data: dict) -> None:
@@ -69,7 +70,7 @@ def main() -> int:
     mode = sys.argv[1]
     argv = sys.argv[2:]
 
-    socket_path = _get_socket_path()
+    socket_path = get_socket_path()
     t0 = time.perf_counter()
 
     # Connect to daemon
@@ -86,7 +87,7 @@ def main() -> int:
             "type": "run",
             "mode": mode,
             "argv": argv,
-            "env": {k: v for k, v in os.environ.items() if k.startswith(("POSTHOG_", "DEBUG", "TEST", "DATABASE_"))},
+            "env": {k: v for k, v in os.environ.items() if k.startswith(_ENV_FORWARD_PREFIXES)},
         },
     )
 
@@ -106,6 +107,13 @@ def main() -> int:
         elif msg["type"] == "exit":
             exit_code = msg.get("code", 0)
             break
+        elif msg["type"] == "fallback":
+            # Daemon is re-execing (e.g. settings change). Run cold this once;
+            # the next call hits a freshly-warmed daemon.
+            reason = msg.get("reason", "daemon restart")
+            print(f"warm-django: {reason} — falling back to cold start", file=sys.stderr)  # noqa: T201
+            conn.close()
+            return _fallback(mode, argv)
 
     conn.close()
 

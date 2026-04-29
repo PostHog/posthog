@@ -265,6 +265,38 @@ You can also run tests for all files changed on the current branch:
 hogli test --changed
 ```
 
+#### Speeding up backend tests with the warm-django daemon
+
+Each Python test run pays ~10s of `django.setup()` overhead before pytest does anything useful.
+The opt-in `warm-django` daemon does the setup once and then forks for each invocation, dropping
+that overhead to a few milliseconds.
+
+Start it once:
+
+```bash
+phrocs toggle warm-django
+```
+
+(Or directly: `python -m tools.warm_django.server`.)
+
+After it logs `warm-django: ready`, `hogli test ...` automatically routes through it. You can
+also call it directly: `bin/warm-django pytest path/to/test.py`. Typical wins are ~3× on
+DB-using tests and ~5× on collection-only / lightweight runs.
+
+The daemon auto-detects changes to `posthog/settings/`, `.env*`, `pyproject.toml`, and `uv.lock`
+and re-execs itself transparently — the in-flight command falls back to a one-time cold run.
+Module changes elsewhere in the repo are picked up via mtime invalidation on each fork.
+
+Caveats:
+
+- **Env-var passthrough is whitelisted** (`POSTHOG_*`, `DEBUG`, `TEST`, `DATABASE_*`). If your
+  test relies on a different variable, set `WARM_DJANGO_DISABLE=1` for that run, or extend
+  `_ENV_FORWARD_PREFIXES` in `tools/warm_django/client.py`.
+- **Pytest assertion rewriting** is disabled for daemon-cached modules (the rewriter cannot
+  rewrite already-imported modules). Newly imported test files are unaffected.
+- **Concurrent forks serialize** through a single accept loop — the speedup with `pytest-xdist`
+  is smaller than for single-process runs.
+
 ### End-to-end
 
 For Playwright end-to-end tests, run `hogli test:e2e` (which wraps `bin/e2e-test-runner`). This will spin up a test instance of PostHog and show you the Playwright interface, from which you'll manually choose tests to run. You'll need `uv` installed (the Python package manager), which you can do so with `brew install uv`. Once you're done, terminate the command with Cmd + C.

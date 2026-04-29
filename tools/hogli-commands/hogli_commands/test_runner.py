@@ -6,8 +6,10 @@ Detects the test type from a file path and dispatches to the correct runner
 
 from __future__ import annotations
 
+import os
 import json
 import shlex
+import hashlib
 import tomllib
 import platform
 import subprocess
@@ -20,6 +22,32 @@ from hogli.command_types import _run
 from hogli.manifest import REPO_ROOT
 
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
+
+
+def _warm_django_pytest_prefix() -> list[str]:
+    """Route python pytest commands through bin/warm-django when the daemon is up.
+
+    Returns the prefix to prepend (e.g. ``["/.../bin/warm-django", "pytest"]``)
+    or an empty list when the daemon is not running or has been opted out via
+    ``WARM_DJANGO_DISABLE``. The empty-list case keeps the legacy behavior:
+    callers fall through to plain ``["pytest", ...]``.
+    """
+    if os.environ.get("WARM_DJANGO_DISABLE"):
+        return []
+    repo_root_real = os.path.realpath(str(REPO_ROOT))
+    h = hashlib.sha256(repo_root_real.encode()).hexdigest()[:12]
+    socket_path = f"/tmp/warm-django-{h}.sock"
+    if not os.path.exists(socket_path):
+        return []
+    return [str(REPO_ROOT / "bin" / "warm-django"), "pytest"]
+
+
+def _pytest_command(args: list[str]) -> list[str]:
+    """Build a pytest command, routed through warm-django when available."""
+    prefix = _warm_django_pytest_prefix()
+    if prefix:
+        return [*prefix, *args]
+    return ["pytest", *args]
 
 
 def _is_test_file(path: str, rs_cfg_test: set[str] | None = None) -> bool:
@@ -426,7 +454,7 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     if any(dir_path.startswith(root) or dir_path == root.rstrip("/") for root in _PYTHON_ROOTS):
         return TestRunConfig(
             test_type="python",
-            command=["pytest", "-s", dir_path],
+            command=_pytest_command(["-s", dir_path]),
             description="Python tests (pytest)",
             env=_python_env(),
         )
@@ -483,7 +511,7 @@ def detect_test_type(file_path: str) -> TestRunConfig:
     if ext == ".py" and any(file_only.startswith(root) for root in _PYTHON_ROOTS):
         return TestRunConfig(
             test_type="python",
-            command=["pytest", "-s", file_path],
+            command=_pytest_command(["-s", file_path]),
             description="Python test (pytest)",
             env=_python_env(),
         )

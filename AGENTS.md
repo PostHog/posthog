@@ -17,6 +17,7 @@
   - Single test: `hogli test path/to/test.py::TestClass::test_method`
   - Watch mode: `hogli test path/to/test.py --watch`
   - Changed files only: `hogli test --changed`
+  - **Faster Python tests (opt-in):** start the warm-django daemon to skip `django.setup()` overhead on every run. With it running, `hogli test` and `bin/warm-django pytest ...` automatically route through it. Toggle it on via `phrocs toggle warm-django` (or run `python -m tools.warm_django.server` directly). Caveats: env-var passthrough is whitelisted (`POSTHOG_*`, `DEBUG`, `TEST`, `DATABASE_*`) — extend `_ENV_FORWARD_PREFIXES` in `tools/warm_django/client.py` if you need others. Daemon auto-restarts when `posthog/settings/`, `.env*`, `pyproject.toml`, or `uv.lock` change. Set `WARM_DJANGO_DISABLE=1` to bypass for one command.
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
