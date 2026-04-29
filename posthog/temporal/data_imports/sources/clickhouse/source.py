@@ -206,6 +206,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_clickhouse_incremental_fields(columns)
+            # In ClickHouse the table's ORDER BY (sorting key) is the only access
+            # structure that accelerates `WHERE col >= …`; its leading column is
+            # the first entry returned by the PK helper (which queries
+            # is_in_sorting_key ORDER BY position).
+            sort_key = detected_pks.get(table_name)
+            leading_sort_key = sort_key[0] if sort_key else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -213,6 +219,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": field_name == leading_sort_key,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
