@@ -1,0 +1,61 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "display": {
+            "default": "number",
+            "description": "Visual representation in the UI. One of `number` or `sparkline`.\n\n* `number` - number\n* `sparkline` - sparkline",
+            "enum": ["number", "sparkline"],
+            "type": "string"
+        },
+        "filters": {
+            "additionalProperties": {},
+            "description": "HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "format": {
+            "default": "numeric",
+            "description": "How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency",
+            "enum": ["numeric", "currency"],
+            "type": "string"
+        },
+        "group_type_index": {
+            "description": "Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "interval": {
+            "default": 7,
+            "description": "Rolling time window in days used to compute the metric. Defaults to 7.",
+            "type": "number"
+        },
+        "math": {
+            "default": "count",
+            "description": "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.\n\n* `count` - count\n* `sum` - sum",
+            "enum": ["count", "sum"],
+            "type": "string"
+        },
+        "math_property": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`."
+        },
+        "name": {
+            "description": "Name of the usage metric. Must be unique per group type within the project.",
+            "maxLength": 255,
+            "type": "string"
+        }
+    },
+    "required": ["group_type_index", "name", "filters"],
+    "type": "object"
+}

@@ -205,15 +205,15 @@ class FunnelStepsResultsSerializer(ResultsMixin):
 
 class FunnelSerializer(GenericInsightsSerializer, BreakdownMixin):
     funnel_window_interval = serializers.IntegerField(
-        help_text="Funnel window size. Set in combination with funnel_window_interval, so defaults to 'days'.",
+        help_text="Funnel window size. Set in combination with funnel_window_interval_type, so defaults to 'DAY'.",
         required=False,
         default=14,
     )
     funnel_window_interval_type = serializers.ChoiceField(
         choices=get_args(FUNNEL_WINDOW_INTERVAL_TYPES),
         required=False,
-        help_text="The type of interval. Used in combination with `funnel_window_intervals`.",
-        default="days",
+        help_text="The type of interval. Used in combination with `funnel_window_interval`.",
+        default="DAY",
     )
     funnel_viz_type = serializers.ChoiceField(
         choices=[el.value for el in FunnelVizType],

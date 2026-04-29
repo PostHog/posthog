@@ -71,7 +71,7 @@ function buildCandidates(
 
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
-            if (typeof rawValue !== 'number' || !isFinite(rawValue)) {
+            if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
             const yValue = resolveValue(s, dIdx)

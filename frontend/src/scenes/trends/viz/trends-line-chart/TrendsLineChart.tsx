@@ -18,10 +18,10 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
-import { InsightEmptyState } from '../../insights/EmptyStates'
-import { openPersonsModal } from '../persons-modal/PersonsModal'
-import { trendsDataLogic } from '../trendsDataLogic'
-import type { IndexedTrendResult } from '../types'
+import { InsightEmptyState } from '../../../insights/EmptyStates'
+import { openPersonsModal } from '../../persons-modal/PersonsModal'
+import { trendsDataLogic } from '../../trendsDataLogic'
+import type { IndexedTrendResult } from '../../types'
 import { AnnotationsLayer } from './AnnotationsLayer'
 import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
@@ -214,7 +214,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         () => ({
             showGrid: true,
             showCrosshair: true,
-            pinnableTooltip: true,
+            tooltip: { pinnable: true, placement: 'top' },
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,

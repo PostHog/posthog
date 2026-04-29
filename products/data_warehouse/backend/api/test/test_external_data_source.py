@@ -2371,6 +2371,7 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
+                    "label": None,
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,
@@ -2428,6 +2429,7 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
+                    "label": None,
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,

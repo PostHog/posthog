@@ -8267,6 +8267,46 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
+    export type CohortPersonResultProperties = {[key: string]: unknown};
+
+    export type CohortPersonResultMatchedRecordingsItem = {[key: string]: unknown};
+
+    /**
+     * * `person` - person
+     */
+    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+
+
+    export const CohortPersonResultTypeEnum = {
+      Person: 'person',
+    } as const;
+
+    export interface CohortPersonResult {
+      id: string;
+      uuid: string;
+      type: CohortPersonResultTypeEnum;
+      name: string;
+      distinct_ids: string[];
+      properties: CohortPersonResultProperties;
+      /** @nullable */
+      created_at: string | null;
+      /** @nullable */
+      last_seen_at: string | null;
+      /** @nullable */
+      is_identified: boolean | null;
+      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
+      /** @nullable */
+      value_at_data_point: number | null;
+    }
+
+    export interface CohortPersonsResponse {
+      results: CohortPersonResult[];
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+    }
+
     export interface CohortUsedInCohort {
       /** Cohort database ID */
       id: number;
@@ -15735,6 +15775,7 @@ export namespace Schemas {
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
     * `azure_openai` - Azure OpenAI
+    * `together_ai` - Together AI
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -15746,6 +15787,7 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
     } as const;
 
     /**
@@ -15820,58 +15862,58 @@ export namespace Schemas {
       readonly id: string;
       /** UUID of the evaluation this report config belongs to. */
       evaluation: string;
-      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
        * @nullable
        */
       starts_at?: string | null;
       /**
-       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
        * @maxLength 64
        */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
-      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+      /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Max number of evaluation runs included in each report. Defaults to 100.
+       * Maximum number of evaluation runs included in each report. Defaults to 200.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
-      /** Whether report delivery is active. */
+      /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
       /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
-      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+      /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+       * @minimum 10
+       * @maximum 10000
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+       * @minimum 60
+       * @maximum 1440
        */
       cooldown_minutes?: number;
       /**
-       * Max reports generated per day. Defaults to 3.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+       * @minimum 1
+       * @maximum 24
        */
       daily_run_cap?: number;
       /** @nullable */
@@ -17787,7 +17829,17 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at: string;
+    }
+
+    export interface FileSystemShortcutReorder {
+      /** IDs of the current user's shortcuts in the desired display order. */
+      ordered_ids: string[];
     }
 
     export interface FlagValueItem {
@@ -17898,6 +17950,11 @@ export namespace Schemas {
     }
 
     /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type GroupUsageMetricFilters = {[key: string]: unknown};
+
+    /**
      * * `numeric` - numeric
     * `currency` - currency
      */
@@ -17935,19 +17992,32 @@ export namespace Schemas {
 
     export interface GroupUsageMetric {
       readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters: GroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -19351,7 +19421,26 @@ export namespace Schemas {
       LogAttributesQuery: 'LogAttributesQuery',
     } as const;
 
-    export type LogAttributesQueryResponseResultsItem = { [key: string]: unknown };
+    export type MatchedOn = typeof MatchedOn[keyof typeof MatchedOn];
+
+
+    export const MatchedOn = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
+
+    export interface LogAttributeResult {
+      /** Whether this row matched the search by attribute key or by attribute value. */
+      matchedOn: MatchedOn;
+      /**
+       * Sample value that matched the search — only set when matchedOn is 'value'.
+       * @nullable
+       */
+      matchedValue?: string | null;
+      name: string;
+      /** Either 'log_attribute' or 'log_resource_attribute'. */
+      propertyFilterType: string;
+    }
 
     export interface LogAttributesQueryResponse {
       count: number;
@@ -19371,7 +19460,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: LogAttributesQueryResponseResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -19393,6 +19482,11 @@ export namespace Schemas {
       response?: LogAttributesQueryResponse | null;
       /** @nullable */
       search?: string | null;
+      /**
+       * When true, the search query also matches attribute values (not just keys).
+       * @nullable
+       */
+      searchValues?: boolean | null;
       /** @nullable */
       serviceNames?: string[] | null;
       /** @nullable */
@@ -21600,6 +21694,18 @@ export namespace Schemas {
     export interface MarkToleratedInput {
       snapshot_id: string;
     }
+
+    /**
+     * * `key` - key
+    * `value` - value
+     */
+    export type MatchedOnEnum = typeof MatchedOnEnum[keyof typeof MatchedOnEnum];
+
+
+    export const MatchedOnEnum = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
 
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
@@ -26849,58 +26955,58 @@ export namespace Schemas {
       readonly id?: string;
       /** UUID of the evaluation this report config belongs to. */
       evaluation?: string;
-      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
        * @nullable
        */
       starts_at?: string | null;
       /**
-       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
        * @maxLength 64
        */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
-      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+      /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Max number of evaluation runs included in each report. Defaults to 100.
+       * Maximum number of evaluation runs included in each report. Defaults to 200.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
-      /** Whether report delivery is active. */
+      /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
       /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
-      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+      /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+       * @minimum 10
+       * @maximum 10000
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+       * @minimum 60
+       * @maximum 1440
        */
       cooldown_minutes?: number;
       /**
-       * Max reports generated per day. Defaults to 3.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+       * @minimum 1
+       * @maximum 24
        */
       daily_run_cap?: number;
       /** @nullable */
@@ -27223,6 +27329,11 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at?: string;
     }
 
@@ -27247,21 +27358,39 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type PatchedGroupUsageMetricFilters = {[key: string]: unknown};
+
     export interface PatchedGroupUsageMetric {
       readonly id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name?: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters?: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters?: PatchedGroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -28153,24 +28282,43 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTab {
+      /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
       id?: string;
+      /** URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination. */
       pathname?: string;
+      /** Query string portion of the URL, including the leading `?`. Empty string when there is no query. */
       search?: string;
+      /** Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment. */
       hash?: string;
+      /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
       title?: string;
-      /** @nullable */
+      /**
+       * Optional user-provided title that overrides `title` in the navigation UI.
+       * @nullable
+       */
       customTitle?: string | null;
+      /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
       iconType?: string;
-      /** @nullable */
+      /**
+       * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+       * @nullable
+       */
       sceneId?: string | null;
-      /** @nullable */
+      /**
+       * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+       * @nullable
+       */
       sceneKey?: string | null;
+      /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
       sceneParams?: unknown;
+      /** Whether this entry is pinned. Always coerced to true on save — pass true or omit. */
       pinned?: boolean;
     }
 
     export interface PatchedPinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -30892,7 +31040,9 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -34360,8 +34510,6 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative76ResultsItem = { [key: string]: unknown };
-
     export interface QueryResponseAlternative76 {
       count: number;
       /**
@@ -34380,7 +34528,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative76ResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -36875,6 +37023,16 @@ export namespace Schemas {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
       propertyFilterType: string;
+      /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+    * `key` - key
+    * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /**
+       * Sample matching value — only set when matchedOn is "value".
+       * @nullable
+       */
+      matchedValue?: string | null;
     }
 
     export interface _LogAttributeValue {
@@ -37016,6 +37174,46 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRangeBucket {
+      /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+      date_from: string;
+      /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+      date_to: string;
+      /** Log entries matching the filters within this bucket. */
+      count: number;
+    }
+
+    export interface _LogsCountRangesBody {
+      /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+      dateRange?: _DateRange;
+      /**
+       * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+       * @minimum 1
+       * @maximum 100
+       */
+      targetBuckets?: number;
+      /** Filter by log severity levels. Applied before bucketing. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. Applied before bucketing. */
+      serviceNames?: string[];
+      /** Full-text search across log bodies. Applied before bucketing. */
+      searchTerm?: string;
+      /** Property filters applied before bucketing. Same shape as `query-logs`. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRangesRequest {
+      /** The bucketed-count query to execute. */
+      query: _LogsCountRangesBody;
+    }
+
+    export interface _LogsCountRangesResponse {
+      /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+      ranges: _LogsCountRangeBucket[];
+      /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+      interval: string;
     }
 
     export interface _LogsCountRequest {
@@ -38816,6 +39014,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
     /**
      * Filter attributes to those appearing in logs from these services.
      */
@@ -41141,6 +41343,14 @@ export namespace Schemas {
 
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
+    /**
+     * Maximum number of persons to return per page (defaults to 100).
+     */
+    limit?: number;
+    /**
+     * Number of persons to skip before starting to return results.
+     */
+    offset?: number;
     };
 
     export type CohortsPersonsRetrieveFormat = typeof CohortsPersonsRetrieveFormat[keyof typeof CohortsPersonsRetrieveFormat];
@@ -43139,6 +43349,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
     /**
      * Filter attributes to those appearing in logs from these services.
      */
