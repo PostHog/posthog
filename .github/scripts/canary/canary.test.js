@@ -221,3 +221,57 @@ test('expiresIn returns null for null input and a remaining-time string for fres
     const result = comment.expiresIn(fresh)
     assert.match(result, /^in 4[78]h \d+m$/)
 })
+
+// Guards the /pr-canary status no-charts-run fallback against regressing
+// to the buggy `weight > 0 ? HEALTHY : ROLLING_OUT` heuristic. State.yaml
+// alone cannot tell HEALTHY from in-flight ROUTING — only the charts run
+// conclusion can. When the charts run can't be located, derivePhase MUST
+// still return ROUTING/ROLLING_OUT, never HEALTHY.
+test('derivePhase without a charts run never returns HEALTHY', () => {
+    const ownedRolling = { enabled: true, pr_number: 100, weight: 0 }
+    const ownedRouting = { enabled: true, pr_number: 100, weight: 5 }
+    assert.equal(state.derivePhase(ownedRolling, null, 100), 'ROLLING_OUT')
+    assert.equal(state.derivePhase(ownedRouting, null, 100), 'ROUTING')
+    // also: a weight>0 owned canary with an in-flight run is ROUTING (not HEALTHY)
+    assert.equal(state.derivePhase(ownedRouting, { status: 'in_progress' }, 100), 'ROUTING')
+})
+
+test('derivePhase ROUTING → HEALTHY transition only on charts run completion', () => {
+    const ownedRouting = { enabled: true, pr_number: 100, weight: 5 }
+    assert.equal(state.derivePhase(ownedRouting, { status: 'queued' }, 100), 'ROUTING')
+    assert.equal(state.derivePhase(ownedRouting, { status: 'in_progress' }, 100), 'ROUTING')
+    assert.equal(
+        state.derivePhase(ownedRouting, { status: 'completed', conclusion: 'success' }, 100),
+        'HEALTHY'
+    )
+    assert.equal(
+        state.derivePhase(ownedRouting, { status: 'completed', conclusion: 'failure' }, 100),
+        'FAILED'
+    )
+    assert.equal(
+        state.derivePhase(ownedRouting, { status: 'completed', conclusion: 'cancelled' }, 100),
+        'CANCELED'
+    )
+})
+
+test('renderBody for DISPATCHED includes image, env, weight, and dispatch run link', () => {
+    const body = comment.renderBody({
+        phase: 'DISPATCHED',
+        fields: {
+            pr: 123,
+            image: 'sha-deadbee',
+            env: 'prod-us',
+            weight: 3,
+            started_by: 'matheus-vb',
+            started_at: new Date().toISOString(),
+            dispatch_run_url: 'https://github.com/PostHog/posthog/actions/runs/42',
+        },
+    })
+    assert.match(body, /<!-- pr-canary-status phase=DISPATCHED/)
+    assert.match(body, /Dispatched to charts/)
+    assert.match(body, /sha-deadbee/)
+    assert.match(body, /prod-us/)
+    assert.match(body, /\| Weight \| `3` \|/)
+    assert.match(body, /posthog run/)
+    assert.match(body, /Auto-disables/)
+})
