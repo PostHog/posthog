@@ -105,7 +105,7 @@ export const legend = {
         )
         if (!dataset) {
             const available = (logic.values.indexedResults as IndexedTrendResult[])
-                .map((d) => `"${d.label}"`)
+                .map((d) => `"${d.label ?? d.action?.name}"`)
                 .join(', ')
             throw new Error(`No series labeled "${label}". Available: ${available}`)
         }

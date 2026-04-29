@@ -74,17 +74,20 @@ export function getHogChart(scope: HTMLElement = document.body): HogChart {
     const match = SERIES_COUNT_RE.exec(ariaLabel)
     const seriesCount = match ? Number(match[1]) : 0
 
-    const yRightTickEls = Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-yr"]'))
-
     return {
         element: wrapper,
         seriesCount,
-        hasRightAxis: yRightTickEls.length > 0,
+        get hasRightAxis(): boolean {
+            return wrapper.querySelectorAll('[data-attr="hog-chart-axis-tick-yr"]').length > 0
+        },
         yTicks: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-y"]')).map(
                 (el) => el.textContent ?? ''
             ),
-        yRightTicks: () => yRightTickEls.map((el) => el.textContent ?? ''),
+        yRightTicks: () =>
+            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-yr"]')).map(
+                (el) => el.textContent ?? ''
+            ),
         xTicks: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-x"]')).map(
                 (el) => el.textContent ?? ''

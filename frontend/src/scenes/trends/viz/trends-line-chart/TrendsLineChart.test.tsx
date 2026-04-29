@@ -435,89 +435,63 @@ describe('TrendsLineChart', () => {
     })
 
     describe('multi-axis', () => {
-        it('renders a right y-axis when showMultipleYAxes is true with multiple series', async () => {
+        it.each([
+            { name: 'renders a right y-axis when showMultipleYAxes is true', enabled: true, expectedRight: true },
+            { name: 'omits the right y-axis by default', enabled: false, expectedRight: false },
+        ])('$name', async ({ enabled, expectedRight }) => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [
                         { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
                         { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                     ],
-                    trendsFilter: { showMultipleYAxes: true },
+                    trendsFilter: enabled ? { showMultipleYAxes: true } : undefined,
                 }),
                 featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
-                expect(getHogChart().hasRightAxis).toBe(true)
+                expect(getHogChart().hasRightAxis).toBe(expectedRight)
             })
-            expect(getHogChart().yRightTicks().length).toBeGreaterThan(0)
-        })
-
-        it('does not render a right y-axis when showMultipleYAxes is false', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    series: [
-                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                    ],
-                }),
-                featureFlags: HOG_CHARTS_FLAG,
-            })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            expect(getHogChart().hasRightAxis).toBe(false)
+            if (expectedRight) {
+                expect(getHogChart().yRightTicks().length).toBeGreaterThan(0)
+            }
         })
     })
 
     describe('goal lines', () => {
-        it('renders a goal line at the configured value with its label', async () => {
+        // Pageview peaks at 210; a `displayIfCrossed: false` line below that peak is filtered out.
+        it.each([
+            {
+                name: 'single goal line renders with its label',
+                goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
+                expectedLabels: ['Target'],
+            },
+            {
+                name: 'multiple goal lines render in order',
+                goalLines: [
+                    { label: 'Floor', value: 50, displayIfCrossed: true },
+                    { label: 'Ceiling', value: 200, displayIfCrossed: true },
+                ],
+                expectedLabels: ['Floor', 'Ceiling'],
+            },
+            {
+                name: 'displayIfCrossed=false hides a line the data has crossed',
+                goalLines: [{ label: 'Crossed', value: 100, displayIfCrossed: false }],
+                expectedLabels: [],
+            },
+        ])('$name', async ({ goalLines, expectedLabels }) => {
             renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: {
-                        goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
-                    },
-                }),
+                query: buildTrendsQuery({ trendsFilter: { goalLines } }),
                 featureFlags: HOG_CHARTS_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
             const lines = getHogChart().referenceLines()
-            expect(lines).toHaveLength(1)
-            expect(lines[0].label).toBe('Target')
-            expect(lines[0].orientation).toBe('horizontal')
-        })
-
-        it('renders multiple goal lines in order', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: {
-                        goalLines: [
-                            { label: 'Floor', value: 50, displayIfCrossed: true },
-                            { label: 'Ceiling', value: 200, displayIfCrossed: true },
-                        ],
-                    },
-                }),
-                featureFlags: HOG_CHARTS_FLAG,
-            })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            const lines = getHogChart().referenceLines()
-            expect(lines.map((l) => l.label)).toEqual(['Floor', 'Ceiling'])
-        })
-
-        it('omits a goal line whose displayIfCrossed is false and the data has crossed it', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: {
-                        // Pageview peaks at 210; a 100 goal is "crossed" so it should be hidden.
-                        goalLines: [{ label: 'Crossed', value: 100, displayIfCrossed: false }],
-                    },
-                }),
-                featureFlags: HOG_CHARTS_FLAG,
-            })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            expect(getHogChart().referenceLines()).toHaveLength(0)
+            expect(lines.map((l) => l.label)).toEqual(expectedLabels)
+            for (const line of lines) {
+                expect(line.orientation).toBe('horizontal')
+            }
         })
     })
 
