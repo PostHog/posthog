@@ -581,7 +581,10 @@ class IntegrationViewSet(
             else:
                 return Response({"channels": []})
 
-        key = f"slack/{instance.integration_id}/{should_include_private_channels}/channels"
+        # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
+        # integration_id (the Slack workspace id, shared across teams). Two teams that
+        # install the same workspace must not share cached private-channel lists.
+        key = f"slack/{instance.id}/{should_include_private_channels}/channels"
         data = cache.get(key)
 
         if data is not None and not force_refresh:
