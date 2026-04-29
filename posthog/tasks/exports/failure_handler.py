@@ -19,6 +19,7 @@ from posthog.errors import (
     CHQueryErrorCannotParseUuid,
     CHQueryErrorIllegalAggregation,
     CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorIllegalTypeOfColumnForFilter,
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
@@ -90,6 +91,7 @@ USER_QUERY_ERRORS = (
     ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)
     ClickHouseQueryTimeOut,  # Users should switch to materialised queries if they run into this
     CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorIllegalTypeOfColumnForFilter,
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
     CHQueryErrorUnknownFunction,

@@ -146,6 +146,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
+    elif name == "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER":
+        return CHQueryErrorIllegalTypeOfColumnForFilter(
+            err.message, code=err.code, code_name="illegal_type_of_column_for_filter"
+        )
 
     # all other errors
     else:
@@ -254,6 +258,10 @@ class CHQueryErrorUnknownTable(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorIllegalTypeOfColumnForFilter(ExposedCHQueryError):
+    pass
+
+
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/v25.8.12.129-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
@@ -345,7 +353,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     57: ErrorCodeMeta("TABLE_ALREADY_EXISTS"),
     58: ErrorCodeMeta("TABLE_METADATA_ALREADY_EXISTS"),
     59: ErrorCodeMeta(
-        "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", category=QueryErrorCategory.USER_ERROR
+        "ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER", user_safe=True
     ),  # WHERE/HAVING column is not boolean-convertible
     60: ErrorCodeMeta("UNKNOWN_TABLE", user_safe=True),
     62: ErrorCodeMeta("SYNTAX_ERROR", category=QueryErrorCategory.USER_ERROR),

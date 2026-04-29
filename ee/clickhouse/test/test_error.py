@@ -150,6 +150,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 59. DB::Exception: Invalid type for filter in WHERE: Nullable(String).",
+                code=59,
+            ),
+            "CHQueryErrorIllegalTypeOfColumnForFilter",
+            "Invalid type for filter in WHERE: Nullable(String).",
+            59,
+            "CHQueryErrorIllegalTypeOfColumnForFilter",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
