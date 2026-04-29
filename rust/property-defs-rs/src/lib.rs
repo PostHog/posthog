@@ -14,7 +14,7 @@ use types::{Event, Update};
 
 use ahash::AHashSet;
 use tokio::sync::mpsc::error::TrySendError;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 use update_cache::Cache;
 
 use crate::{
@@ -37,7 +37,9 @@ pub async fn update_consumer_loop(
     cache: Arc<Cache>,
     context: Arc<AppContext>,
     mut channel: MeasuringReceiver<Update>,
+    handle: lifecycle::Handle,
 ) {
+    let _guard = handle.process_scope();
     let mut prev_hits = [0u64; 3];
     let mut prev_misses = [0u64; 3];
 
@@ -47,7 +49,7 @@ pub async fn update_consumer_loop(
         let batch_start = tokio::time::Instant::now();
         let batch_time = common_metrics::timing_guard(BATCH_ACQUIRE_TIME, &[]);
         while batch.len() < config.update_batch_size {
-            context.worker_liveness.report_healthy().await;
+            handle.report_healthy();
 
             metrics::gauge!(CHANNEL_MESSAGES_IN_FLIGHT)
                 .set(channel.get_inflight_messages_count() as f64);
@@ -58,10 +60,14 @@ pub async fn update_consumer_loop(
             let sleep = tokio::time::sleep(Duration::from_secs(1));
 
             tokio::select! {
+                _ = handle.shutdown_recv() => {
+                    info!("Consumer loop received shutdown signal");
+                    return;
+                }
                 got = recv => {
                     if got == 0 {
-                        // Indicates all workers have exited, so we should too
-                        panic!("Coordinator recv failed, dying");
+                        info!("Channel closed, all producers exited");
+                        return;
                     }
                     metrics::gauge!(RECV_DEQUEUED).set(got as f64);
                     continue;
@@ -76,6 +82,10 @@ pub async fn update_consumer_loop(
             }
         }
         batch_time.fin();
+
+        if batch.is_empty() {
+            continue;
+        }
 
         // We de-duplicate the batch, in case racing inserts slipped through the shared-cache filter. This
         // is important because duplicate updates touch the same row, and we issue in parallel, so we'd end
@@ -146,11 +156,21 @@ pub async fn update_producer_loop(
     consumer: SingleTopicConsumer,
     shared_cache: Arc<Cache>,
     channel: MeasuringSender<Update>,
+    handle: lifecycle::Handle,
 ) {
+    let _guard = handle.process_scope();
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
-        let (event, offset): (Event, _) = match consumer.json_recv().await {
+        let recv_result = tokio::select! {
+            _ = handle.shutdown_recv() => {
+                info!("Producer loop shutting down");
+                return;
+            }
+            r = consumer.json_recv() => r,
+        };
+
+        let (event, offset): (Event, _) = match recv_result {
             Ok(r) => r,
             Err(RecvErr::Empty) => {
                 warn!("Received empty event");
@@ -163,7 +183,8 @@ pub async fn update_producer_loop(
                 continue;
             }
             Err(RecvErr::Kafka(e)) => {
-                panic!("Kafka error: {e:?}"); // We just panic if we fail to recv from kafka, if it's down, we're down
+                handle.signal_failure(format!("Kafka error: {e:?}"));
+                return;
             }
         };
 
@@ -235,9 +256,9 @@ pub async fn update_producer_loop(
                     Err(TrySendError::Full(update)) => {
                         warn!("Worker blocked");
                         metrics::counter!(WORKER_BLOCKED).increment(1);
-                        // Workers should just die if the channel is dropped, since that indicates
-                        // the main loop is dead.
-                        channel.send(update).await.unwrap();
+                        if channel.send(update).await.is_err() {
+                            return;
+                        }
                     }
                     Err(e) => {
                         warn!("Coordinator send failed: {:?}", e);

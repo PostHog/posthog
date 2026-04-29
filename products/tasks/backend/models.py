@@ -270,6 +270,7 @@ class Task(DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        model: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -316,6 +317,9 @@ class Task(DeletedMetaFields, models.Model):
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+
+        if model:
+            extra_state["model"] = model
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
