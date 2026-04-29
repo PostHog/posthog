@@ -1,6 +1,6 @@
 ### Querying data in PostHog
 
-Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. References mentioned in this file are relevant to PostHog's skill `query-examples`.
+Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. References mentioned in this file are relevant to PostHog's skill `querying-posthog-data`.
 
 Do not assume that data exists. Use the SQL tool proactively to find the right data.
 
