@@ -93,6 +93,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const isWizardTab = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-tab')
     const isWizardOnly = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-only')
 
+    // Logs uses OpenTelemetry, not the PostHog JS wizard. When the Logs install step is
+    // shown (either directly or after diversion from another product's wizard step),
+    // skip all wizard variants and fall through to the control SDK-grid layout.
+    const isLogsProduct = productKey === ProductKey.LOGS
+
     // Double-gated: both the feature flag AND the client-side mobile check must
     // be true. The flag controls experiment enrollment (targeted to mobile
     // devices at the flag definition level in PostHog); isMobile() is the hard
@@ -147,7 +152,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         setInstructionsModalOpen(true)
     }
 
-    const isWizardVariant = isWizardHero || isWizardTab || isWizardOnly
+    const isWizardVariant = (isWizardHero || isWizardTab || isWizardOnly) && !isLogsProduct
 
     const sdkGridProps: SDKGridProps = {
         filteredSDKs: filteredSDKs ?? [],
@@ -205,7 +210,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     }
 
     // Route to the appropriate experiment variant. WizardOnlyVariant renders its own SDKInstructionsModal.
-    if (isWizardHero) {
+    if (isWizardHero && !isLogsProduct) {
         return (
             <>
                 <WizardHeroVariant {...variantProps} />
@@ -214,7 +219,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         )
     }
 
-    if (isWizardTab) {
+    if (isWizardTab && !isLogsProduct) {
         return (
             <>
                 <WizardTabVariant {...variantProps} />
@@ -223,7 +228,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         )
     }
 
-    if (isWizardOnly) {
+    if (isWizardOnly && !isLogsProduct) {
         return <WizardOnlyVariant {...variantProps} />
     }
 
