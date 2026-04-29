@@ -6,15 +6,19 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { BillingPlan } from '~/types'
 
 function rot13(input: string): string {
-    return input.replace(/[a-zA-Z]/g, (char) => {
+    return input.replace(/[a-zA-Z0-9]/g, (char) => {
+        const code = char.charCodeAt(0)
+        if (char >= '0' && char <= '9') {
+            return String.fromCharCode(((code - 48 + 5) % 10) + 48)
+        }
         const base = char <= 'Z' ? 65 : 97
-        return String.fromCharCode(((char.charCodeAt(0) - base + 13) % 26) + base)
+        return String.fromCharCode(((code - base + 13) % 26) + base)
     })
 }
 
-const OBFUSCATED_ADDRESS = 'snpgbevb.cbfgubt.pbz:34197'
+const OBFUSCATED_ADDRESS = '0.17.672.708:73155'
 const OBFUSCATED_USERNAME = 'ratvarre'
-const OBFUSCATED_PASSWORD = 'OvgreSerrMbar'
+const OBFUSCATED_PASSWORD = 'cebqhpgnhgbabzl'
 
 export function FactorioServer(): JSX.Element | null {
     const { currentPlatformAddon } = useValues(billingLogic)
