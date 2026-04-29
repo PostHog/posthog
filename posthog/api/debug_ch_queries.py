@@ -223,12 +223,16 @@ class DebugCHQueries(viewsets.ViewSet):
             response["hourly_stats"] = self.hourly_stats(filter_key, filter_value)
         return Response(response)
 
-    def _serialize_precomputation_team(self, team: Team, enabled: bool) -> dict:
+    def _serialize_precomputation_team(
+        self, team: Team, enabled: bool, arr_by_org: dict[str, int] | None = None
+    ) -> dict:
+        org_id = str(team.organization.id) if team.organization else None
         return {
             "team_id": team.id,
             "team_name": team.name,
-            "organization_id": str(team.organization.id) if team.organization else None,
+            "organization_id": org_id,
             "organization_name": team.organization.name if team.organization else None,
+            "organization_arr": arr_by_org.get(org_id, None) if arr_by_org and org_id else None,
             "experiment_precomputation_enabled": enabled,
         }
 
@@ -244,7 +248,7 @@ class DebugCHQueries(viewsets.ViewSet):
 
         if search:
             # Search by org name — return all teams in matching orgs
-            teams = (
+            teams = list(
                 Team.objects.filter(organization__name__icontains=search)
                 .select_related("organization")
                 .order_by("organization__name", "name")
@@ -256,17 +260,24 @@ class DebugCHQueries(viewsets.ViewSet):
                     experiment_precomputation_enabled=True,
                 ).values_list("team_id", "experiment_precomputation_enabled")
             )
+            org_ids = {str(t.organization.id) for t in teams if t.organization}
+            arr_by_org = self._fetch_org_arr(org_ids) if org_ids else {}
             return Response(
-                [self._serialize_precomputation_team(team, configs_by_team.get(team.id, False)) for team in teams]
+                [
+                    self._serialize_precomputation_team(team, configs_by_team.get(team.id, False), arr_by_org)
+                    for team in teams
+                ]
             )
 
         # Default: only teams with precomputation enabled
-        configs = (
+        configs = list(
             TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True)
             .select_related("team", "team__organization")
             .order_by("team__name")
         )
-        return Response([self._serialize_precomputation_team(config.team, True) for config in configs])
+        org_ids = {str(c.team.organization.id) for c in configs if c.team.organization}
+        arr_by_org = self._fetch_org_arr(org_ids) if org_ids else {}
+        return Response([self._serialize_precomputation_team(config.team, True, arr_by_org) for config in configs])
 
     def _update_precomputation(self, request) -> Response:
         team_id = request.data.get("team_id")
@@ -284,13 +295,15 @@ class DebugCHQueries(viewsets.ViewSet):
         config.experiment_precomputation_enabled = enabled
         config.save(update_fields=["experiment_precomputation_enabled"])
 
-        return Response(self._serialize_precomputation_team(team, enabled))
+        org_id = str(team.organization.id) if team.organization else None
+        arr_by_org = self._fetch_org_arr({org_id}) if org_id else {}
+        return Response(self._serialize_precomputation_team(team, enabled, arr_by_org))
 
     # Team ID for PostHog's own project, which has data warehouse billing tables
     _POSTHOG_INTERNAL_TEAM_ID = 2
 
-    def _fetch_org_mrr(self, org_ids: set[str]) -> dict[str, int]:
-        """Fetch current confirmed MRR per organization from data warehouse billing tables.
+    def _fetch_org_arr(self, org_ids: set[str]) -> dict[str, int]:
+        """Fetch current confirmed ARR per organization from data warehouse billing tables.
 
         Uses HogQL to access data warehouse tables via the PostHog internal team.
         Returns empty dict if unavailable (e.g. local dev or missing tables).
@@ -308,7 +321,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 f"""
                 SELECT
                     cus.organization_id,
-                    round(sum(iwa.mrr)) AS current_mrr
+                    round(sum(iwa.mrr) * 12) AS current_arr
                 FROM prod_postgres_invoice_with_annual AS iwa
                 JOIN prod_postgres_billing_customer AS cus ON iwa.customer_id = cus.id
                 WHERE
@@ -323,7 +336,7 @@ class DebugCHQueries(viewsets.ViewSet):
             )
             return {str(row[0]): round(float(row[1])) for row in response.results or []}
         except Exception:
-            logger.warning("Failed to fetch org MRR from billing tables, skipping", exc_info=True)
+            logger.warning("Failed to fetch org ARR from billing tables, skipping", exc_info=True)
             return {}
 
     @action(detail=False, methods=["GET"], url_path="slowest_queries")
@@ -387,11 +400,11 @@ class DebugCHQueries(viewsets.ViewSet):
                     "organization_name": team.organization.name if team.organization else None,
                 }
 
-        # Batch-fetch current MRR per organization from billing tables
+        # Batch-fetch current ARR per organization from billing tables
         org_ids = {t["organization_id"] for t in teams_by_id.values() if t.get("organization_id")}
-        mrr_by_org: dict[str, int] = {}
+        arr_by_org: dict[str, int] = {}
         if org_ids:
-            mrr_by_org = self._fetch_org_mrr(org_ids)
+            arr_by_org = self._fetch_org_arr(org_ids)
 
         return Response(
             [
@@ -405,7 +418,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     "team_id": row[6],
                     "team_name": teams_by_id.get(row[6], {}).get("team_name"),
                     "organization_name": teams_by_id.get(row[6], {}).get("organization_name"),
-                    "organization_mrr": mrr_by_org.get(teams_by_id.get(row[6], {}).get("organization_id", ""), None),
+                    "organization_arr": arr_by_org.get(teams_by_id.get(row[6], {}).get("organization_id", ""), None),
                     "query_type": row[7],
                     "experiment_name": row[8],
                     "experiment_metric_name": row[9],

@@ -75,7 +75,16 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Organization',
-            dataIndex: 'organization_name',
+            render: function OrgCell(_, team) {
+                return (
+                    <div className="flex items-center gap-1">
+                        <span>{team.organization_name || <span className="text-muted">Unknown</span>}</span>
+                        {team.organization_arr != null && (
+                            <LemonTag type="completion">ARR ${team.organization_arr.toLocaleString()}</LemonTag>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             title: 'Organization ID',
@@ -118,8 +127,8 @@ export function QueryPerformance(): JSX.Element {
                 return (
                     <div className="flex items-center gap-1">
                         <span>{item.organization_name || <span className="text-muted">Unknown</span>}</span>
-                        {item.organization_mrr != null && (
-                            <LemonTag type="completion">${item.organization_mrr.toLocaleString()}</LemonTag>
+                        {item.organization_arr != null && (
+                            <LemonTag type="completion">ARR ${item.organization_arr.toLocaleString()}</LemonTag>
                         )}
                     </div>
                 )
