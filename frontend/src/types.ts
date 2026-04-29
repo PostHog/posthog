@@ -966,6 +966,7 @@ export enum ProgressStatus {
 export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
+    Paused = 'paused',
     Stopped = 'stopped',
 }
 
