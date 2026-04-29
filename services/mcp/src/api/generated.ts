@@ -15410,8 +15410,6 @@ export namespace Schemas {
       readonly computed_at: string | null;
       /** @nullable */
       readonly dismissed_at: string | null;
-      /** @nullable */
-      readonly next_refresh_at: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
