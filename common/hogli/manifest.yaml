@@ -787,7 +787,7 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
-    postprocess:schema-python:
-        bin_script: postprocess-schema-python.py
-        description: 'Restore Pydantic discriminators on series/nodes unions in posthog/schema.py (called by build:schema-python)'
+    restore:schema-discriminators:
+        bin_script: restore-schema-discriminators.py
+        description: 'Restore Pydantic discriminators in posthog/schema.py dropped by datamodel-codegen (called by build:schema-python)'
         hidden: true

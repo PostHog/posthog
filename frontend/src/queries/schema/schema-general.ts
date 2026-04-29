@@ -824,21 +824,10 @@ export interface GroupNode<WarehouseNode = DataWarehouseNode> extends EntityNode
     orderBy?: string[]
 }
 
-/**
- * Series entries for TrendsQuery — discriminated on `kind` so backend
- * validation reports a single targeted error instead of stacking one error
- * per union variant when a series entry is malformed.
- *
- * @discriminator kind
- */
+/** @discriminator kind */
 export type TrendsSeriesNode = EventsNode | ActionsNode | DataWarehouseNode | GroupNode
 
-/**
- * Series entries for FunnelsQuery — discriminated on `kind` for the same
- * reason as `TrendsSeriesNode`.
- *
- * @discriminator kind
- */
+/** @discriminator kind */
 export type FunnelsSeriesNode = EventsNode | ActionsNode | FunnelsDataWarehouseNode | GroupNode
 
 export interface QueryTiming {

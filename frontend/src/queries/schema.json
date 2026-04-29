@@ -19564,7 +19564,6 @@
             "type": "object"
         },
         "FunnelsSeriesNode": {
-            "description": "Series entries for FunnelsQuery — discriminated on `kind` for the same reason as `TrendsSeriesNode`.",
             "discriminator": {
                 "propertyName": "kind"
             },
@@ -37515,7 +37514,6 @@
             "type": "object"
         },
         "TrendsSeriesNode": {
-            "description": "Series entries for TrendsQuery — discriminated on `kind` so backend validation reports a single targeted error instead of stacking one error per union variant when a series entry is malformed.",
             "discriminator": {
                 "propertyName": "kind"
             },

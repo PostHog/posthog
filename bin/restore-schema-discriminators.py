@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Post-process posthog/schema.py after datamodel-codegen.
+Restore Pydantic v2 discriminator annotations in posthog/schema.py after
+datamodel-codegen.
 
-Adds Pydantic v2 `Annotated[..., Field(discriminator="kind")]` wrappers around
-the entity-node unions used as `series` (TrendsQuery / FunnelsQuery / etc.)
-and as `nodes` (GroupNode). The pinned datamodel-code-generator version does
-not propagate JSON-Schema `discriminator` annotations through inline list-item
-unions when `--collapse-root-models` is enabled, so without this step Pydantic
-walks every variant and stacks one error per branch (the original cause of
-the 46-error TrendsQuery validation failures observed in production).
+The pinned datamodel-code-generator drops JSON-Schema `discriminator`
+annotations on inline list-item unions when `--collapse-root-models` is
+enabled. For any field whose value type is a `list[A | B | ...]` union of
+classes that share a `kind` literal, the annotation is re-applied here as
+`Annotated[..., Field(discriminator="kind")]`. Without this, Pydantic walks
+every variant on a bad value and produces one error per branch instead of
+a single targeted error.
 
-The transformation is idempotent: if the field is already wrapped with
-`Annotated[..., Field(discriminator="kind")]`, the line is left untouched.
+Idempotent: lines already wrapped with `Field(discriminator="kind")` are
+left untouched.
 """
 
 # ruff: noqa: T201 allow print statements
@@ -24,14 +25,14 @@ from pathlib import Path
 
 SCHEMA_PATH = Path("posthog/schema.py")
 
-# Field names whose value type is a union of entity nodes that all share
-# `kind: Literal[...]`. We wrap these with Pydantic's discriminator so a bad
-# entry produces a single targeted error rather than one error per variant.
+# Field names whose value type is expected to be a discriminated union of
+# `kind`-bearing classes. Add new field names here when codegen drops the
+# discriminator on another `list[A | B | ...]` field.
 DISCRIMINATED_LIST_FIELDS = ("series", "nodes")
 
-# Capture: list[ <union> ] = Field(...) or list[ <union> ]\n
-# We only target unions of EntityNode-like classes (heuristic: each member ends
-# in "Node" and the union contains 2+ members joined by " | ").
+# Match `<field>: list[<UnionMember>(?: | <UnionMember>)+]<rest>` where each
+# member is heuristically an EntityNode-like class (name ends in "Node") and
+# the union has at least two members.
 LIST_FIELD_RE = re.compile(
     r"^(?P<indent>\s*)(?P<name>" + "|".join(DISCRIMINATED_LIST_FIELDS) + r")"
     r": list\[(?P<union>[A-Za-z_][A-Za-z0-9_]*Node(?: \| [A-Za-z_][A-Za-z0-9_]*Node)+)\]"
@@ -64,7 +65,6 @@ def patch(source: str) -> tuple[str, int]:
         nonlocal count
         union = match["union"]
         rest = match["rest"]
-        # Skip if already wrapped with Annotated[..., discriminator=...]
         if 'discriminator="kind"' in match.group(0):
             return match.group(0)
         count += 1
@@ -86,10 +86,10 @@ def main() -> None:
     source = SCHEMA_PATH.read_text()
     patched, count = patch(source)
     if count == 0:
-        print("postprocess-schema-python: no series/nodes unions to discriminate")
+        print("restore-schema-discriminators: no discriminated list unions to patch")
         return
     SCHEMA_PATH.write_text(patched)
-    print(f"postprocess-schema-python: discriminated {count} entity-node union(s)")
+    print(f"restore-schema-discriminators: restored {count} discriminator annotation(s)")
 
 
 if __name__ == "__main__":
