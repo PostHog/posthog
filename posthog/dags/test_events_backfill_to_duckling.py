@@ -362,6 +362,14 @@ class TestIsFullExportPartition:
 
 
 class TestDeleteRangePredicate:
+    """Validate the half-open range predicate used by delete_*_partition_data.
+
+    These tests use in-process DuckDB ($N parameter binding) to verify the SQL
+    logic independently of the psycopg→duckgres connection path. The production
+    code uses psycopg %s bindings; the date-range predicate itself is binding-
+    agnostic and should behave identically through either binding layer.
+    """
+
     @parameterized.expand(
         [
             # (timestamps_to_insert, target_date, expected_deleted, expected_remaining)

@@ -55,6 +55,7 @@ from dagster import (
     define_asset_job,
     sensor,
 )
+from psycopg import sql as psql
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
@@ -68,7 +69,7 @@ from posthog.dags.events_backfill_to_ducklake import (
     MAX_RETRY_ATTEMPTS,
 )
 from posthog.ducklake.client import _make_duckgres_conninfo
-from posthog.ducklake.common import escape, get_ducklake_catalog_by_team_org
+from posthog.ducklake.common import get_duckgres_server_for_organization, get_ducklake_catalog_by_team_org
 from posthog.ducklake.models import DuckLakeBackfill, DuckLakeCatalog
 
 logger = structlog.get_logger(__name__)
@@ -77,6 +78,21 @@ logger = structlog.get_logger(__name__)
 # DuckLake catalog under this name on session start (see duckgres server.go),
 # so the DAG can hardcode it everywhere instead of threading a config value.
 DUCKLAKE_ALIAS = "ducklake"
+
+# Duckgres connection timeouts: connect_timeout bounds the TCP+TLS handshake;
+# statement_timeout bounds query execution to prevent hung Dagster workers.
+DUCKGRES_CONNECT_TIMEOUT = 10  # seconds
+DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
+
+# Retry duckgres operations on transient connection/network failures.
+# Duckgres handles transaction conflicts server-side (retryOnConflict, max 5
+# attempts with jitter), so this decorator targets only connection-level errors.
+_retry_duckgres_connection = retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    retry=retry_if_exception_type((psycopg.OperationalError, psycopg.InterfaceError)),
+    reraise=True,
+)
 
 
 @retry(
@@ -105,10 +121,18 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
     Cross-account S3 credentials are configured server-side via IRSA on the
     duckling, so the DAG no longer calls `configure_cross_account_connection`.
     """
+    if catalog.team_id is None:
+        raise ValueError(
+            f"DuckLakeCatalog team_id is None for org={catalog.organization_id} — "
+            "cannot route to a duckgres instance without a team identifier."
+        )
+
     conninfo = _make_duckgres_conninfo(
-        catalog.team_id if catalog.team_id is not None else 0,
+        catalog.team_id,
         organization_id=str(catalog.organization_id),
     )
+    conninfo += f" connect_timeout={DUCKGRES_CONNECT_TIMEOUT}"
+    conninfo += f" options='-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}'"
     return psycopg.connect(conninfo, autocommit=True)
 
 
@@ -457,7 +481,11 @@ def table_exists(
     try:
         conn.execute(f"DESCRIBE {catalog_alias}.{schema}.{table}")
         return True
-    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+    except (
+        psycopg.errors.UndefinedTable,
+        psycopg.errors.InvalidSchemaName,
+        psycopg.DatabaseError,
+    ):
         return False
 
 
@@ -512,6 +540,7 @@ def _set_table_partitioning(
         return False
 
 
+@_retry_duckgres_connection
 def ensure_events_table_exists(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -547,26 +576,7 @@ def ensure_events_table_exists(
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
 
         context.log.info("Creating events table in duckling catalog...")
-        ddl = EVENTS_TABLE_DDL.format(catalog=alias)
-        try:
-            conn.execute(ddl)
-        except psycopg.errors.DuplicateTable as exc:
-            # Race condition: another worker created the table between our
-            # table_exists check and the CREATE. Treat as success.
-            if table_exists(conn, alias, "posthog", "events"):
-                context.log.info("Events table was created by another worker")
-                _set_table_partitioning(
-                    conn,
-                    alias,
-                    "events",
-                    "year(timestamp), month(timestamp), day(timestamp)",
-                    context,
-                    catalog.team_id,
-                )
-                return False
-            context.log.exception(f"Failed to create events table: {exc}")
-            raise
-
+        conn.execute(EVENTS_TABLE_DDL.format(catalog=alias))
         context.log.info("Successfully created events table")
 
         # Set partitioning by year/month/day for efficient querying
@@ -590,6 +600,7 @@ def ensure_events_table_exists(
         conn.close()
 
 
+@_retry_duckgres_connection
 def ensure_persons_table_exists(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -625,24 +636,7 @@ def ensure_persons_table_exists(
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
 
         context.log.info("Creating persons table in duckling catalog...")
-        ddl = PERSONS_TABLE_DDL.format(catalog=alias)
-        try:
-            conn.execute(ddl)
-        except psycopg.errors.DuplicateTable as exc:
-            if table_exists(conn, alias, "posthog", "persons"):
-                context.log.info("Persons table was created by another worker")
-                _set_table_partitioning(
-                    conn,
-                    alias,
-                    "persons",
-                    "year(_timestamp), month(_timestamp)",
-                    context,
-                    catalog.team_id,
-                )
-                return False
-            context.log.exception(f"Failed to create persons table: {exc}")
-            raise
-
+        conn.execute(PERSONS_TABLE_DDL.format(catalog=alias))
         context.log.info("Successfully created persons table")
 
         # Set partitioning by year/month of _timestamp for efficient querying
@@ -695,6 +689,14 @@ def delete_events_table(
         )
         return True
 
+    except Exception:
+        context.log.exception(f"Failed to delete events table for team_id={catalog.team_id}")
+        logger.exception(
+            "duckling_events_table_delete_failed",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        raise
     finally:
         conn.close()
 
@@ -728,10 +730,19 @@ def delete_persons_table(
         )
         return True
 
+    except Exception:
+        context.log.exception(f"Failed to delete persons table for team_id={catalog.team_id}")
+        logger.exception(
+            "duckling_persons_table_delete_failed",
+            team_id=catalog.team_id,
+            bucket=catalog.bucket,
+        )
+        raise
     finally:
         conn.close()
 
 
+@_retry_duckgres_connection
 def validate_duckling_schema(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -781,6 +792,7 @@ def validate_duckling_schema(
         conn.close()
 
 
+@_retry_duckgres_connection
 def validate_duckling_persons_schema(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -851,6 +863,7 @@ def _execute_export_with_retry(
         raise
 
 
+@_retry_duckgres_connection
 def delete_events_partition_data(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -863,8 +876,9 @@ def delete_events_partition_data(
     before registering new files.
 
     DuckLake transaction conflicts are retried server-side by duckgres
-    (server/transient.go retryOnConflict, max 5 attempts with jitter), so this
-    function no longer needs an in-process retry loop.
+    (server/transient.go retryOnConflict, max 5 attempts with jitter). Transient
+    connection/network failures are retried by the `_retry_duckgres_connection`
+    decorator (max 3 attempts with exponential backoff).
 
     Returns the number of rows deleted.
     """
@@ -887,7 +901,8 @@ def delete_events_partition_data(
     try:
         with conn.cursor() as cur:
             cur.execute(delete_sql, (team_id, date_str, next_date_str))
-            deleted_count = cur.rowcount
+            result = cur.fetchone()
+            deleted_count = result[0] if result else 0
 
         if deleted_count > 0:
             context.log.info(f"Deleted {deleted_count} existing events for team_id={team_id}, date={date_str}")
@@ -899,7 +914,11 @@ def delete_events_partition_data(
             )
         return deleted_count
 
-    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+    except (
+        psycopg.errors.UndefinedTable,
+        psycopg.errors.InvalidSchemaName,
+        psycopg.DatabaseError,
+    ):
         context.log.debug(f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}")
         return 0
     except Exception:
@@ -914,6 +933,7 @@ def delete_events_partition_data(
         conn.close()
 
 
+@_retry_duckgres_connection
 def delete_persons_partition_data(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -925,8 +945,9 @@ def delete_persons_partition_data(
     For full exports (partition_date=None), deletes all persons for the team.
     For daily exports, deletes persons modified on that date.
 
-    DuckLake transaction conflicts are retried server-side by duckgres, so this
-    function no longer needs an in-process retry loop.
+    DuckLake transaction conflicts are retried server-side by duckgres. Transient
+    connection/network failures are retried by the `_retry_duckgres_connection`
+    decorator (max 3 attempts with exponential backoff).
 
     Returns the number of rows deleted.
     """
@@ -957,7 +978,8 @@ def delete_persons_partition_data(
             context.log.info(f"Deleting all existing persons for team_id={team_id}")
         with conn.cursor() as cur:
             cur.execute(delete_sql, delete_params)
-            deleted_count = cur.rowcount
+            result = cur.fetchone()
+            deleted_count = result[0] if result else 0
 
         if deleted_count > 0:
             context.log.info(f"Deleted {deleted_count} existing persons for team_id={team_id}, date={date_label}")
@@ -969,7 +991,11 @@ def delete_persons_partition_data(
             )
         return deleted_count
 
-    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
+    except (
+        psycopg.errors.UndefinedTable,
+        psycopg.errors.InvalidSchemaName,
+        psycopg.DatabaseError,
+    ):
         context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
         return 0
     except Exception:
@@ -1057,6 +1083,7 @@ def export_events_to_duckling_s3(
         raise
 
 
+@_retry_duckgres_connection
 def register_file_with_duckling(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -1068,8 +1095,9 @@ def register_file_with_duckling(
     Cross-account S3 access is configured server-side on the duckling's duckgres
     via IRSA, so the DAG only needs a pgwire connection.
 
-    DuckLake transaction conflicts are retried server-side by duckgres, so this
-    function no longer needs an in-process retry loop.
+    DuckLake transaction conflicts are retried server-side by duckgres. Transient
+    connection/network failures are retried by the `_retry_duckgres_connection`
+    decorator (max 3 attempts with exponential backoff).
 
     Args:
         context: Dagster asset execution context.
@@ -1093,7 +1121,12 @@ def register_file_with_duckling(
     conn = _connect_duckgres(catalog)
     try:
         context.log.info(f"Registering file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'events', '{escape(s3_path)}', schema => 'posthog')")
+        conn.execute(
+            psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
+                psql.Literal(alias),
+                psql.Literal(s3_path),
+            )
+        )
 
         context.log.info(f"Successfully registered: {s3_path}")
         logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -1261,6 +1294,7 @@ def export_persons_full_to_duckling_s3(
         raise
 
 
+@_retry_duckgres_connection
 def register_persons_file_with_duckling(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -1269,8 +1303,9 @@ def register_persons_file_with_duckling(
 ) -> bool:
     """Register an exported persons Parquet file with the duckling's DuckLake catalog.
 
-    DuckLake transaction conflicts are retried server-side by duckgres, so this
-    function no longer needs an in-process retry loop.
+    DuckLake transaction conflicts are retried server-side by duckgres. Transient
+    connection/network failures are retried by the `_retry_duckgres_connection`
+    decorator (max 3 attempts with exponential backoff).
     """
     if config.skip_ducklake_registration:
         context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
@@ -1285,7 +1320,12 @@ def register_persons_file_with_duckling(
     conn = _connect_duckgres(catalog)
     try:
         context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-        conn.execute(f"CALL ducklake_add_data_files('{alias}', 'persons', '{escape(s3_path)}', schema => 'posthog')")
+        conn.execute(
+            psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
+                psql.Literal(alias),
+                psql.Literal(s3_path),
+            )
+        )
 
         context.log.info(f"Successfully registered persons: {s3_path}")
         logger.info(
@@ -1343,6 +1383,10 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     catalog = get_ducklake_catalog_by_team_org(team_id)
     if catalog is None:
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
+
+    server = get_duckgres_server_for_organization(str(catalog.organization_id))
+    if server is None:
+        raise ValueError(f"No DuckgresServer found for org={catalog.organization_id} — cannot proceed with backfill.")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
