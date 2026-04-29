@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
+from posthog.temporal.data_imports.util import NonRetryableException
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
@@ -37,8 +38,14 @@ sleep_per_attempt_in_seconds = 30
 # gspread raises a bare `PermissionError` (with no message) when the Google Sheets
 # API returns 403 — see gspread/client.py: `raise PermissionError from ex`.
 # `str(PermissionError())` is an empty string, which means the non-retryable error
-# matcher (substring match over `str(e)`) has nothing to match on. Re-raise with a
-# stable, descriptive message so downstream matching can identify it.
+# matcher (substring match over `str(e)`) has nothing to match on. Re-raise as
+# `NonRetryableException()` chained from a `PermissionError(_PERMISSION_DENIED_MESSAGE)`
+# so:
+#   1. the activity-level Temporal `RetryPolicy` short-circuits via the
+#      `"NonRetryableException"` entry in `non_retryable_error_types`, and
+#   2. `update_external_data_job_model` (which inspects `str(e.cause.cause)` for
+#      `NonRetryableException` activity failures) sees the descriptive message and
+#      maps it through `GoogleSheetsSource.get_non_retryable_errors`.
 _PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
 
 
@@ -52,8 +59,8 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
         client = google_sheets_client()
         try:
             spreadsheet = client.open_by_url(spreadsheet_url)
-        except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+        except PermissionError:
+            raise NonRetryableException() from PermissionError(_PERMISSION_DENIED_MESSAGE)
         return spreadsheet.get_worksheet_by_id(worksheet_id)
 
     attempts = 1
@@ -78,8 +85,8 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     client = google_sheets_client()
     try:
         spreadsheet = client.open_by_url(config.spreadsheet_url)
-    except PermissionError as e:
-        raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+    except PermissionError:
+        raise NonRetryableException() from PermissionError(_PERMISSION_DENIED_MESSAGE)
     worksheets = spreadsheet.worksheets()
 
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]

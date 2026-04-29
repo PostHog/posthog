@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     get_schemas,
 )
 from posthog.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
+from posthog.temporal.data_imports.util import NonRetryableException
 
 
 def test_get_worksheet_backoff():
@@ -77,27 +78,31 @@ def test_get_worksheet_caching():
         pytest.param(lambda: _get_worksheet("permission-error-url", 999), id="_get_worksheet"),
     ],
 )
-def test_reraises_permission_error_with_message(call_site):
+def test_reraises_permission_error_as_non_retryable(call_site):
     with mock.patch(
         "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
     ) as mock_google_sheets_client:
         instance = mock_google_sheets_client.return_value
         instance.open_by_url.side_effect = PermissionError()
 
-        with pytest.raises(PermissionError) as exc_info:
+        with pytest.raises(NonRetryableException) as exc_info:
             call_site()
 
-        assert "Spreadsheet access denied" in str(exc_info.value)
+        # The descriptive message lives on the chained `PermissionError` (not on
+        # `NonRetryableException` itself) so that `update_external_data_job_model`,
+        # which inspects `str(e.cause.cause)` for `NonRetryableException` activity
+        # failures, still sees the message and can map it to a friendly error.
+        cause = exc_info.value.__cause__
+        assert isinstance(cause, PermissionError)
+        assert str(cause) == _PERMISSION_DENIED_MESSAGE
+        assert "Spreadsheet access denied" in str(cause)
 
 
-def test_permission_error_is_non_retryable():
-    """The message we re-raise from gspread's bare PermissionError must be a
-    substring match for one of the source's non-retryable error keys, otherwise
-    we'd retry a 403 forever."""
+def test_permission_error_message_matches_non_retryable_key():
     source = GoogleSheetsSource()
     non_retryable_errors = source.get_non_retryable_errors()
 
-    raised = PermissionError(_PERMISSION_DENIED_MESSAGE)
-    error_msg = str(raised)
+    chained = PermissionError(_PERMISSION_DENIED_MESSAGE)
+    error_msg = str(chained)
 
     assert any(key in error_msg for key in non_retryable_errors)
