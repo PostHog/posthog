@@ -15,7 +15,7 @@ import { urls } from '~/scenes/urls'
 import { llmAnalyticsScoreDefinitionsList } from '../generated/api'
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import type { llmAnalyticsReviewsLogicType } from './llmAnalyticsReviewsLogicType'
-import { traceReviewsApi } from './traceReviewsApi'
+import { buildTraceReviewsListUrl, traceReviewsApi } from './traceReviewsApi'
 import type { TraceReview } from './types'
 
 export const TRACE_REVIEWS_PER_PAGE = 30
@@ -159,6 +159,16 @@ export const llmAnalyticsReviewsLogic = kea<llmAnalyticsReviewsLogicType>([
 
                 return count === 0 ? '0 reviews' : `${start}-${end} of ${pluralize(count, 'review')}`
             },
+        ],
+
+        exportPath: [
+            (s) => [s.filters],
+            (filters: TraceReviewFilters): string =>
+                buildTraceReviewsListUrl(undefined, {
+                    search: filters.search || undefined,
+                    definition_id: filters.definition_id || undefined,
+                    order_by: filters.order_by,
+                }),
         ],
     }),
 

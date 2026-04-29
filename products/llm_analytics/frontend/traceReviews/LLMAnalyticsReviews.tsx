@@ -21,7 +21,6 @@ import { urls } from '~/scenes/urls'
 import { ExporterFormat } from '~/types'
 
 import { llmAnalyticsReviewsLogic, TRACE_REVIEWS_PER_PAGE } from './llmAnalyticsReviewsLogic'
-import { buildTraceReviewsListUrl } from './traceReviewsApi'
 import { copyReviewsAs } from './traceReviewsExport'
 import { TraceReviewValue } from './TraceReviewValue'
 import type { TraceReview } from './types'
@@ -41,15 +40,10 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
         pagination,
         filters,
         reviewCountLabel,
+        exportPath,
         scoreDefinitionOptions,
         scoreDefinitionOptionsLoading,
     } = useValues(logic)
-
-    const exportPath = buildTraceReviewsListUrl(undefined, {
-        search: filters.search || undefined,
-        definition_id: filters.definition_id || undefined,
-        order_by: filters.order_by,
-    })
 
     const triggerFileExport = (format: ExporterFormat, extension: 'csv' | 'xlsx'): void => {
         startExport({
@@ -63,11 +57,10 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
     }
 
     const hasLoadedReviews = reviews.results.length > 0
-    const exportDisabledReason = !hasLoadedReviews
-        ? reviewsLoading
-            ? 'Loading reviews...'
-            : 'No reviews to export'
-        : undefined
+    let exportDisabledReason: string | undefined
+    if (!hasLoadedReviews) {
+        exportDisabledReason = reviewsLoading ? 'Loading reviews...' : 'No reviews to export'
+    }
 
     const columns: LemonTableColumns<TraceReview> = [
         {
@@ -185,17 +178,17 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                                 items: [
                                     {
                                         label: 'CSV',
-                                        onClick: () => void copyReviewsAs(reviews.results, 'csv'),
+                                        onClick: () => void copyReviewsAs(filters, 'csv'),
                                         'data-attr': 'copy-csv-to-clipboard',
                                     },
                                     {
                                         label: 'JSON',
-                                        onClick: () => void copyReviewsAs(reviews.results, 'json'),
+                                        onClick: () => void copyReviewsAs(filters, 'json'),
                                         'data-attr': 'copy-json-to-clipboard',
                                     },
                                     {
                                         label: 'Excel',
-                                        onClick: () => void copyReviewsAs(reviews.results, 'tsv'),
+                                        onClick: () => void copyReviewsAs(filters, 'tsv'),
                                         'data-attr': 'copy-excel-to-clipboard',
                                     },
                                 ],

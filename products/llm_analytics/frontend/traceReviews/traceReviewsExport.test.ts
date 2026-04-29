@@ -4,13 +4,21 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { copyReviewsAs, getReviewClipboardRows } from './traceReviewsExport'
+import { traceReviewsApi } from './traceReviewsApi'
+import {
+    CLIPBOARD_ROW_LIMIT,
+    copyReviewsAs,
+    fetchAllReviewsForExport,
+    getReviewClipboardRows,
+    type ReviewClipboardFilters,
+} from './traceReviewsExport'
 import type { TraceReview, TraceReviewScore } from './types'
 
 jest.mock('lib/utils/copyToClipboard')
 jest.mock('@posthog/lemon-ui', () => ({
     lemonToast: {
         error: jest.fn(),
+        warning: jest.fn(),
     },
 }))
 jest.mock('papaparse', () => ({
@@ -19,10 +27,23 @@ jest.mock('papaparse', () => ({
         return `mock-papa-unparse:${delimiter}:${JSON.stringify(data)}`
     }),
 }))
+jest.mock('./traceReviewsApi', () => ({
+    traceReviewsApi: {
+        list: jest.fn(),
+    },
+}))
 
 const mockCopyToClipboard = copyToClipboard as jest.MockedFunction<typeof copyToClipboard>
 const mockLemonToastError = lemonToast.error as jest.MockedFunction<typeof lemonToast.error>
+const mockLemonToastWarning = lemonToast.warning as jest.MockedFunction<typeof lemonToast.warning>
 const mockPapaUnparse = Papa.unparse as jest.MockedFunction<typeof Papa.unparse>
+const mockTraceReviewsList = traceReviewsApi.list as jest.MockedFunction<typeof traceReviewsApi.list>
+
+const filters: ReviewClipboardFilters = {
+    search: 'auth',
+    definition_id: 'def-1',
+    order_by: '-updated_at',
+}
 
 const baseScore: TraceReviewScore = {
     id: 'score-1',
@@ -133,13 +154,82 @@ describe('traceReviewsExport', () => {
         })
     })
 
+    describe('fetchAllReviewsForExport', () => {
+        it('paginates until the full dataset is fetched', async () => {
+            const reviewA = { ...baseReview, id: 'a' }
+            const reviewB = { ...baseReview, id: 'b' }
+            const reviewC = { ...baseReview, id: 'c' }
+            mockTraceReviewsList
+                .mockResolvedValueOnce({ results: [reviewA, reviewB], count: 3, offset: 0 })
+                .mockResolvedValueOnce({ results: [reviewC], count: 3, offset: 2 })
+
+            const result = await fetchAllReviewsForExport(filters)
+
+            expect(mockTraceReviewsList).toHaveBeenCalledTimes(2)
+            expect(mockTraceReviewsList.mock.calls[0][0]).toMatchObject({
+                search: 'auth',
+                definition_id: 'def-1',
+                order_by: '-updated_at',
+                offset: 0,
+            })
+            expect(mockTraceReviewsList.mock.calls[1][0]).toMatchObject({ offset: 2 })
+            expect(result.reviews.map((r) => r.id)).toEqual(['a', 'b', 'c'])
+            expect(result.total).toBe(3)
+            expect(result.truncated).toBe(false)
+        })
+
+        it('flags the result as truncated when count exceeds the cap and skips further pages', async () => {
+            mockTraceReviewsList.mockResolvedValueOnce({
+                results: [baseReview],
+                count: CLIPBOARD_ROW_LIMIT + 1,
+                offset: 0,
+            })
+
+            const result = await fetchAllReviewsForExport(filters)
+
+            expect(mockTraceReviewsList).toHaveBeenCalledTimes(1)
+            expect(result.truncated).toBe(true)
+            expect(result.total).toBe(CLIPBOARD_ROW_LIMIT + 1)
+        })
+
+        it('treats blank filter values as undefined when calling the API', async () => {
+            mockTraceReviewsList.mockResolvedValueOnce({ results: [], count: 0, offset: 0 })
+
+            await fetchAllReviewsForExport({ search: '', definition_id: '', order_by: '-updated_at' })
+
+            expect(mockTraceReviewsList.mock.calls[0][0]).toMatchObject({
+                search: undefined,
+                definition_id: undefined,
+                order_by: '-updated_at',
+            })
+        })
+    })
+
     describe('copyReviewsAs', () => {
         it('shows an error toast and skips the clipboard write when there are no reviews', async () => {
-            await copyReviewsAs([], 'csv')
+            mockTraceReviewsList.mockResolvedValueOnce({ results: [], count: 0, offset: 0 })
+
+            await copyReviewsAs(filters, 'csv')
 
             expect(mockLemonToastError).toHaveBeenCalledWith('No reviews to copy!')
             expect(mockCopyToClipboard).not.toHaveBeenCalled()
             expect(mockPapaUnparse).not.toHaveBeenCalled()
+        })
+
+        it('shows a warning toast and points at the file export when the dataset exceeds the cap', async () => {
+            mockTraceReviewsList.mockResolvedValueOnce({
+                results: [baseReview],
+                count: CLIPBOARD_ROW_LIMIT + 1,
+                offset: 0,
+            })
+
+            await copyReviewsAs(filters, 'csv')
+
+            expect(mockLemonToastWarning).toHaveBeenCalledTimes(1)
+            const message = mockLemonToastWarning.mock.calls[0][0] as string
+            expect(message).toContain(String(CLIPBOARD_ROW_LIMIT + 1))
+            expect(message).toContain('Export current columns')
+            expect(mockCopyToClipboard).not.toHaveBeenCalled()
         })
 
         it.each([
@@ -148,7 +238,13 @@ describe('traceReviewsExport', () => {
         ] as const)(
             'copies %s via Papa.unparse with the matching options',
             async (format, expectedOptions, expectedPrefix) => {
-                await copyReviewsAs([baseReview], format)
+                mockTraceReviewsList.mockResolvedValueOnce({
+                    results: [baseReview],
+                    count: 1,
+                    offset: 0,
+                })
+
+                await copyReviewsAs(filters, format)
 
                 expect(mockPapaUnparse).toHaveBeenCalledTimes(1)
                 const [rowsArg, optionsArg] = mockPapaUnparse.mock.calls[0]
@@ -159,7 +255,13 @@ describe('traceReviewsExport', () => {
         )
 
         it('copies JSON as a pretty-printed string and skips Papa.unparse', async () => {
-            await copyReviewsAs([baseReview], 'json')
+            mockTraceReviewsList.mockResolvedValueOnce({
+                results: [baseReview],
+                count: 1,
+                offset: 0,
+            })
+
+            await copyReviewsAs(filters, 'json')
 
             expect(mockPapaUnparse).not.toHaveBeenCalled()
             expect(mockCopyToClipboard).toHaveBeenCalledTimes(1)
@@ -175,6 +277,11 @@ describe('traceReviewsExport', () => {
             [
                 'synchronous',
                 () => {
+                    mockTraceReviewsList.mockResolvedValueOnce({
+                        results: [baseReview],
+                        count: 1,
+                        offset: 0,
+                    })
                     mockCopyToClipboard.mockImplementationOnce(() => {
                         throw new Error('clipboard unavailable')
                     })
@@ -183,13 +290,24 @@ describe('traceReviewsExport', () => {
             [
                 'asynchronous',
                 () => {
+                    mockTraceReviewsList.mockResolvedValueOnce({
+                        results: [baseReview],
+                        count: 1,
+                        offset: 0,
+                    })
                     mockCopyToClipboard.mockRejectedValueOnce(new Error('clipboard rejected'))
+                },
+            ],
+            [
+                'fetch failure',
+                () => {
+                    mockTraceReviewsList.mockRejectedValueOnce(new Error('network down'))
                 },
             ],
         ] as const)('falls back to an error toast when copying fails (%s)', async (_label, primeFailure) => {
             primeFailure()
 
-            await copyReviewsAs([baseReview], 'json')
+            await copyReviewsAs(filters, 'json')
 
             expect(mockLemonToastError).toHaveBeenCalledWith('Copy failed!')
         })
