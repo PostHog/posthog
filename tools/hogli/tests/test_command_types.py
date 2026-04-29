@@ -181,7 +181,7 @@ class TestRunFunctionErrorHandling:
     @patch("subprocess.run")
     def test_run_can_preserve_called_process_return_code(self, mock_subprocess: MagicMock) -> None:
         """Test _run can preserve subprocess exit codes for wrapper commands."""
-        from hogli.core.command_types import _run
+        from hogli.command_types import _run
 
         mock_subprocess.side_effect = subprocess.CalledProcessError(3, "cmd")
 
@@ -193,7 +193,7 @@ class TestRunFunctionErrorHandling:
     @patch("subprocess.run")
     def test_run_can_preserve_missing_command_as_127(self, mock_subprocess: MagicMock) -> None:
         """Test _run can preserve missing binary semantics for wrapper commands."""
-        from hogli.core.command_types import _run
+        from hogli.command_types import _run
 
         mock_subprocess.side_effect = FileNotFoundError("missing")
 
