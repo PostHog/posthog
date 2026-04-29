@@ -17,8 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { hogqlQuery } from '~/queries/query'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -30,6 +29,8 @@ import {
     PersonType,
     PersonsTabType,
 } from '~/types'
+
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 
 import {
     asDisplay,
@@ -194,7 +195,15 @@ export const personsLogic = kea<personsLogicType>([
                     return person
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
-                    const response = await hogqlQuery(getHogqlQueryStringForPersonId(), { id: uuid }, 'blocking')
+                    const response = await api.query<HogQLQuery>(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: getHogqlQueryStringForPersonId(),
+                            values: { id: uuid },
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        },
+                        { refresh: 'blocking' }
+                    )
                     const row = response?.results?.[0]
                     if (row) {
                         const person = parsePersonFromHogQLRow(row)

@@ -2916,14 +2916,26 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     limit?: integer
     offset?: integer
     search?: string
+    /** When true, the search query also matches attribute values (not just keys). */
+    searchValues?: boolean
     severityLevels?: LogSeverityLevel[]
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
 }
 
+export interface LogAttributeResult {
+    name: string
+    /** Either 'log_attribute' or 'log_resource_attribute'. */
+    propertyFilterType: string
+    /** Whether this row matched the search by attribute key or by attribute value. */
+    matchedOn: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn is 'value'. */
+    matchedValue?: string
+}
+
 export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
-    results: Record<string, any>[]
+    results: LogAttributeResult[]
     count: number
 }
 
@@ -3607,7 +3619,7 @@ export interface ExperimentStatsBase {
     sum_squares: number
     covariate_sum?: number
     covariate_sum_squares?: number
-    main_covariate_sum_product?: number
+    covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
@@ -3679,12 +3691,23 @@ export interface SampleRatioMismatch {
     p_value: number
 }
 
+/**
+ * Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE`
+ * handling + observed `$multiple` share above the threshold. Present on the response
+ * only when the experiment is currently at risk.
+ */
+export interface BiasRisk {
+    /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+    multiple_variant_percentage: number
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
     total_exposures: Record<string, number>
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
+    bias_risk?: BiasRisk
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -5473,6 +5496,12 @@ export interface SourceConfig {
     iconClassName?: string
     webhookSetupCaption?: string
     webhookFields?: SourceFieldConfig[]
+    /**
+     * If true, the source does not support automatic webhook registration via API
+     * (e.g. Slack — the user must paste the URL into the source's app settings).
+     * Adjusts the setup UI copy to avoid promising automatic registration.
+     */
+    webhookManualOnly?: boolean
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why

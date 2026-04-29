@@ -65,6 +65,7 @@ import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
 import { notebookLogic } from './notebookLogic'
 import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
+import { RemotePresenceExtension } from './RemotePresenceExtension'
 import { SlashCommandsExtension } from './SlashCommands'
 import { TableMenu } from './TableMenu'
 
@@ -78,6 +79,7 @@ export function Editor(): JSX.Element {
         useActions(notebookLogic)
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
     const { bindEditor } = useActions(notebookCollabLogic({ shortId }))
+    const { clientID } = useValues(notebookCollabLogic({ shortId }))
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
 
@@ -178,9 +180,10 @@ export function Editor(): JSX.Element {
             Extension.create({
                 name: 'collaboration',
                 addProseMirrorPlugins() {
-                    return [collab({ version: notebook.version, clientID: uuid() })]
+                    return [collab({ version: notebook.version, clientID })]
                 },
-            })
+            }),
+            RemotePresenceExtension
         )
     }
 

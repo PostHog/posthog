@@ -14,6 +14,7 @@ import {
     IntegrationFilter,
     MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
     MARKETING_ANALYTICS_SCHEMA,
+    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
@@ -250,6 +251,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 // and the stale response data renders as raw JSON (no matching context.columns render fn).
                 const excludedColumns = new Set<string>(drillDownConfig.excludedBaseColumns)
 
+                // Same rule as marketingAnalyticsTableLogic: at UTM levels the Cost metric is excluded
+                // so cost-per-conversion for the draft goal must be excluded too.
+                const costAvailable = !drillDownConfig.excludedBaseColumns.includes(MarketingAnalyticsBaseColumns.Cost)
+
                 const columnsWithDraftConversionGoal = [
                     ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns)
                         .filter((column) => !isDraftConversionGoalColumn(column, draftConversionGoal))
@@ -257,10 +262,12 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         .filter((column) => column === groupingAlias || !excludedColumns.has(column))
                         .filter((column, index, arr) => arr.indexOf(column) === index),
                     ...(draftConversionGoal
-                        ? [
-                              draftConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`,
-                          ]
+                        ? costAvailable
+                            ? [
+                                  draftConversionGoal.conversion_goal_name,
+                                  `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`,
+                              ]
+                            : [draftConversionGoal.conversion_goal_name]
                         : []),
                 ]
                 const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)

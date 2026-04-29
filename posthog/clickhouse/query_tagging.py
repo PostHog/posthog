@@ -164,6 +164,9 @@ class QueryTags(BaseModel):
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
+    endpoint_materialization_behind: Optional[bool] = (
+        None  # set when a materialized endpoint is past its data_freshness SLA
+    )
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
