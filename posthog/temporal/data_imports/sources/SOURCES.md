@@ -71,6 +71,7 @@ the row lists both.
 | postgres      | DB protocol                 | psycopg                                                         | ➖                       |
 | reddit_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                       |
 | redshift      | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                       |
+| resend        | HTTP                        | requests                                                        | ✅                       |
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                       |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                       |
 | shopify       | HTTP                        | requests                                                        | ✅                       |
