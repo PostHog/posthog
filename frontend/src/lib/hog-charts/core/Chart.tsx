@@ -11,7 +11,7 @@ import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
-import { autoFormatYTick } from './scales'
+import { autoFormatYTick, seriesValueRange } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
 import type {
     ChartConfig,
@@ -98,26 +98,17 @@ export function Chart<Meta = unknown>({
         if (hideYAxis) {
             return 0
         }
-        const allValues = series
-            .filter((s) => !s.visibility?.excluded)
-            .flatMap((s) => s.data)
-            .filter((v) => v != null && isFinite(v))
-        if (allValues.length === 0) {
+        const range = seriesValueRange(series)
+        if (range.count === 0) {
             return 0
         }
-        let min = Math.min(...allValues)
-        let max = Math.max(...allValues)
-        if (min > 0) {
-            min = 0
-        }
-        if (max < 0) {
-            max = 0
-        }
+        const min = range.min > 0 ? 0 : range.min
+        const max = range.max < 0 ? 0 : range.max
         const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
         if (ticks.length === 0) {
             return 0
         }
-        const domainMax = Math.abs(Math.max(...ticks))
+        const domainMax = Math.max(...ticks.map((t) => Math.abs(t)))
         const formatter = yTickFormatter ?? ((v: number) => autoFormatYTick(v, domainMax))
         let widest = 0
         for (const t of ticks) {

@@ -22342,6 +22342,29 @@
             "required": ["type", "artifact_id"],
             "type": "object"
         },
+        "LogAttributeResult": {
+            "additionalProperties": false,
+            "properties": {
+                "matchedOn": {
+                    "description": "Whether this row matched the search by attribute key or by attribute value.",
+                    "enum": ["key", "value"],
+                    "type": "string"
+                },
+                "matchedValue": {
+                    "description": "Sample value that matched the search — only set when matchedOn is 'value'.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "propertyFilterType": {
+                    "description": "Either 'log_attribute' or 'log_resource_attribute'.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "propertyFilterType", "matchedOn"],
+            "type": "object"
+        },
         "LogAttributesQuery": {
             "additionalProperties": false,
             "properties": {
@@ -22373,6 +22396,10 @@
                 },
                 "search": {
                     "type": "string"
+                },
+                "searchValues": {
+                    "description": "When true, the search query also matches attribute values (not just keys).",
+                    "type": "boolean"
                 },
                 "serviceNames": {
                     "items": {
@@ -22425,7 +22452,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/LogAttributeResult"
                     },
                     "type": "array"
                 },
@@ -30979,7 +31006,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/LogAttributeResult"
                             },
                             "type": "array"
                         },
