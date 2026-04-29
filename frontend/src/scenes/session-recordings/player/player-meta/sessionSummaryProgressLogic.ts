@@ -19,6 +19,10 @@ const SUMMARIZATION_TIMEOUT_MS = 10 * 60 * 1000
 // same backend workflow.
 const inFlightSessionIds = new Set<string>()
 
+// Per-session AbortControllers so `cancelSummarization` can tear down the SSE
+// fetch (and its underlying reader) for a specific session. The backend Temporal workflow is aborted.
+const abortControllersBySessionId = new Map<string, AbortController>()
+
 /**
  * Singleton store for in-flight session summarization state, keyed by session id.
  *
@@ -31,6 +35,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
     path(['scenes', 'session-recordings', 'player', 'player-meta', 'sessionSummaryProgressLogic']),
     actions({
         startSummarization: (sessionId: SessionRecordingType['id']) => ({ sessionId }),
+        cancelSummarization: (sessionId: SessionRecordingType['id']) => ({ sessionId }),
         setLoading: (sessionId: string, loading: boolean) => ({ sessionId, loading }),
         setProgress: (sessionId: string, progress: SummarizationProgress | null) => ({ sessionId, progress }),
         setSummary: (sessionId: string, summary: SessionSummaryContent | null) => ({ sessionId, summary }),
@@ -46,6 +51,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 setLoading: (state, { sessionId, loading }) => ({ ...state, [sessionId]: loading }),
                 setSummary: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
                 setError: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
+                cancelSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
             },
         ],
         progressBySessionId: [
@@ -54,6 +60,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
                 setProgress: (state, { sessionId, progress }) => ({ ...state, [sessionId]: progress }),
                 setSummary: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
+                cancelSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
             },
         ],
         summaryBySessionId: [
@@ -118,12 +125,15 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             }
             inFlightSessionIds.add(sessionId)
 
+            const controller = new AbortController()
+            abortControllersBySessionId.set(sessionId, controller)
+
             const timeout = window.setTimeout(() => {
                 actions.setLoading(sessionId, false)
             }, SUMMARIZATION_TIMEOUT_MS)
 
             try {
-                const response = await api.recordings.summarizeStream(sessionId)
+                const response = await api.recordings.summarizeStream(sessionId, { signal: controller.signal })
                 const reader = response.body?.getReader()
                 if (!reader) {
                     throw new Error('No reader available')
@@ -159,6 +169,10 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                     parser.feed(decoder.decode(value))
                 }
             } catch (err) {
+                // User-initiated cancellation: surface no error, keep state cleared by the cancel listener.
+                if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+                    return
+                }
                 if (err instanceof ApiError) {
                     lemonToast.error(err.message)
                     actions.setLoading(sessionId, false)
@@ -169,7 +183,26 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             } finally {
                 window.clearTimeout(timeout)
                 inFlightSessionIds.delete(sessionId)
+                abortControllersBySessionId.delete(sessionId)
             }
+        },
+        cancelSummarization: ({ sessionId }) => {
+            // Tear down local state first so late-arriving SSE events from the
+            // already-buffered stream can't repopulate progress/summary after
+            // the user clicked cancel. Also frees the in-flight slot
+            // immediately so a subsequent Summarize click isn't dropped by the
+            // duplicate-start guard.
+            const controller = abortControllersBySessionId.get(sessionId)
+            abortControllersBySessionId.delete(sessionId)
+            inFlightSessionIds.delete(sessionId)
+            controller?.abort()
+
+            // Fire-and-forget the backend cancel — don't block UI on the
+            // Temporal RPC. The workflow may have already finished or never
+            // started; both are fine.
+            void api.recordings.cancelSummarize(sessionId).catch((err) => {
+                posthog.captureException(err)
+            })
         },
     })),
 ])

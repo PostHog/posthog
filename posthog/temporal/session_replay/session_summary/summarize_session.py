@@ -13,7 +13,13 @@ import posthoganalytics
 from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
-from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
+from temporalio.common import (
+    RetryPolicy,
+    SearchAttributePair,
+    TypedSearchAttributes,
+    WorkflowIDConflictPolicy,
+    WorkflowIDReusePolicy,
+)
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import ReplayInactivityPeriod
@@ -729,6 +735,12 @@ async def _start_video_summary_workflow(inputs: SingleSessionSummaryInputs, work
 
     Non-blocking alternative to ``_execute_single_session_summary_workflow`` so
     the API layer can poll the ``get_progress`` query while the workflow runs.
+
+    Uses ``ALLOW_DUPLICATE`` + ``TERMINATE_EXISTING`` so a user-driven retry
+    after a cancel/failure cleanly preempts the previous run with the same
+    workflow id. Without ``TERMINATE_EXISTING``, a cancelled workflow leaves
+    the id in a terminal-but-not-failed state and ``ALLOW_DUPLICATE_FAILED_ONLY``
+    would refuse to restart, bricking the session for the retention window.
     """
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
@@ -736,7 +748,8 @@ async def _start_video_summary_workflow(inputs: SingleSessionSummaryInputs, work
         "summarize-session",
         inputs,
         id=workflow_id,
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
         search_attributes=TypedSearchAttributes(
