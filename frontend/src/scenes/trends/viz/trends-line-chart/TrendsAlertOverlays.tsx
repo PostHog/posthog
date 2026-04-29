@@ -6,7 +6,7 @@ import { ReferenceLines } from 'lib/hog-charts'
 
 import type { InsightLogicProps } from '~/types'
 
-import type { IndexedTrendResult } from '../types'
+import type { IndexedTrendResult } from '../../types'
 import { buildAnomalyMarkers } from './anomalyPointsAdapter'
 import { AnomalyPointsLayer } from './AnomalyPointsLayer'
 import { alertThresholdsToReferenceLines } from './goalLinesAdapter'
