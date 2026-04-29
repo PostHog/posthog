@@ -5,8 +5,11 @@ creates a branch, commits the updated .sql file, and opens a PR.
 The PR then triggers the plan/apply flow via webhooks.
 """
 
+import re
 from typing import Any
 from uuid import uuid4
+
+from django.core.exceptions import ObjectDoesNotExist
 
 import structlog
 
@@ -17,6 +20,19 @@ from products.data_modeling.backend.services.github.sync_service import _extract
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+
+
+def _sanitize_for_branch(name: str) -> str:
+    """Sanitize a saved query name for use in a Git branch ref.
+
+    Git refs disallow many characters that are valid in HogQL identifiers:
+    spaces, '..', '~', '^', ':', '?', '*', '[', '\\', leading/trailing '-',
+    leading '/', and a few more. Replace anything outside [A-Za-z0-9_-] with '-',
+    collapse runs, and trim leading/trailing dashes.
+    """
+    sanitized = re.sub(r"[^A-Za-z0-9_-]+", "-", name)
+    sanitized = re.sub(r"-+", "-", sanitized).strip("-")
+    return sanitized or "model"
 
 
 def create_pr_from_saved_query(
@@ -32,12 +48,12 @@ def create_pr_from_saved_query(
     Returns a dict with {success, pr_url, pr_number} on success,
     or {success: False, error} on failure.
     """
-    if not query_text:
+    if not query_text or not query_text.strip():
         return {"success": False, "error": "No query text provided"}
 
     try:
         synced_model = saved_query.github_synced_model
-    except Exception:
+    except ObjectDoesNotExist:
         return {"success": False, "error": "Model is not synced from GitHub"}
 
     config = GitHubSyncConfig.objects.filter(team=saved_query.team).select_related("integration").first()
@@ -50,9 +66,10 @@ def create_pr_from_saved_query(
     # query_text includes annotations (-- @mat, etc.) so write it directly
     file_content = query_text.rstrip() + "\n"
 
-    # create branch
+    # create branch — sanitize the model name so Git accepts the ref
     short_id = uuid4().hex[:8]
-    branch_name = f"posthog/update-{saved_query.name}-{short_id}"
+    safe_name = _sanitize_for_branch(saved_query.name)
+    branch_name = f"posthog/update-{safe_name}-{short_id}"
 
     branch_result = github.create_branch(repo_name, branch_name)
     if not branch_result.get("success"):

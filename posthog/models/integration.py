@@ -3231,12 +3231,26 @@ class GitHubIntegration:
 
         if response.status_code == 200:
             data = response.json()
+            # GitHub returns a list when the path resolves to a directory
+            if isinstance(data, list):
+                return {
+                    "success": False,
+                    "error": "Path resolves to a directory, not a file",
+                }
             content = data.get("content", "")
             encoding = data.get("encoding", "")
             if encoding == "base64":
                 import base64
 
                 content = base64.b64decode(content).decode("utf-8")
+            elif encoding == "none":
+                # Files >1MB return empty content with encoding="none"; caller must use
+                # the blob API instead. Surface this as an error rather than empty content.
+                return {
+                    "success": False,
+                    "error": "File too large to fetch via contents API (>1MB)",
+                    "sha": data.get("sha"),
+                }
             return {
                 "success": True,
                 "content": content,

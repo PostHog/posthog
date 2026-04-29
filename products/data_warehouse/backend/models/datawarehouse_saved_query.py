@@ -146,9 +146,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def is_github_synced(self) -> bool:
+        from django.core.exceptions import ObjectDoesNotExist
+
         try:
             return self.github_synced_model is not None
-        except Exception:
+        except ObjectDoesNotExist:
             return False
 
     @property

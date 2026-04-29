@@ -270,11 +270,14 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         }
 
     def to_representation(self, instance):
+        from products.data_modeling.backend.services.github.feature_flag import is_github_sync_enabled
+
         data = super().to_representation(instance)
-        data["is_github_synced"] = instance.is_github_synced
-        github_pr_url = self.context.get("github_pr_url")
-        if github_pr_url:
-            data["github_pr_url"] = github_pr_url
+        if is_github_sync_enabled(instance.team):
+            data["is_github_synced"] = instance.is_github_synced
+            github_pr_url = self.context.get("github_pr_url")
+            if github_pr_url:
+                data["github_pr_url"] = github_pr_url
         return data
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
@@ -402,23 +405,36 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         soft_update = validated_data.pop("soft_update", False)
 
         # GitHub-synced models: don't apply query changes locally, only create a PR
-        if "query" in validated_data and instance.is_github_synced:
-            try:
-                from products.data_modeling.backend.services.github.pr_service import create_pr_from_saved_query
+        from products.data_modeling.backend.services.github.feature_flag import is_github_sync_enabled
 
-                new_query_text = validated_data["query"].get("query", "")
+        if "query" in validated_data and instance.is_github_synced and is_github_sync_enabled(instance.team):
+            new_query_text = validated_data["query"].get("query", "") if validated_data.get("query") else ""
+            if not new_query_text or not new_query_text.strip():
+                raise serializers.ValidationError("query.query must be a non-empty string for GitHub-synced models")
+
+            # GitHub is the source of truth for github-synced models — refuse partial
+            # updates that mix query changes with other fields, since only the query
+            # would round-trip through the PR.
+            other_fields = set(validated_data.keys()) - {"query"}
+            if other_fields:
+                raise serializers.ValidationError(
+                    f"Cannot update {sorted(other_fields)} on a GitHub-synced model. "
+                    "Edit the model file in GitHub instead."
+                )
+
+            from products.data_modeling.backend.services.github.pr_service import create_pr_from_saved_query
+
+            try:
                 pr_result = create_pr_from_saved_query(instance, query_text=new_query_text)
-                if pr_result.get("success"):
-                    self.context["github_pr_url"] = pr_result["pr_url"]
-                else:
-                    raise serializers.ValidationError(
-                        f"Failed to create GitHub PR: {pr_result.get('error', 'Unknown error')}"
-                    )
-            except serializers.ValidationError:
-                raise
             except Exception as e:
                 capture_exception(e)
                 raise serializers.ValidationError("Failed to create GitHub PR for this synced model")
+
+            if not pr_result.get("success"):
+                raise serializers.ValidationError(
+                    f"Failed to create GitHub PR: {pr_result.get('error', 'Unknown error')}"
+                )
+            self.context["github_pr_url"] = pr_result["pr_url"]
             return instance
 
         with transaction.atomic():

@@ -12,7 +12,7 @@ import structlog
 from posthog.models.integration import GitHubIntegration
 
 from products.data_modeling.backend.models import GitHubSyncConfig, GitHubSyncPlan, GitHubSyncPlanStatus
-from products.data_modeling.backend.services.github.config_parser import DAG_TOML
+from products.data_modeling.backend.services.github.config_parser import DAG_CONFIG_BASENAMES
 from products.data_modeling.backend.services.github.model_parser import model_name_from_path
 from products.data_modeling.backend.services.github.sync_service import _extract_repo_name
 
@@ -59,7 +59,15 @@ def compute_plan(
 
     models_dir = config.models_directory or "models"
     env_name = config.environment_name
-    is_multi_env = GitHubSyncConfig.objects.filter(repository=config.repository).count() > 1
+    # multi-env layout is per-integration: another PostHog team pointing at the same
+    # "org/repo" string via a different GitHub install must not change our directory layout.
+    is_multi_env = (
+        GitHubSyncConfig.objects.filter(
+            repository=config.repository,
+            integration_id=config.integration_id,
+        ).count()
+        > 1
+    )
     plan_data = _classify_changes(result["files"], models_dir, env_name, is_multi_env=is_multi_env)
 
     # mark previous pending plans for this PR as stale
@@ -121,7 +129,9 @@ def _classify_changes(
         if not is_relevant:
             continue
 
-        if filename.endswith(DAG_TOML) or (status == "removed" and previous_filename.endswith(DAG_TOML)):
+        if filename.endswith(DAG_CONFIG_BASENAMES) or (
+            status == "removed" and previous_filename.endswith(DAG_CONFIG_BASENAMES)
+        ):
             _classify_dag_change(f, status, dags)
         elif filename.endswith(".sql") or (status == "removed" and previous_filename.endswith(".sql")):
             _classify_model_change(f, status, models)
@@ -305,10 +315,13 @@ def post_plan_comment(
     github = GitHubIntegration(config.integration)
     repo_name = _extract_repo_name(config.repository)
 
-    # try to reuse an existing comment ID from any plan on this PR
+    # try to reuse an existing comment ID from any plan on this PR — scope to the
+    # same GitHub integration so we don't try to update a comment created by a
+    # different install (the API would 404 / 403).
     existing_comment_id = (
         GitHubSyncPlan.objects.filter(
             config__repository=config.repository,
+            config__integration_id=config.integration_id,
             pr_number=pr_number,
             github_comment_id__isnull=False,
         )

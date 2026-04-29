@@ -38,6 +38,7 @@ class TestCreatePrFromSavedQuery(BaseTest):
         )
         self.synced_model = GitHubSyncedModel.objects.create(
             team=self.team,
+            config=self.config,
             saved_query=self.saved_query,
             file_path="models/revenue.sql",
             file_sha="original_sha",

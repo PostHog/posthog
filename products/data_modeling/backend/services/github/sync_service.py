@@ -24,7 +24,11 @@ from posthog.models.integration import GitHubIntegration
 
 from products.data_modeling.backend.models import GitHubSyncConfig, GitHubSyncedModel, GitHubSyncStatus, Node
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.services.github.config_parser import DAG_TOML, DAGConfig, parse_dag_config
+from products.data_modeling.backend.services.github.config_parser import (
+    DAG_CONFIG_BASENAMES,
+    DAGConfig,
+    parse_dag_config,
+)
 from products.data_modeling.backend.services.github.model_parser import model_name_from_path, parse_model_file
 from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -121,88 +125,92 @@ def sync_models_from_files(
     default_dag = DAG.get_or_create_default(team)
     # sort files in topological order so dependencies are created before dependents
     files = _topological_sort_files(files)
-    # sort files in topological order so dependencies are created before dependents
-    files = _topological_sort_files(files)
-    # track which file paths we see in this sync
-    seen_paths: set[str] = set()
-    for file in files:
-        seen_paths.add(file.path)
-        existing_synced = GitHubSyncedModel.objects.filter(team=team, file_path=file.path).first()
-        if existing_synced and existing_synced.file_sha == file.sha:
-            continue  # unchanged
-        try:
-            parsed = parse_model_file(file.content)
-        except ValueError as e:
-            errors[file.path] = str(e)
-            logger.warning("Failed to parse model file", path=file.path, error=str(e), team_id=team.id)
-            continue
-        model_name = model_name_from_path(file.path)
-        # resolve the nearest dag.toml for sync frequency and DAG assignment
-        nearest_dag_path = _resolve_nearest_dag_toml(file.path, parsed_dag_configs)
-        sync_frequency_interval = (
-            parsed_dag_configs[nearest_dag_path].sync_frequency_interval if nearest_dag_path else None
-        )
-        dag = dag_objects[nearest_dag_path] if nearest_dag_path else default_dag
-        try:
-            with transaction.atomic():
-                saved_query, query_created = DataWarehouseSavedQuery.objects.update_or_create(
-                    team=team,
-                    name=model_name,
-                    defaults={
-                        "query": {"query": parsed.query, "kind": "HogQLQuery"},
-                        "sync_frequency_interval": sync_frequency_interval if parsed.materialized else None,
-                    },
-                )
-                GitHubSyncedModel.objects.update_or_create(
-                    team=team,
-                    file_path=file.path,
-                    defaults={
-                        "saved_query": saved_query,
-                        "file_sha": file.sha,
-                        "last_synced_sha": commit_sha,
-                    },
-                )
-            if query_created:
-                created.append(file.path)
-            else:
-                updated.append(file.path)
-            # if the model moved to a different DAG, remove the old node first
-            Node.objects.filter(saved_query=saved_query, team=team).exclude(dag=dag).delete()
-            # sync to dag outside transaction (handles node creation)
+    try:
+        # track which file paths we see in this sync
+        seen_paths: set[str] = set()
+        for file in files:
+            seen_paths.add(file.path)
+            existing_synced = GitHubSyncedModel.objects.filter(team=team, file_path=file.path).first()
+            if existing_synced and existing_synced.file_sha == file.sha:
+                continue  # unchanged
             try:
-                node = sync_saved_query_to_dag(saved_query, materialize=parsed.materialized, dag=dag)
-                if node is not None:
-                    Node.objects.filter(pk=node.pk).update(source_control_path=file.path)
+                parsed = parse_model_file(file.content)
+            except ValueError as e:
+                errors[file.path] = str(e)
+                logger.warning("Failed to parse model file", path=file.path, error=str(e), team_id=team.id)
+                continue
+            model_name = model_name_from_path(file.path)
+            # resolve the nearest dag.toml for sync frequency and DAG assignment
+            nearest_dag_path = _resolve_nearest_dag_toml(file.path, parsed_dag_configs)
+            sync_frequency_interval = (
+                parsed_dag_configs[nearest_dag_path].sync_frequency_interval if nearest_dag_path else None
+            )
+            dag = dag_objects[nearest_dag_path] if nearest_dag_path else default_dag
+            try:
+                with transaction.atomic():
+                    saved_query, query_created = DataWarehouseSavedQuery.objects.update_or_create(
+                        team=team,
+                        name=model_name,
+                        defaults={
+                            "query": {"query": parsed.query, "kind": "HogQLQuery"},
+                            "sync_frequency_interval": sync_frequency_interval if parsed.materialized else None,
+                        },
+                    )
+                    GitHubSyncedModel.objects.update_or_create(
+                        team=team,
+                        file_path=file.path,
+                        defaults={
+                            "config": config,
+                            "saved_query": saved_query,
+                            "file_sha": file.sha,
+                            "last_synced_sha": commit_sha,
+                        },
+                    )
+                if query_created:
+                    created.append(file.path)
+                else:
+                    updated.append(file.path)
+                # if the model moved to a different DAG, remove the old node first
+                Node.objects.filter(saved_query=saved_query, team=team).exclude(dag=dag).delete()
+                # sync to dag outside transaction (handles node creation)
+                try:
+                    node = sync_saved_query_to_dag(saved_query, materialize=parsed.materialized, dag=dag)
+                    if node is not None:
+                        Node.objects.filter(pk=node.pk).update(source_control_path=file.path)
+                except Exception as e:
+                    logger.warning("Failed to sync model to DAG", path=file.path, error=str(e), team_id=team.id)
+                    errors[file.path] = f"DAG sync failed: {e}"
             except Exception as e:
-                logger.warning("Failed to sync model to DAG", path=file.path, error=str(e), team_id=team.id)
-                errors[file.path] = f"DAG sync failed: {e}"
-        except Exception as e:
-            errors[file.path] = str(e)
-            logger.exception("Failed to sync model", path=file.path, team_id=team.id)
-    # delete models that are no longer in the repo
-    orphaned = (
-        GitHubSyncedModel.objects.filter(team=team).exclude(file_path__in=seen_paths).select_related("saved_query")
-    )
-    for orphan in orphaned:
-        try:
-            file_path = orphan.file_path
-            Node.objects.filter(saved_query=orphan.saved_query).delete()
-            orphan.saved_query.soft_delete()
-            orphan.delete()
-            deleted.append(file_path)
-        except Exception as e:
-            errors[orphan.file_path] = f"Failed to delete: {e}"
-            logger.exception("Failed to delete orphaned model", path=orphan.file_path, team_id=team.id)
-    # clean up stale DAG assignments (e.g. model moved between directories)
-    # and empty DAGs (e.g. dag.toml directory removed from repo)
-    active_dag_ids = {d.id for d in dag_objects.values()} | {default_dag.id}
-    _cleanup_stale_dags(team, active_dag_ids)
-    # update state
-    config.last_synced_sha = commit_sha
-    config.last_synced_at = timezone.now()
-    config.sync_status = GitHubSyncStatus.ERROR if errors else GitHubSyncStatus.IDLE
-    config.last_sync_error = "; ".join(f"{path}: {err}" for path, err in errors.items()) if errors else ""
-    config.save(update_fields=["last_synced_sha", "last_synced_at", "sync_status", "last_sync_error"])
+                errors[file.path] = str(e)
+                logger.exception("Failed to sync model", path=file.path, team_id=team.id)
+        # delete models that are no longer in the repo
+        orphaned = (
+            GitHubSyncedModel.objects.filter(team=team).exclude(file_path__in=seen_paths).select_related("saved_query")
+        )
+        for orphan in orphaned:
+            try:
+                file_path = orphan.file_path
+                Node.objects.filter(saved_query=orphan.saved_query).delete()
+                orphan.saved_query.soft_delete()
+                orphan.delete()
+                deleted.append(file_path)
+            except Exception as e:
+                errors[orphan.file_path] = f"Failed to delete: {e}"
+                logger.exception("Failed to delete orphaned model", path=orphan.file_path, team_id=team.id)
+        # clean up stale DAG assignments (e.g. model moved between directories)
+        # and empty DAGs (e.g. dag.toml directory removed from repo)
+        active_dag_ids = {d.id for d in dag_objects.values()} | {default_dag.id}
+        _cleanup_stale_dags(team, active_dag_ids)
+    finally:
+        # always release the SYNCING lock — write through a freshly-locked row so we
+        # don't race with another writer that may have touched the config in between.
+        with transaction.atomic():
+            final_config = GitHubSyncConfig.objects.select_for_update().get(pk=config.pk)
+            final_config.last_synced_sha = commit_sha
+            final_config.last_synced_at = timezone.now()
+            final_config.sync_status = GitHubSyncStatus.ERROR if errors else GitHubSyncStatus.IDLE
+            final_config.last_sync_error = "; ".join(f"{path}: {err}" for path, err in errors.items()) if errors else ""
+            final_config.save(update_fields=["last_synced_sha", "last_synced_at", "sync_status", "last_sync_error"])
     logger.info(
         "Sync completed",
         team_id=team.id,
@@ -241,9 +249,19 @@ def sync_from_github(*, team: "Team", config: GitHubSyncConfig) -> SyncResult:
     if not tree_result.get("success"):
         error = tree_result.get("error", "Unknown error fetching tree")
         logger.error("Failed to fetch repo tree", team_id=team.id, error=error)
+        # ensure we don't leave a stuck SYNCING status if a prior run failed before
+        # sync_models_from_files could run its finally block
+        _reset_sync_status_to_error(config, error)
         return SyncResult(created=[], updated=[], deleted=[], errors={"_tree": error})
     tree_items = tree_result["tree"]
-    is_multi_env = GitHubSyncConfig.objects.filter(repository=config.repository).count() > 1
+    # multi-env layout is per-integration; see compute_plan for the same check.
+    is_multi_env = (
+        GitHubSyncConfig.objects.filter(
+            repository=config.repository,
+            integration_id=config.integration_id,
+        ).count()
+        > 1
+    )
     if is_multi_env:
         base_prefix = f"{models_dir}/{env_name}/"
     else:
@@ -256,7 +274,7 @@ def sync_from_github(*, team: "Team", config: GitHubSyncConfig) -> SyncResult:
             continue
         if item["path"].endswith(".sql"):
             sql_items.append(item)
-        elif item["path"].endswith(DAG_TOML):
+        elif item["path"].endswith(DAG_CONFIG_BASENAMES):
             dag_toml_items.append(item)
     # Fetch content for all relevant files
     commit_sha = tree_result["sha"]
@@ -292,6 +310,16 @@ def sync_from_github(*, team: "Team", config: GitHubSyncConfig) -> SyncResult:
     )
 
 
+def _reset_sync_status_to_error(config: GitHubSyncConfig, error: str) -> None:
+    """Clear a SYNCING status when an early-return path bails out of sync_from_github."""
+    with transaction.atomic():
+        locked = GitHubSyncConfig.objects.select_for_update().get(pk=config.pk)
+        if locked.sync_status == GitHubSyncStatus.SYNCING:
+            locked.sync_status = GitHubSyncStatus.ERROR
+            locked.last_sync_error = error
+            locked.save(update_fields=["sync_status", "last_sync_error"])
+
+
 def _extract_repo_name(repository: str) -> str:
     """Extract just the repo name from 'org/repo' format.
 
@@ -310,13 +338,15 @@ def _resolve_nearest_dag_toml(file_path: str, dag_configs: dict[str, DAGConfig])
     - models/core/dag.toml
     - models/dag.toml
 
-    Returns the dag.toml path, or None if no dag.toml is found.
+    Returns the dag config path, or None if none is found.
     """
     parts = file_path.split("/")
     for i in range(len(parts) - 1, 0, -1):
-        dag_path = "/".join(parts[:i]) + "/" + DAG_TOML
-        if dag_path in dag_configs:
-            return dag_path
+        parent = "/".join(parts[:i])
+        for basename in DAG_CONFIG_BASENAMES:
+            dag_path = f"{parent}/{basename}"
+            if dag_path in dag_configs:
+                return dag_path
     return None
 
 
