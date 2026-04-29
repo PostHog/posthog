@@ -37696,9 +37696,9 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsEventsRetrieve200One = {[key: string]: unknown};
+    export type EnvironmentsEventsRetrieve200One = { [key: string]: unknown };
 
-    export type EnvironmentsEventsRetrieve200Two = {[key: string]: unknown};
+    export type EnvironmentsEventsRetrieve200Two = { [key: string]: unknown };
 
     export type EnvironmentsEventsValuesRetrieveParams = {
     format?: EnvironmentsEventsValuesRetrieveFormat;
@@ -38801,9 +38801,9 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
-    export type EnvironmentsLogsExportCreate201 = {[key: string]: unknown};
+    export type EnvironmentsLogsExportCreate201 = { [key: string]: unknown };
 
-    export type EnvironmentsLogsHasLogsRetrieve200 = {[key: string]: unknown};
+    export type EnvironmentsLogsHasLogsRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
@@ -39248,11 +39248,11 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsQueryLogRetrieve200 = {[key: string]: unknown};
+    export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
 
-    export type EnvironmentsQueryCheckAuthForAsyncCreate200 = {[key: string]: unknown};
+    export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
 
-    export type EnvironmentsQueryDraftSqlRetrieve200 = {[key: string]: unknown};
+    export type EnvironmentsQueryDraftSqlRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsSavedListParams = {
     /**
@@ -39697,7 +39697,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EvaluationRunsCreate200 = {[key: string]: unknown};
+    export type EvaluationRunsCreate200 = { [key: string]: unknown };
 
     export type EvaluationsListParams = {
     /**
@@ -39755,9 +39755,9 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsClusteringConfigRetrieve200 = {[key: string]: unknown};
+    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
 
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = {[key: string]: unknown};
+    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
 
     export type LlmAnalyticsClusteringJobsListParams = {
     /**
@@ -39770,9 +39770,9 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsEvaluationConfigRetrieve200 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown };
 
     export type LlmAnalyticsEvaluationReportsListParams = {
     /**
@@ -39796,17 +39796,17 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsEvaluationSummaryCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationSummaryCreate403 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationSummaryCreate404 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationSummaryCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsModelsRetrieve200 = {[key: string]: unknown};
+    export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown };
 
-    export type LlmAnalyticsProviderKeyValidationsCreate200 = {[key: string]: unknown};
+    export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 
     export type LlmAnalyticsProviderKeysListParams = {
     /**
@@ -39897,25 +39897,25 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type LlmAnalyticsSentimentCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSentimentCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationCreate403 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationBatchCheckCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationBatchCheckCreate403 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown };
 
-    export type LlmAnalyticsTextReprCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsTextReprCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsTextReprCreate503 = {[key: string]: unknown};
+    export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown };
 
     export type LlmAnalyticsTraceReviewsListParams = {
     /**
@@ -39952,7 +39952,7 @@ export namespace Schemas {
     trace_id__in?: string;
     };
 
-    export type LlmAnalyticsTranslateCreate200 = {[key: string]: unknown};
+    export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown };
 
     export type LlmPromptsListParams = {
     /**
@@ -40152,7 +40152,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type MaxToolsCreateAndQueryInsightCreate200 = {[key: string]: unknown};
+    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
     export type McpAnalyticsFeedbackListParams = {
     /**
@@ -40218,7 +40218,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type McpToolsCreate200 = {[key: string]: unknown};
+    export type McpToolsCreate200 = { [key: string]: unknown };
 
     export type MessagingCategoriesListParams = {
     /**
@@ -40349,7 +40349,7 @@ export namespace Schemas {
     pathname: string;
     };
 
-    export type WebVitalsRetrieve200 = {[key: string]: unknown};
+    export type WebVitalsRetrieve200 = { [key: string]: unknown };
 
     export type ListParams = {
     /**
@@ -41759,9 +41759,9 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EventsRetrieve200One = {[key: string]: unknown};
+    export type EventsRetrieve200One = { [key: string]: unknown };
 
-    export type EventsRetrieve200Two = {[key: string]: unknown};
+    export type EventsRetrieve200Two = { [key: string]: unknown };
 
     export type EventsValuesRetrieveParams = {
     format?: EventsValuesRetrieveFormat;
@@ -43006,11 +43006,11 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type JsSnippetResolveRetrieve200 = {[key: string]: unknown};
+    export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };
 
-    export type JsSnippetVersionRetrieve200 = {[key: string]: unknown};
+    export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
 
-    export type JsSnippetVersionPartialUpdate200 = {[key: string]: unknown};
+    export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
 
     export type LiveDebuggerBreakpointsListParams = {
     filename?: string;
@@ -43124,9 +43124,9 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
-    export type LogsExportCreate201 = {[key: string]: unknown};
+    export type LogsExportCreate201 = { [key: string]: unknown };
 
-    export type LogsHasLogsRetrieve200 = {[key: string]: unknown};
+    export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
     export type LogsValuesRetrieveParams = {
     /**
@@ -43748,11 +43748,11 @@ export namespace Schemas {
       Session: 'session',
     } as const;
 
-    export type QueryLogRetrieve200 = {[key: string]: unknown};
+    export type QueryLogRetrieve200 = { [key: string]: unknown };
 
-    export type QueryCheckAuthForAsyncCreate200 = {[key: string]: unknown};
+    export type QueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
 
-    export type QueryDraftSqlRetrieve200 = {[key: string]: unknown};
+    export type QueryDraftSqlRetrieve200 = { [key: string]: unknown };
 
     export type QueryTabStateListParams = {
     /**
@@ -44117,7 +44117,7 @@ export namespace Schemas {
     window_days?: number;
     };
 
-    export type UploadedMediaCreate201 = {[key: string]: unknown};
+    export type UploadedMediaCreate201 = { [key: string]: unknown };
 
     export type UserProductListListParams = {
     /**
