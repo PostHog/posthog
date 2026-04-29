@@ -7,9 +7,9 @@ Detects the test type from a file path and dispatches to the correct runner
 from __future__ import annotations
 
 import os
+import sys
 import json
 import shlex
-import hashlib
 import tomllib
 import platform
 import subprocess
@@ -34,9 +34,14 @@ def _warm_django_pytest_prefix() -> list[str]:
     """
     if os.environ.get("WARM_DJANGO_DISABLE"):
         return []
-    repo_root_real = os.path.realpath(str(REPO_ROOT))
-    h = hashlib.sha256(repo_root_real.encode()).hexdigest()[:12]
-    socket_path = f"/tmp/warm-django-{h}.sock"
+    # Lazy import + sys.path insert because hogli may be invoked from any
+    # subdirectory, not just REPO_ROOT, and tools/warm_django/ is not on
+    # PYTHONPATH the way tools/hogli/src is.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from tools.warm_django._socket import get_socket_path
+
+    socket_path = get_socket_path()
     if not os.path.exists(socket_path):
         return []
     return [str(REPO_ROOT / "bin" / "warm-django"), "pytest"]

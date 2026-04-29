@@ -11,12 +11,10 @@ Falls back to running the command directly (cold start) if the daemon isn't runn
 
 import os
 import sys
-import json
 import time
 import socket
-import struct
 
-from tools.warm_django._socket import get_socket_path
+from tools.warm_django._socket import get_socket_path, recv_msg, send_msg
 
 # Env vars to forward to the daemon. Whitelisted prefixes only — the daemon's
 # Django setup is a long-running process with its own env, and forwarding
@@ -24,28 +22,6 @@ from tools.warm_django._socket import get_socket_path
 # (e.g. PYTEST_*, CI, custom DJANGO_SETTINGS_MODULE override), add the prefix
 # here.
 _ENV_FORWARD_PREFIXES = ("POSTHOG_", "DEBUG", "TEST", "DATABASE_")
-
-
-def _send_msg(conn: socket.socket, data: dict) -> None:
-    payload = json.dumps(data).encode()
-    conn.sendall(struct.pack("!I", len(payload)) + payload)
-
-
-def _recv_msg(conn: socket.socket) -> dict | None:
-    header = b""
-    while len(header) < 4:
-        chunk = conn.recv(4 - len(header))
-        if not chunk:
-            return None
-        header += chunk
-    (length,) = struct.unpack("!I", header)
-    data = b""
-    while len(data) < length:
-        chunk = conn.recv(min(length - len(data), 65536))
-        if not chunk:
-            return None
-        data += chunk
-    return json.loads(data)
 
 
 def _fallback(mode: str, argv: list[str]) -> int:
@@ -81,7 +57,7 @@ def main() -> int:
         return _fallback(mode, argv)
 
     # Send the command
-    _send_msg(
+    send_msg(
         conn,
         {
             "type": "run",
@@ -96,7 +72,7 @@ def main() -> int:
     connected_ms = (time.perf_counter() - t0) * 1000
 
     while True:
-        msg = _recv_msg(conn)
+        msg = recv_msg(conn)
         if msg is None:
             break
 
@@ -119,7 +95,7 @@ def main() -> int:
 
     total_ms = (time.perf_counter() - t0) * 1000
     # Print timing to stderr so it doesn't pollute command output
-    if os.environ.get("warm_django_TIMING"):
+    if os.environ.get("WARM_DJANGO_TIMING"):
         print(f"\nwarm-django: connected in {connected_ms:.0f}ms, total {total_ms:.0f}ms", file=sys.stderr)  # noqa: T201
 
     return exit_code

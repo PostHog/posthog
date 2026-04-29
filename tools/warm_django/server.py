@@ -29,41 +29,16 @@ Usage:
     bin/warm-django pytest posthog/test/test_utils.py -x
 """
 
+import io
 import os
 import sys
-import json
 import time
 import signal
 import socket
-import struct
 import importlib
 import threading
 
-from tools.warm_django._socket import get_socket_path
-
-
-def _send_msg(conn: socket.socket, data: dict) -> None:
-    """Send a length-prefixed JSON message."""
-    payload = json.dumps(data).encode()
-    conn.sendall(struct.pack("!I", len(payload)) + payload)
-
-
-def _recv_msg(conn: socket.socket) -> dict | None:
-    """Receive a length-prefixed JSON message."""
-    header = b""
-    while len(header) < 4:
-        chunk = conn.recv(4 - len(header))
-        if not chunk:
-            return None
-        header += chunk
-    (length,) = struct.unpack("!I", header)
-    data = b""
-    while len(data) < length:
-        chunk = conn.recv(min(length - len(data), 65536))
-        if not chunk:
-            return None
-        data += chunk
-    return json.loads(data)
+from tools.warm_django._socket import get_socket_path, recv_msg, send_msg
 
 
 class _SocketWriter:
@@ -76,7 +51,7 @@ class _SocketWriter:
     def write(self, data: str) -> int:
         if data:
             try:
-                _send_msg(self.conn, {"type": "output", "stream": self.stream, "data": data})
+                send_msg(self.conn, {"type": "output", "stream": self.stream, "data": data})
             except (BrokenPipeError, ConnectionResetError):
                 pass
         return len(data)
@@ -85,7 +60,11 @@ class _SocketWriter:
         pass
 
     def fileno(self) -> int:
-        return self.conn.fileno()
+        # Refusing fileno() forces pytest off its default fd-level capture
+        # (which would dup2 the capture buffer over the raw socket fd and
+        # silently swallow all output). With UnsupportedOperation, pytest
+        # falls back to sys-level capture, which routes through write().
+        raise io.UnsupportedOperation("fileno")
 
     @property
     def encoding(self) -> str:
@@ -257,7 +236,7 @@ def _run_in_child(
         exit_code = 1
 
     try:
-        _send_msg(conn, {"type": "exit", "code": exit_code})
+        send_msg(conn, {"type": "exit", "code": exit_code})
     except (BrokenPipeError, ConnectionResetError):
         pass
 
@@ -346,7 +325,7 @@ def serve() -> None:
         if config_watcher.dirty.is_set():
             changed = config_watcher.changed_path or "<unknown>"
             try:
-                _send_msg(conn, {"type": "fallback", "reason": f"config changed: {changed}"})
+                send_msg(conn, {"type": "fallback", "reason": f"config changed: {changed}"})
             except (BrokenPipeError, ConnectionResetError):
                 pass
             conn.close()
@@ -357,7 +336,7 @@ def serve() -> None:
             os.execv(sys.executable, [sys.executable, "-m", "tools.warm_django.server"])
             return  # unreachable
 
-        msg = _recv_msg(conn)
+        msg = recv_msg(conn)
         if not msg or msg.get("type") != "run":
             conn.close()
             continue
