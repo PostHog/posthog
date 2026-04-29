@@ -1,3 +1,5 @@
+from django.utils import timezone
+
 import structlog
 
 from posthog.email import EmailMessage
@@ -60,9 +62,12 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         if subscription.title
         else "Your PostHog subscription has been disabled"
     )
-    # Deterministic key — `MessagingRecord` dedupes on this campaign_key per recipient,
-    # so retries (Temporal, concurrent workflows, rolling deploys) don't double-send.
-    campaign_key = f"subscription-disabled-notification-{subscription.id}"
+    # Timestamped key so a re-enabled subscription that auto-disables a second
+    # time still sends a fresh email — `MessagingRecord` dedupes on campaign_key,
+    # so a deterministic key would silently suppress repeat-disable notifications.
+    # Retry safety is provided by the `enabled=False` short-circuit at the activity
+    # entry point, not by the campaign key.
+    campaign_key = f"subscription-disabled-notification-{subscription.id}-{timezone.now().timestamp()}"
 
     message = EmailMessage(
         campaign_key=campaign_key,

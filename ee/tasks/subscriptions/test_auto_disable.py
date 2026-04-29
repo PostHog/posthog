@@ -7,7 +7,11 @@ from parameterized import parameterized
 
 from posthog.models.subscription import Subscription
 
-from ee.tasks.subscriptions.auto_disable import SLACK_INTEGRATION_DISCONNECTED_REASON, disable_invalid_subscription
+from ee.tasks.subscriptions.auto_disable import (
+    SLACK_INTEGRATION_DISCONNECTED_REASON,
+    disable_invalid_subscription,
+    send_notifications_for_disabled_subscription,
+)
 
 
 class TestDisableInvalidSubscription(APIBaseTest):
@@ -56,6 +60,19 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub.refresh_from_db()
         assert sub.enabled is False
         send_mock.assert_not_called()
+
+    def test_send_notifications_uses_unique_campaign_key_per_call(self):
+        sub = self._make_subscription()
+
+        with patch("ee.tasks.subscriptions.auto_disable.EmailMessage") as email_cls:
+            send_notifications_for_disabled_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON, [self.user.email])
+            send_notifications_for_disabled_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON, [self.user.email])
+
+        first_key = email_cls.call_args_list[0].kwargs["campaign_key"]
+        second_key = email_cls.call_args_list[1].kwargs["campaign_key"]
+        assert first_key != second_key
+        assert first_key.startswith(f"subscription-disabled-notification-{sub.id}-")
+        assert second_key.startswith(f"subscription-disabled-notification-{sub.id}-")
 
     def test_disable_persists_when_email_send_fails(self):
         """Disabling is the durable side effect; email is best-effort.
