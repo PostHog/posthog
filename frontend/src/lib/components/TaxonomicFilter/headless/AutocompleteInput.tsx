@@ -31,7 +31,9 @@
  * the popover is open so 'All' search has data ready.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
+import { PreviewCard } from '@base-ui/react/preview-card'
 import FuseClass from 'fuse.js'
+import { useActions, useValues } from 'kea'
 import {
     createContext,
     ReactElement,
@@ -59,9 +61,12 @@ import {
     ScrollArea,
 } from '@posthog/quill'
 
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { PropertyDefinitionType } from '~/types'
 
 import { useGroupList } from '../hooks/useGroupList'
+import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -69,6 +74,7 @@ import {
     TaxonomicFilterValue,
 } from '../types'
 import { useTaxonomicFilterContext } from './context'
+import { IconChevronRight } from '@posthog/icons'
 
 export type TaxonomicAutocompleteCategoryMode = 'all' | TaxonomicFilterGroupType
 
@@ -110,6 +116,21 @@ export interface TaxonomicAutocompleteSeed {
 }
 
 type IndexedItem = TaxonomicAutocompleteEntry
+
+/**
+ * Sub-page kinds in the popover view stack. `configure` = inline form
+ * before commit (DWH columns, HogQL editor). `details` = read-only
+ * metadata sheet (description, type, sent-as, pin / edit / open buttons).
+ *
+ * Both render via the shared `Header` + sliding view stack; the only
+ * difference is which `<…View>` primitive matches the active kind.
+ */
+export type TaxonomicAutocompletePageKind = 'configure' | 'details'
+
+export interface TaxonomicAutocompletePage {
+    kind: TaxonomicAutocompletePageKind
+    entry: TaxonomicAutocompleteEntry
+}
 
 /**
  * Curation meta groups — user shortcuts (Recent / Pinned / Suggested).
@@ -155,19 +176,27 @@ interface AutocompleteCtx {
     focusInput: () => void
     /** Label for the default Trigger button when no entry is selected. */
     triggerLabel?: string
-    /** Entry currently being configured by a `<ConfigureDialog>` (deferred commit). */
+    /** Active sub-page on the view stack, or null in the root view. */
+    pendingPage: TaxonomicAutocompletePage | null
+    /** Convenience: `pendingPage?.entry ?? null`. */
     pendingEntry: IndexedItem | null
-    /** Group types that have a `<ConfigureDialog>` registered. */
+    /** Group types that have a `<ConfigureView>` registered. */
     configuredTypes: ReadonlySet<TaxonomicFilterGroupType>
     addConfiguredType: (t: TaxonomicFilterGroupType) => void
     removeConfiguredType: (t: TaxonomicFilterGroupType) => void
+    /** Group types that have a `<DetailsView>` registered. */
+    detailsTypes: ReadonlySet<TaxonomicFilterGroupType>
+    addDetailsType: (t: TaxonomicFilterGroupType) => void
+    removeDetailsType: (t: TaxonomicFilterGroupType) => void
     /** Open the configurator for an entry (e.g. clicking the item segment of SegmentedTrigger). */
     openConfigureFor: (entry: IndexedItem) => void
+    /** Open the details sheet for an entry (e.g. arrow-right → View cell). */
+    openDetailsFor: (entry: IndexedItem) => void
     /** Commit the pending entry, optionally merging extra fields into the item. */
     commitPending: (extra?: Record<string, unknown>) => void
-    /** Cancel the pending configurator, leaving any prior selection intact. */
+    /** Cancel the pending sub-view, leaving any prior selection intact. */
     cancelPending: () => void
-    /** Title for the active sub-view; pushed up by `ConfigureView` for `Header`. */
+    /** Title for the active sub-view; pushed up by the sub-view for `Header`. */
     pendingTitle: ReactNode | null
     setPendingTitle: (t: ReactNode | null) => void
 }
@@ -278,9 +307,10 @@ export function Root({
     const [loadingByType, setLoadingByType] = useState<Record<string, boolean>>({})
     const [needsMoreByType, setNeedsMoreByType] = useState<Record<string, boolean>>({})
     const [selectedEntry, setSelectedEntry] = useState<IndexedItem | null>(null)
-    const [pendingEntry, setPendingEntry] = useState<IndexedItem | null>(null)
+    const [pendingPage, setPendingPage] = useState<TaxonomicAutocompletePage | null>(null)
     const [pendingTitle, setPendingTitle] = useState<ReactNode | null>(null)
     const [configuredTypes, setConfiguredTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
+    const [detailsTypes, setDetailsTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
     const seededRef = useRef(false)
     const inputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = useCallback((): void => {
@@ -299,6 +329,26 @@ export function Root({
     }, [])
     const removeConfiguredType = useCallback((t: TaxonomicFilterGroupType): void => {
         setConfiguredTypes((prev) => {
+            if (!prev.has(t)) {
+                return prev
+            }
+            const next = new Set(prev)
+            next.delete(t)
+            return next
+        })
+    }, [])
+    const addDetailsType = useCallback((t: TaxonomicFilterGroupType): void => {
+        setDetailsTypes((prev) => {
+            if (prev.has(t)) {
+                return prev
+            }
+            const next = new Set(prev)
+            next.add(t)
+            return next
+        })
+    }, [])
+    const removeDetailsType = useCallback((t: TaxonomicFilterGroupType): void => {
+        setDetailsTypes((prev) => {
             if (!prev.has(t)) {
                 return prev
             }
@@ -426,11 +476,11 @@ export function Root({
 
     const onSelectEntry = useCallback(
         (entry: IndexedItem): void => {
-            // Two-phase: if a `<ConfigureDialog>` is registered for this
+            // Two-phase: if a `<ConfigureView>` is registered for this
             // group, defer commit until the form completes. Otherwise
-            // commit immediately (current behaviour for plain rows).
+            // commit immediately.
             if (configuredTypes.has(entry.group.type)) {
-                setPendingEntry(entry)
+                setPendingPage({ kind: 'configure', entry })
                 return
             }
             commitEntry(entry)
@@ -439,44 +489,50 @@ export function Root({
     )
 
     const openConfigureFor = useCallback((entry: IndexedItem): void => {
-        setPendingEntry(entry)
+        setPendingPage({ kind: 'configure', entry })
+    }, [])
+
+    const openDetailsFor = useCallback((entry: IndexedItem): void => {
+        setPendingPage({ kind: 'details', entry })
     }, [])
 
     const commitPending = useCallback(
         (extra?: Record<string, unknown>): void => {
-            if (pendingEntry) {
-                commitEntry(pendingEntry, extra)
-                setPendingEntry(null)
+            const entry = pendingPage?.entry
+            if (entry) {
+                commitEntry(entry, extra)
+                setPendingPage(null)
             }
         },
-        [pendingEntry, commitEntry]
+        [pendingPage, commitEntry]
     )
 
     const cancelPending = useCallback((): void => {
-        setPendingEntry(null)
+        setPendingPage(null)
     }, [])
 
-    // When a sub-view closes (pendingEntry transitions to null), refocus the
-    // search input so the next Escape lands on Input's handler — which closes
-    // the popover — instead of dying on the unmounted form field. This is
-    // what makes "Esc, Esc" feel like "back, then close" once a sub-view is
-    // open.
+    const pendingEntry = pendingPage?.entry ?? null
+
+    // When a sub-view closes (pendingPage → null), refocus the search input
+    // so the next Escape lands on Input's handler — which closes the
+    // popover — instead of dying on the unmounted form field. This is what
+    // makes "Esc, Esc" feel like "back, then close" once a sub-view is open.
     //
     // RootView (and its Input) was unmounted during the sub-view, so wait
     // for the next paint before focusing — `inputRef.current` is set during
     // the commit, but base-ui's Autocomplete.Input wraps render-prop refs
     // through useRender, and the ref attachment can land a tick after the
     // outer commit. `setTimeout(0)` is a reliable post-commit hook.
-    const prevPendingRef = useRef<IndexedItem | null>(pendingEntry)
+    const prevPendingRef = useRef<TaxonomicAutocompletePage | null>(pendingPage)
     useEffect(() => {
-        if (prevPendingRef.current && !pendingEntry) {
+        if (prevPendingRef.current && !pendingPage) {
             const t = window.setTimeout(() => inputRef.current?.focus(), 0)
-            prevPendingRef.current = pendingEntry
+            prevPendingRef.current = pendingPage
             return () => window.clearTimeout(t)
         }
-        prevPendingRef.current = pendingEntry
+        prevPendingRef.current = pendingPage
         return undefined
-    }, [pendingEntry])
+    }, [pendingPage])
 
     const clearSelection = useCallback(() => setSelectedEntry(null), [])
 
@@ -526,11 +582,16 @@ export function Root({
             inputRef,
             focusInput,
             triggerLabel,
+            pendingPage,
             pendingEntry,
             configuredTypes,
             addConfiguredType,
             removeConfiguredType,
+            detailsTypes,
+            addDetailsType,
+            removeDetailsType,
             openConfigureFor,
+            openDetailsFor,
             commitPending,
             cancelPending,
             pendingTitle,
@@ -559,11 +620,16 @@ export function Root({
             value,
             focusInput,
             triggerLabel,
+            pendingPage,
             pendingEntry,
             configuredTypes,
             addConfiguredType,
             removeConfiguredType,
+            detailsTypes,
+            addDetailsType,
+            removeDetailsType,
             openConfigureFor,
+            openDetailsFor,
             commitPending,
             cancelPending,
             pendingTitle,
@@ -749,7 +815,19 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
     }
 
     return (
-        <PopoverContent className={cn('p-0 w-(--anchor-width) min-w-[320px]', className)}>
+        // Hard height — `min-h` + `max-h` still let Floating UI nudge the
+        // popup as content swapped between root and sub-views. `h-[480px]`
+        // pins it dead, list scrolls inside.
+        <PopoverContent
+            className={cn(
+                // `gap-0` overrides Quill's default `gap-4` between popup
+                // children — base-ui's AriaCombobox slips hidden inputs in
+                // alongside our wrapper, and the gap was bumping our
+                // wrapper down inside the popup.
+                'p-0 gap-0 w-(--anchor-width) min-w-[320px] h-[480px] overflow-hidden',
+                className
+            )}
+        >
             <Autocomplete.Root
                 items={ctx.items}
                 mode="none"
@@ -761,9 +839,11 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
             >
                 {/* Wrapper owns: Esc-as-back in sub-view, Tab loop in
                     sub-view (covers Header back button + form fields), and
-                    base-ui key swallowing in root view. */}
+                    base-ui key swallowing in root view. `flex-1 min-h-0
+                    overflow-hidden` so the inner ScrollArea can shrink + clip
+                    cleanly without the popover doing the scrolling. */}
                 <div
-                    className="flex flex-col"
+                    className="flex flex-col flex-1 min-h-0 overflow-hidden"
                     onKeyDown={(e) => {
                         if (e.key === 'Escape' && inSubView) {
                             ctx.cancelPending()
@@ -892,7 +972,13 @@ function List({ className, children }: TaxonomicAutocompleteListProps): JSX.Elem
         // against the top/bottom edge after scroll.
         <ScrollArea
             showScrollToButton={['bottom']}
-            viewportClassName={cn('max-h-[300px] p-2 scroll-py-1', ctx.listClassName, className)}
+            // ScrollArea Root grows into the pinned popover envelope. Default
+            // viewport drops the legacy `max-h-*` cap — popover height pins
+            // the surface, the list takes whatever's left after Header /
+            // Input / Chips. Consumer-passed `className` still appends to
+            // viewport for advanced overrides.
+            className="flex-1 min-h-0"
+            viewportClassName={cn('p-2 scroll-b-3 scroll-t-2', ctx.listClassName, className)}
         >
             <Autocomplete.List data-quill>
                 {children ?? (
@@ -929,25 +1015,20 @@ function Items({ children }: TaxonomicAutocompleteItemsProps): JSX.Element {
     const ctx = useAutocompleteCtx()
     return (
         <Autocomplete.Collection>
-            {(entry: IndexedItem) =>
-                children ? children(entry) : <DefaultRow entry={entry} onSelect={() => ctx.onSelectEntry(entry)} />
-            }
+            {(entry: IndexedItem) => (children ? children(entry) : <DefaultRow entry={entry} />)}
         </Autocomplete.Collection>
     )
 }
 
 interface DefaultRowProps {
     entry: IndexedItem
-    onSelect: () => void
 }
 
-function DefaultRow({ entry, onSelect }: DefaultRowProps): JSX.Element {
+function DefaultRow({ entry }: DefaultRowProps): JSX.Element {
+    const ctx = useAutocompleteCtx()
     const { item, group } = entry
     const rawName = entry.name
     const friendly = entry.friendlyLabel
-    // Title prefers the friendly label; falls back to the raw name when no
-    // taxonomy entry exists. This prevents blank rows for items without a
-    // friendly label (e.g. user-defined custom events).
     const title = friendly && friendly.length > 0 ? friendly : rawName
     const subtitle = friendly && friendly !== rawName ? rawName : undefined
     // Each Autocomplete.Item needs a unique id so base-ui's
@@ -956,29 +1037,110 @@ function DefaultRow({ entry, onSelect }: DefaultRowProps): JSX.Element {
     // the items array can cause two rows to share an id → both match
     // `data-[highlighted]` styling.
     const stableId = `taxonomic-${group.type}-${String(group.getValue?.(item) ?? rawName)}`
+    const showHover = ctx.detailsTypes.has(group.type)
+    // Group badge is only useful in 'all' search — it tells the user which
+    // group an item came from when results from multiple groups are
+    // interleaved. Inside a drilled category, every row is from the same
+    // group, so the badge is just noise.
+    const showGroupLabel = ctx.category === 'all'
+    // Rows whose group has a `<ConfigureView>` registered (DWH, HogQL) get
+    // a subtle hint that selecting them opens an inline editor instead of
+    // committing immediately.
+    const hasConfigure = ctx.configuredTypes.has(group.type)
+    const rowContent = (
+        <>
+            <div className="flex items-baseline gap-2 w-full">
+                <span className="text-sm">
+                    {title}
+                    {showGroupLabel && (
+                        <span className="ml-2 text-xxs uppercase tracking-wide text-secondary relative -top-px">
+                            {group.name}
+                        </span>
+                    )}
+                </span>
+                {hasConfigure && <IconChevronRight className="text-secondary ml-auto" />}
+            </div>
+            {subtitle && <span className="text-xs text-secondary">{subtitle}</span>}
+        </>
+    )
     return (
         <Autocomplete.Item
             id={stableId}
             value={entry}
             onClick={(e) => {
                 e.preventDefault()
-                onSelect()
+                ctx.onSelectEntry(entry)
             }}
-            // `bg-fill-selected` is only in scope under a `[data-quill]`
-            // ancestor (per quill-bridge.scss). Use the CSS variable
-            // directly so the highlight paints even when this row sits
-            // outside any quill primitive wrapper.
             className={cn(
                 'flex flex-col items-start gap-0 rounded-sm px-2 py-1 cursor-pointer outline-none',
                 'data-[highlighted]:bg-[var(--fill-selected)]'
             )}
         >
-            <span className="text-sm">
-                {title}
-                <span className="ml-2 text-[10px] uppercase tracking-wide text-secondary">{group.name}</span>
-            </span>
-            {subtitle && <span className="text-xs text-secondary">{subtitle}</span>}
+            {showHover ? (
+                // Hover popover surfaces metadata without leaving the list.
+                // PreviewCard.Trigger renders a `display: contents` wrapper
+                // so hover detection lives on the row content but the Item's
+                // click + highlight still control selection / arrow nav.
+                <PreviewCard.Root>
+                    <PreviewCard.Trigger
+                        render={<div className="contents" />}
+                        delay={350}
+                        closeDelay={120}
+                    >
+                        {rowContent}
+                    </PreviewCard.Trigger>
+                    <PreviewCard.Portal>
+                        <PreviewCard.Positioner side="right" align="start" sideOffset={12}>
+                            <PreviewCard.Popup
+                                className={cn(
+                                    'rounded-md border bg-surface-primary shadow-md max-w-[320px]',
+                                    'data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
+                                    'transition-opacity duration-150'
+                                )}
+                            >
+                                <DefaultHoverBody entry={entry} />
+                            </PreviewCard.Popup>
+                        </PreviewCard.Positioner>
+                    </PreviewCard.Portal>
+                </PreviewCard.Root>
+            ) : (
+                rowContent
+            )}
         </Autocomplete.Item>
+    )
+}
+
+/**
+ * Default body for the row's hover popover. Reads metadata via
+ * `useTaxonomicAutocompleteItemDetails`. Mirrors the layout of the
+ * sub-page details sheet so the two surfaces feel consistent.
+ */
+function DefaultHoverBody({ entry }: { entry: TaxonomicAutocompleteEntry }): JSX.Element | null {
+    const details = useTaxonomicAutocompleteItemDetails(entry)
+    if (!details) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-3 p-3 text-sm">
+            <div className="flex flex-col gap-1">
+                <div className="text-[10px] uppercase tracking-wide text-secondary">{details.groupLabel}</div>
+                <div className="text-base font-semibold leading-tight">{details.title}</div>
+            </div>
+            {details.description && <p className="text-xs text-secondary">{details.description}</p>}
+            {details.example && <p className="text-xs italic text-secondary">Example: {details.example}</p>}
+            {details.propertyType && (
+                <div className="flex flex-col gap-0.5 border-t pt-2">
+                    <div className="text-[10px] uppercase tracking-wide text-secondary">Property type</div>
+                    <div className="text-xs">{details.propertyType}</div>
+                </div>
+            )}
+            {details.rawName !== details.title && (
+                <div className="flex flex-col gap-0.5 border-t pt-2">
+                    <div className="text-[10px] uppercase tracking-wide text-secondary">Sent as</div>
+                    <code className="text-xs">{details.rawName}</code>
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -1162,7 +1324,11 @@ function RootView({ children, className }: TaxonomicAutocompleteRootViewProps): 
     }
     return (
         <div
-            className={cn('flex flex-col', className)}
+            // `flex-1 min-h-0` so the list inside can flex-grow into the
+            // pinned popover envelope (`min-h-[420px]` on PopoverContent).
+            // Without `min-h-0`, flex items refuse to shrink below their
+            // content height and the scroll viewport can't expand cleanly.
+            className={cn('flex flex-col flex-1 min-h-0', className)}
             data-state="active"
             style={{ animation: 'taxonomic-slide-from-left 220ms cubic-bezier(0.215, 0.61, 0.355, 1)' }}
         >
@@ -1203,7 +1369,7 @@ function ConfigureView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key])
 
-    const pending = ctx.pendingEntry
+    const pending = ctx.pendingPage?.kind === 'configure' ? ctx.pendingPage.entry : null
     const matches = pending != null && forGroups.includes(pending.group.type)
     const resolvedTitle = pending && title ? (typeof title === 'function' ? title(pending) : title) : pending?.name
 
@@ -1242,7 +1408,10 @@ function ConfigureView({
     return (
         <div
             ref={containerRef}
-            className={cn('flex flex-col', className)}
+            // `flex-1` so the sub-view fills the remaining popover height
+            // (popover has `min-h-[420px]` to pin position). Form bodies
+            // use their own `flex-1` to push the footer to the bottom.
+            className={cn('flex flex-col flex-1', className)}
             data-state="active"
             style={{ animation: 'taxonomic-slide-from-right 220ms cubic-bezier(0.215, 0.61, 0.355, 1)' }}
         >
@@ -1253,6 +1422,174 @@ function ConfigureView({
             })}
         </div>
     )
+}
+
+/** State passed to a `<DetailsView>` render function. */
+export interface TaxonomicAutocompleteDetailsState {
+    /** The entry being viewed. */
+    entry: TaxonomicAutocompleteEntry
+    /** Commit the entry as the selected value (e.g. "Use this property" footer). */
+    commit: (extra?: Record<string, unknown>) => void
+    /** Close the details sheet, returning to the root view. */
+    cancel: () => void
+}
+
+export interface TaxonomicAutocompleteDetailsViewProps {
+    /** Group types this details sheet handles. */
+    for: readonly TaxonomicFilterGroupType[]
+    /** Title for the header back-button row. */
+    title?: ReactNode | ((entry: TaxonomicAutocompleteEntry) => ReactNode)
+    /** Render the details body. Receives entry + commit/cancel callbacks. */
+    children: (state: TaxonomicAutocompleteDetailsState) => ReactNode
+    className?: string
+}
+
+/**
+ * Read-only sub-view that activates when the user navigates to the "View"
+ * cell of a row (right-arrow → Enter, or click). Same chrome as
+ * `<ConfigureView>` — sliding panel + Header back button — but registered
+ * for the `'details'` kind. Body comes from the consumer; pair with
+ * `useTaxonomicAutocompleteItemDetails(entry)` for property metadata.
+ */
+function DetailsView({
+    for: forGroups,
+    title,
+    children,
+    className,
+}: TaxonomicAutocompleteDetailsViewProps): JSX.Element | null {
+    const ctx = useAutocompleteCtx()
+    const key = forGroups.join(',')
+    useEffect(() => {
+        forGroups.forEach((t) => ctx.addDetailsType(t))
+        return () => forGroups.forEach((t) => ctx.removeDetailsType(t))
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key])
+
+    const pending = ctx.pendingPage?.kind === 'details' ? ctx.pendingPage.entry : null
+    const matches = pending != null && forGroups.includes(pending.group.type)
+    const resolvedTitle = pending && title ? (typeof title === 'function' ? title(pending) : title) : pending?.name
+
+    useEffect(() => {
+        if (matches && resolvedTitle != null) {
+            ctx.setPendingTitle(resolvedTitle)
+            return () => ctx.setPendingTitle(null)
+        }
+        return undefined
+    }, [matches, resolvedTitle, ctx])
+
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    useEffect(() => {
+        if (!matches) {
+            return
+        }
+        const root = containerRef.current
+        if (!root) {
+            return
+        }
+        const FOCUSABLE =
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        root.querySelector<HTMLElement>(FOCUSABLE)?.focus()
+    }, [matches])
+
+    if (!matches || !pending) {
+        return null
+    }
+
+    return (
+        <div
+            ref={containerRef}
+            // `flex-1` so the sub-view fills the remaining popover height
+            // (popover has `min-h-[420px]` to pin position). Form bodies
+            // use their own `flex-1` to push the footer to the bottom.
+            className={cn('flex flex-col flex-1', className)}
+            data-state="active"
+            style={{ animation: 'taxonomic-slide-from-right 220ms cubic-bezier(0.215, 0.61, 0.355, 1)' }}
+        >
+            {children({
+                entry: pending,
+                commit: ctx.commitPending,
+                cancel: ctx.cancelPending,
+            })}
+        </div>
+    )
+}
+
+/**
+ * Rich metadata for an autocomplete entry — title / description / type /
+ * sent-as plus pin state and toggle. Pulls from kea logics
+ * (`propertyDefinitionsModel` for type, `taxonomicFilterPinnedPropertiesLogic`
+ * for pins) and the static `getCoreFilterDefinition` taxonomy.
+ *
+ * Property-typed groups (Event/Person/Session/Group properties, EventMetadata,
+ * EventFeatureFlags) get a `propertyType`; others fall back to bare info.
+ *
+ * Returns `null` when entry is null — convenience so callers can pass the
+ * possibly-null `pendingPage.entry` directly.
+ */
+const PROPERTY_GROUP_TYPE_TO_DEFINITION_TYPE: Partial<Record<TaxonomicFilterGroupType, PropertyDefinitionType>> = {
+    [TaxonomicFilterGroupType.EventProperties]: PropertyDefinitionType.Event,
+    [TaxonomicFilterGroupType.EventMetadata]: PropertyDefinitionType.Event,
+    [TaxonomicFilterGroupType.EventFeatureFlags]: PropertyDefinitionType.Event,
+    [TaxonomicFilterGroupType.PersonProperties]: PropertyDefinitionType.Person,
+    [TaxonomicFilterGroupType.SessionProperties]: PropertyDefinitionType.Session,
+    [TaxonomicFilterGroupType.GroupsPrefix]: PropertyDefinitionType.Group,
+}
+
+export interface TaxonomicAutocompleteItemDetails {
+    title: string
+    /** Group label, uppercased — e.g. `EVENT PROPERTY`, `PERSON PROPERTY`. */
+    groupLabel: string
+    /** Raw underlying name (e.g. `$browser_type`). */
+    rawName: string
+    description?: string
+    /** First example value, formatted. */
+    example?: string
+    /** Property type ("String", "Numeric", …) if the group resolves to one. */
+    propertyType?: string
+    /** Whether the entry is currently pinned in `taxonomicFilterPinnedPropertiesLogic`. */
+    isPinned: boolean
+    /** Toggle pin state for the entry. */
+    togglePin: () => void
+    /** Whether the group supports pinning at all (META groups don't). */
+    isPinnable: boolean
+}
+
+export function useTaxonomicAutocompleteItemDetails(
+    entry: TaxonomicAutocompleteEntry | null
+): TaxonomicAutocompleteItemDetails | null {
+    const { describeProperty } = useValues(propertyDefinitionsModel)
+    const { isPinned } = useValues(taxonomicFilterPinnedPropertiesLogic)
+    const { togglePin: togglePinAction } = useActions(taxonomicFilterPinnedPropertiesLogic)
+
+    return useMemo<TaxonomicAutocompleteItemDetails | null>(() => {
+        if (!entry) {
+            return null
+        }
+        const { item, group, name, friendlyLabel } = entry
+        const title = friendlyLabel && friendlyLabel.length > 0 ? friendlyLabel : name
+        const def = getCoreFilterDefinition(name, group.type)
+        const value = group.getValue?.(item) ?? null
+        const definitionType = PROPERTY_GROUP_TYPE_TO_DEFINITION_TYPE[group.type]
+        const propertyType = definitionType ? describeProperty(name, definitionType) ?? undefined : undefined
+        const example = def?.examples?.[0] != null ? String(def.examples[0]) : undefined
+        const groupLabel = group.name.toUpperCase()
+        const isPinnable = value != null && !CURATION_META_GROUP_TYPES.has(group.type)
+        return {
+            title,
+            groupLabel,
+            rawName: name,
+            description: def?.description,
+            example,
+            propertyType: propertyType ? String(propertyType) : undefined,
+            isPinned: isPinnable ? isPinned(group.type, value) : false,
+            isPinnable,
+            togglePin: () => {
+                if (isPinnable) {
+                    togglePinAction(group.type, group.name, value, item)
+                }
+            },
+        }
+    }, [entry, describeProperty, isPinned, togglePinAction])
 }
 
 // View-stack slide animations injected once at module load. ease-out-cubic
@@ -1378,6 +1715,7 @@ export const TaxonomicAutocomplete = {
     Header,
     RootView,
     ConfigureView,
+    DetailsView,
     Input,
     Chips,
     List,
@@ -1420,7 +1758,7 @@ export function TaxonomicFilterAutocompleteInput({
                 <TaxonomicAutocomplete.Content className={contentClassName}>
                     <TaxonomicAutocomplete.Header />
                     <TaxonomicAutocomplete.RootView>
-                        <div className="p-1">
+                        <div className="p-4">
                             <TaxonomicAutocomplete.Input />
                         </div>
                         <TaxonomicAutocomplete.Chips className="border-t" />

@@ -613,7 +613,7 @@ export function ActionFilterRow({
                                                         <TaxonomicAutocomplete.Input />
                                                     </div>
                                                     <TaxonomicAutocomplete.Chips />
-                                                    <TaxonomicAutocomplete.List className="max-h-80" />
+                                                    <TaxonomicAutocomplete.List />
                                                 </TaxonomicAutocomplete.RootView>
                                             </TaxonomicAutocomplete.Content>
                                         </TaxonomicAutocomplete.Popover>

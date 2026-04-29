@@ -29,6 +29,7 @@ export {
     TaxonomicAutocomplete,
     useTaxonomicAutocomplete,
     useTaxonomicAutocompleteCategories,
+    useTaxonomicAutocompleteItemDetails,
 } from './AutocompleteInput'
 export { TaxonomicFilterContext, useTaxonomicFilterContext } from './context'
 export type { TaxonomicFilterRootProps } from './Root'
@@ -40,12 +41,17 @@ export type {
     TaxonomicAutocompleteConfigureState,
     TaxonomicAutocompleteConfigureViewProps,
     TaxonomicAutocompleteContentProps,
+    TaxonomicAutocompleteDetailsState,
+    TaxonomicAutocompleteDetailsViewProps,
     TaxonomicAutocompleteEmptyProps,
     TaxonomicAutocompleteEntry,
     TaxonomicAutocompleteHeaderProps,
     TaxonomicAutocompleteInputProps,
+    TaxonomicAutocompleteItemDetails,
     TaxonomicAutocompleteItemsProps,
     TaxonomicAutocompleteListProps,
+    TaxonomicAutocompletePage,
+    TaxonomicAutocompletePageKind,
     TaxonomicAutocompleteRootProps,
     TaxonomicAutocompleteRootViewProps,
     TaxonomicAutocompleteSeed,

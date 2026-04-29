@@ -46,8 +46,10 @@ import {
 import {
     TaxonomicAutocomplete,
     TaxonomicAutocompleteConfigureState,
+    TaxonomicAutocompleteDetailsState,
     TaxonomicFilterHeadless,
     useTaxonomicAutocomplete,
+    useTaxonomicAutocompleteItemDetails,
 } from 'lib/components/TaxonomicFilter/headless'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -158,6 +160,22 @@ const SCENARIOS: Scenario[] = [
         label: 'Event property — single group',
         consumers: 'BoxPlotPropertySelector, PropertyValueMathSelector, replay filters',
         groupTypes: [TaxonomicFilterGroupType.EventProperties],
+        notes:
+            'Each row has a "View →" cell. Right arrow → highlights View, Enter opens the details sheet (description / type / sent-as / pin). Driven by `<DetailsView>` + `useTaxonomicAutocompleteItemDetails`.',
+        extras: (
+            <TaxonomicAutocomplete.DetailsView
+                for={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.SessionProperties,
+                    TaxonomicFilterGroupType.EventMetadata,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                ]}
+                title={(entry) => entry.friendlyLabel ?? entry.name}
+            >
+                {(state) => <PropertyDetails {...state} />}
+            </TaxonomicAutocomplete.DetailsView>
+        ),
     },
     {
         id: 'event-prop-numeric',
@@ -295,7 +313,7 @@ export function TaxonomicFilterPreview(): JSX.Element {
         <div className="border border-dashed border-warning-light rounded p-3 bg-surface-primary">
             <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold m-0">TaxonomicFilter — variation preview</h3>
-                <span className="text-xs text-secondary">
+                <span className="text-xxs text-secondary">
                     Disposable. Each card mirrors a real prop combo. Notes call out UX gaps in the new picker.
                 </span>
             </div>
@@ -325,11 +343,11 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
         <div className="border rounded p-2 flex flex-col gap-2">
             <header className="flex items-baseline justify-between gap-2 flex-wrap">
                 <h4 className="text-sm font-semibold m-0">{scenario.label}</h4>
-                <span className="text-[10px] text-secondary">{scenario.consumers}</span>
+                <span className="text-xxs text-secondary">{scenario.consumers}</span>
             </header>
 
             {scenario.notes && (
-                <div className="text-[11px] leading-tight bg-surface-secondary border border-warning-light/40 rounded px-2 py-1">
+                <div className="text-xxs leading-tight bg-surface-secondary border border-warning-light/40 rounded px-2 py-1">
                     <span className="font-semibold text-warning">UX gap: </span>
                     {scenario.notes}
                 </div>
@@ -337,8 +355,8 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
 
             <div className="grid grid-cols-2 gap-2">
                 <div>
-                    <div className="text-[10px] text-secondary mb-1">Legacy panel</div>
-                    <TaxonomicFilter
+                    <div className="text-xxs text-secondary mb-1">Legacy panel</div>
+                    {/* <TaxonomicFilter
                         taxonomicFilterLogicKey={`scenario-${scenario.id}`}
                         taxonomicGroupTypes={scenario.groupTypes}
                         eventNames={scenario.eventNames}
@@ -351,10 +369,10 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                         onChange={handle(setLegacy)}
                         width={360}
                         height={320}
-                    />
+                    /> */}
                 </div>
                 <div>
-                    <div className="text-[10px] text-secondary mb-1">New TaxonomicAutocomplete</div>
+                    <div className="text-xxs text-secondary mb-1">New TaxonomicAutocomplete</div>
                     <TaxonomicFilterHeadless.Root
                         // Skip the legacy rootProps wrapper — its onKeyDown
                         // intercepts Tab/Arrow for the old list UI we don't
@@ -391,7 +409,7 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                                             <TaxonomicAutocomplete.Input />
                                         </div>
                                         <TaxonomicAutocomplete.Chips />
-                                        <TaxonomicAutocomplete.List className="max-h-72" />
+                                        <TaxonomicAutocomplete.List />
                                     </TaxonomicAutocomplete.RootView>
                                     {scenario.extras}
                                 </TaxonomicAutocomplete.Content>
@@ -449,8 +467,8 @@ function DwhFieldsForm({ entry, commit, cancel }: TaxonomicAutocompleteConfigure
     const canSubmit = !!idField && !!timestampField && !!distinctIdField
 
     return (
-        <div className="flex flex-col">
-            <div className="flex flex-col gap-4 p-2">
+        <div className="flex flex-col flex-1">
+            <div className="flex flex-col gap-4 p-2 flex-1">
                 <FieldDescription className="!mt-0">
                     Table: <Badge variant="info">{tableName}</Badge>
                 </FieldDescription>
@@ -503,8 +521,8 @@ function HogQLExpressionForm({ entry, commit, cancel }: TaxonomicAutocompleteCon
             : ''
     const [expression, setExpression] = useState(initial)
     return (
-        <div className="flex flex-col">
-            <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col flex-1">
+            <div className="flex flex-col gap-4 p-2 flex-1">
                 <Field>
                     <FieldLabel>Expression</FieldLabel>
                     <FieldContent>
@@ -514,7 +532,7 @@ function HogQLExpressionForm({ entry, commit, cancel }: TaxonomicAutocompleteCon
                             value={expression}
                             onChange={(e) => setExpression(e.target.value)}
                             placeholder="properties.$browser = 'Chrome'"
-                            className="font-mono text-xs"
+                            className="font-mono text-xxs"
                         />
                         <FieldDescription>
                             Returns this expression as the selected value. Esc goes back without saving.
@@ -604,6 +622,60 @@ function ColumnField({
     )
 }
 
+/**
+ * Demo `<DetailsView>` body for property groups. Mirrors the layout in the
+ * Pin / Edit / View → reference screenshot. All data comes from
+ * `useTaxonomicAutocompleteItemDetails(entry)`.
+ */
+function PropertyDetails({ entry, cancel }: TaxonomicAutocompleteDetailsState): JSX.Element | null {
+    const details = useTaxonomicAutocompleteItemDetails(entry)
+    if (!details) {
+        return null
+    }
+    return (
+        <div className="flex flex-col flex-1 text-sm">
+            <div className="flex flex-col gap-4 p-4 flex-1">
+                <div className="flex items-center justify-between">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={details.togglePin}
+                        disabled={!details.isPinnable}
+                        aria-pressed={details.isPinned}
+                    >
+                        {details.isPinned ? 'Pinned' : 'Pin'}
+                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button type="button" variant="link" size="sm">
+                            Edit
+                        </Button>
+                        <Button type="button" variant="link" size="sm" onClick={cancel}>
+                            View ↗
+                        </Button>
+                    </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                    <div className="text-xxs uppercase tracking-wide text-secondary">{details.groupLabel}</div>
+                    <div className="text-base font-semibold">{details.title}</div>
+                </div>
+                {details.description && <p className="text-sm text-secondary">{details.description}</p>}
+                {details.example && <p className="text-sm italic text-secondary">Example: {details.example}</p>}
+                {details.propertyType && (
+                    <div className="flex flex-col gap-1 border-t pt-3">
+                        <div className="text-xxs uppercase tracking-wide text-secondary">Property type</div>
+                        <div>{details.propertyType}</div>
+                    </div>
+                )}
+                <div className="flex flex-col gap-1 border-t pt-3">
+                    <div className="text-xxs uppercase tracking-wide text-secondary">Sent as</div>
+                    <code className="text-xxs">{details.rawName}</code>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 function SelectionEcho({ label, state }: { label: string; state: ScenarioSelection | null }): JSX.Element {
     if (!state) {
         return <div className="text-secondary">{label}: —</div>
@@ -662,13 +734,13 @@ function SeriesParityCard(): JSX.Element {
         <div className="border rounded p-2">
             <header className="flex items-baseline justify-between mb-2">
                 <h4 className="text-sm font-semibold m-0">Series parity (trigger-only)</h4>
-                <span className="text-[10px] text-secondary">
+                <span className="text-xxs text-secondary">
                     Both pickers share <code>{`{ groupType, value, name }`}</code>; default <code>$pageview</code>.
                 </span>
             </header>
             <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs text-secondary">Legacy TaxonomicPopover</span>
+                    <span className="text-xxs text-secondary">Legacy TaxonomicPopover</span>
                     <TaxonomicPopover
                         data-attr="series-parity-legacy"
                         type="secondary"
@@ -692,7 +764,7 @@ function SeriesParityCard(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs text-secondary">New TaxonomicAutocomplete</span>
+                    <span className="text-xxs text-secondary">New TaxonomicAutocomplete</span>
                     <TaxonomicFilterHeadless.Root
                         bindRootProps={false}
                         taxonomicGroupTypes={SERIES_GROUP_TYPES}
@@ -736,7 +808,7 @@ function SeriesParityCard(): JSX.Element {
                                                         {label}
                                                     </span>
                                                     {selected && (
-                                                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                        <span className="text-xxs uppercase tracking-wide text-muted-foreground">
                                                             in {selected.group.name}
                                                         </span>
                                                     )}
@@ -753,7 +825,7 @@ function SeriesParityCard(): JSX.Element {
                                             <TaxonomicAutocomplete.Input />
                                         </div>
                                         <TaxonomicAutocomplete.Chips />
-                                        <TaxonomicAutocomplete.List className="max-h-80" />
+                                        <TaxonomicAutocomplete.List />
                                     </TaxonomicAutocomplete.RootView>
                                 </TaxonomicAutocomplete.Content>
                             </TaxonomicAutocomplete.Popover>
@@ -762,7 +834,7 @@ function SeriesParityCard(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                    <span className="text-xs text-secondary">LemonButton-styled trigger</span>
+                    <span className="text-xxs text-secondary">LemonButton-styled trigger</span>
                     <TaxonomicFilterHeadless.Root
                         bindRootProps={false}
                         taxonomicGroupTypes={SERIES_GROUP_TYPES}
@@ -806,7 +878,7 @@ function SeriesParityCard(): JSX.Element {
                                             <TaxonomicAutocomplete.Input />
                                         </div>
                                         <TaxonomicAutocomplete.Chips />
-                                        <TaxonomicAutocomplete.List className="max-h-80" />
+                                        <TaxonomicAutocomplete.List />
                                     </TaxonomicAutocomplete.RootView>
                                 </TaxonomicAutocomplete.Content>
                             </TaxonomicAutocomplete.Popover>
@@ -814,7 +886,7 @@ function SeriesParityCard(): JSX.Element {
                     </TaxonomicFilterHeadless.Root>
                 </div>
 
-                <div className="ml-auto text-xs">
+                <div className="ml-auto text-xxs">
                     Shared: <code>{series.groupType}</code> / <code>{String(series.value)}</code> ({series.name})
                 </div>
             </div>
