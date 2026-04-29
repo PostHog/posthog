@@ -93,7 +93,10 @@ export async function yieldEach<T>(
     }
     await yieldIfNeeded(caller)
     for (let i = 0; i < items.length; i++) {
-        await fn(items[i], i)
-        await yieldIfNeeded(caller)
+        try {
+            await fn(items[i], i)
+        } finally {
+            await yieldIfNeeded(caller)
+        }
     }
 }
