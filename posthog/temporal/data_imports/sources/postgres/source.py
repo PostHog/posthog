@@ -167,6 +167,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "SSL/TLS connection is required": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
+            # decimal type — the pipeline falls back through the best-fit decimal and
+            # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
+            # exceeds Delta Lake's decimal budget (precision > 76 or scale > 32); retrying won't
+            # help because the value shape is fixed in the source.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
         }
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
