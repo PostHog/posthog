@@ -239,8 +239,6 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
 // mark it as a failed resolve and emit an "unresolved" frame
 impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
     fn from((raw_frame, err, location): (&RawJSFrame, JsResolveErr, &FrameLocation)) -> Self {
-        record_frame_resolution_failure("javascript", err.metric_reason(), &err);
-
         // TODO - extremely rough
         let was_minified = match err {
             JsResolveErr::NoSourceUrl | JsResolveErr::NoUrlOrChunkId => false, // This frame's `source` didn't exist
@@ -248,6 +246,16 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             JsResolveErr::NoSourcemap(_) => location.column > 300,
             _ => true,
         };
+
+        let resolved = !was_minified;
+
+        // Only record a frame-resolution-failure when the frame is actually unresolved —
+        // for `NoUrlOrChunkId` / `NoSourceUrl` (and short-line `NoSourcemap`) the heuristic
+        // above keeps the original function name and marks the frame `resolved: true`, so the
+        // dispatcher will already emit `FRAME_RESOLVED`. Firing here too would double-count.
+        if !resolved {
+            record_frame_resolution_failure("javascript", err.metric_reason(), &err);
+        }
 
         let resolved_name = if was_minified {
             None
@@ -266,7 +274,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
-            resolved: !was_minified,
+            resolved,
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
