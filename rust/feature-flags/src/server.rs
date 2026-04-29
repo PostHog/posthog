@@ -486,7 +486,10 @@ pub async fn serve(
     let flag_defs_cache_monitor_interval = config.flag_definitions_cache_monitor_interval_secs;
     tokio::spawn(async move {
         flag_defs_cache_clone
-            .start_monitoring(flag_defs_cache_monitor_interval, flag_defs_cache_monitor_handle)
+            .start_monitoring(
+                flag_defs_cache_monitor_interval,
+                flag_defs_cache_monitor_handle,
+            )
             .await;
     });
 
