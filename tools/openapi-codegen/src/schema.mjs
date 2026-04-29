@@ -107,6 +107,25 @@ export function filterSchemaByOperationIds(fullSchema, operationIds, options = {
     }
 
     const allSchemas = fullSchema.components?.schemas ?? {}
+    const allParameters = fullSchema.components?.parameters ?? {}
+
+    // Pull in referenced parameter components first — operations may use $ref to shared
+    // path/query parameters defined in components.parameters (e.g. ProjectIdPath). Each
+    // parameter definition can in turn reference component schemas via its inner ``schema``,
+    // so we collect those refs and feed them into the schema resolution below.
+    const filteredParameters = {}
+    for (const ref of refs) {
+        if (!ref.startsWith('#/components/parameters/')) {
+            continue
+        }
+        const paramName = ref.replace('#/components/parameters/', '')
+        const paramDef = allParameters[paramName]
+        if (paramDef) {
+            filteredParameters[paramName] = paramDef
+            collectSchemaRefs(paramDef, refs)
+        }
+    }
+
     const allRefs = resolveNestedRefs(allSchemas, refs)
     const filteredSchemas = {}
 
@@ -117,10 +136,15 @@ export function filterSchemaByOperationIds(fullSchema, operationIds, options = {
         }
     }
 
+    const components = { schemas: filteredSchemas }
+    if (Object.keys(filteredParameters).length > 0) {
+        components.parameters = filteredParameters
+    }
+
     return {
         openapi: fullSchema.openapi,
         info: { ...fullSchema.info, title: `${fullSchema.info?.title ?? 'API'} - ${operationIds.size} ops` },
         paths: filteredPaths,
-        components: { schemas: filteredSchemas },
+        components,
     }
 }
