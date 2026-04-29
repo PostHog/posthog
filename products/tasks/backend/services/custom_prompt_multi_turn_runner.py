@@ -53,7 +53,7 @@ class MultiTurnSession:
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
-        origin_product: str | None = None,
+        origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
         internal: bool = False,
     ) -> tuple[MultiTurnSession, _ModelT]:
