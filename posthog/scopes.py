@@ -117,6 +117,12 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 # `get_scope_descriptions()` and rejected by every user-facing scope validator.
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_test_cluster_perf"})
 
+# Scope objects available via personal API keys but never advertised through
+# OAuth metadata. Used for alpha / not-yet-public products where a user can
+# manually paste the scope into a PAT but where we don't want OAuth-based
+# clients (the consent screen, MCP, third-party apps) to discover it.
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"user_interview_DO_NOT_USE"})
+
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
 
@@ -144,5 +150,16 @@ def get_oauth_scopes_supported() -> list[str]:
     endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
+
+    Excludes scopes in `OAUTH_HIDDEN_SCOPE_OBJECTS` so OAuth-based clients
+    (MCP, third-party apps) don't discover scopes intended only for manually
+    issued personal API keys. PAT validation uses `get_scope_descriptions()`
+    directly and is unaffected.
     """
-    return list(OIDC_SCOPES) + list(get_scope_descriptions().keys())
+    visible = (
+        f"{obj}:{action}"
+        for obj in API_SCOPE_OBJECTS
+        if obj not in INTERNAL_API_SCOPE_OBJECTS and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
+        for action in API_SCOPE_ACTIONS
+    )
+    return list(OIDC_SCOPES) + list(visible)
