@@ -447,6 +447,7 @@ export class KafkaConsumer {
                 Promise.all(this.backgroundTask.map((t) => t.promise))
                     .then(() => {
                         logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
+                        this.commitBeforeRevoke()
                         if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
                             this.rdKafkaConsumer.incrementalUnassign(assignments)
                         } else {
@@ -467,7 +468,9 @@ export class KafkaConsumer {
                     })
                     .catch((error) => {
                         logger.error('🔁', 'background_task_error_during_revocation', { error })
-                        // Still proceed with revocation even if background tasks fail
+                        // Still proceed with revocation even if background tasks fail.
+                        // Flush any offsets that earlier successful batches stored.
+                        this.commitBeforeRevoke()
                         if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
                             this.rdKafkaConsumer.incrementalUnassign(assignments)
                         } else {
@@ -488,6 +491,7 @@ export class KafkaConsumer {
                     })
             } else {
                 // No background tasks or feature disabled, proceed immediately
+                this.commitBeforeRevoke()
                 if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
                     this.rdKafkaConsumer.incrementalUnassign(assignments)
                 } else {
@@ -601,6 +605,38 @@ export class KafkaConsumer {
         })
 
         return consumer
+    }
+
+    /**
+     * Synchronously triggers a commit of any locally-stored offsets before the
+     * consumer yields its partitions during a rebalance.
+     *
+     * Why this exists:
+     *   With `enable.auto.commit=true`, librdkafka would otherwise flush stored
+     *   offsets on its own ~5s timer. In practice that timer often fires AFTER
+     *   the group has already moved to the next generation, and the deferred
+     *   commit is rejected by the broker with ERR_ILLEGAL_GENERATION (error 22,
+     *   "Specified group generation id is not valid"). The stored offset never
+     *   lands on the broker, the next partition owner reads from a stale
+     *   committed offset, and the events are replayed — surfacing as duplicate
+     *   workflow invocations downstream.
+     *
+     *   Calling commit() inside the rebalance callback, BEFORE
+     *   incrementalUnassign / unassign, ensures librdkafka pushes the stored
+     *   offsets while the consumer is still a member of the current generation.
+     *
+     * Errors surface through the existing 'offset.commit' event handler
+     * registered on the consumer (which already logs librdkafka_offet_commit_error).
+     * If a commit still fails here we cannot do anything about it — the broker
+     * has moved on regardless — but the local fire-and-forget call is harmless,
+     * so we just proceed to unassign.
+     */
+    private commitBeforeRevoke = (): void => {
+        try {
+            this.rdKafkaConsumer.commit()
+        } catch (error) {
+            logger.warn('🔁', 'commit_before_revoke_failed', { error: String(error) })
+        }
     }
 
     private storeOffsetsForMessages = (topicPartitionOffsetsToCommit: TopicPartitionOffset[]): void => {

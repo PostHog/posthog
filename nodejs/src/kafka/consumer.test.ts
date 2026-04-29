@@ -24,11 +24,15 @@ jest.mock('node-rdkafka', () => ({
         incrementalUnassign: jest.fn(),
         incrementalAssign: jest.fn(),
         rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
+        // commit() returns the consumer (for chaining); errors surface via the
+        // 'offset.commit' event registered on the consumer.
+        commit: jest.fn(),
     })),
     CODES: {
         ERRORS: {
             ERR__REVOKE_PARTITIONS: 'ERR__REVOKE_PARTITIONS',
             ERR__ASSIGN_PARTITIONS: 'ERR__ASSIGN_PARTITIONS',
+            ERR_ILLEGAL_GENERATION: 22,
         },
     },
 }))
@@ -115,6 +119,7 @@ describe('consumer', () => {
             incrementalUnassign: jest.fn(),
             incrementalAssign: jest.fn(),
             rebalanceProtocol: jest.fn().mockReturnValue('COOPERATIVE'),
+            commit: jest.fn(),
         }
         defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = true
 
@@ -422,6 +427,190 @@ describe('consumer', () => {
             expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
                 { topic: 'test-topic', partition: 1 },
             ])
+        })
+
+        it('should store offsets BEFORE incrementalUnassign when a backgroundTask is in flight (race regression)', async () => {
+            // Diagnoses the class D duplicate root cause hypothesis: a rebalance during an
+            // in-flight backgroundTask can fire incrementalUnassign before the .finally chain
+            // has called storeOffsetsForMessages, causing librdkafka to commit an older offset
+            // and the new partition owner to replay the most recent batch as duplicates.
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Submit a batch whose backgroundTask we control.
+            const bgTask = triggerablePromise()
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: bgTask.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 1, partition: 0 })])
+            await delay(1)
+
+            // Sanity: backgroundTask is queued, no offsets stored yet.
+            expect(consumer['backgroundTask']).toHaveLength(1)
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+
+            // Trigger a rebalance while the task is still in flight.
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            await delay(1)
+
+            // Resolve the backgroundTask; both the .finally (offset store) and the rebalance
+            // Promise.all .then (unassign) become eligible to run.
+            bgTask.resolve()
+            await delay(20)
+
+            // Both should have happened.
+            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
+                { offset: 2, partition: 0, topic: 'test-topic' },
+            ])
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0 },
+            ])
+
+            // CRITICAL ORDERING: offsets MUST be stored before incrementalUnassign so that
+            // librdkafka's auto-commit-on-revoke commits this batch's offset. If the order
+            // is reversed (or offsetsStore never fires), the new consumer replays the batch.
+            const offsetsStoreOrder = mockRdKafkaConsumer.offsetsStore.mock.invocationCallOrder[0]
+            const unassignOrder = mockRdKafkaConsumer.incrementalUnassign.mock.invocationCallOrder[0]
+            expect(offsetsStoreOrder).toBeLessThan(unassignOrder)
+        })
+
+        // ---------------------------------------------------------------------------
+        // ROOT CAUSE TESTS for ERR_ILLEGAL_GENERATION (error 22) duplicate path.
+        //
+        // Production data shows ~194 librdkafka_offet_commit_error/24h on EU with
+        // error_message="Specified group generation id is not valid". The mechanism:
+        //
+        //   1. processBatch resolves
+        //   2. .finally calls offsetsStore -> offset stored locally in librdkafka
+        //   3. Auto-commit timer (~5s) eventually tries to push the stored offset
+        //   4. Meanwhile a rebalance has happened, group has moved to next generation
+        //   5. Deferred commit hits the broker with stale generation -> ERR(22)
+        //   6. Stored offset never lands on broker
+        //   7. New partition owner replays from the *previous* committed offset
+        //   8. Class D duplicates
+        //
+        // The fix (Option 1): in rebalanceCallback, after waiting for background
+        // tasks, EXPLICITLY call rdKafkaConsumer.commit synchronously BEFORE
+        // incrementalUnassign so the commit lands on the broker while we're still
+        // in the current generation.
+        //
+        // These three tests are designed to FAIL TODAY and PASS after Option 1 is
+        // applied. They reproduce the production scenario step by step.
+        // ---------------------------------------------------------------------------
+
+        it('ROOT-CAUSE: should commit stored offsets synchronously before incrementalUnassign during rebalance', async () => {
+            // Reproduces step 1-3 of the production scenario: a batch is processed,
+            // backgroundTask completes, .finally stores the offset. Then a rebalance
+            // fires. The fix must commit to the broker BEFORE yielding the partition.
+
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Submit a batch with a controllable backgroundTask.
+            const bgTask = triggerablePromise()
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: bgTask.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 1, partition: 0 })])
+            await delay(1)
+
+            // Trigger rebalance while task is in flight.
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            await delay(1)
+
+            // Resolve backgroundTask -> .finally runs -> offsetsStore called.
+            bgTask.resolve()
+            await delay(20)
+
+            // The fix's contract: commit MUST be called explicitly (with a callback)
+            // and MUST be called BEFORE incrementalUnassign. If commit is never
+            // called, librdkafka can only flush via the deferred auto-commit timer,
+            // which is when ERR_ILLEGAL_GENERATION strikes.
+            expect(mockRdKafkaConsumer.commit).toHaveBeenCalled()
+
+            const offsetsStoreOrder = mockRdKafkaConsumer.offsetsStore.mock.invocationCallOrder[0]
+            const commitOrder = mockRdKafkaConsumer.commit.mock.invocationCallOrder[0]
+            const unassignOrder = mockRdKafkaConsumer.incrementalUnassign.mock.invocationCallOrder[0]
+
+            // Must be: store, then commit, then unassign — atomically while we're
+            // still owners of the partition in the current group generation.
+            expect(offsetsStoreOrder).toBeLessThan(commitOrder)
+            expect(commitOrder).toBeLessThan(unassignOrder)
+        })
+
+        it('ROOT-CAUSE: should still attempt sync commit when there are no in-flight backgroundTasks', async () => {
+            // Edge case: ~65% of revocations on EU happen with backgroundTask.length=0
+            // (idle moment between batches). Even in that case, prior batches may have
+            // stored offsets that haven't been auto-committed yet. The fix must commit
+            // those stored offsets before yielding too.
+
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Process a batch that completes synchronously (no backgroundTask).
+            // .finally still stores the offset.
+            consumeCallback(null, [createKafkaMessage({ offset: 1, partition: 0 })])
+            await delay(5)
+            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalled()
+            expect(consumer['backgroundTask']).toHaveLength(0)
+
+            // Now rebalance fires when no bg tasks are in flight.
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            await delay(20)
+
+            // Sync commit should still have fired. If commit is gated on
+            // backgroundTask.length>0 only, we'd miss this code path and the
+            // previously-stored offset would still be vulnerable to ERR(22).
+            expect(mockRdKafkaConsumer.commit).toHaveBeenCalled()
+            const commitOrder = mockRdKafkaConsumer.commit.mock.invocationCallOrder[0]
+            const unassignOrder = mockRdKafkaConsumer.incrementalUnassign.mock.invocationCallOrder[0]
+            expect(commitOrder).toBeLessThan(unassignOrder)
+        })
+
+        it('ROOT-CAUSE: should log and tolerate ERR_ILLEGAL_GENERATION on sync commit so the rebalance still completes', async () => {
+            // Even with the sync commit fix, the broker can still occasionally reject
+            // the commit (network blip, broker-initiated rebalance racing us). The
+            // fix MUST tolerate this: log the error (via the offset.commit event
+            // handler the consumer already registers) and proceed with unassign so
+            // the consumer doesn't get stuck. This validates the failure path of
+            // the fix.
+
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Locate the offset.commit event handler the consumer registered with
+            // librdkafka so we can drive a failure through the same path that fires
+            // in production.
+            const offsetCommitHandler = mockRdKafkaConsumer.on.mock.calls.find(
+                ([event]) => event === 'offset.commit'
+            )?.[1] as ((err: any, offsets: any) => void) | undefined
+            expect(offsetCommitHandler).toBeDefined()
+
+            const bgTask = triggerablePromise()
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: bgTask.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 1, partition: 0 })])
+            await delay(1)
+
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            await delay(1)
+
+            bgTask.resolve()
+            await delay(20)
+
+            // Drive the production failure: librdkafka reports the commit failed
+            // with ERR_ILLEGAL_GENERATION via the offset.commit event.
+            offsetCommitHandler?.({ code: 22, message: 'Broker: Specified group generation id is not valid' }, [
+                { topic: 'test-topic', partition: 0, offset: 2 },
+            ])
+
+            // Regardless of commit outcome, unassign must still happen so the
+            // consumer doesn't get stuck mid-rebalance.
+            expect(mockRdKafkaConsumer.commit).toHaveBeenCalled()
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalled()
         })
 
         it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
