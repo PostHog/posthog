@@ -556,14 +556,17 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
-            # Stripe issues separate client_ids for live vs sandbox installs of the
-            # same app. Same authorize endpoint and same client_secret for both.
+            # Stripe issues separate client_id and secret for live vs sandbox installs of the
+            # same app. Sandbox-issued OAuth codes can only be redeemed with the sandbox secret;
+            # using the live secret returns "Authorization code provided does not belong to you".
             if is_sandbox:
-                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID:
-                    raise NotImplementedError("Stripe sandbox client_id not configured")
+                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID or not settings.STRIPE_APP_SANDBOX_SECRET_KEY:
+                    raise NotImplementedError("Stripe sandbox not configured")
                 client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SANDBOX_SECRET_KEY
             else:
                 client_id = settings.STRIPE_APP_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SECRET_KEY
 
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
@@ -572,7 +575,7 @@ class OauthIntegration:
                 authorize_url=authorize_url,
                 token_url="https://api.stripe.com/v1/oauth/token",
                 client_id=client_id,
-                client_secret=settings.STRIPE_APP_SECRET_KEY,
+                client_secret=client_secret,
                 scope="",
                 id_path="stripe_user_id",
                 name_path="account_name",
@@ -670,6 +673,27 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
             )
+            # Marketplace-initiated installs land on /integrations/stripe/confirm-install
+            # without any signal indicating live vs sandbox. If the live secret rejected
+            # the code as "does not belong to you", it was minted by the sandbox app -
+            # retry with the sandbox secret. Both sandbox client_id and secret must be
+            # configured: oauth_config_for_kind requires both, so guard on both here to
+            # avoid raising NotImplementedError over the original OAuth error.
+            if (
+                res.status_code == 400
+                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                and settings.STRIPE_APP_SANDBOX_SECRET_KEY
+                and "does not belong to you" in (res.text or "")
+            ):
+                sandbox_oauth_config = cls.oauth_config_for_kind("stripe", is_sandbox=True)
+                res = requests.post(
+                    sandbox_oauth_config.token_url,
+                    auth=HTTPBasicAuth(sandbox_oauth_config.client_secret, ""),
+                    data={
+                        "code": params["code"],
+                        "grant_type": "authorization_code",
+                    },
+                )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(

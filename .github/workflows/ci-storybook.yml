@@ -510,7 +510,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [visual-regression, changes]
+        needs: [visual-regression, visual_regression_tests, changes]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)

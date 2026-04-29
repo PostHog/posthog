@@ -103,7 +103,15 @@ _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
 
 def _infer_query_tags(query: BaseModel) -> dict[str, Product | ProductKey | Feature]:
     scene = getattr(getattr(query, "tags", None), "scene", None) or ""
-    return _SCENE_TO_TAGS.get(scene, {})
+    if mapped := _SCENE_TO_TAGS.get(scene):
+        return mapped
+    # Fallback: queries arriving here with a frontend-supplied `tags.productKey` are
+    # customer-facing (tagged via addTags in dataNodeLogic.ts). `QueryRunner.run` will
+    # later set `product` from that productKey, so we only need to default `feature`
+    # so unmapped scenes don't trip UntaggedQueryError in DEBUG.
+    if getattr(getattr(query, "tags", None), "productKey", None):
+        return {"feature": Feature.QUERY}
+    return {}
 
 
 def _extract_validation_code(error: ValidationError) -> str:
