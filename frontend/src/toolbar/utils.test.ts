@@ -1,4 +1,16 @@
-import { joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import * as toolbarPosthogJS from '~/toolbar/toolbarPosthogJS'
+import { ActionStepForm } from '~/toolbar/types'
+
+import { getElementForStep, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+
+jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+    captureToolbarException: jest.fn(),
+    toolbarPosthogJS: {
+        has_opted_in_capturing: () => false,
+        config: { api_host: '', token: '' },
+    },
+}))
 
 describe('utils', () => {
     describe('joinWithUiHost', () => {
@@ -75,6 +87,40 @@ describe('utils', () => {
                 const result = slashDotDataAttrUnescape(input)
                 expect(result).toBe(expected)
             })
+        })
+    })
+
+    describe('getElementForStep', () => {
+        let warnSpy: jest.SpyInstance
+        let errorSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            warnSpy = jest.spyOn(toolbarLogger, 'warn').mockImplementation(() => {})
+            errorSpy = jest.spyOn(toolbarLogger, 'error').mockImplementation(() => {})
+            ;(toolbarPosthogJS.captureToolbarException as jest.Mock).mockClear()
+        })
+
+        afterEach(() => {
+            warnSpy.mockRestore()
+            errorSpy.mockRestore()
+        })
+
+        it('logs a warning but does not capture an exception for an invalid selector', () => {
+            // Bare '.' is a syntax error in querySelector — stand-in for malformed user-saved
+            // selectors like '.foo > . .bar' that throw in real browsers.
+            const result = getElementForStep({
+                selector: '.',
+                selector_selected: true,
+            } as ActionStepForm)
+
+            expect(result).toBeNull()
+            expect(warnSpy).toHaveBeenCalledWith(
+                'element_step_selector',
+                'Invalid selector',
+                expect.objectContaining({ selector: '.' })
+            )
+            expect(errorSpy).not.toHaveBeenCalled()
+            expect(toolbarPosthogJS.captureToolbarException).not.toHaveBeenCalled()
         })
     })
 })

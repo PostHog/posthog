@@ -402,8 +402,13 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     try {
         elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
     } catch (e) {
-        toolbarLogger.error('element_step_selector', 'Cannot use selector', { selector })
-        captureToolbarException(e, 'element_step_selector', { selector })
+        // SyntaxError comes from user-saved invalid selectors — log only, don't page error tracking.
+        if (e instanceof DOMException || (e instanceof Error && e.name === 'SyntaxError')) {
+            toolbarLogger.warn('element_step_selector', 'Invalid selector', { selector })
+        } else {
+            toolbarLogger.error('element_step_selector', 'Cannot use selector', { selector })
+            captureToolbarException(e, 'element_step_selector', { selector })
+        }
         return null
     }
 
