@@ -525,7 +525,7 @@ const botAnalyticsTab = (
             key: ProductTab.BOT_ANALYTICS,
             label: (
                 <div className="flex items-center gap-1">
-                    Bot analytics
+                    Bots
                     <LemonTag type="highlight" className="uppercase">
                         Alpha
                     </LemonTag>
