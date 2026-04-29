@@ -3,16 +3,13 @@ import textwrap
 
 from django.core.management.base import BaseCommand, CommandError
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
+from products.signals.backend.utils import EMBEDDING_MODEL
 
 
 class Command(BaseCommand):

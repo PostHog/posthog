@@ -17,7 +17,7 @@ echo "Cleaning old generated files..."
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
-PROTO_FILES=$(find "$PROTO_DIR/personhog" -name '*.proto')
+mapfile -d '' PROTO_FILES < <(find "$PROTO_DIR/personhog/service" "$PROTO_DIR/personhog/types" -name '*.proto' -print0)
 
 echo "Generating Python protobuf and gRPC stubs..."
 python -m grpc_tools.protoc \
@@ -25,7 +25,7 @@ python -m grpc_tools.protoc \
     --python_out="$OUT_DIR" \
     --pyi_out="$OUT_DIR" \
     --grpc_python_out="$OUT_DIR" \
-    $PROTO_FILES
+    "${PROTO_FILES[@]}"
 
 echo "Rewriting imports with protoletariat..."
 FDSET=$(mktemp)
@@ -33,7 +33,7 @@ python -m grpc_tools.protoc \
     --proto_path="$PROTO_DIR" \
     --descriptor_set_out="$FDSET" \
     --include_imports \
-    $PROTO_FILES
+    "${PROTO_FILES[@]}"
 protol \
     --create-package \
     --in-place \

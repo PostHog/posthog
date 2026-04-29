@@ -12,9 +12,13 @@ import type {
     PaginatedSurveyListApi,
     PatchedSurveySerializerCreateUpdateOnlySchemaApi,
     SurveyApi,
+    SurveyGlobalStatsResponseApi,
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
+    SurveyStatsResponseApi,
+    SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
+    SurveysStatsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -136,12 +140,12 @@ export const surveysDestroy = async (projectId: string, id: string, options?: Re
     })
 }
 
-export const getSurveysActivityRetrieve2Url = (projectId: string, id: string) => {
+export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
-export const surveysActivityRetrieve2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieve2Url(projectId, id), {
+export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -247,12 +251,29 @@ Args:
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
  */
-export const getSurveysStatsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/stats/`
+export const getSurveysStatsRetrieveUrl = (projectId: string, id: string, params?: SurveysStatsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/stats/`
 }
 
-export const surveysStatsRetrieve2 = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieve2Url(projectId, id), {
+export const surveysStatsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: SurveysStatsRetrieveParams,
+    options?: RequestInit
+): Promise<SurveyStatsResponseApi> => {
+    return apiMutator<SurveyStatsResponseApi>(getSurveysStatsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -294,12 +315,12 @@ export const surveysSummaryHeadlineCreate = async (
     })
 }
 
-export const getSurveysActivityRetrieveUrl = (projectId: string) => {
+export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/activity/`
 }
 
-export const surveysActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId), {
+export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -336,12 +357,28 @@ Args:
 Returns:
     Aggregated statistics across all surveys including total counts and rates
  */
-export const getSurveysStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/surveys/stats/`
+export const getSurveysGlobalStatsRetrieveUrl = (projectId: string, params?: SurveysGlobalStatsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/stats/`
 }
 
-export const surveysStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysStatsRetrieveUrl(projectId), {
+export const surveysGlobalStatsRetrieve = async (
+    projectId: string,
+    params?: SurveysGlobalStatsRetrieveParams,
+    options?: RequestInit
+): Promise<SurveyGlobalStatsResponseApi> => {
+    return apiMutator<SurveyGlobalStatsResponseApi>(getSurveysGlobalStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

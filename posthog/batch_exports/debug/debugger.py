@@ -352,7 +352,7 @@ class BatchExportsDebugger:
         )
 
         # get the most recent attempt
-        file_infos = self.s3fs.get_file_info(file_selector)
+        file_infos = [fi for fi in self.s3fs.get_file_info(file_selector) if fi.type == fs.FileType.File]
         matches = [re.search(r"attempt_(\d+)", file_info.path) for file_info in file_infos]
         attempt_numbers = [int(match.group(1)) for match in matches if match is not None]
         if attempt_numbers:
@@ -524,6 +524,15 @@ class BatchExportsDebugger:
             case BatchExportDestination.Destination.BIGQUERY:
                 console.print("[bold green]Getting BigQuery client...[/bold green]")
                 bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
+                if (
+                    bigquery_inputs.private_key is None
+                    or bigquery_inputs.private_key_id is None
+                    or bigquery_inputs.token_uri is None
+                    or bigquery_inputs.client_email is None
+                    or bigquery_inputs.project_id is None
+                ):
+                    # TODO: Support integration model/service account impersonation.
+                    raise ValueError("Missing required values")
                 async with BigQueryClient.from_service_account_inputs(
                     private_key=bigquery_inputs.private_key,
                     private_key_id=bigquery_inputs.private_key_id,

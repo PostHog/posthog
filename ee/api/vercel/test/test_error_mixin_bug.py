@@ -26,7 +26,7 @@ class TestVercelErrorMixin(VercelTestBase):
         viewset = _TestViewSet()
         viewset.action = "test_action"
         viewset.format_kwarg = None
-        viewset.request = Request(django_request)
+        viewset.request = Request(django_request)  # ty: ignore[invalid-assignment]
         return viewset
 
     def test_non_drf_exception_returns_vercel_error_format(self):

@@ -10,7 +10,7 @@
 #
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
-# - node-scripts-build: build standalone Node.js scripts and their dependencies
+# - node-scripts-build: build plugin transpiler and other Node.js build artifacts
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
 #
@@ -37,6 +37,7 @@ COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
+COPY packages/quill/ packages/quill/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
@@ -83,18 +84,11 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # ---------------------------------------------------------
 #
-# Build standalone Node.js scripts and their dependencies.
-# These scripts can be invoked from Python via subprocess.
+# Build plugin transpiler and other Node.js build artifacts.
 #
 FROM node:24.13.0-bookworm-slim AS node-scripts-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-# Skip Puppeteer Chromium download - we would use system Chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
-COPY nodejs/src/scripts/ nodejs/src/scripts/
-RUN cd nodejs/src/scripts && npm install --omit=dev
-
 # Build plugin transpiler for site destinations/apps
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY bin/turbo bin/turbo
@@ -142,6 +136,7 @@ RUN apt-get update && \
 RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=tools/hogli,target=tools/hogli \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -188,11 +183,50 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.12
+# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
+FROM unit:1.34.2-python3.12
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
+ARG UNIT_GIT_TAG=1.35.0
+ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
+
+# Build Unit from the upstream 1.35.0 release ref to ensure the Django 5 ASGI fix is present even when Docker tags lag.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpcre2-dev" \
+    "zlib1g-dev" \
+    && \
+    git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
+    cd /tmp/unit && \
+    test "$(git rev-parse HEAD)" = "$UNIT_GIT_REF" && \
+    NCPU="$(getconf _NPROCESSORS_ONLN)" && \
+    DEB_HOST_MULTIARCH="$(gcc -print-multiarch)" && \
+    CONFIGURE_ARGS="--prefix=/usr \
+        --statedir=/var/lib/unit \
+        --control=unix:/var/run/control.unit.sock \
+        --runstatedir=/var/run \
+        --pid=/var/run/unit.pid \
+        --logdir=/var/log \
+        --log=/var/log/unit.log \
+        --tmpdir=/var/tmp \
+        --user=unit \
+        --group=unit \
+        --openssl \
+        --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
+        --modulesdir=/usr/lib/unit/modules" && \
+    ./configure $CONFIGURE_ARGS && \
+    make -j "$NCPU" unitd && \
+    install -pm755 build/sbin/unitd /usr/sbin/unitd && \
+    make clean && \
+    ./configure $CONFIGURE_ARGS && \
+    ./configure python --config=/usr/local/bin/python3-config && \
+    make -j "$NCPU" python3-install && \
+    rm -rf /tmp/unit && \
+    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
@@ -205,9 +239,8 @@ RUN apt-get update && \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
-    "ffmpeg=7:5.1.8-0+deb12u1" \
-    "libssl-dev=3.0.18-1~deb12u2" \
-    "libssl3=3.0.18-1~deb12u2" \
+    "libssl-dev=3.0.19-1~deb12u2" \
+    "libssl3=3.0.19-1~deb12u2" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -277,7 +310,7 @@ COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtim
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install Playwright Chromium browser for video export (as root for system deps)
+# Install Playwright Chromium browser for heatmap screenshots (as root for system deps)
 # Use cache mount for browser binaries to avoid re-downloading on every build
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -302,9 +335,6 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Copy standalone Node.js scripts and their dependencies.
-COPY --from=node-scripts-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
-
 # Copy plugin transpiler (used by Django for site destinations/apps).
 # pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
 COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
@@ -323,23 +353,16 @@ COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
-# Validate video export dependencies
-RUN ffmpeg -version
+# Validate browser dependencies
 RUN /python-runtime/bin/python -c "import playwright; print('Playwright package imported successfully')"
 RUN /python-runtime/bin/python -c "from playwright.sync_api import sync_playwright; print('Playwright sync API available')"
-RUN cd /code/nodejs/src/scripts && timeout 60s node -e "\
-  require('puppeteer'); \
-  require('puppeteer-screen-recorder'); \
-  console.log('Puppeteer and screen recorder available')"
 
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # Expose container port and run entry point script.
 EXPOSE 8000

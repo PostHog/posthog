@@ -114,6 +114,53 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert "toDateTime" in [suggestion.label for suggestion in results.suggestions]
         assert "toDateTime()" in [suggestion.insertText for suggestion in results.suggestions]
 
+    def test_autocomplete_includes_direct_connection_functions(self):
+        database = Database.create_for(team=self.team)
+        database._direct_connection_metadata = {"available_functions": ["icu_collate_nl"]}
+
+        query = "select  from events"
+        results = self._select(query=query, start=7, end=7, database=database)
+
+        assert "icu_collate_nl" in [suggestion.label for suggestion in results.suggestions]
+        assert "icu_collate_nl()" in [suggestion.insertText for suggestion in results.suggestions]
+
+    def test_autocomplete_matches_partial_direct_connection_function_without_from(self):
+        database = Database()
+        database._direct_connection_metadata = {"available_functions": ["icu_collate_nl"]}
+
+        query = "select icu"
+        results = self._select(query=query, start=7, end=10, database=database)
+
+        assert "icu_collate_nl" in [suggestion.label for suggestion in results.suggestions]
+
+    def test_autocomplete_includes_introspected_table_functions_in_from(self):
+        database = Database.create_for(team=self.team)
+        database._direct_connection_metadata = {
+            "available_table_functions": ["unnest", "regexp_matches", "generate_series"],
+        }
+
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14, database=database)
+
+        labels = [suggestion.label for suggestion in results.suggestions]
+        insert_texts = {suggestion.insertText for suggestion in results.suggestions}
+        details_by_label = {suggestion.label: suggestion.detail for suggestion in results.suggestions}
+
+        assert "unnest" in labels
+        assert "regexp_matches" in labels
+        assert "generate_series" in labels
+        assert "unnest()" in insert_texts
+        assert details_by_label["unnest"] == "Table function"
+
+    def test_autocomplete_skips_table_functions_without_metadata(self):
+        database = Database.create_for(team=self.team)
+
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14, database=database)
+
+        for suggestion in results.suggestions:
+            assert suggestion.detail != "Table function"
+
     def test_autocomplete_persons_suggestions(self):
         query = "select  from persons"
         results = self._select(query=query, start=7, end=7)

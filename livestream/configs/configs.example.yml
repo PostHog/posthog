@@ -1,11 +1,23 @@
 debug: true
-kafka:
-    brokers: 'localhost:9092,localhost:9093'
-    topic: 'topic'
-    session_recording_enabled: true  # set to false to disable session recording stats
-    session_recording_topic: 'session_recording_snapshot_item_events'  # defaults to this value when enabled
-    # session_recording_brokers: 'localhost:9094'  # optional, defaults to brokers
-    group_id: 'livestream-dev'
+consumers:
+    event:
+        enabled: true
+        brokers: 'localhost:9092,localhost:9093'
+        topic: 'events_topic'
+        security_protocol: 'PLAINTEXT'
+        group_id: 'livestream-dev'
+    session_recording:
+        enabled: true
+        brokers: 'localhost:9092,localhost:9093'
+        topic: 'session_recording_snapshot_item_events'
+        security_protocol: 'SSL'
+        group_id: 'livestream-dev-session-recordings'
+    notification:
+        enabled: false
+        brokers: 'localhost:9092,localhost:9093'
+        topic: 'notification_events'
+        security_protocol: 'PLAINTEXT'
+        group_id: 'livestream-dev-notifications'
 mmdb:
     path: 'mmdb.db'
 jwt:

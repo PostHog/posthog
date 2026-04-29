@@ -193,16 +193,6 @@ class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        schema_path = os.path.join(
-            os.path.dirname(__file__), "../../../products/logs/backend/test/test_logs_schema.sql"
-        )
-        with open(schema_path) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-        # Insert a single row so EXPLAIN has data to plan against
         logs_path = os.path.join(os.path.dirname(__file__), "../../../products/logs/backend/test/test_logs.jsonnd")
         with open(logs_path) as f:
             log_item = json.loads(f.readline())

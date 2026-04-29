@@ -12,6 +12,7 @@ import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtu
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -45,6 +46,15 @@ const STRIPE_INPUTS_SCHEMA = [
         key: 'schema_mapping',
         label: 'Schema mapping',
         description: 'Maps Stripe object types to ExternalDataSchema IDs',
+        required: true,
+        secret: false,
+        hidden: true,
+    },
+    {
+        type: 'string' as const,
+        key: 'source_id',
+        label: 'Source ID',
+        description: 'The ExternalDataSource ID this webhook is associated with',
         required: true,
         secret: false,
         hidden: true,
@@ -151,7 +161,7 @@ describe('DWH source webhooks', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         mockFetch.mockClear()
     })
 
@@ -173,11 +183,10 @@ describe('DWH source webhooks', () => {
             charge: chargeSchemaId,
             subscription: subscriptionSchemaId,
         }
-        const schemaIds = [invoiceSchemaId, chargeSchemaId, subscriptionSchemaId]
         const signingSecret = 'whsec_testsecret'
 
         beforeEach(async () => {
-            api = new CdpApi(hub, hub)
+            api = new CdpApi(hub, createCdpConsumerDeps(hub))
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -213,7 +222,7 @@ describe('DWH source webhooks', () => {
                         bypass_signature_check: false,
                     })),
                     schema_mapping: { value: schemaMapping },
-                    schema_ids: { value: schemaIds },
+                    source_id: { value: 'test-source-id' },
                     source_type: { value: 'Stripe' },
                 },
             })
@@ -287,8 +296,12 @@ describe('DWH source webhooks', () => {
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].key).toEqual(`${team.id}:${invoiceSchemaId}`)
             expect(kafkaMessages[0].value).toMatchObject({
-                type: 'invoice.payment_succeeded',
-                data: { object: { id: 'inv_1', object: 'invoice' } },
+                team_id: team.id,
+                schema_id: invoiceSchemaId,
+                payload: JSON.stringify({
+                    type: 'invoice.payment_succeeded',
+                    data: { object: { id: 'inv_1', object: 'invoice' } },
+                }),
             })
         })
 
@@ -326,7 +339,7 @@ describe('DWH source webhooks', () => {
                         bypass_signature_check: true,
                     })),
                     schema_mapping: { value: schemaMapping },
-                    schema_ids: { value: schemaIds },
+                    source_id: { value: 'test-source-id' },
                     source_type: { value: 'Stripe' },
                 },
             })
@@ -403,7 +416,11 @@ describe('DWH source webhooks', () => {
 
             const kafkaMessages = getDwhKafkaMessages()
             expect(kafkaMessages).toHaveLength(1)
-            expect(kafkaMessages[0].value).toMatchObject(eventBody)
+            expect(kafkaMessages[0].value).toMatchObject({
+                team_id: team.id,
+                schema_id: subscriptionSchemaId,
+                payload: JSON.stringify(eventBody),
+            })
         })
     })
 })

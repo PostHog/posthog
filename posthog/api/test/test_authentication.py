@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,7 @@ from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
+from django.http import HttpResponse
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
@@ -28,15 +30,26 @@ from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import (
+    InternalAPIUser,
+    OAuthAccessTokenAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    ProjectSecretAPIKeyUser,
+)
+from posthog.helpers.user_devices import (
+    KNOWN_DEVICE_COOKIE,
+    build_known_device_cookie_value,
+    has_valid_known_device_cookie,
+)
+from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -328,7 +341,7 @@ class TestLoginAPI(APIBaseTest):
                     "/api/login",
                     {"email": "new_user@posthog.com", "password": "invalid"},
                 )
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN])
                 self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
                 # Assert user is not logged in
@@ -377,6 +390,35 @@ class TestLoginAPI(APIBaseTest):
             )
             # Second IP is not locked, so can attempt login
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestLogoutRedirect(APIBaseTest):
+    """
+    Tests that /logout preserves a safe `next` param so users return to where they were
+    after logging back in.
+    """
+
+    def test_logout_without_next_redirects_to_login(self):
+        response = self.client.post("/logout")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], settings.LOGIN_URL)
+
+    def test_logout_forwards_safe_next_param(self):
+        response = self.client.post("/logout", {"next": "/settings/user-notifications"}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "/login?next=/settings/user-notifications")
+
+    @parameterized.expand(
+        [
+            ("scheme_relative", "//evil.com/path"),
+            ("absolute_url", "https://evil.com"),
+            ("javascript_url", "javascript:alert(1)"),
+        ]
+    )
+    def test_logout_ignores_unsafe_next_param(self, _name, unsafe):
+        response = self.client.post("/logout", {"next": unsafe}, format="multipart")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], settings.LOGIN_URL, f"Unsafe next was preserved: {unsafe}")
 
 
 class TestTwoFactorAPI(APIBaseTest):
@@ -1154,6 +1196,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
     def test_password_reset_is_case_insensitive(self):
         set_instance_setting("EMAIL_HOST", "localhost")
+        assert self.CONFIG_EMAIL is not None
 
         # User registered as "user1@posthog.com", request reset with different casing
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
@@ -1477,6 +1520,36 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
 
+    def test_cant_reset_password_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.post("/api/reset/confirm/", {"token": token, "password": "a12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
+    def test_cant_validate_token_with_non_uuid_user_id(self):
+        token = password_reset_token_generator.make_token(self.user)
+
+        response = self.client.get(f"/api/reset/confirm/?token={token}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_token",
+                "detail": "This reset token is invalid or has expired.",
+                "attr": "token",
+            },
+        )
+
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):
         token = password_reset_token_generator.make_token(self.user)
@@ -1519,6 +1592,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T22:10:14.252"):
@@ -1541,6 +1615,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2022-08-25T22:00:14.252"):
@@ -1563,6 +1638,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-26T22:00:14.252"):
@@ -1580,7 +1656,9 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
         self.client.logout()
 
         personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, secure_value=hash_key_value(personal_api_key), scopes=["*"]
+        )
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
@@ -1602,6 +1680,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-25T21:14:14.252"):
@@ -1623,6 +1702,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             user=self.user,
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
         )
 
         with freeze_time("2021-08-24T21:14:14.252"):
@@ -1745,7 +1825,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 200
 
     def test_user_can_update_scene_personalisation_without_recent_authentication(self):
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test")
         now = datetime.now()
@@ -1870,6 +1950,25 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
+
+    @parameterized.expand(
+        [
+            ("public_token", "phc_test_public_token"),
+            ("non_prefixed_token", "some_random_token_without_prefix"),
+            ("empty_string", ""),
+            ("integer_value", 12345),
+        ]
+    )
+    def test_authenticate_with_invalid_token_in_body_rejected(self, _name, token_value):
+        data = json.dumps({"secret_api_key": token_value})
+        wsgi_request = self.factory.post("/", data=data, content_type="application/json")
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
 
 
 @override_settings(
@@ -2127,8 +2226,10 @@ class TestOAuthLoginNotification(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     @staticmethod
-    def _build_strategy(rf: RequestFactory, user_agent: str, ip: str):
+    def _build_strategy(rf: RequestFactory, user_agent: str, ip: str, cookies: dict | None = None):
         req = rf.get("/", HTTP_USER_AGENT=user_agent, REMOTE_ADDR=ip)
+        if cookies:
+            req.COOKIES.update(cookies)
 
         class Strategy:
             def __init__(self, r):
@@ -2180,6 +2281,44 @@ class TestOAuthLoginNotification(APIBaseTest):
             social_login_notification(self._build_strategy(rf, ua2, ip2), Backend(), user)
             assert len(mail.outbox) == 2
 
+    def test_notification_skipped_when_known_device_cookie_present(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+        ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
+
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # First login from device 1 — notification sent
+            social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
+            assert len(mail.outbox) == 1
+
+            # Second login with different fingerprint BUT valid signed cookie — notification skipped
+            signed_value = build_known_device_cookie_value(user)
+            social_login_notification(
+                self._build_strategy(rf, ua2, ip2, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): signed_value}),
+                Backend(),
+                user,
+            )
+            assert len(mail.outbox) == 1
+
+    def test_notification_sent_when_cookie_value_is_forged(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
+
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # Attacker-forged cookie without a valid signature should not suppress the notification
+            social_login_notification(
+                self._build_strategy(rf, ua1, ip1, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): "1"}),
+                Backend(),
+                user,
+            )
+            assert len(mail.outbox) == 1
+
     def test_signup_then_same_device_login_no_notification(self):
         user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
         rf = RequestFactory()
@@ -2199,3 +2338,52 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
+
+
+class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def test_middleware_sets_signed_cookie_after_login(self):
+        response = self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        cookie = response.cookies.get(KNOWN_DEVICE_COOKIE.format(user_id=self.user.id))
+        assert cookie is not None
+        assert cookie.value != "1"  # signed, not a plain flag
+        assert cookie["httponly"] is True
+        assert cookie["samesite"] == "Lax"
+
+        # Pass cookie back into a request and confirm the verifier accepts the signature
+        req = RequestFactory().get("/")
+        req.COOKIES[KNOWN_DEVICE_COOKIE.format(user_id=self.user.id)] = cookie.value
+        assert has_valid_known_device_cookie(req, self.user)
+
+    def test_known_cookie_suppresses_notification(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        new_device_subject = "A new device logged into your account"
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            # First login - sets cookie and sends new-device notification
+            self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            initial_count = sum(1 for m in mail.outbox if m.subject == new_device_subject)
+
+            # Second login - signed cookie is present, new-device notification must be skipped
+            self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            assert sum(1 for m in mail.outbox if m.subject == new_device_subject) == initial_count
+
+    @patch("posthog.middleware.is_impersonated_session", return_value=True)
+    def test_middleware_does_not_set_cookie_during_impersonation(self, _mock_is_impersonated):
+        # Log in first so the client has an authenticated session
+        self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert KNOWN_DEVICE_COOKIE.format(user_id=self.user.id) not in response.cookies
+
+    def test_does_not_set_known_device_cookie_for_internal_api_user(self):
+        request = RequestFactory().get("/api/internal/hog_flows/process_due_schedules")
+        SessionMiddleware(lambda r: HttpResponse()).process_request(request)
+        request.session["touched"] = True
+        request.__dict__["user"] = InternalAPIUser()
+
+        response = KnownLoginDeviceCookieMiddleware(lambda r: HttpResponse())(request)
+
+        assert response.status_code == 200
+        assert not any(name.startswith("ph_device_") for name in response.cookies)

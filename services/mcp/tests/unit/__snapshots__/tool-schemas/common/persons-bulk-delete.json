@@ -1,0 +1,35 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "delete_events": {
+            "default": false,
+            "description": "If true, queue deletion of all events associated with these persons.",
+            "type": "boolean"
+        },
+        "delete_recordings": {
+            "default": false,
+            "description": "If true, queue deletion of all recordings associated with these persons.",
+            "type": "boolean"
+        },
+        "distinct_ids": {
+            "description": "A list of distinct IDs whose associated persons will be deleted (max 1000).",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "ids": {
+            "description": "A list of PostHog person UUIDs to delete (max 1000).",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "keep_person": {
+            "default": false,
+            "description": "If true, keep the person records but delete their events and recordings.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

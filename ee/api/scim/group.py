@@ -2,6 +2,7 @@ import logging
 from typing import Union
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 from django_scim import constants
 from django_scim.adapters import SCIMGroup
@@ -114,8 +115,18 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         Update role membership based on SCIM members list.
         """
-        # Get list of user IDs from SCIM data
-        member_user_ids = {member.get("value") for member in members_data}
+        # Normalize SCIM `members[].value` to string form of integer IDs to match the always-string
+        # `current_user_ids` set below. Some IdPs send `value` as a JSON number; without this, the
+        # set diff would be type-asymmetric and silently delete the membership the IdP asked to keep.
+        member_user_ids: set[str] = set()
+        for member in members_data:
+            raw_member_id = member.get("value")
+            if raw_member_id is None:
+                continue
+            try:
+                member_user_ids.add(str(int(raw_member_id)))
+            except (TypeError, ValueError):
+                logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": raw_member_id})
 
         # Get current role members
         current_memberships = RoleMembership.objects.filter(role=role).select_related("user", "organization_member")
@@ -124,9 +135,10 @@ class PostHogSCIMGroup(SCIMGroup):
         to_add = member_user_ids - current_user_ids
         to_remove = current_user_ids - member_user_ids
 
-        for user_id in to_add:
+        for raw_member_id in to_add:
+            user_pk = int(raw_member_id)
             try:
-                user = User.objects.get(id=user_id)
+                user = User.objects.get(id=user_pk)
                 org_membership = OrganizationMembership.objects.filter(
                     user=user, organization=organization_domain.organization
                 ).first()
@@ -232,6 +244,10 @@ class PostHogSCIMGroup(SCIMGroup):
                         )
                     except User.DoesNotExist:
                         continue
+                    except ValueError:
+                        # Skip non-user members (e.g., nested group references from IdPs)
+                        logger.warning("scim_group_skip_invalid_member_id", extra={"member_value": user_id})
+                        continue
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -272,9 +288,5 @@ class PostHogSCIMGroup(SCIMGroup):
                     RoleMembership.objects.filter(role=self.obj).delete()
 
     @classmethod
-    def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMGroup"]:
-        """
-        Get all roles (groups) for a specific organization.
-        """
-        roles = Role.objects.filter(organization=organization_domain.organization)
-        return [cls(role, organization_domain) for role in roles]
+    def get_queryset_for_organization(cls, organization_domain: OrganizationDomain) -> QuerySet[Role]:
+        return Role.objects.filter(organization=organization_domain.organization).order_by("id")

@@ -12,12 +12,8 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import createExperimentTool from '@/tools/experiments/create'
-import deleteExperimentTool from '@/tools/experiments/delete'
-import getExperimentTool from '@/tools/experiments/get'
-import getAllExperimentsTool from '@/tools/experiments/getAll'
 import getExperimentResultsTool from '@/tools/experiments/getResults'
-import updateExperimentTool from '@/tools/experiments/update'
+import { GENERATED_TOOLS } from '@/tools/generated/experiments'
 import type { Context } from '@/tools/types'
 
 describe('Experiments', { concurrent: false }, () => {
@@ -42,6 +38,20 @@ describe('Experiments', { concurrent: false }, () => {
         }
     }
 
+    const createTool = GENERATED_TOOLS['experiment-create']!()
+    const getTool = GENERATED_TOOLS['experiment-get']!()
+    const listTool = GENERATED_TOOLS['experiment-list']!()
+    const updateTool = GENERATED_TOOLS['experiment-update']!()
+    const deleteTool = GENERATED_TOOLS['experiment-delete']!()
+    const launchTool = GENERATED_TOOLS['experiment-launch']!()
+    const endTool = GENERATED_TOOLS['experiment-end']!()
+    const archiveTool = GENERATED_TOOLS['experiment-archive']!()
+    const pauseTool = GENERATED_TOOLS['experiment-pause']!()
+    const resumeTool = GENERATED_TOOLS['experiment-resume']!()
+    const resetTool = GENERATED_TOOLS['experiment-reset']!()
+    const shipVariantTool = GENERATED_TOOLS['experiment-ship-variant']!()
+    const getResultsTool = getExperimentResultsTool()
+
     beforeAll(async () => {
         validateEnvironmentVariables()
         const client = createTestClient()
@@ -53,11 +63,13 @@ describe('Experiments', { concurrent: false }, () => {
         // Clean up experiments first
         for (const experimentId of createdExperiments) {
             try {
-                await context.api.experiments({ projectId: TEST_PROJECT_ID! }).delete({
-                    experimentId,
+                await context.api.request({
+                    method: 'PATCH',
+                    path: `/api/projects/${TEST_PROJECT_ID}/experiments/${experimentId}/`,
+                    body: { deleted: true },
                 })
-            } catch (error) {
-                console.warn(`Failed to cleanup experiment ${experimentId}:`, error)
+            } catch {
+                // Ignore cleanup failures
             }
         }
         createdExperiments.length = 0
@@ -67,17 +79,13 @@ describe('Experiments', { concurrent: false }, () => {
     })
 
     describe('create-experiment tool', () => {
-        const createTool = createExperimentTool()
-
         it('should create a draft experiment with minimal required fields', async () => {
-            // Note: API auto-creates feature flag if it doesn't exist
             const flagKey = generateUniqueKey('exp-flag')
 
-            // Create experiment
             const params = {
                 name: 'Minimal Test Experiment',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -98,8 +106,8 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Detailed Test Experiment',
                 description: 'This experiment tests the impact of button color on conversions',
                 feature_flag_key: flagKey,
-                type: 'web' as const,
-                draft: true,
+                type: 'web',
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -117,12 +125,14 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Variant Test Experiment',
                 feature_flag_key: flagKey,
-                variants: [
-                    { key: 'control', name: 'Control Group', rollout_percentage: 33 },
-                    { key: 'variant_a', name: 'Variant A', rollout_percentage: 33 },
-                    { key: 'variant_b', name: 'Variant B', rollout_percentage: 34 },
-                ],
-                draft: true,
+                parameters: {
+                    feature_flag_variants: [
+                        { key: 'control', name: 'Control Group', split_percent: 33 },
+                        { key: 'variant_a', name: 'Variant A', split_percent: 33 },
+                        { key: 'variant_b', name: 'Variant B', split_percent: 34 },
+                    ],
+                },
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -132,30 +142,38 @@ describe('Experiments', { concurrent: false }, () => {
             expect(experiment.id).toBeTruthy()
             expect(experiment.parameters?.feature_flag_variants).toHaveLength(3)
             expect(experiment.parameters?.feature_flag_variants?.[0]?.key).toBe('control')
-            expect(experiment.parameters?.feature_flag_variants?.[0]?.rollout_percentage).toBe(33)
+            expect(experiment.parameters?.feature_flag_variants?.[0]?.split_percent).toBe(33)
         })
 
         it('should create an experiment with mean metric', async () => {
             const flagKey = generateUniqueKey('exp-flag-mean')
 
-            const params = {
+            // experiment-create no longer accepts metrics — add them via update afterwards.
+            const createResult = await createTool.handler(context, {
                 name: 'Mean Metric Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Average Page Load Time',
-                        metric_type: 'mean' as const,
-                        event_name: '$pageview',
-                        properties: [{ key: 'page', value: '/checkout', operator: 'exact', type: 'event' }],
-                        description: 'Measure average page load time for checkout page',
+                        metric_type: 'mean',
+                        source: {
+                            kind: 'EventsNode',
+                            event: '$pageview',
+                            properties: [{ key: 'page', value: '/checkout', operator: 'exact', type: 'event' }],
+                        },
                     },
                 ],
-                draft: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
@@ -164,24 +182,32 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create an experiment with funnel metric', async () => {
             const flagKey = generateUniqueKey('exp-flag-funnel')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Funnel Metric Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Checkout Conversion Funnel',
-                        metric_type: 'funnel' as const,
-                        event_name: 'product_view',
-                        funnel_steps: ['product_view', 'add_to_cart', 'checkout_start', 'purchase'],
-                        description: 'Track conversion through checkout funnel',
+                        metric_type: 'funnel',
+                        series: [
+                            { kind: 'EventsNode', event: 'product_view' },
+                            { kind: 'EventsNode', event: 'add_to_cart' },
+                            { kind: 'EventsNode', event: 'checkout_start' },
+                            { kind: 'EventsNode', event: 'purchase' },
+                        ],
                     },
                 ],
-                draft: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
@@ -190,23 +216,28 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create an experiment with ratio metric', async () => {
             const flagKey = generateUniqueKey('exp-flag-ratio')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Ratio Metric Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Button Click Rate',
-                        metric_type: 'ratio' as const,
-                        event_name: 'button_click',
-                        description: 'Ratio of button clicks to page views',
+                        metric_type: 'ratio',
+                        numerator: { kind: 'EventsNode', event: 'button_click' },
+                        denominator: { kind: 'EventsNode', event: '$pageview' },
                     },
                 ],
-                draft: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
@@ -215,44 +246,84 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create an experiment with multiple metrics', async () => {
             const flagKey = generateUniqueKey('exp-flag-multi')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Multi Metric Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
-                    {
-                        name: 'Conversion Rate',
-                        metric_type: 'funnel' as const,
-                        event_name: 'visit',
-                        funnel_steps: ['visit', 'signup', 'purchase'],
-                    },
-                    {
-                        name: 'Average Revenue',
-                        metric_type: 'mean' as const,
-                        event_name: 'purchase',
-                    },
-                ],
-                secondary_metrics: [
-                    {
-                        name: 'Page Views',
-                        metric_type: 'mean' as const,
-                        event_name: '$pageview',
-                    },
-                    {
-                        name: 'Bounce Rate',
-                        metric_type: 'ratio' as const,
-                        event_name: 'bounce',
-                    },
-                ],
-                draft: true,
-            }
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
 
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
+                metrics: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Conversion Rate',
+                        metric_type: 'funnel',
+                        series: [
+                            { kind: 'EventsNode', event: 'visit' },
+                            { kind: 'EventsNode', event: 'signup' },
+                            { kind: 'EventsNode', event: 'purchase' },
+                        ],
+                    },
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Average Revenue',
+                        metric_type: 'mean',
+                        source: { kind: 'EventsNode', event: 'purchase' },
+                    },
+                ],
+                metrics_secondary: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Page Views',
+                        metric_type: 'mean',
+                        source: { kind: 'EventsNode', event: '$pageview' },
+                    },
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Bounce Rate',
+                        metric_type: 'ratio',
+                        numerator: { kind: 'EventsNode', event: 'bounce' },
+                        denominator: { kind: 'EventsNode', event: '$pageview' },
+                    },
+                ],
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(2)
             expect(experiment.metrics_secondary).toHaveLength(2)
+        })
+
+        it('should reject unknown event names when allow_unknown_events is not set', async () => {
+            const flagKey = generateUniqueKey('exp-flag-unknown-event')
+
+            // Create with allow_unknown_events so the draft itself is accepted, then attempt
+            // to add a bogus metric without the bypass — backend should reject during update.
+            const createResult = await createTool.handler(context, {
+                name: 'Unknown Event Experiment',
+                feature_flag_key: flagKey,
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            await expect(
+                updateTool.handler(context, {
+                    id: created.id,
+                    metrics: [
+                        {
+                            kind: 'ExperimentMetric',
+                            name: 'Nonexistent Event Metric',
+                            metric_type: 'mean',
+                            source: { kind: 'EventsNode', event: 'totally_nonexistent_event' },
+                        },
+                    ],
+                } as any)
+            ).rejects.toThrow(/not found/)
         })
 
         it('should create an experiment with minimum detectable effect', async () => {
@@ -261,8 +332,10 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'MDE Test Experiment',
                 feature_flag_key: flagKey,
-                minimum_detectable_effect: 15,
-                draft: true,
+                parameters: {
+                    minimum_detectable_effect: 15,
+                },
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -278,8 +351,10 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Filter Test Accounts Experiment',
                 feature_flag_key: flagKey,
-                filter_test_accounts: true,
-                draft: true,
+                exposure_criteria: {
+                    filterTestAccounts: true,
+                },
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -290,11 +365,10 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it("should create experiment when feature flag doesn't exist (API creates it)", async () => {
-            // Note: The API might auto-create the feature flag if it doesn't exist
             const params = {
                 name: 'Auto-Create Flag Experiment',
                 feature_flag_key: generateUniqueKey('auto-created-flag'),
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -306,9 +380,6 @@ describe('Experiments', { concurrent: false }, () => {
     })
 
     describe('get-all-experiments tool', () => {
-        const createTool = createExperimentTool()
-        const getAllTool = getAllExperimentsTool()
-
         it('should list all experiments', async () => {
             // Create a few test experiments
             const testExperiments = []
@@ -318,7 +389,7 @@ describe('Experiments', { concurrent: false }, () => {
                 const params = {
                     name: `List Test Experiment ${i}`,
                     feature_flag_key: flagKey,
-                    draft: true,
+                    allow_unknown_events: true,
                 }
 
                 const result = await createTool.handler(context, params as any)
@@ -328,7 +399,7 @@ describe('Experiments', { concurrent: false }, () => {
             }
 
             // Get all experiments
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const allExperiments = parseToolResponse(result)
             expect(allExperiments.results.length).toBeGreaterThanOrEqual(3)
 
@@ -340,7 +411,7 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should return experiments with proper structure', async () => {
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const experiments = parseToolResponse(result)
 
             if (experiments.results.length > 0) {
@@ -352,17 +423,17 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should respect limit parameter', async () => {
-            const result = await getAllTool.handler(context, { data: { limit: 2 } })
+            const result = await listTool.handler(context, { limit: 2 })
             const experiments = parseToolResponse(result)
             expect(experiments.results.length).toBeLessThanOrEqual(2)
         })
 
         it('should respect offset parameter', async () => {
-            const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
+            const allResult = await listTool.handler(context, { limit: 10 })
             const allExperiments = parseToolResponse(allResult)
 
             if (allExperiments.results.length > 1) {
-                const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
+                const offsetResult = await listTool.handler(context, { limit: 10, offset: 1 })
                 const offsetExperiments = parseToolResponse(offsetResult)
                 // Verify offset is working by checking first result is different from original first result
                 expect(offsetExperiments.results[0].id).not.toBe(allExperiments.results[0].id)
@@ -370,16 +441,13 @@ describe('Experiments', { concurrent: false }, () => {
         })
 
         it('should use default limit when not specified', async () => {
-            const result = await getAllTool.handler(context, {})
+            const result = await listTool.handler(context, {})
             const experiments = parseToolResponse(result)
             expect(experiments.results.length).toBeLessThanOrEqual(50)
         })
     })
 
     describe('get-experiment tool', () => {
-        const createTool = createExperimentTool()
-        const getTool = getExperimentTool()
-
         it('should get experiment by ID', async () => {
             // Create an experiment
             const flagKey = generateUniqueKey('exp-get-flag')
@@ -388,7 +456,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Get Test Experiment',
                 description: 'Test experiment for get operation',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -396,7 +464,7 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(createdExperiment)
 
             // Get the experiment
-            const result = await getTool.handler(context, { experimentId: createdExperiment.id })
+            const result = await getTool.handler(context, { id: createdExperiment.id })
             const retrievedExperiment = parseToolResponse(result)
 
             expect(retrievedExperiment.id).toBe(createdExperiment.id)
@@ -407,14 +475,11 @@ describe('Experiments', { concurrent: false }, () => {
         it('should handle non-existent experiment ID', async () => {
             const nonExistentId = 999999
 
-            await expect(getTool.handler(context, { experimentId: nonExistentId })).rejects.toThrow()
+            await expect(getTool.handler(context, { id: nonExistentId })).rejects.toThrow()
         })
     })
 
     describe('get-experiment-results tool', () => {
-        const createTool = createExperimentTool()
-        const getResultsTool = getExperimentResultsTool()
-
         it('should fail for draft experiment (not started)', async () => {
             // Create a draft experiment with metrics
             const flagKey = generateUniqueKey('exp-metrics-flag')
@@ -422,14 +487,15 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Metrics Draft Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Test Metric',
-                        metric_type: 'mean' as const,
-                        event_name: '$pageview',
+                        metric_type: 'mean',
+                        source: { kind: 'EventsNode', event: '$pageview' },
                     },
                 ],
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -439,7 +505,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Try to get metric results for draft experiment
             await expect(
                 getResultsTool.handler(context, {
-                    experimentId: experiment.id,
+                    id: experiment.id,
                     refresh: false,
                 })
             ).rejects.toThrow(/has not started yet/)
@@ -452,21 +518,24 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Metrics Refresh Test Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Refresh Test Metric',
-                        metric_type: 'mean' as const,
-                        event_name: '$pageview',
+                        metric_type: 'mean',
+                        source: { kind: 'EventsNode', event: '$pageview' },
                     },
                 ],
-                secondary_metrics: [
+                metrics_secondary: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Secondary Refresh Metric',
-                        metric_type: 'ratio' as const,
-                        event_name: 'button_click',
+                        metric_type: 'ratio',
+                        numerator: { kind: 'EventsNode', event: 'button_click' },
+                        denominator: { kind: 'EventsNode', event: '$pageview' },
                     },
                 ],
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -476,7 +545,7 @@ describe('Experiments', { concurrent: false }, () => {
             // Test with refresh=true (will still fail for draft, but tests parameter handling)
             await expect(
                 getResultsTool.handler(context, {
-                    experimentId: experiment.id,
+                    id: experiment.id,
                     refresh: true,
                 })
             ).rejects.toThrow(/has not started yet/)
@@ -484,55 +553,68 @@ describe('Experiments', { concurrent: false }, () => {
     })
 
     describe('Complex experiment workflows', () => {
-        const createTool = createExperimentTool()
-        const getTool = getExperimentTool()
-        const getAllTool = getAllExperimentsTool()
-
         it('should support complete experiment creation and retrieval workflow', async () => {
             // Create feature flag
             const flagKey = generateUniqueKey('exp-workflow-flag')
 
-            // Create comprehensive experiment
+            // Create comprehensive experiment (metrics added via update — see experiment-create skill)
             const createParams = {
                 name: 'Complete Workflow Experiment',
                 description: 'Testing complete experiment workflow with all features',
                 feature_flag_key: flagKey,
-                type: 'product' as const,
-                variants: [
-                    { key: 'control', name: 'Control', rollout_percentage: 50 },
-                    { key: 'test', name: 'Test Variant', rollout_percentage: 50 },
-                ],
-                primary_metrics: [
+                type: 'product',
+                parameters: {
+                    feature_flag_variants: [
+                        { key: 'control', name: 'Control', split_percent: 50 },
+                        { key: 'test', name: 'Test Variant', split_percent: 50 },
+                    ],
+                    minimum_detectable_effect: 20,
+                },
+                exposure_criteria: {
+                    filterTestAccounts: true,
+                },
+                allow_unknown_events: true,
+            }
+            const metricsUpdate = {
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Conversion Funnel',
-                        metric_type: 'funnel' as const,
-                        event_name: 'landing',
-                        funnel_steps: ['landing', 'signup', 'activation'],
-                        description: 'Main conversion funnel',
+                        metric_type: 'funnel',
+                        series: [
+                            { kind: 'EventsNode', event: 'landing' },
+                            { kind: 'EventsNode', event: 'signup' },
+                            { kind: 'EventsNode', event: 'activation' },
+                        ],
                     },
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Revenue per User',
-                        metric_type: 'mean' as const,
-                        event_name: 'purchase',
-                        description: 'Average revenue',
+                        metric_type: 'mean',
+                        source: { kind: 'EventsNode', event: 'purchase' },
                     },
                 ],
-                secondary_metrics: [
+                metrics_secondary: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Engagement Rate',
-                        metric_type: 'ratio' as const,
-                        event_name: 'engagement',
-                        description: 'User engagement ratio',
+                        metric_type: 'ratio',
+                        numerator: { kind: 'EventsNode', event: 'engagement' },
+                        denominator: { kind: 'EventsNode', event: '$pageview' },
                     },
                 ],
-                minimum_detectable_effect: 20,
-                filter_test_accounts: true,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
-            const createdExperiment = parseToolResponse(createResult)
-            trackExperiment(createdExperiment)
+            const draft = parseToolResponse(createResult)
+            trackExperiment(draft)
+
+            const updateResult = await updateTool.handler(context, {
+                id: draft.id,
+                ...metricsUpdate,
+            } as any)
+            const createdExperiment = parseToolResponse(updateResult)
 
             // Verify creation
             expect(createdExperiment.id).toBeTruthy()
@@ -543,13 +625,13 @@ describe('Experiments', { concurrent: false }, () => {
 
             // Get the experiment
             const getResult = await getTool.handler(context, {
-                experimentId: createdExperiment.id,
+                id: createdExperiment.id,
             })
             const retrievedExperiment = parseToolResponse(getResult)
             expect(retrievedExperiment.id).toBe(createdExperiment.id)
 
             // Verify it appears in list
-            const listResult = await getAllTool.handler(context, {})
+            const listResult = await listTool.handler(context, {})
             const allExperiments = parseToolResponse(listResult)
             const found = allExperiments.results.find((e: any) => e.id === createdExperiment.id)
             expect(found).toBeTruthy()
@@ -558,66 +640,51 @@ describe('Experiments', { concurrent: false }, () => {
         it('should create experiment with complex funnel metrics', async () => {
             const flagKey = generateUniqueKey('exp-complex-funnel-flag')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Complex Funnel Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
-                    {
-                        name: 'E-commerce Full Funnel',
-                        metric_type: 'funnel' as const,
-                        event_name: 'home_page_view',
-                        funnel_steps: [
-                            'home_page_view',
-                            'product_list_view',
-                            'product_detail_view',
-                            'add_to_cart',
-                            'checkout_start',
-                            'payment_info_entered',
-                            'order_completed',
-                        ],
-                        description: 'Complete e-commerce conversion funnel',
-                    },
-                ],
-                secondary_metrics: [
-                    {
-                        name: 'Cart Abandonment Funnel',
-                        metric_type: 'funnel' as const,
-                        event_name: 'add_to_cart',
-                        funnel_steps: ['add_to_cart', 'checkout_start', 'order_completed'],
-                        description: 'Track where users drop off in checkout',
-                    },
-                ],
-                draft: true,
-            }
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
 
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
+                metrics: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'E-commerce Full Funnel',
+                        metric_type: 'funnel',
+                        series: [
+                            { kind: 'EventsNode', event: 'home_page_view' },
+                            { kind: 'EventsNode', event: 'product_list_view' },
+                            { kind: 'EventsNode', event: 'product_detail_view' },
+                            { kind: 'EventsNode', event: 'add_to_cart' },
+                            { kind: 'EventsNode', event: 'checkout_start' },
+                            { kind: 'EventsNode', event: 'payment_info_entered' },
+                            { kind: 'EventsNode', event: 'order_completed' },
+                        ],
+                    },
+                ],
+                metrics_secondary: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Cart Abandonment Funnel',
+                        metric_type: 'funnel',
+                        series: [
+                            { kind: 'EventsNode', event: 'add_to_cart' },
+                            { kind: 'EventsNode', event: 'checkout_start' },
+                            { kind: 'EventsNode', event: 'order_completed' },
+                        ],
+                    },
+                ],
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
             expect(experiment.metrics_secondary).toHaveLength(1)
-        })
-
-        it('should create experiment with target properties', async () => {
-            const flagKey = generateUniqueKey('exp-target-props-flag')
-
-            const params = {
-                name: 'Targeted Experiment',
-                feature_flag_key: flagKey,
-                target_properties: {
-                    country: 'US',
-                    plan: 'premium',
-                    cohort: 'early_adopters',
-                },
-                draft: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
-
-            expect(experiment.id).toBeTruthy()
         })
 
         it('should create experiment without holdout group', async () => {
@@ -627,7 +694,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'No Holdout Group Experiment',
                 feature_flag_key: flagKey,
                 // Not setting holdout_id (as it may not exist)
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -639,17 +706,13 @@ describe('Experiments', { concurrent: false }, () => {
     })
 
     describe('Edge cases and error handling', () => {
-        const createTool = createExperimentTool()
-        const getTool = getExperimentTool()
-        const getResultsTool = getExperimentResultsTool()
-
         it('should handle creating experiment without metrics', async () => {
             const flagKey = generateUniqueKey('exp-no-metrics-flag')
 
             const params = {
                 name: 'No Metrics Experiment',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -665,12 +728,12 @@ describe('Experiments', { concurrent: false }, () => {
             const invalidId = 999999999
 
             // Test get experiment
-            await expect(getTool.handler(context, { experimentId: invalidId })).rejects.toThrow()
+            await expect(getTool.handler(context, { id: invalidId })).rejects.toThrow()
 
             // Test get metric results
             await expect(
                 getResultsTool.handler(context, {
-                    experimentId: invalidId,
+                    id: invalidId,
                     refresh: false,
                 })
             ).rejects.toThrow()
@@ -682,11 +745,13 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Invalid Rollout Experiment',
                 feature_flag_key: flagKey,
-                variants: [
-                    { key: 'control', rollout_percentage: 60 },
-                    { key: 'test', rollout_percentage: 60 }, // Total > 100%
-                ],
-                draft: true,
+                parameters: {
+                    feature_flag_variants: [
+                        { key: 'control', split_percent: 60 },
+                        { key: 'test', split_percent: 60 }, // Total > 100%
+                    ],
+                },
+                allow_unknown_events: true,
             }
 
             // This might succeed or fail depending on API validation
@@ -701,45 +766,52 @@ describe('Experiments', { concurrent: false }, () => {
             }
         })
 
-        it('should handle metric with explicit event_name', async () => {
+        it('should handle metric with explicit event in source', async () => {
             const flagKey = generateUniqueKey('exp-explicit-event-flag')
 
-            const params = {
+            const createResult = await createTool.handler(context, {
                 name: 'Explicit Event Name Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                allow_unknown_events: true,
+            } as any)
+            const created = parseToolResponse(createResult)
+            trackExperiment(created)
+
+            const updateResult = await updateTool.handler(context, {
+                id: created.id,
+                metrics: [
                     {
+                        kind: 'ExperimentMetric',
                         name: 'Default Event Metric',
-                        metric_type: 'mean' as const,
-                        event_name: '$pageview', // Explicit event_name since it's now required
+                        metric_type: 'mean',
+                        source: { kind: 'EventsNode', event: '$pageview' },
                     },
                 ],
-                draft: true,
-            }
-
-            const result = await createTool.handler(context, params as any)
-            const experiment = parseToolResponse(result)
-            trackExperiment(experiment)
+                allow_unknown_events: true,
+            } as any)
+            const experiment = parseToolResponse(updateResult)
 
             expect(experiment.id).toBeTruthy()
             expect(experiment.metrics).toHaveLength(1)
         })
 
-        it('should handle empty funnel steps array', async () => {
-            const flagKey = generateUniqueKey('exp-empty-funnel-flag')
+        it('should handle funnel with single step', async () => {
+            // A single-step series is valid for experiments: the exposure event is
+            // prepended at query time, yielding a conversion-rate funnel from exposure to event.
+            const flagKey = generateUniqueKey('exp-single-funnel-flag')
 
             const params = {
-                name: 'Empty Funnel Steps Experiment',
+                name: 'Single Step Funnel Experiment',
                 feature_flag_key: flagKey,
-                primary_metrics: [
+                metrics: [
                     {
-                        name: 'Empty Funnel',
-                        metric_type: 'funnel' as const,
-                        funnel_steps: [], // Empty array
-                        event_name: '$pageview', // Falls back to this
+                        kind: 'ExperimentMetric',
+                        name: 'Single Step Funnel',
+                        metric_type: 'funnel',
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
                     },
                 ],
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -756,7 +828,7 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: longName,
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             try {
@@ -772,9 +844,6 @@ describe('Experiments', { concurrent: false }, () => {
     })
 
     describe('delete-experiment tool', () => {
-        const createTool = createExperimentTool()
-        const deleteTool = deleteExperimentTool()
-
         it('should delete an existing experiment', async () => {
             // Create experiment first
             const flagKey = generateUniqueKey('exp-delete-flag')
@@ -782,7 +851,7 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Experiment to Delete',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -791,13 +860,11 @@ describe('Experiments', { concurrent: false }, () => {
 
             expect(experiment.id).toBeTruthy()
 
-            // Delete the experiment
-            const deleteParams = { experimentId: experiment.id }
-            const deleteResult = await deleteTool.handler(context, deleteParams)
+            // Delete the experiment (soft-delete returns experiment with deleted=true)
+            const deleteResult = await deleteTool.handler(context, { id: experiment.id })
             const deleteResponse = parseToolResponse(deleteResult)
 
-            expect(deleteResponse.success).toBe(true)
-            expect(deleteResponse.message).toBe('Experiment deleted successfully')
+            expect(deleteResponse.deleted).toBe(true)
 
             // Remove from tracking since we deleted it manually
             const index = createdExperiments.indexOf(experiment.id)
@@ -814,14 +881,11 @@ describe('Experiments', { concurrent: false }, () => {
         it('should handle invalid experiment ID', async () => {
             const invalidId = 999999
 
-            const deleteParams = { experimentId: invalidId }
-
             try {
-                await deleteTool.handler(context, deleteParams)
+                await deleteTool.handler(context, { id: invalidId })
                 expect.fail('Should have thrown an error for invalid experiment ID')
             } catch (error) {
                 expect(error).toBeTruthy()
-                expect((error as Error).message).toContain('Failed to delete experiment')
             }
         })
 
@@ -832,7 +896,7 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Experiment Already Deleted',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -841,21 +905,17 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(experiment)
 
             // Delete the experiment twice
-            const deleteParams = { experimentId: experiment.id }
-
             // First delete should succeed
-            const firstDeleteResult = await deleteTool.handler(context, deleteParams)
+            const firstDeleteResult = await deleteTool.handler(context, { id: experiment.id })
             const firstDeleteResponse = parseToolResponse(firstDeleteResult)
-            expect(firstDeleteResponse.success).toBe(true)
+            expect(firstDeleteResponse.deleted).toBe(true)
 
             // Second delete should throw error (API returns 404 for already deleted)
             try {
-                await deleteTool.handler(context, deleteParams)
+                await deleteTool.handler(context, { id: experiment.id })
                 expect.fail('Should have thrown an error for already deleted experiment')
             } catch (error) {
                 expect(error).toBeTruthy()
-                expect((error as Error).message).toContain('Failed to delete experiment')
-                expect((error as Error).message).toContain('404')
             }
 
             // Remove from tracking since we deleted it manually
@@ -870,10 +930,10 @@ describe('Experiments', { concurrent: false }, () => {
             }
         })
 
-        it('should validate required experimentId parameter', async () => {
+        it('should validate required id parameter', async () => {
             try {
                 await deleteTool.handler(context, {} as any)
-                expect.fail('Should have thrown validation error for missing experimentId')
+                expect.fail('Should have thrown validation error for missing id')
             } catch (error) {
                 expect(error).toBeTruthy()
             }
@@ -881,9 +941,6 @@ describe('Experiments', { concurrent: false }, () => {
     })
 
     describe('update-experiment tool', () => {
-        const createTool = createExperimentTool()
-        const updateTool = updateExperimentTool()
-
         it('should update basic experiment fields', async () => {
             // Create experiment first
             const flagKey = generateUniqueKey('exp-update-basic-flag')
@@ -892,7 +949,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Original Name',
                 description: 'Original description',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -902,15 +959,11 @@ describe('Experiments', { concurrent: false }, () => {
             expect(experiment.id).toBeTruthy()
 
             // Update basic fields
-            const updateParams = {
-                experimentId: experiment.id,
-                data: {
-                    name: 'Updated Name',
-                    description: 'Updated description with new hypothesis',
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
+            const updateResult = await updateTool.handler(context, {
+                id: experiment.id,
+                name: 'Updated Name',
+                description: 'Updated description with new hypothesis',
+            } as any)
             const updatedExperiment = parseToolResponse(updateResult)
 
             expect(updatedExperiment.name).toBe('Updated Name')
@@ -926,7 +979,7 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Launch Test Experiment',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -935,16 +988,9 @@ describe('Experiments', { concurrent: false }, () => {
 
             expect(experiment.start_date).toBeNull() // Draft experiments have no start date
 
-            // Launch the experiment
-            const launchParams = {
-                experimentId: experiment.id,
-                data: {
-                    launch: true,
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, launchParams)
-            const launchedExperiment = parseToolResponse(updateResult)
+            // Launch the experiment using the lifecycle tool
+            const launchResult = await launchTool.handler(context, { id: experiment.id })
+            const launchedExperiment = parseToolResponse(launchResult)
 
             expect(launchedExperiment.start_date).toBeTruthy() // Running experiments have start date
             expect(launchedExperiment.end_date).toBeNull() // But no end date yet
@@ -957,109 +1003,88 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Stop Test Experiment',
                 feature_flag_key: flagKey,
-                draft: false, // Create as launched
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
             trackExperiment(experiment)
 
-            // Stop the experiment
-            const stopParams = {
-                experimentId: experiment.id,
-                data: {
-                    conclude: 'stopped_early' as const,
-                    conclusion_comment: 'Test completed successfully',
-                },
-            }
+            // Launch first
+            await launchTool.handler(context, { id: experiment.id })
 
-            const updateResult = await updateTool.handler(context, stopParams)
-            const stoppedExperiment = parseToolResponse(updateResult)
+            // End the experiment using the lifecycle tool
+            const endResult = await endTool.handler(context, {
+                id: experiment.id,
+                conclusion: 'stopped_early',
+                conclusion_comment: 'Test completed successfully',
+            } as any)
+            const stoppedExperiment = parseToolResponse(endResult)
 
             expect(stoppedExperiment.end_date).toBeTruthy()
             expect(stoppedExperiment.conclusion).toBe('stopped_early')
-            // The end_date is automatically set when conclude is provided
         })
 
         it('should restart a concluded experiment', async () => {
-            // Create and conclude experiment
+            // Create and launch experiment
             const flagKey = generateUniqueKey('exp-restart-flag')
 
             const createParams = {
                 name: 'Restart Test Experiment',
                 feature_flag_key: flagKey,
-                draft: false,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
             trackExperiment(experiment)
 
-            // First stop it
-            const stopParams = {
-                experimentId: experiment.id,
-                data: {
-                    end_date: new Date().toISOString(),
-                    conclusion: 'inconclusive' as const,
-                    conclusion_comment: 'Need more data',
-                },
-            }
+            // Launch
+            await launchTool.handler(context, { id: experiment.id })
 
-            await updateTool.handler(context, stopParams)
+            // End it
+            await endTool.handler(context, {
+                id: experiment.id,
+                conclusion: 'inconclusive',
+                conclusion_comment: 'Need more data',
+            } as any)
 
-            // Now restart it (following restart workflow)
-            const restartParams = {
-                experimentId: experiment.id,
-                data: {
-                    restart: true,
-                    launch: true,
-                },
-            }
+            // Reset to draft
+            const resetResult = await resetTool.handler(context, { id: experiment.id })
+            const resetExperiment = parseToolResponse(resetResult)
 
-            const restartResult = await updateTool.handler(context, restartParams)
-            const restartedExperiment = parseToolResponse(restartResult)
-
-            expect(restartedExperiment.end_date).toBeNull()
-            expect(restartedExperiment.conclusion).toBeNull()
-            expect(restartedExperiment.conclusion_comment).toBeNull()
-            expect(restartedExperiment.start_date).toBeTruthy() // Restarted experiments have start date
-            expect(restartedExperiment.end_date).toBeNull() // But no end date
+            expect(resetExperiment.end_date).toBeNull()
+            expect(resetExperiment.conclusion).toBeNull()
+            expect(resetExperiment.conclusion_comment).toBeNull()
+            expect(resetExperiment.start_date).toBeNull()
         })
 
         it('should restart experiment as draft', async () => {
-            // Create and conclude experiment
+            // Create and launch experiment
             const flagKey = generateUniqueKey('exp-restart-draft-flag')
 
             const createParams = {
                 name: 'Restart as Draft Test',
                 feature_flag_key: flagKey,
-                draft: false,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
             trackExperiment(experiment)
 
-            // First conclude it
-            const concludeParams = {
-                experimentId: experiment.id,
-                data: {
-                    conclude: 'won' as const,
-                },
-            }
+            // Launch
+            await launchTool.handler(context, { id: experiment.id })
 
-            await updateTool.handler(context, concludeParams)
+            // End with conclusion
+            await endTool.handler(context, {
+                id: experiment.id,
+                conclusion: 'won',
+            } as any)
 
-            // Restart as draft (clear all completion fields including start_date)
-            const restartAsDraftParams = {
-                experimentId: experiment.id,
-                data: {
-                    restart: true,
-                },
-            }
-
-            const restartResult = await updateTool.handler(context, restartAsDraftParams)
-            const restartedExperiment = parseToolResponse(restartResult)
+            // Reset back to draft
+            const resetResult = await resetTool.handler(context, { id: experiment.id })
+            const restartedExperiment = parseToolResponse(resetResult)
 
             expect(restartedExperiment.end_date).toBeNull()
             expect(restartedExperiment.conclusion).toBeNull()
@@ -1073,35 +1098,27 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Archive Test Experiment',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
             const experiment = parseToolResponse(createResult)
             trackExperiment(experiment)
 
-            // Archive the experiment
-            const archiveParams = {
-                experimentId: experiment.id,
-                data: {
-                    archive: true,
-                },
-            }
-
-            const archiveResult = await updateTool.handler(context, archiveParams)
+            // Archive the experiment via update
+            const archiveResult = await updateTool.handler(context, {
+                id: experiment.id,
+                archived: true,
+            } as any)
             const archivedExperiment = parseToolResponse(archiveResult)
 
             expect(archivedExperiment.archived).toBe(true)
 
             // Unarchive the experiment
-            const unarchiveParams = {
-                experimentId: experiment.id,
-                data: {
-                    archive: false,
-                },
-            }
-
-            const unarchiveResult = await updateTool.handler(context, unarchiveParams)
+            const unarchiveResult = await updateTool.handler(context, {
+                id: experiment.id,
+                archived: false,
+            } as any)
             const unarchivedExperiment = parseToolResponse(unarchiveResult)
 
             expect(unarchivedExperiment.archived).toBe(false)
@@ -1114,10 +1131,16 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Variants Update Test',
                 feature_flag_key: flagKey,
-                draft: true,
-                variants: [
-                    { key: 'control', rollout_percentage: 50 },
-                    { key: 'test', rollout_percentage: 50 },
+                parameters: {
+                    feature_flag_variants: [
+                        { key: 'control', split_percent: 50 },
+                        { key: 'test', split_percent: 50 },
+                    ],
+                },
+                allow_unknown_events: true,
+                feature_flag_variants: [
+                    { key: 'control', split_percent: 50 },
+                    { key: 'test', split_percent: 50 },
                 ],
             }
 
@@ -1126,14 +1149,12 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(experiment)
 
             // Update minimum detectable effect
-            const updateParamsParams = {
-                experimentId: experiment.id,
-                data: {
+            const updateResult = await updateTool.handler(context, {
+                id: experiment.id,
+                parameters: {
                     minimum_detectable_effect: 25,
                 },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParamsParams)
+            } as any)
             const updatedExperiment = parseToolResponse(updateResult)
 
             expect(updatedExperiment.parameters?.minimum_detectable_effect).toBe(25)
@@ -1142,26 +1163,21 @@ describe('Experiments', { concurrent: false }, () => {
         it('should handle invalid experiment ID', async () => {
             const invalidId = 999999
 
-            const updateParams = {
-                experimentId: invalidId,
-                data: {
-                    name: 'This should fail',
-                },
-            }
-
             try {
-                await updateTool.handler(context, updateParams)
+                await updateTool.handler(context, {
+                    id: invalidId,
+                    name: 'This should fail',
+                } as any)
                 expect.fail('Should have thrown an error for invalid experiment ID')
             } catch (error) {
                 expect(error).toBeTruthy()
-                expect((error as Error).message).toContain('Failed to update experiment')
             }
         })
 
-        it('should validate required experimentId parameter', async () => {
+        it('should validate required id parameter', async () => {
             try {
-                await updateTool.handler(context, { data: { name: 'Test' } } as any)
-                expect.fail('Should have thrown validation error for missing experimentId')
+                await updateTool.handler(context, { name: 'Test' } as any)
+                expect.fail('Should have thrown validation error for missing id')
             } catch (error) {
                 expect(error).toBeTruthy()
             }
@@ -1175,7 +1191,7 @@ describe('Experiments', { concurrent: false }, () => {
                 name: 'Partial Update Test',
                 description: 'Original description',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const createResult = await createTool.handler(context, createParams as any)
@@ -1183,14 +1199,10 @@ describe('Experiments', { concurrent: false }, () => {
             trackExperiment(experiment)
 
             // Update only name, leaving description unchanged
-            const updateParams = {
-                experimentId: experiment.id,
-                data: {
-                    name: 'Updated Name Only',
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
+            const updateResult = await updateTool.handler(context, {
+                id: experiment.id,
+                name: 'Updated Name Only',
+            } as any)
             const updatedExperiment = parseToolResponse(updateResult)
 
             expect(updatedExperiment.name).toBe('Updated Name Only')
@@ -1200,15 +1212,13 @@ describe('Experiments', { concurrent: false }, () => {
     })
 
     describe('Experiment status handling', () => {
-        const createTool = createExperimentTool()
-
         it('should correctly identify draft experiments', async () => {
             const flagKey = generateUniqueKey('exp-draft-status-flag')
 
             const params = {
                 name: 'Draft Status Experiment',
                 feature_flag_key: flagKey,
-                draft: true,
+                allow_unknown_events: true,
             }
 
             const result = await createTool.handler(context, params as any)
@@ -1218,26 +1228,102 @@ describe('Experiments', { concurrent: false }, () => {
             expect(experiment.start_date).toBeNull() // Draft experiments have no start date
         })
 
-        it('should handle immediate launch (non-draft) experiments', async () => {
-            const flagKey = generateUniqueKey('exp-launch-flag')
+        it('should handle launch then verify running state', async () => {
+            const flagKey = generateUniqueKey('exp-launch-status-flag')
 
             const params = {
-                name: 'Immediate Launch Experiment',
+                name: 'Launch Status Experiment',
                 feature_flag_key: flagKey,
-                draft: false,
+                allow_unknown_events: true,
             }
 
             try {
-                const result = await createTool.handler(context, params as any)
-                const experiment = parseToolResponse(result)
+                const createResult = await createTool.handler(context, params as any)
+                const experiment = parseToolResponse(createResult)
                 trackExperiment(experiment)
 
-                // Check actual date fields instead of computed status
-                expect(experiment.start_date).toBeTruthy() // Should have start date if launched
+                // Launch
+                const launchResult = await launchTool.handler(context, { id: experiment.id })
+                const launchedExperiment = parseToolResponse(launchResult)
+
+                // Check actual date fields
+                expect(launchedExperiment.start_date).toBeTruthy() // Should have start date if launched
             } catch (error) {
                 // Some environments might not allow immediate launch
                 expect(error).toBeTruthy()
             }
+        })
+    })
+
+    describe('Lifecycle tools', () => {
+        it('should pause and resume a running experiment', async () => {
+            const flagKey = generateUniqueKey('exp-pause-flag')
+
+            const createResult = await createTool.handler(context, {
+                name: 'Pause Test Experiment',
+                feature_flag_key: flagKey,
+            } as any)
+            const experiment = parseToolResponse(createResult)
+            trackExperiment(experiment)
+
+            // Launch
+            await launchTool.handler(context, { id: experiment.id })
+
+            // Pause
+            const pauseResult = await pauseTool.handler(context, { id: experiment.id })
+            const paused = parseToolResponse(pauseResult)
+            expect(paused.id).toBe(experiment.id)
+
+            // Resume
+            const resumeResult = await resumeTool.handler(context, { id: experiment.id })
+            const resumed = parseToolResponse(resumeResult)
+            expect(resumed.id).toBe(experiment.id)
+        })
+
+        it('should archive an ended experiment', async () => {
+            const flagKey = generateUniqueKey('exp-archive-lifecycle-flag')
+
+            const createResult = await createTool.handler(context, {
+                name: 'Archive Lifecycle Test',
+                feature_flag_key: flagKey,
+            } as any)
+            const experiment = parseToolResponse(createResult)
+            trackExperiment(experiment)
+
+            // Launch and end
+            await launchTool.handler(context, { id: experiment.id })
+            await endTool.handler(context, { id: experiment.id } as any)
+
+            // Archive via lifecycle tool
+            const archiveResult = await archiveTool.handler(context, { id: experiment.id })
+            const archived = parseToolResponse(archiveResult)
+            expect(archived.archived).toBe(true)
+        })
+
+        it('should ship a variant to 100%', async () => {
+            const flagKey = generateUniqueKey('exp-ship-flag')
+
+            const createResult = await createTool.handler(context, {
+                name: 'Ship Variant Test',
+                feature_flag_key: flagKey,
+            } as any)
+            const experiment = parseToolResponse(createResult)
+            trackExperiment(experiment)
+
+            // Launch first
+            await launchTool.handler(context, { id: experiment.id })
+
+            // Ship the control variant
+            const shipResult = await shipVariantTool.handler(context, {
+                id: experiment.id,
+                variant_key: 'control',
+                conclusion: 'won',
+                conclusion_comment: 'Control performed best',
+            } as any)
+            const shipped = parseToolResponse(shipResult)
+
+            expect(shipped.end_date).toBeTruthy()
+            expect(shipped.conclusion).toBe('won')
         })
     })
 })

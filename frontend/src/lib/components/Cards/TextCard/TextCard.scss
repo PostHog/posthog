@@ -3,13 +3,15 @@
     overflow-y: auto;
 
     ul {
-        list-style-position: inside;
+        padding-left: 1.5rem;
+        list-style-position: outside;
         list-style-type: disc;
     }
 
     ol {
-        list-style-position: inside;
-        list-style-type: numeric;
+        padding-left: 1.5rem;
+        list-style-position: outside;
+        list-style-type: decimal;
     }
 
     img {

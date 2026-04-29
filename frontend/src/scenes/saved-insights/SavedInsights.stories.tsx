@@ -39,7 +39,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const ListView: Story = {}
 
 export const EmptyState: Story = {

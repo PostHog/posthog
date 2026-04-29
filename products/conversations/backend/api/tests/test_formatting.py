@@ -3,6 +3,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.conversations.backend.formatting import (
+    _slack_emoji_name_to_char,
+    _slack_unicode_to_char,
     extract_images_from_rich_content,
     extract_slack_user_ids,
     rich_content_to_slack_payload,
@@ -22,6 +24,46 @@ class TestSlackFormatting(SimpleTestCase):
         content, rich_content = slack_to_content_and_rich_content(slack_text, None)
         assert content == expected
         assert rich_content is None
+
+    @parameterized.expand(
+        [
+            ("alias_thumbsup", ":+1:", "\U0001f44d"),
+            ("direct_lookup_fire", ":fire:", "\U0001f525"),
+            ("explicit_none_shipit", ":shipit:", ":shipit:"),
+            ("unknown_custom", ":acme_thing:", ":acme_thing:"),
+        ]
+    )
+    def test_mrkdwn_emoji_shortcode_conversion(self, _name: str, mrkdwn: str, expected: str) -> None:
+        content, _ = slack_to_content_and_rich_content(mrkdwn, None)
+        assert content == expected
+
+    @parameterized.expand(
+        [
+            (
+                "with_unicode_field",
+                {"type": "emoji", "name": "slightly_smiling_face", "unicode": "1f642"},
+                "\U0001f642",
+            ),
+            ("name_only_alias", {"type": "emoji", "name": "tada"}, "\U0001f389"),
+            ("name_only_direct", {"type": "emoji", "name": "rocket"}, "\U0001f680"),
+            ("unknown_custom", {"type": "emoji", "name": "acme_logo"}, ":acme_logo:"),
+        ]
+    )
+    def test_rich_text_emoji_element_conversion(self, _name: str, emoji_element: dict, expected: str) -> None:
+        blocks = [{"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": [emoji_element]}]}]
+        _, rich_content = slack_to_content_and_rich_content("", blocks)
+        assert rich_content is not None
+        text_node = rich_content["content"][0]["content"][0]
+        assert text_node["text"] == expected
+
+    def test_slack_unicode_hex_compound(self) -> None:
+        assert _slack_unicode_to_char("1f1fa-1f1f8") == "\U0001f1fa\U0001f1f8"
+
+    def test_slack_unicode_hex_empty(self) -> None:
+        assert _slack_unicode_to_char("") is None
+
+    def test_slack_emoji_name_returns_none_for_unknown(self) -> None:
+        assert _slack_emoji_name_to_char("totally_made_up_emoji_xyz") is None
 
     def test_inbound_blocks_parse_nested_styles_and_links(self) -> None:
         blocks = [

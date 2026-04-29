@@ -10,6 +10,7 @@ import {
     copySnappyWASMFile,
     createHashlessEntrypoints,
     isDev,
+    reportTopChunks,
     startDevServer,
 } from '@posthog/esbuilder'
 
@@ -42,7 +43,7 @@ await buildInParallel(
         {
             name: 'PostHog App',
             globalName: 'posthogApp',
-            entryPoints: ['src/index.tsx'],
+            entryPoints: ['src/index.tsx', 'src/sharedChunkAnchors.ts'],
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
@@ -53,6 +54,27 @@ await buildInParallel(
             entryPoints: ['src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts'],
             format: 'esm',
             outfile: path.resolve(__dirname, 'dist', 'decompressionWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco Editor Worker',
+            entryPoints: ['src/lib/monaco/workers/editor.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoEditorWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco JSON Worker',
+            entryPoints: ['src/lib/monaco/workers/json.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoJsonWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco TypeScript Worker',
+            entryPoints: ['src/lib/monaco/workers/ts.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoTsWorker.js'),
             ...common,
         },
         {
@@ -92,6 +114,9 @@ await buildInParallel(
                 if (!isDev && Object.keys(entrypoints).length === 0) {
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
+                }
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
                 }
                 writeIndexHtml(chunks, entrypoints)
             }

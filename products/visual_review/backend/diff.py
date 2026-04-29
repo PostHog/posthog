@@ -1,85 +1,66 @@
 """
-Image diff computation using pixelmatch.
+Image comparison using pixelhog (Rust-accelerated).
 
-Compares two images pixel-by-pixel with anti-aliasing detection,
-generates a diff visualization, and reports diff metrics.
+Single-pass: pixelmatch diff, SSIM, and optional thumbnail in one decode.
 """
 
 from dataclasses import dataclass
-from io import BytesIO
 
 from blake3 import blake3
-from PIL import Image
-from pixelmatch.contrib.PIL import pixelmatch
+from pixelhog import compare as pixelhog_compare
+
+THUMB_WIDTH = 200
+THUMB_HEIGHT = 140
 
 
 @dataclass
-class DiffResult:
-    """Result of comparing two images."""
-
-    diff_image: bytes  # PNG bytes of the diff visualization
-    diff_hash: str  # BLAKE3 hash of the diff image
+class CompareResult:
+    diff_image: bytes | None
+    diff_hash: str
     diff_percentage: float  # 0.0 to 100.0
     diff_pixel_count: int
+    ssim_score: float
     width: int
     height: int
+    thumbnail: bytes | None
+    thumbnail_hash: str
 
 
-def _pad_to_size(img: Image.Image, width: int, height: int) -> Image.Image:
-    if img.size == (width, height):
-        return img
-    padded = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    padded.paste(img, (0, 0))
-    return padded
-
-
-def compute_diff(baseline_bytes: bytes, current_bytes: bytes, threshold: float = 0.1) -> DiffResult:
+def compare_images(
+    baseline_bytes: bytes,
+    current_bytes: bytes,
+    threshold: float = 0.1,
+    with_thumbnail: bool = True,
+) -> CompareResult:
     """
-    Compare two PNG images and generate a diff visualization.
+    Compare two PNG images: pixelmatch diff, SSIM, and optional thumbnail.
 
-    Uses pixelmatch for accurate comparison with anti-aliasing detection.
-
-    Args:
-        baseline_bytes: PNG bytes of the baseline image
-        current_bytes: PNG bytes of the current image
-        threshold: pixelmatch color distance threshold (0-1), default 0.1
-
-    Returns:
-        DiffResult with diff image and metrics
+    Single Rust decode pass via pixelhog.compare().
     """
-    baseline = Image.open(BytesIO(baseline_bytes)).convert("RGBA")
-    current = Image.open(BytesIO(current_bytes)).convert("RGBA")
-
-    width = max(baseline.width, current.width)
-    height = max(baseline.height, current.height)
-
-    baseline = _pad_to_size(baseline, width, height)
-    current = _pad_to_size(current, width, height)
-
-    diff_output = Image.new("RGBA", (width, height))
-
-    diff_pixel_count = pixelmatch(
-        baseline,
-        current,
-        output=diff_output,
+    diff_pixel_count, ssim_score, width, height, diff_image, thumbnail = pixelhog_compare(
+        baseline_bytes,
+        current_bytes,
         threshold=threshold,
         alpha=0.1,
+        return_diff=True,
+        thumbnail_width=THUMB_WIDTH if with_thumbnail else None,
+        thumbnail_height=THUMB_HEIGHT if with_thumbnail else None,
     )
 
     total_pixels = width * height
     diff_percentage = (diff_pixel_count / total_pixels * 100) if total_pixels > 0 else 0.0
 
-    output = BytesIO()
-    diff_output.save(output, format="PNG", optimize=True)
-    diff_bytes = output.getvalue()
+    diff_hash = blake3(diff_image).hexdigest() if diff_image else ""
+    thumbnail_hash = blake3(thumbnail).hexdigest() if thumbnail else ""
 
-    diff_hash = blake3(diff_bytes).hexdigest()
-
-    return DiffResult(
-        diff_image=diff_bytes,
+    return CompareResult(
+        diff_image=diff_image,
         diff_hash=diff_hash,
         diff_percentage=round(diff_percentage, 4),
         diff_pixel_count=diff_pixel_count,
+        ssim_score=ssim_score,
         width=width,
         height=height,
+        thumbnail=thumbnail,
+        thumbnail_hash=thumbnail_hash,
     )

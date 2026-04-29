@@ -8,7 +8,7 @@ ALTER TABLE events COMMENT COLUMN IF EXISTS `mat_$set` ''
 operations = [
     run_sql_with_exceptions(
         REMOVE_MAT_SET_COLUMN_COMMENT,
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

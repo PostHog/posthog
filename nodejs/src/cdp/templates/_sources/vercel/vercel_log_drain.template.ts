@@ -203,6 +203,8 @@ let props := {
     'status_code': log.statusCode,
     'request_id': log.requestId,
     'execution_region': log.executionRegion,
+    'invocation_id': log.invocationId,
+    'instance_id': log.instanceId,
 
     // Build/deploy info
     'build_id': log.buildId,

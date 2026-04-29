@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getJSONOrNull } from 'lib/api'
-import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -30,7 +30,12 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage, canAccessBilling } from './billing-utils'
+import {
+    buildUsageLimitApproachingMessage,
+    buildUsageLimitExceededMessage,
+    canAccessBilling as canAccessBillingUtil,
+    getMinimumBillingAccessLevel,
+} from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -180,7 +185,7 @@ export const billingLogic = kea<billingLogicType>([
             preflightLogic,
             ['preflight'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'currentOrganizationId'],
         ],
         actions: [
             userLogic,
@@ -512,6 +517,19 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
+        minimumBillingAccessLevel: [
+            (s) => [s.featureFlags],
+            (featureFlags): OrganizationMembershipLevel =>
+                getMinimumBillingAccessLevel(!!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]),
+        ],
+        canAccessBilling: [
+            (s) => [s.currentOrganization, s.featureFlags],
+            (currentOrganization, featureFlags): boolean =>
+                canAccessBillingUtil(
+                    currentOrganization?.membership_level,
+                    !!featureFlags[FEATURE_FLAGS.OWNER_ONLY_BILLING]
+                ),
+        ],
         upgradeLink: [(s) => [s.preflight], (): string => '/organization/billing'],
         isUnlicensedDebug: [
             (s) => [s.preflight, s.billing],
@@ -593,6 +611,14 @@ export const billingLogic = kea<billingLogicType>([
         isAnnualPlanCustomer: [
             (s) => [s.billing],
             (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
+        ],
+        isProductOverUsageLimit: [
+            (s) => [s.billing],
+            (billing: BillingType | null): ((productKey: ProductKey) => boolean) =>
+                (productKey: ProductKey): boolean => {
+                    const product = billing?.products?.find((p) => p.type === productKey)
+                    return (product?.percentage_usage ?? 0) > 1
+                },
         ],
         billingPeriodUTC: [
             (s) => [s.billing],
@@ -809,8 +835,6 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            const hasBillingAccess = canAccessBilling(values.currentOrganization)
-
             const trial = values.billing.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
                 if (trial.type === 'autosubscribe' || trial.status !== 'active') {
@@ -859,14 +883,18 @@ export const billingLogic = kea<billingLogicType>([
                     if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
-                    if (isBillingAlertDismissed(values.currentOrganization?.id, x.type, billingPeriodEnd)) {
+                    if (isBillingAlertDismissed(values.currentOrganizationId, x.type, billingPeriodEnd)) {
                         return false
                     }
                     return true
                 }) || []
 
             if (productsOverLimit.length > 0) {
-                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit, hasBillingAccess)
+                const { title, message } = buildUsageLimitExceededMessage(
+                    productsOverLimit,
+                    values.canAccessBilling,
+                    values.minimumBillingAccessLevel
+                )
 
                 actions.setBillingAlert({
                     status: 'error',
@@ -878,7 +906,7 @@ export const billingLogic = kea<billingLogicType>([
                         const billingPeriodEnd =
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
                         for (const product of productsOverLimit) {
-                            storeBillingAlertDismissal(values.currentOrganization?.id, product.type, billingPeriodEnd)
+                            storeBillingAlertDismissal(values.currentOrganizationId, product.type, billingPeriodEnd)
                         }
                         actions.setBillingAlert(null)
                     },
@@ -900,12 +928,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     if (
-                        isBillingAlertDismissed(
-                            values.currentOrganization?.id,
-                            x.type,
-                            billingPeriodEnd,
-                            '-approaching'
-                        )
+                        isBillingAlertDismissed(values.currentOrganizationId, x.type, billingPeriodEnd, '-approaching')
                     ) {
                         return false
                     }
@@ -913,7 +936,11 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsApproachingLimit.length > 0) {
-                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit, hasBillingAccess)
+                const { title, message } = buildUsageLimitApproachingMessage(
+                    productsApproachingLimit,
+                    values.canAccessBilling,
+                    values.minimumBillingAccessLevel
+                )
 
                 actions.setBillingAlert({
                     status: 'info',
@@ -926,7 +953,7 @@ export const billingLogic = kea<billingLogicType>([
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
                         for (const product of productsApproachingLimit) {
                             storeBillingAlertDismissal(
-                                values.currentOrganization?.id,
+                                values.currentOrganizationId,
                                 product.type,
                                 billingPeriodEnd,
                                 '-approaching'

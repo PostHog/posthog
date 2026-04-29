@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -16,15 +16,43 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import { LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
+import { MarkdownOutline } from '../components/MarkdownOutline'
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
+function PromptOutline({
+    promptText,
+    containerRef,
+    className,
+}: {
+    promptText: string
+    containerRef: React.RefObject<HTMLDivElement | null>
+    className?: string
+}): JSX.Element | null {
+    const { isOutlineExpanded } = useValues(llmPromptLogic)
+    const { toggleOutlineExpanded } = useActions(llmPromptLogic)
+
+    return (
+        <MarkdownOutline
+            markdownText={promptText}
+            containerRef={containerRef}
+            className={className}
+            label="Prompt outline"
+            tooltipText="Navigate the sections of your prompt. Click a heading to scroll to it."
+            dataAttrPrefix="llma-prompt"
+            isExpanded={isOutlineExpanded}
+            onToggleExpanded={toggleOutlineExpanded}
+        />
+    )
+}
+
 export function PromptViewDetails(): JSX.Element {
     const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
         useValues(llmPromptLogic)
     const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
+    const markdownContainerRef = useRef<HTMLDivElement>(null)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -100,7 +128,14 @@ export function PromptViewDetails(): JSX.Element {
                 {isDiffVisible ? (
                     <PromptDiffView />
                 ) : isRenderingMarkdown ? (
-                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{prompt.prompt}</LemonMarkdown>
+                    <>
+                        <PromptOutline promptText={promptText} containerRef={markdownContainerRef} className="mt-2" />
+                        <div ref={markdownContainerRef}>
+                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                                {promptText}
+                            </LemonMarkdown>
+                        </div>
+                    </>
                 ) : (
                     <pre className="mt-1 max-w-3xl rounded border bg-bg-light p-3 whitespace-pre-wrap">
                         {prompt.prompt}
@@ -175,6 +210,7 @@ function PromptDiffView(): JSX.Element {
                     >
                         <MonacoDiffEditor
                             original={original}
+                            value={modified}
                             modified={modified}
                             language="markdown"
                             options={{

@@ -93,6 +93,7 @@ LOGGING = {
         "kafka.conn": {"level": "WARN"},  # kafka-python logs are noisy
         "posthog.caching.warming": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.alerts": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.tasks.split_person": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.email": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.exports": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.llm_analytics_usage_report": {"level": "INFO", "handlers": ["console"], "propagate": False},

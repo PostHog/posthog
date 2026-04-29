@@ -13,6 +13,7 @@ import {
     ExperimentMetricType,
     ExperimentTrendsQuery,
     NodeKind,
+    ProductKey,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -20,7 +21,6 @@ import {
     ExperimentMetricMathType,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
-    FeatureFlagFilters,
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
@@ -32,6 +32,7 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getEventCountQuery,
     getOrderedMetricsWithResults,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
@@ -39,7 +40,6 @@ import {
     isLegacyExperiment,
     isLegacyExperimentQuery,
     percentageDistribution,
-    transformFiltersForWinningVariant,
 } from './utils'
 
 describe('utils', () => {
@@ -104,136 +104,6 @@ describe('utils', () => {
         ])('returns $expected for variants with percentages $variants', ({ variants, expected }) => {
             expect(isEvenlyDistributed(variants)).toBe(expected)
         })
-    })
-
-    it('transforms filters for a winning variant', async () => {
-        let currentFilters: FeatureFlagFilters = {
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                },
-            ],
-            payloads: {},
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        rollout_percentage: 50,
-                    },
-                    {
-                        key: 'test',
-                        rollout_percentage: 50,
-                    },
-                ],
-            },
-            aggregation_group_type_index: null,
-        }
-        let expectedFilters: FeatureFlagFilters = {
-            aggregation_group_type_index: null,
-            payloads: {},
-            multivariate: {
-                variants: [
-                    { key: 'control', rollout_percentage: 0 },
-                    { key: 'test', rollout_percentage: 100 },
-                ],
-            },
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    description: 'Added automatically when the experiment was ended to keep only one variant.',
-                },
-                { properties: [], rollout_percentage: 100 },
-            ],
-        }
-
-        let newFilters = transformFiltersForWinningVariant(currentFilters, 'test')
-        expect(newFilters).toEqual(expectedFilters)
-
-        currentFilters = {
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                },
-            ],
-            payloads: {
-                test_1: "{key: 'test_1'}",
-                test_2: "{key: 'test_2'}",
-                test_3: "{key: 'test_3'}",
-                control: "{key: 'control'}",
-            },
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        name: 'This is control',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_1',
-                        name: 'This is test_1',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_2',
-                        name: 'This is test_2',
-                        rollout_percentage: 25,
-                    },
-                    {
-                        key: 'test_3',
-                        name: 'This is test_3',
-                        rollout_percentage: 25,
-                    },
-                ],
-            },
-            aggregation_group_type_index: 1,
-        }
-        expectedFilters = {
-            aggregation_group_type_index: 1,
-            payloads: {
-                test_1: "{key: 'test_1'}",
-                test_2: "{key: 'test_2'}",
-                test_3: "{key: 'test_3'}",
-                control: "{key: 'control'}",
-            },
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control',
-                        name: 'This is control',
-                        rollout_percentage: 100,
-                    },
-                    {
-                        key: 'test_1',
-                        name: 'This is test_1',
-                        rollout_percentage: 0,
-                    },
-                    {
-                        key: 'test_2',
-                        name: 'This is test_2',
-                        rollout_percentage: 0,
-                    },
-                    {
-                        key: 'test_3',
-                        name: 'This is test_3',
-                        rollout_percentage: 0,
-                    },
-                ],
-            },
-            groups: [
-                {
-                    properties: [],
-                    rollout_percentage: 100,
-                    description: 'Added automatically when the experiment was ended to keep only one variant.',
-                },
-                { properties: [], rollout_percentage: 100 },
-            ],
-        }
-
-        newFilters = transformFiltersForWinningVariant(currentFilters, 'control')
-        expect(newFilters).toEqual(expectedFilters)
     })
 })
 
@@ -683,6 +553,7 @@ describe('checkFeatureFlagEligibility', () => {
         deleted: false,
         active: true,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,
@@ -694,7 +565,6 @@ describe('checkFeatureFlagEligibility', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-        evaluation_tags: [],
         evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
@@ -1479,5 +1349,37 @@ describe('getOrderedMetricsWithResults', () => {
 
             expect(ordered[0].metricIndex).toBe(0)
         })
+    })
+})
+
+describe('getEventCountQuery', () => {
+    it('includes product analytics tags in the query', () => {
+        const metric: ExperimentMetric = {
+            uuid: 'test-metric',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: 'Pageview',
+            },
+        }
+
+        const query = getEventCountQuery(metric, true)
+
+        expect(query).not.toBeNull()
+        expect(query?.tags).toEqual({ productKey: ProductKey.PRODUCT_ANALYTICS })
+    })
+
+    it('returns null when series is empty', () => {
+        const metric: ExperimentMetric = {
+            uuid: 'test-metric',
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+        } as ExperimentMetric
+
+        const query = getEventCountQuery(metric, true)
+
+        expect(query).toBeNull()
     })
 })

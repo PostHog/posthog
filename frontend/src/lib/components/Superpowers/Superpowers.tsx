@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
-import { FakeStatusOverride, superpowersLogic } from './superpowersLogic'
+import { FakeBillingAlert, FakeStatusOverride, superpowersLogic } from './superpowersLogic'
 
 export function SuperpowersModal(): JSX.Element | null {
     const { isSuperpowersOpen } = useValues(superpowersLogic)
@@ -30,12 +33,22 @@ const STATUS_OPTIONS: { value: FakeStatusOverride; label: string }[] = [
     { value: 'major_outage', label: 'Major outage' },
 ]
 
+const BILLING_ALERT_OPTIONS: { value: FakeBillingAlert; label: string }[] = [
+    { value: 'none', label: 'None (use real alerts)' },
+    { value: 'info', label: 'Info' },
+    { value: 'warning', label: 'Warning' },
+    { value: 'error', label: 'Error' },
+]
+
 function SuperpowersContent(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const { fakeStatusOverride } = useValues(superpowersLogic)
-    const { closeSuperpowers, setFakeStatusOverride } = useActions(superpowersLogic)
+    const { fakeStatusOverride, fakeBillingAlert } = useValues(superpowersLogic)
+    const { closeSuperpowers, setFakeStatusOverride, setFakeBillingAlert } = useActions(superpowersLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+    const { isDev } = useValues(preflightLogic)
 
     const clearOnboardingTasks = (): void => {
         updateCurrentTeam({ onboarding_tasks: {} })
@@ -108,6 +121,54 @@ function SuperpowersContent(): JSX.Element {
                     </div>
                 </div>
             </div>
+
+            <LemonDivider />
+
+            <div>
+                <h3 className="font-semibold mb-2">Billing</h3>
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between p-2 border rounded">
+                        <div>
+                            <div className="font-medium">Fake billing alert</div>
+                            <div className="text-sm text-secondary">Simulate a billing alert banner for testing</div>
+                        </div>
+                        <LemonSelect
+                            size="small"
+                            value={fakeBillingAlert}
+                            options={BILLING_ALERT_OPTIONS}
+                            onChange={setFakeBillingAlert}
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {isDev && (
+                <>
+                    <LemonDivider />
+
+                    <div>
+                        <h3 className="font-semibold mb-2">
+                            AI <LemonTag size="small">Dev only</LemonTag>
+                        </h3>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between p-2 border rounded">
+                                <div>
+                                    <div className="font-medium">Enable AI data processing</div>
+                                    <div className="text-sm text-secondary">
+                                        Toggle organization-level AI data processing approval
+                                    </div>
+                                </div>
+                                <LemonSwitch
+                                    checked={dataProcessingAccepted}
+                                    onChange={(checked) =>
+                                        updateOrganization({ is_ai_data_processing_approved: checked })
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
 
             <LemonDivider />
 

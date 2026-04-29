@@ -82,6 +82,14 @@ impl Handle {
         self.inner.shutdown_token.is_cancelled()
     }
 
+    /// Returns a clone of the internal `CancellationToken`. Useful for passing
+    /// directly to subsystems that accept a token for cooperative cancellation,
+    /// avoiding the need to spawn a bridge task between `shutdown_signal()` and
+    /// a separate token.
+    pub fn shutdown_token(&self) -> CancellationToken {
+        self.inner.shutdown_token.clone()
+    }
+
     /// Signal a fatal error; triggers global shutdown. Just return after calling this —
     /// the manager records the failure immediately and the subsequent handle/guard drop
     /// during shutdown is harmlessly ignored.

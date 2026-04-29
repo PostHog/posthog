@@ -25,6 +25,7 @@ interface LemonInputPropsBase extends Pick<
     | 'onKeyDown'
     | 'onKeyUp'
     | 'onKeyPress'
+    | 'onPaste'
     | 'autoComplete'
     | 'autoCorrect'
     | 'autoCapitalize'
@@ -71,6 +72,8 @@ export interface LemonInputPropsText extends LemonInputPropsBase {
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
+    /** Seconds between valid values; mainly for `type="time"` (passed to native `<input>`). */
+    step?: number
 }
 
 export interface LemonInputPropsNumber
@@ -252,7 +255,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (onPressEnter && event.key === 'Enter') {
+                        if (onPressEnter && event.key === 'Enter' && !event.nativeEvent.isComposing) {
                             onPressEnter(event)
                         }
                     }}

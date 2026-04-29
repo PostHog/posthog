@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
@@ -83,7 +83,7 @@ describe('IngestionTestingConsumer', () => {
         hub: Hub,
         overrides?: ConstructorParameters<typeof IngestionTestingConsumer>[2]
     ) => {
-        const ingester = new IngestionTestingConsumer(hub, hub, overrides)
+        const ingester = new IngestionTestingConsumer(hub, { ...hub, kafkaProducer: mockProducer }, overrides)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
@@ -121,9 +121,9 @@ describe('IngestionTestingConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
         ingester = await createIngestionTestingConsumer(hub)
     })

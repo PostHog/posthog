@@ -15,7 +15,8 @@
             "type": null,
             "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00001.json"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "ai-deletes-dashboard"
     },
     {
         "signal_id": "35608a6e-5f3f-4cb6-a5ec-0816f7e3e3fe",
@@ -33,11 +34,12 @@
             "type": null,
             "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00002.json"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "ai-deletes-dashboard"
     },
     {
         "signal_id": "a884e234-eca9-491f-869e-e02f2c523ef5",
-        "content": "<@U00000000AA>  We're facing some issue with posthog.\n\n\n•    Slowness in creating or viewing dashboard insights \n•    Auto deletes some dashboard which I created recently \n\nPls check and fix this or Let's connect for this\n\nCC: <@U00000000BB>\n **John Smith** (@John Smith) from Widget Inc\n\n@U00000000AA We're facing some issue with posthog.\n\n• Slowness in creating or viewing dashboard insights\n• Auto deletes some dashboard which I created recently\nPls check and fix this or Let's connect for this\n\nCC: @U00000000BB",
+        "content": "<@U00000000AA>  We're facing some issue with posthog.\n\n\n\u2022    Slowness in creating or viewing dashboard insights \n\u2022    Auto deletes some dashboard which I created recently \n\nPls check and fix this or Let's connect for this\n\nCC: <@U00000000BB>\n **John Smith** (@John Smith) from Widget Inc\n\n@U00000000AA We're facing some issue with posthog.\n\n\u2022 Slowness in creating or viewing dashboard insights\n\u2022 Auto deletes some dashboard which I created recently\nPls check and fix this or Let's connect for this\n\nCC: @U00000000BB",
         "source_product": "zendesk",
         "source_type": "ticket",
         "source_id": "00003",
@@ -51,11 +53,12 @@
             "type": null,
             "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00003.json"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "ai-deletes-dashboard"
     },
     {
         "signal_id": "3ad7657e-04d5-4650-8346-6f43e8512e3f",
-        "content": "Community question: GDPR compliant consent not being remembered in NextJS\nReply here: https://posthog.com/questions/gdpr-compliant-consent-not-being-remembered-in-next-js\n* * *\n\nI am implementing a GDPR-compliant consent flow in a Next.js (App Router) project using posthog-js, but I’m running into a persistence issue. Even after calling `opt_in_capturing()` or `opt_out_capturing()`, the choice is lost upon page refresh, causing the consent banner to reappear every time.\n\nHere is the init:\n\n    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {\n      api_host: '/ph',\n      ui_host: 'https://eu.posthog.com',\n      defaults: '2025-11-30',\n      opt_out_capturing_by_default: true,\n      cookieless_mode: 'on_reject',\n      autocapture: false,\n      capture_pageview: true,\n      opt_out_capturing_persistence_type: 'localStorage',\n      persistence: 'localStorage',\n    })\n\nThe Issue:\n\n- User arrives → `get_explicit_consent_status()` is pending (Banner shows).\n- User clicks \"Accept\" or \"Decline\" → I call `opt_in_capturing()` or `opt_out_capturing()`.\n- I can see the state change in LocalStorage.\n- On Page Refresh, the LocalStorage KV has disappeared, and the banner shows again.\n\nIs there something wrong with my configuration or something else I am missing? Thanks",
+        "content": "Community question: GDPR compliant consent not being remembered in NextJS\nReply here: https://posthog.com/questions/gdpr-compliant-consent-not-being-remembered-in-next-js\n* * *\n\nI am implementing a GDPR-compliant consent flow in a Next.js (App Router) project using posthog-js, but I\u2019m running into a persistence issue. Even after calling `opt_in_capturing()` or `opt_out_capturing()`, the choice is lost upon page refresh, causing the consent banner to reappear every time.\n\nHere is the init:\n\n    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {\n      api_host: '/ph',\n      ui_host: 'https://eu.posthog.com',\n      defaults: '2025-11-30',\n      opt_out_capturing_by_default: true,\n      cookieless_mode: 'on_reject',\n      autocapture: false,\n      capture_pageview: true,\n      opt_out_capturing_persistence_type: 'localStorage',\n      persistence: 'localStorage',\n    })\n\nThe Issue:\n\n- User arrives \u2192 `get_explicit_consent_status()` is pending (Banner shows).\n- User clicks \"Accept\" or \"Decline\" \u2192 I call `opt_in_capturing()` or `opt_out_capturing()`.\n- I can see the state change in LocalStorage.\n- On Page Refresh, the LocalStorage KV has disappeared, and the banner shows again.\n\nIs there something wrong with my configuration or something else I am missing? Thanks",
         "source_product": "zendesk",
         "source_type": "ticket",
         "source_id": "00004",
@@ -69,7 +72,8 @@
             "type": null,
             "url": "https://posthoghelp.zendesk.com/api/v2/tickets/00004.json"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "gdpr"
     },
     {
         "signal_id": "770c0954-b202-4220-9ed0-bfef7f81b37f",
@@ -88,7 +92,8 @@
             "state": "open",
             "updated_at": "2025-12-09T21:55:58Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "feature-request-previous-insights"
     },
     {
         "signal_id": "856c46d4-7211-40f0-be36-4cd2a5f9ef54",
@@ -107,7 +112,8 @@
             "state": "open",
             "updated_at": "2025-12-04T09:35:17Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "insights-date-picker"
     },
     {
         "signal_id": "c7eee403-1abb-4b9b-9065-f65b08fe4e27",
@@ -126,7 +132,8 @@
             "state": "open",
             "updated_at": "2026-01-21T18:28:33Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-metrics"
     },
     {
         "signal_id": "e6e731ed-e06b-42bc-be0b-43277224004d",
@@ -145,11 +152,12 @@
             "state": "open",
             "updated_at": "2025-12-03T17:08:22Z"
         },
-        "original_report_id": "019c91bb-38cd-71e5-be73-91906ca7e70d"
+        "original_report_id": "019c91bb-38cd-71e5-be73-91906ca7e70d",
+        "correct_cluster_id": "surveys-migrate-products"
     },
     {
         "signal_id": "8d92dec7-5ae4-4e55-a1da-58751a984b59",
-        "content": "Feature request: Configurable bin width for funnel Time to Convert histogram\n### Feature request\n\nTitle\nFeature request: Configurable bin width for funnel Time to Convert histogram\n## Is your feature request related to a problem?\n\nThe Time to Convert histogram calculates bin width dynamically based on max conversion time ÷ number of bins. This means bin boundaries shift when the data distribution changes, making it harder to track trends over time or compare across date ranges.\n## Describe the solution you'd like\n\nOption to set a fixed bin width (e.g., \"1 minute per bin\") instead of only choosing the number of bins. This would keep bin boundaries stable for consistent trend analysis.\n## Describe alternatives you've considered\nSQL insights\n## Additional context\nFrom https://posthoghelp.zendesk.com/agent/tickets/00000\n\n\n\n### Debug info\n\n```shell\n\n```",
+        "content": "Feature request: Configurable bin width for funnel Time to Convert histogram\n### Feature request\n\nTitle\nFeature request: Configurable bin width for funnel Time to Convert histogram\n## Is your feature request related to a problem?\n\nThe Time to Convert histogram calculates bin width dynamically based on max conversion time \u00f7 number of bins. This means bin boundaries shift when the data distribution changes, making it harder to track trends over time or compare across date ranges.\n## Describe the solution you'd like\n\nOption to set a fixed bin width (e.g., \"1 minute per bin\") instead of only choosing the number of bins. This would keep bin boundaries stable for consistent trend analysis.\n## Describe alternatives you've considered\nSQL insights\n## Additional context\nFrom https://posthoghelp.zendesk.com/agent/tickets/00000\n\n\n\n### Debug info\n\n```shell\n\n```",
         "source_product": "github",
         "source_type": "issue",
         "source_id": "3708652062",
@@ -164,7 +172,8 @@
             "state": "open",
             "updated_at": "2026-02-02T22:53:50Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "funnel-time-to-convert"
     },
     {
         "signal_id": "907c2eec-e7e7-4bd3-9500-6fbada1a0f25",
@@ -183,7 +192,8 @@
             "state": "open",
             "updated_at": "2025-12-09T00:58:16Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "funnel-time-to-convert"
     },
     {
         "signal_id": "043fb977-c270-4506-9bfd-ddecd75200fe",
@@ -202,7 +212,8 @@
             "state": "open",
             "updated_at": "2026-02-17T16:36:53Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-messaging-events"
     },
     {
         "signal_id": "f76205aa-f155-4034-99b6-de9312479c0c",
@@ -221,7 +232,8 @@
             "state": "open",
             "updated_at": "2026-02-03T15:54:45Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-messaging-events"
     },
     {
         "signal_id": "c08e73c7-bab9-4647-8330-0394842d125a",
@@ -240,7 +252,8 @@
             "state": "open",
             "updated_at": "2025-12-18T18:05:43Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "reverse-funnels"
     },
     {
         "signal_id": "0bb96104-126b-40ab-8185-073613deffde",
@@ -259,7 +272,8 @@
             "state": "open",
             "updated_at": "2025-12-29T19:43:06Z"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "flags-ssr-bootstrap"
     },
     {
         "signal_id": "9ad1a550-e963-4ddc-ac46-aab8ac814bda",
@@ -278,11 +292,12 @@
             "state": "open",
             "updated_at": "2025-12-29T16:30:03Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "ai-sql-editor-crash"
     },
     {
         "signal_id": "f9436848-d5ec-4940-9a33-8b94b9fa791f",
-        "content": "Feature request for the PostHog .NET SDK to support an external or shared cache provider (such as Redis) for local evaluation of feature flags. Currently, the .NET SDK only supports an in-memory local cache, which leads to inconsistent feature flag states across distributed environments where multiple application instances are running. When a client’s requests are handled by different instances, the lack of a shared state can cause \"flickering\" or inconsistent rollouts. The request seeks an officially supported way to configure a distributed cache to ensure strict consistency of feature flag states per client across all instances in a .NET deployment.",
+        "content": "Feature request for the PostHog .NET SDK to support an external or shared cache provider (such as Redis) for local evaluation of feature flags. Currently, the .NET SDK only supports an in-memory local cache, which leads to inconsistent feature flag states across distributed environments where multiple application instances are running. When a client\u2019s requests are handled by different instances, the lack of a shared state can cause \"flickering\" or inconsistent rollouts. The request seeks an officially supported way to configure a distributed cache to ensure strict consistency of feature flag states per client across all instances in a .NET deployment.",
         "source_product": "github",
         "source_type": "issue",
         "source_id": "3781606746",
@@ -297,7 +312,8 @@
             "state": "open",
             "updated_at": "2026-01-05T14:01:43Z"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "dotnet-sdk-flags-cache"
     },
     {
         "signal_id": "d278c6b4-4f0d-4cf3-9e85-6d80bc15204e",
@@ -316,7 +332,8 @@
             "state": "open",
             "updated_at": "2026-02-10T06:49:30Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-push-notifications"
     },
     {
         "signal_id": "7156b382-8674-4c5a-b35a-911809380814",
@@ -335,7 +352,8 @@
             "state": "open",
             "updated_at": "2026-01-08T19:03:51Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-metrics"
     },
     {
         "signal_id": "96d57d3c-df7c-4146-bb1d-c4f2666ed8f6",
@@ -354,7 +372,8 @@
             "state": "open",
             "updated_at": "2026-01-08T19:08:12Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-metrics"
     },
     {
         "signal_id": "9ce991a7-2bcf-45fe-bd5f-316dfabdbfad",
@@ -373,7 +392,8 @@
             "state": "open",
             "updated_at": "2026-02-11T23:32:29Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "ai-insight-creation-fails"
     },
     {
         "signal_id": "2673aeb0-51c7-41d6-ab7c-c7ad0d696135",
@@ -392,7 +412,8 @@
             "state": "open",
             "updated_at": "2026-01-20T13:31:38Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "lifecycle-biweekly-interval"
     },
     {
         "signal_id": "b9cda7e7-eace-475f-8fb0-db9a8a666c2c",
@@ -411,7 +432,8 @@
             "state": "open",
             "updated_at": "2026-02-12T12:24:09Z"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "flags-infrastructure"
     },
     {
         "signal_id": "d1e21fb4-f838-4c69-8537-fe2e66938500",
@@ -430,7 +452,8 @@
             "state": "open",
             "updated_at": "2026-01-12T12:14:20Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "save-ai-chats"
     },
     {
         "signal_id": "60e272e4-44ab-4cb1-a304-cc98d4137dfa",
@@ -449,7 +472,8 @@
             "state": "open",
             "updated_at": "2026-01-12T12:33:50Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "insights-date-picker"
     },
     {
         "signal_id": "34ad5f61-0588-4f5c-aac9-f88d89fe32d7",
@@ -468,7 +492,8 @@
             "state": "open",
             "updated_at": "2026-01-13T14:36:47Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "dashboard-show-details-bug"
     },
     {
         "signal_id": "c8828101-5324-40ba-bce2-79c637b98a77",
@@ -487,7 +512,8 @@
             "state": "open",
             "updated_at": "2026-01-20T20:59:31Z"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "flags-ssr-bootstrap"
     },
     {
         "signal_id": "9fe354a3-f0fc-49cc-aaf5-18d30c03849c",
@@ -506,7 +532,8 @@
             "state": "open",
             "updated_at": "2026-01-21T18:44:39Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-metrics"
     },
     {
         "signal_id": "5abd0849-eb48-466c-8dd5-edba68209e5f",
@@ -525,7 +552,8 @@
             "state": "open",
             "updated_at": "2026-02-12T13:39:51Z"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "flags-infrastructure"
     },
     {
         "signal_id": "7c039b11-a4d1-41c8-955a-df0957ba8e27",
@@ -544,7 +572,8 @@
             "state": "open",
             "updated_at": "2026-01-30T19:43:55Z"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "flags-infrastructure"
     },
     {
         "signal_id": "63ce060f-58b8-4515-a595-f3334293bffb",
@@ -563,7 +592,8 @@
             "state": "open",
             "updated_at": "2026-02-12T13:39:48Z"
         },
-        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030"
+        "original_report_id": "019c91a6-b852-7db2-a655-049de3e58030",
+        "correct_cluster_id": "flags-infrastructure"
     },
     {
         "signal_id": "b51b50ed-ad3f-427d-8973-33393e08239a",
@@ -582,7 +612,8 @@
             "state": "open",
             "updated_at": "2026-02-11T23:22:40Z"
         },
-        "original_report_id": "019c9216-8de2-7969-bd3c-eac8fb68d472"
+        "original_report_id": "019c9216-8de2-7969-bd3c-eac8fb68d472",
+        "correct_cluster_id": "merch-checkout-broken"
     },
     {
         "signal_id": "e3f4bb7c-96d3-497c-a8a3-85055cbe3252",
@@ -601,7 +632,8 @@
             "state": "open",
             "updated_at": "2026-02-02T13:54:17Z"
         },
-        "original_report_id": "019c9217-7186-73b2-b382-100ed5f597cc"
+        "original_report_id": "019c9217-7186-73b2-b382-100ed5f597cc",
+        "correct_cluster_id": "gitlab-self-hosted-issue"
     },
     {
         "signal_id": "07c69c14-23b5-4867-b5bb-770c784a7883",
@@ -620,11 +652,12 @@
             "state": "open",
             "updated_at": "2026-02-03T16:27:03Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "workflow-ms-teams"
     },
     {
         "signal_id": "47598733-d807-42e7-ae82-488c06796e9b",
-        "content": "In the LLM analytics trace view, tool responses containing certain content—specifically Markdown files with embedded HTML or XML-like tags—are being replaced with an `Invalid XML content` error message. This issue occurs when the tool response is being rendered with \"XML highlighting\" enabled. The problem was observed when a tool returned a README file containing `<img>`, `<div>`, and `<br>` tags. Disabling XML highlighting or switching to Markdown highlighting does not resolve the display error once triggered. The core issue lies in the trace viewer's XML parser failing to handle non-well-formed XML content (like standard HTML/Markdown) within tool outputs.",
+        "content": "In the LLM analytics trace view, tool responses containing certain content\u2014specifically Markdown files with embedded HTML or XML-like tags\u2014are being replaced with an `Invalid XML content` error message. This issue occurs when the tool response is being rendered with \"XML highlighting\" enabled. The problem was observed when a tool returned a README file containing `<img>`, `<div>`, and `<br>` tags. Disabling XML highlighting or switching to Markdown highlighting does not resolve the display error once triggered. The core issue lies in the trace viewer's XML parser failing to handle non-well-formed XML content (like standard HTML/Markdown) within tool outputs.",
         "source_product": "github",
         "source_type": "issue",
         "source_id": "3893587495",
@@ -639,7 +672,8 @@
             "state": "open",
             "updated_at": "2026-02-04T12:02:24Z"
         },
-        "original_report_id": "019c921a-bffb-74cf-9993-5c4113d6ec89"
+        "original_report_id": "019c921a-bffb-74cf-9993-5c4113d6ec89",
+        "correct_cluster_id": "llm-trace-view-bugs"
     },
     {
         "signal_id": "17db641c-3a2e-48a6-b6a1-44eb433888c2",
@@ -658,7 +692,8 @@
             "state": "open",
             "updated_at": "2026-02-04T09:42:57Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "breakdown-value-conflict"
     },
     {
         "signal_id": "e3d71017-ad4e-4590-ba83-022d67413c9e",
@@ -677,7 +712,8 @@
             "state": "open",
             "updated_at": "2026-02-04T10:14:44Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "unsaved-insight-warning"
     },
     {
         "signal_id": "6cb8dd89-b812-4110-a9df-815bca4c82a0",
@@ -696,7 +732,8 @@
             "state": "open",
             "updated_at": "2026-02-09T15:23:19Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "insights-date-picker"
     },
     {
         "signal_id": "9fc35493-c63f-4b20-9b8b-7259d52d47fc",
@@ -715,7 +752,8 @@
             "state": "open",
             "updated_at": "2026-02-05T16:04:04Z"
         },
-        "original_report_id": "019c921d-6902-766a-a17f-49a7ee6fe59d"
+        "original_report_id": "019c921d-6902-766a-a17f-49a7ee6fe59d",
+        "correct_cluster_id": "workflow-templating-warning"
     },
     {
         "signal_id": "44d20a59-e2f6-4e33-b600-931be5774182",
@@ -734,7 +772,8 @@
             "state": "open",
             "updated_at": "2026-02-05T18:37:18Z"
         },
-        "original_report_id": "019c921a-bffb-74cf-9993-5c4113d6ec89"
+        "original_report_id": "019c921a-bffb-74cf-9993-5c4113d6ec89",
+        "correct_cluster_id": "llm-trace-view-bugs"
     },
     {
         "signal_id": "e1081f97-f414-4d52-8abc-73815588019c",
@@ -753,7 +792,8 @@
             "state": "open",
             "updated_at": "2026-02-06T15:49:02Z"
         },
-        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c"
+        "original_report_id": "019c91b8-3461-7070-848d-3bdae529f82c",
+        "correct_cluster_id": "insights-date-picker"
     },
     {
         "signal_id": "a18057ab-4278-4cc2-83af-03e610b7d83a",
@@ -772,7 +812,8 @@
             "state": "open",
             "updated_at": "2026-02-09T09:33:35Z"
         },
-        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969"
+        "original_report_id": "019c9198-9d78-7f02-a212-5a47954b8969",
+        "correct_cluster_id": "ai-knowledge-base"
     },
     {
         "signal_id": "50873285-6f20-4c6f-bd6c-6f9d11525d96",
@@ -791,6 +832,7 @@
             "state": "open",
             "updated_at": "2026-02-09T14:14:21Z"
         },
-        "original_report_id": "019c9221-dcbb-797d-babc-990d84cfabb3"
+        "original_report_id": "019c9221-dcbb-797d-babc-990d84cfabb3",
+        "correct_cluster_id": "sdk-automated-maintenance"
     }
 ]

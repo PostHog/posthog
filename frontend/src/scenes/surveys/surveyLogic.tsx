@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -51,6 +51,7 @@ import {
     FeatureFlagFilters,
     HogFunctionType,
     IntervalType,
+    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     OpenQuestionProcessedResponses,
     OpenQuestionResponseData,
@@ -74,6 +75,7 @@ import {
 } from '~/types'
 
 import {
+    LOADING_SURVEY_RESULTS_TOAST_ID,
     NEW_SURVEY,
     NewSurvey,
     SURVEY_CREATED_SOURCE,
@@ -91,6 +93,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildPartialResponsesFilter,
+    buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
@@ -108,6 +111,41 @@ import {
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
+export type TranslationValidationError = {
+    language: string
+    questionIndex: number
+    field: string
+    error: string
+}
+
+type SurveyTranslationField = keyof NonNullable<Survey['translations']>[string]
+type QuestionTranslation = NonNullable<SurveyQuestion['translations']>[string]
+type QuestionTextTranslationField = Exclude<keyof QuestionTranslation, 'choices'>
+type TranslationFieldCheck<T extends string> = {
+    key: T
+    defaultValue?: string | null
+}
+
+const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
+
+const SURVEY_QUERY_TAGS = {
+    baseStats: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_base_stats' as const },
+    dismissedAndSent: {
+        ...SURVEY_QUERY_TAG_BASE,
+        name: 'survey_dismissed_sent_overlap' as const,
+    },
+    aggregateResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_aggregate' as const },
+    openEndedResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_open_ended' as const },
+}
+
+const isChoiceSurveyQuestion = (question: SurveyQuestion): question is MultipleSurveyQuestion =>
+    question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
+
+const isLinkSurveyQuestion = (question: SurveyQuestion): question is LinkSurveyQuestion =>
+    question.type === SurveyQuestionType.Link
+
+const isRatingSurveyQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
+    question.type === SurveyQuestionType.Rating
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -143,6 +181,7 @@ export enum SurveyEditSection {
     DisplayConditions = 'DisplayConditions',
     Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
+    Translations = 'translations',
 }
 export interface SurveyLogicProps {
     /** Either a UUID or 'new'. */
@@ -488,6 +527,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     actions({
+        setEditingLanguage: (language: string | null) => ({ language }),
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (idx: number, surveyQuestion: SurveyQuestion, type: SurveyQuestionType) => ({
@@ -528,7 +568,10 @@ export const surveyLogic = kea<surveyLogicType>([
         resetSurveyAdaptiveSampling: true,
         resetSurveyResponseLimits: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
-        setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
+        setPropertyFilters: (propertyFilters: AnyPropertyFilter[], reloadResults: boolean = true) => ({
+            propertyFilters,
+            reloadResults,
+        }),
         setAnswerFilters: (filters: EventPropertyFilter[], reloadResults: boolean = true) => ({
             filters,
             reloadResults,
@@ -543,6 +586,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setShowArchivedResponses: (show: boolean) => ({ show }),
         archiveResponse: (responseUuid: string) => ({ responseUuid }),
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
+        startResultsRequery: true,
+        markResultsRequeryCompleted: true,
         toggleSurveyNotificationEnabled: (notificationId: string, enabled: boolean) => ({
             notificationId,
             enabled,
@@ -721,7 +766,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     FROM events
                     WHERE team_id = ${teamLogic.values.currentTeamId}
                         AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                        AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                        AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
                         ${values.timestampFilter}
                         ${values.archivedResponsesFilter}
                         AND {filters} -- Apply property filters here to the main query
@@ -729,7 +774,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                         )
                         AND (
                             -- Include non-'sent' events directly
@@ -744,20 +792,17 @@ export const surveyLogic = kea<surveyLogicType>([
                         )
                     GROUP BY event` as HogQLQueryString
 
-                const response = await api.queryHogQL(
-                    query,
-                    { scene: 'Survey', productKey: 'surveys' },
-                    {
-                        queryParams: {
-                            filters: {
-                                properties: values.propertyFilters,
-                            },
+                const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.baseStats, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters,
                         },
-                    }
-                )
-                actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
+                    },
+                })
+                const results = (response.results as SurveyBaseStatsResult | undefined) ?? null
+                actions.setBaseStatsResults(results)
                 actions.loadConsolidatedSurveyResults()
-                return response.results as SurveyBaseStatsResult
+                return results
             },
         },
         surveyDismissedAndSentCount: {
@@ -779,13 +824,16 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE team_id = ${teamLogic.values.currentTeamId}
                             AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
-                            AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
+                            AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${props.id}'
                             ${values.timestampFilter}
                             ${values.archivedResponsesFilter}
                             AND (
                             event != '${SurveyEventName.DISMISSED}'
                             OR
-                            COALESCE(JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                            ${buildSurveyOptionalBooleanPropertyFilter(
+                                SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                'true'
+                            )}
                             )
                             AND {filters} -- Apply property filters here to reduce initial events
                         GROUP BY person_id
@@ -793,17 +841,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                     ) AS PersonsWithBothEvents` as HogQLQueryString
 
-                const response = await api.queryHogQL(
-                    query,
-                    { scene: 'Survey', productKey: 'surveys' },
-                    {
-                        queryParams: {
-                            filters: {
-                                properties: values.propertyFilters, // Property filters applied in WHERE
-                            },
+                const response = await api.queryHogQL(query, SURVEY_QUERY_TAGS.dismissedAndSent, {
+                    queryParams: {
+                        filters: {
+                            properties: values.propertyFilters, // Property filters applied in WHERE
                         },
-                    }
-                )
+                    },
+                })
                 const count = response.results?.[0]?.[0] ?? 0
                 actions.setDismissedAndSentCount(count)
                 return count as DismissedAndSentCountResult
@@ -824,8 +868,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 const queryParams = {
                     queryParams: { filters: { properties: values.propertyFilters } },
                 }
-                const queryOpts = { scene: 'Survey' as const, productKey: 'surveys' as const }
-
                 const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
                 const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
 
@@ -835,14 +877,24 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const [aggregateResponse, openEndedResponse] = await Promise.all([
                     aggregateQuery
-                        ? api.queryHogQL(aggregateQuery as HogQLQueryString, queryOpts, queryParams).then((r) => {
-                              aggregateDuration = performance.now() - startMs
-                              return r
-                          })
+                        ? api
+                              .queryHogQL(
+                                  aggregateQuery as HogQLQueryString,
+                                  SURVEY_QUERY_TAGS.aggregateResults,
+                                  queryParams
+                              )
+                              .then((r) => {
+                                  aggregateDuration = performance.now() - startMs
+                                  return r
+                              })
                         : Promise.resolve({ results: null }),
                     openEndedResult
                         ? api
-                              .queryHogQL(openEndedResult.query as HogQLQueryString, queryOpts, queryParams)
+                              .queryHogQL(
+                                  openEndedResult.query as HogQLQueryString,
+                                  SURVEY_QUERY_TAGS.openEndedResults,
+                                  queryParams
+                              )
                               .then((r) => {
                                   openEndedDuration = performance.now() - startMs
                                   return r
@@ -912,13 +964,33 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => {
-        let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null
-        const reloadAllSurveyResults = (): void => {
-            if (reloadDebounceTimer) {
-                clearTimeout(reloadDebounceTimer)
+    listeners(({ actions, values, cache, props }) => {
+        const maybeCompleteResultsRequery = (): void => {
+            if (cache.resultsRequeryCompletionTimer) {
+                clearTimeout(cache.resultsRequeryCompletionTimer)
             }
-            reloadDebounceTimer = setTimeout(() => {
+
+            cache.resultsRequeryCompletionTimer = setTimeout(() => {
+                cache.resultsRequeryCompletionTimer = null
+
+                const mountedLogic = surveyLogic.findMounted(props)
+                if (!mountedLogic?.values.resultsRequeryInProgress || mountedLogic.values.isAnyResultsLoading) {
+                    return
+                }
+
+                mountedLogic.actions.markResultsRequeryCompleted()
+            }, 0)
+        }
+        const reloadAllSurveyResults = (): void => {
+            if (cache.reloadDebounceTimer) {
+                clearTimeout(cache.reloadDebounceTimer)
+            }
+
+            if (!values.resultsRequeryInProgress) {
+                actions.startResultsRequery()
+            }
+
+            cache.reloadDebounceTimer = setTimeout(() => {
                 actions.loadSurveyBaseStats()
                 actions.loadSurveyDismissedAndSentCount()
             }, 300)
@@ -971,7 +1043,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
             },
             loadArchivedResponseUuidsSuccess: () => {
-                if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
+                // Initial survey load fetches archived UUIDs before any results requery is active.
+                // Archive/unarchive flows update this state manually and trigger the results reload explicitly.
+                if (
+                    values.survey.id !== NEW_SURVEY.id &&
+                    values.survey.start_date &&
+                    !values.resultsRequeryInProgress
+                ) {
                     actions.loadSurveyBaseStats()
                     actions.loadSurveyDismissedAndSentCount()
                 }
@@ -988,11 +1066,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
 
                 if (distinctIds.size === 0) {
+                    maybeCompleteResultsRequery()
                     return
                 }
 
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    maybeCompleteResultsRequery()
                     return
                 }
 
@@ -1022,25 +1102,46 @@ export const surveyLogic = kea<surveyLogicType>([
                 } catch {
                     // Person enrichment is best-effort — don't block survey results
                 }
+
+                maybeCompleteResultsRequery()
+            },
+            loadConsolidatedSurveyResultsFailure: () => {
+                maybeCompleteResultsRequery()
             },
             loadSurveyBaseStatsSuccess: () => {
-                if (!values.isSurveyHeadlineEnabled || !values.dataProcessingAccepted) {
-                    return
+                if (values.isSurveyHeadlineEnabled && values.dataProcessingAccepted) {
+                    const currentCount = values.processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0
+                    const cachedCount = values.survey.headline_response_count ?? 0
+
+                    if (currentCount > 0) {
+                        const needsGeneration = !values.survey.headline_summary
+                        const isStale = currentCount > cachedCount + 5
+
+                        if (needsGeneration || isStale) {
+                            actions.loadSurveyHeadline(true)
+                        }
+                    }
                 }
 
-                const currentCount = values.processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0
-                const cachedCount = values.survey.headline_response_count ?? 0
-
-                if (currentCount === 0) {
-                    return
-                }
-
-                const needsGeneration = !values.survey.headline_summary
-                const isStale = currentCount > cachedCount + 5
-
-                if (needsGeneration || isStale) {
-                    actions.loadSurveyHeadline(true)
-                }
+                maybeCompleteResultsRequery()
+            },
+            loadSurveyBaseStatsFailure: () => {
+                maybeCompleteResultsRequery()
+            },
+            loadSurveyDismissedAndSentCountSuccess: () => {
+                maybeCompleteResultsRequery()
+            },
+            loadSurveyDismissedAndSentCountFailure: () => {
+                maybeCompleteResultsRequery()
+            },
+            startResultsRequery: () => {
+                lemonToast.loading('Refreshing results...', {
+                    toastId: LOADING_SURVEY_RESULTS_TOAST_ID,
+                    autoClose: false,
+                })
+            },
+            markResultsRequeryCompleted: () => {
+                lemonToast.dismiss(LOADING_SURVEY_RESULTS_TOAST_ID)
             },
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
@@ -1081,7 +1182,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     if (page >= 0) {
                         actions.setSelectedPageIndex(page)
                     }
-                } else if (hasFormErrors(values.survey.appearance)) {
+                } else if (hasFormErrors(values.surveyErrors?.appearance)) {
                     actions.setSelectedSection(SurveyEditSection.Customization)
                 } else {
                     actions.setSelectedSection(SurveyEditSection.Steps)
@@ -1094,8 +1195,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     5
                 )
             },
-            setPropertyFilters: () => {
-                reloadAllSurveyResults()
+            setPropertyFilters: ({ reloadResults }) => {
+                if (reloadResults) {
+                    reloadAllSurveyResults()
+                }
             },
             setAnswerFilters: ({ reloadResults }) => {
                 if (reloadResults) {
@@ -1109,26 +1212,34 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             clearFilters: () => {
                 const survey = values.survey as Survey
-                actions.setAnswerFilters(values.defaultAnswerFilters)
-                actions.setPropertyFilters([])
-                actions.setDateRange({
-                    date_from: getSurveyStartDateForQuery(survey),
-                    date_to: getSurveyEndDateForQuery(survey),
-                })
+                actions.setAnswerFilters(values.defaultAnswerFilters, false)
+                actions.setPropertyFilters([], false)
+                actions.setDateRange(
+                    {
+                        date_from: getSurveyStartDateForQuery(survey),
+                        date_to: getSurveyEndDateForQuery(survey),
+                    },
+                    false
+                )
+                reloadAllSurveyResults()
             },
             setShowArchivedResponses: () => {
                 reloadAllSurveyResults()
             },
             archiveResponse: async ({ responseUuid }) => {
                 try {
+                    actions.startResultsRequery()
                     await api.surveys.archiveResponse(values.survey.id, responseUuid)
 
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
                     updatedUuids.add(responseUuid)
                     actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+                    actions.loadSurveyBaseStats()
+                    actions.loadSurveyDismissedAndSentCount()
 
                     lemonToast.success('Response archived')
                 } catch (error) {
+                    actions.markResultsRequeryCompleted()
                     lemonToast.error('Failed to archive response')
                     posthog.captureException(error, {
                         action: 'archive-survey-response',
@@ -1140,14 +1251,18 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             unarchiveResponse: async ({ responseUuid }) => {
                 try {
+                    actions.startResultsRequery()
                     await api.surveys.unarchiveResponse(values.survey.id, responseUuid)
 
                     const updatedUuids = new Set<string>(values.archivedResponseUuids)
                     updatedUuids.delete(responseUuid)
                     actions.loadArchivedResponseUuidsSuccess(updatedUuids)
+                    actions.loadSurveyBaseStats()
+                    actions.loadSurveyDismissedAndSentCount()
 
                     lemonToast.success('Response unarchived')
                 } catch (error) {
+                    actions.markResultsRequeryCompleted()
                     lemonToast.error('Failed to unarchive response')
                     posthog.captureException(error, {
                         action: 'unarchive-survey-response',
@@ -1177,11 +1292,32 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         }
     }),
+    events(({ cache }) => ({
+        beforeUnmount: () => {
+            if (cache.reloadDebounceTimer) {
+                clearTimeout(cache.reloadDebounceTimer)
+                cache.reloadDebounceTimer = null
+            }
+
+            if (cache.resultsRequeryCompletionTimer) {
+                clearTimeout(cache.resultsRequeryCompletionTimer)
+                cache.resultsRequeryCompletionTimer = null
+            }
+        },
+    })),
     reducers({
         personNames: [
             {} as Record<string, string>,
             {
                 setPersonNames: (state, { personNames }) => ({ ...state, ...personNames }),
+            },
+        ],
+        editingLanguage: [
+            null as string | null,
+            {
+                setEditingLanguage: (_, { language }) => language,
+                resetSurvey: () => null,
+                loadSurveySuccess: () => null,
             },
         ],
         showArchivedResponses: [
@@ -1196,6 +1332,15 @@ export const surveyLogic = kea<surveyLogicType>([
             { persist: true },
             {
                 setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
+            },
+        ],
+        resultsRequeryInProgress: [
+            false,
+            {
+                startResultsRequery: () => true,
+                markResultsRequeryCompleted: () => false,
+                loadSurveySuccess: () => false,
+                resetSurvey: () => false,
             },
         ],
         isEditingSurvey: [
@@ -1249,12 +1394,69 @@ export const surveyLogic = kea<surveyLogicType>([
                     if (q.type === SurveyQuestionType.MultipleChoice || q.type === SurveyQuestionType.SingleChoice) {
                         delete q.hasOpenChoice
                     }
-                    newQuestions[idx] = {
+
+                    // Clean up translations when question type changes
+                    const cleanedTranslations = q.translations
+                        ? Object.entries(q.translations).reduce(
+                              (acc, [lang, trans]) => {
+                                  const cleanedTrans = { ...trans }
+
+                                  // Remove fields that don't apply to the new type
+                                  if (
+                                      type !== SurveyQuestionType.SingleChoice &&
+                                      type !== SurveyQuestionType.MultipleChoice
+                                  ) {
+                                      delete cleanedTrans.choices
+                                  }
+                                  if (type !== SurveyQuestionType.Link) {
+                                      delete cleanedTrans.link
+                                  }
+                                  if (type !== SurveyQuestionType.Rating) {
+                                      delete cleanedTrans.lowerBoundLabel
+                                      delete cleanedTrans.upperBoundLabel
+                                  }
+
+                                  acc[lang] = cleanedTrans
+                                  return acc
+                              },
+                              {} as Record<string, any>
+                          )
+                        : undefined
+
+                    // Get the new question with default values for the new type
+                    const newQuestionDefaults = defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase
+                    const newChoices = (newQuestionDefaults as MultipleSurveyQuestion).choices || []
+
+                    // Initialize choices for new single/multiple choice questions in translations
+                    const choicesInitializedTranslations = cleanedTranslations
+                        ? Object.entries(cleanedTranslations).reduce(
+                              (acc, [lang, trans]) => {
+                                  const cleanedTrans = { ...trans }
+                                  if (
+                                      (type === SurveyQuestionType.SingleChoice ||
+                                          type === SurveyQuestionType.MultipleChoice) &&
+                                      !cleanedTrans.choices
+                                  ) {
+                                      cleanedTrans.choices = newChoices
+                                  }
+                                  acc[lang] = cleanedTrans
+                                  return acc
+                              },
+                              {} as Record<string, any>
+                          )
+                        : cleanedTranslations
+
+                    const nextQuestion = {
                         ...q,
-                        ...(defaultSurveyFieldValues[type].questions[0] as SurveyQuestionBase),
+                        ...newQuestionDefaults,
                         question,
                         description,
+                        translations: choicesInitializedTranslations,
                     }
+                    newQuestions[idx] =
+                        type === SurveyQuestionType.SingleChoice || type === SurveyQuestionType.MultipleChoice
+                            ? ({ ...nextQuestion, choices: newChoices } as SurveyQuestion)
+                            : (nextQuestion as SurveyQuestion)
                     return {
                         ...state,
                         questions: newQuestions,
@@ -1472,10 +1674,10 @@ export const surveyLogic = kea<surveyLogicType>([
                  * So we return all responses that don't have it.
                  * For posthog-js > 1.240, we use the $survey_completed property.
                  */
-                return `AND (
-                            NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
-                            OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
-                        )`
+                return `AND ${buildSurveyOptionalBooleanPropertyFilter(
+                    SurveyEventProperties.SURVEY_COMPLETED,
+                    'false'
+                )}`
             },
         ],
         archivedResponsesFilter: [
@@ -1527,13 +1729,24 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         isAnyResultsLoading: [
-            (s) => [s.surveyBaseStatsLoading, s.surveyDismissedAndSentCountLoading, s.consolidatedSurveyResultsLoading],
+            (s) => [
+                s.archivedResponseUuidsLoading,
+                s.surveyBaseStatsLoading,
+                s.surveyDismissedAndSentCountLoading,
+                s.consolidatedSurveyResultsLoading,
+            ],
             (
+                archivedResponseUuidsLoading: boolean,
                 surveyBaseStatsLoading: boolean,
                 surveyDismissedAndSentCountLoading: boolean,
                 consolidatedSurveyResultsLoading: boolean
             ) => {
-                return consolidatedSurveyResultsLoading || surveyBaseStatsLoading || surveyDismissedAndSentCountLoading
+                return (
+                    archivedResponseUuidsLoading ||
+                    consolidatedSurveyResultsLoading ||
+                    surveyBaseStatsLoading ||
+                    surveyDismissedAndSentCountLoading
+                )
             },
         ],
         defaultAnswerFilters: [
@@ -1960,6 +2173,311 @@ export const surveyLogic = kea<surveyLogicType>([
             (survey) =>
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
+        translationValidationErrors: [
+            (s) => [s.survey],
+            (survey): TranslationValidationError[] => {
+                const errors: TranslationValidationError[] = []
+                const surveyLevelFieldChecks: TranslationFieldCheck<SurveyTranslationField>[] = [
+                    { key: 'name', defaultValue: survey.name },
+                    { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
+                    {
+                        key: 'thankYouMessageDescription',
+                        defaultValue: survey.appearance?.thankYouMessageDescription,
+                    },
+                    {
+                        key: 'thankYouMessageCloseButtonText',
+                        defaultValue: survey.appearance?.thankYouMessageCloseButtonText,
+                    },
+                ]
+
+                // Get all languages
+                const languages = new Set<string>()
+                if (survey.translations) {
+                    Object.keys(survey.translations).forEach((lang) => languages.add(lang))
+                }
+                survey.questions.forEach((q) => {
+                    if (q.translations) {
+                        Object.keys(q.translations).forEach((lang) => languages.add(lang))
+                    }
+                })
+
+                // First collect fields that have translations but empty defaults
+                const fieldsWithEmptyDefaults = new Set<string>()
+                languages.forEach((lang) => {
+                    const trans = survey.translations?.[lang]
+                    if (trans) {
+                        surveyLevelFieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            // Only check if default is explicitly empty (not undefined)
+                            const defaultIsExplicitlyEmpty =
+                                defaultValue !== undefined &&
+                                (typeof defaultValue !== 'string' || defaultValue.trim() === '')
+                            const translationHasValue =
+                                value !== undefined && typeof value === 'string' && value.trim() !== ''
+
+                            // Track fields with translations but explicitly empty defaults
+                            if (defaultIsExplicitlyEmpty && translationHasValue) {
+                                fieldsWithEmptyDefaults.add(key)
+                            }
+                        })
+                    }
+                })
+
+                // Add errors for empty default fields that have translations
+                if (fieldsWithEmptyDefaults.size > 0) {
+                    surveyLevelFieldChecks.forEach(({ key, defaultValue }) => {
+                        const defaultIsExplicitlyEmpty =
+                            defaultValue !== undefined &&
+                            (typeof defaultValue !== 'string' || defaultValue.trim() === '')
+                        if (defaultIsExplicitlyEmpty && fieldsWithEmptyDefaults.has(key)) {
+                            errors.push({
+                                language: 'default',
+                                questionIndex: -1,
+                                field: key,
+                                error: 'Cannot be empty (has translation)',
+                            })
+                        }
+                    })
+                }
+
+                // Validate survey-level translations
+                languages.forEach((lang) => {
+                    const trans = survey.translations?.[lang]
+                    if (trans) {
+                        surveyLevelFieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            const defaultHasValue =
+                                defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
+
+                            if (value === '[Translation needed]') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: -1,
+                                    field: key,
+                                    error: 'Contains placeholder "[Translation needed]"',
+                                })
+                            }
+                            // Only validate empty translation strings if default has a value
+                            if (
+                                defaultHasValue &&
+                                value !== undefined &&
+                                typeof value === 'string' &&
+                                value.trim() === ''
+                            ) {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: -1,
+                                    field: key,
+                                    error: 'Cannot be empty',
+                                })
+                            }
+                        })
+                    }
+                })
+
+                // Validate question-level translations
+                survey.questions.forEach((question, qIndex) => {
+                    // Validate default choices for empty strings
+                    if (isChoiceSurveyQuestion(question) && question.choices && Array.isArray(question.choices)) {
+                        question.choices.forEach((choice, choiceIndex) => {
+                            if (typeof choice === 'string' && choice.trim() === '') {
+                                errors.push({
+                                    language: 'default',
+                                    questionIndex: qIndex,
+                                    field: `choices[${choiceIndex}]`,
+                                    error: 'Cannot be empty',
+                                })
+                            }
+                        })
+                    }
+
+                    if (!question.translations) {
+                        return
+                    }
+
+                    const textFieldChecks: TranslationFieldCheck<QuestionTextTranslationField>[] = [
+                        { key: 'question', defaultValue: question.question },
+                        { key: 'description', defaultValue: question.description },
+                        { key: 'buttonText', defaultValue: question.buttonText },
+                        ...(isRatingSurveyQuestion(question)
+                            ? [
+                                  { key: 'lowerBoundLabel' as const, defaultValue: question.lowerBoundLabel },
+                                  { key: 'upperBoundLabel' as const, defaultValue: question.upperBoundLabel },
+                              ]
+                            : []),
+                    ]
+
+                    // First collect fields that have translations but empty defaults
+                    const fieldsWithEmptyDefaults = new Set<string>()
+                    Object.values(question.translations).forEach((trans) => {
+                        textFieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            // Only check if default is explicitly empty (not undefined)
+                            const defaultIsExplicitlyEmpty =
+                                defaultValue !== undefined &&
+                                (typeof defaultValue !== 'string' || defaultValue.trim() === '')
+                            const translationHasValue =
+                                value !== undefined && typeof value === 'string' && value.trim() !== ''
+
+                            // Track fields with translations but explicitly empty defaults
+                            if (defaultIsExplicitlyEmpty && translationHasValue) {
+                                fieldsWithEmptyDefaults.add(key)
+                            }
+                        })
+                    })
+
+                    // Add errors for empty default fields that have translations
+                    if (fieldsWithEmptyDefaults.size > 0) {
+                        textFieldChecks.forEach(({ key, defaultValue }) => {
+                            const defaultIsExplicitlyEmpty =
+                                defaultValue !== undefined &&
+                                (typeof defaultValue !== 'string' || defaultValue.trim() === '')
+                            if (defaultIsExplicitlyEmpty && fieldsWithEmptyDefaults.has(key)) {
+                                errors.push({
+                                    language: 'default',
+                                    questionIndex: qIndex,
+                                    field: key,
+                                    error: 'Cannot be empty (has translation)',
+                                })
+                            }
+                        })
+                    }
+
+                    Object.entries(question.translations).forEach(([lang, trans]) => {
+                        // Check text fields
+                        textFieldChecks.forEach(({ key, defaultValue }) => {
+                            const value = trans[key]
+                            const defaultHasValue =
+                                defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
+
+                            if (value === '[Translation needed]') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: qIndex,
+                                    field: key,
+                                    error: 'Contains placeholder "[Translation needed]"',
+                                })
+                            }
+                            // Only validate empty translation strings if default has a value
+                            if (
+                                defaultHasValue &&
+                                value !== undefined &&
+                                typeof value === 'string' &&
+                                value.trim() === ''
+                            ) {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: qIndex,
+                                    field: key,
+                                    error: 'Cannot be empty',
+                                })
+                            }
+                        })
+
+                        // Check link field
+                        if (isLinkSurveyQuestion(question) && 'link' in trans) {
+                            const linkDefaultHasValue = typeof question.link === 'string' && question.link.trim() !== ''
+                            const linkValue = trans.link
+
+                            if (linkValue === '[Translation needed]') {
+                                errors.push({
+                                    language: lang,
+                                    questionIndex: qIndex,
+                                    field: 'link',
+                                    error: 'Contains placeholder "[Translation needed]"',
+                                })
+                            } else if (typeof linkValue === 'string') {
+                                const trimmedLink = linkValue.trim()
+
+                                if (linkDefaultHasValue && trimmedLink === '') {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: 'link',
+                                        error: 'Cannot be empty',
+                                    })
+                                } else if (trimmedLink !== '' && !trimmedLink.match(/^(https:\/\/|mailto:)/)) {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: 'link',
+                                        error: 'Must start with https:// or mailto:',
+                                    })
+                                }
+                            }
+                        }
+
+                        // Check choices array
+                        if (isChoiceSurveyQuestion(question) && trans.choices && Array.isArray(trans.choices)) {
+                            trans.choices.forEach((choice, choiceIndex) => {
+                                if (choice === '[Translation needed]') {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: `choices[${choiceIndex}]`,
+                                        error: 'Contains placeholder "[Translation needed]"',
+                                    })
+                                }
+                                if (typeof choice === 'string' && choice.trim() === '') {
+                                    errors.push({
+                                        language: lang,
+                                        questionIndex: qIndex,
+                                        field: `choices[${choiceIndex}]`,
+                                        error: 'Cannot be empty',
+                                    })
+                                }
+                            })
+                        }
+                    })
+                })
+
+                // Also validate default question links
+                survey.questions.forEach((question, qIndex) => {
+                    const link = isLinkSurveyQuestion(question) && question.link ? question.link.trim() : ''
+                    if (link && !link.match(/^(https:\/\/|mailto:)/)) {
+                        errors.push({
+                            language: 'default',
+                            questionIndex: qIndex,
+                            field: 'link',
+                            error: 'Must start with https:// or mailto:',
+                        })
+                    }
+                })
+
+                return errors
+            },
+        ],
+        hasTranslationValidationErrors: [
+            (s) => [s.translationValidationErrors],
+            (errors): boolean => errors.length > 0,
+        ],
+        translationErrorsByQuestion: [
+            (s) => [s.translationValidationErrors, s.editingLanguage],
+            (
+                errors: TranslationValidationError[],
+                editingLanguage: string | null
+            ): ((questionIndex: number) => TranslationValidationError[]) => {
+                return (questionIndex: number) => {
+                    const targetLanguage = editingLanguage === null ? 'default' : editingLanguage
+                    return errors.filter((e) => e.questionIndex === questionIndex && e.language === targetLanguage)
+                }
+            },
+        ],
+        translationErrorsForField: [
+            (s) => [s.translationValidationErrors, s.editingLanguage],
+            (
+                errors: TranslationValidationError[],
+                editingLanguage: string | null
+            ): ((questionIndex: number, fieldPath: string) => TranslationValidationError | undefined) => {
+                return (questionIndex: number, fieldPath: string) => {
+                    const targetLanguage = editingLanguage === null ? 'default' : editingLanguage
+                    return errors.find(
+                        (e) =>
+                            e.questionIndex === questionIndex && e.field === fieldPath && e.language === targetLanguage
+                    )
+                }
+            },
+        ],
         surveyAsInsightURL: [
             (s) => [s.survey],
             (survey) => {
@@ -2244,9 +2762,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ) {
                             return {
                                 ...questionErrors,
-                                choices: question.choices.some((choice) => !choice.trim())
-                                    ? 'Please ensure all choices are non-empty.'
-                                    : undefined,
+                                choices:
+                                    !question.choices?.length || question.choices.some((choice) => !choice.trim())
+                                        ? 'Please ensure all choices are non-empty.'
+                                        : undefined,
                             }
                         }
 
@@ -2292,6 +2811,11 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     urlToAction(({ actions, props, values }) => ({
         [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate }, { method }) => {
+            // Preserve unsaved edits whenever we re-enter the same survey URL — covers
+            // both explicit opt-in navigations (e.g. guided↔full editor switch) and
+            // implicit re-entries like tab switching, which also dispatch a PUSH.
+            const shouldPreserveLocalChanges = values.surveyChanged && values.survey.id === (props.id ?? NEW_SURVEY.id)
+
             // Parse filters from URL params
             if (searchParams.propertyFilters) {
                 try {
@@ -2341,6 +2865,12 @@ export const surveyLogic = kea<surveyLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                if (shouldPreserveLocalChanges) {
+                    if (searchParams.edit) {
+                        actions.editingSurvey(true)
+                    }
+                    return
+                }
                 // When pushing to `/new` and the id matches the new survey's id, do not load the survey again
                 if (props.id === 'new' && values.survey.id === NEW_SURVEY.id && !fromTemplate) {
                     return
@@ -2387,12 +2917,15 @@ export const surveyLogic = kea<surveyLogicType>([
             { replace: true },
         ],
     })),
-    afterMount(({ props, actions }) => {
-        if (props.id !== 'new') {
+    afterMount(({ props, actions, values }) => {
+        const shouldPreserveLocalChanges =
+            router.values.hashParams.preserveLocalChanges && values.surveyChanged && values.survey.id === props.id
+
+        if (props.id !== 'new' && !shouldPreserveLocalChanges) {
             actions.loadSurvey()
             actions.loadSurveyNotifications()
         }
-        if (props.id === 'new') {
+        if (props.id === 'new' && !shouldPreserveLocalChanges) {
             actions.resetSurvey()
         }
     }),

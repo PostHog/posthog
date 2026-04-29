@@ -1,5 +1,5 @@
 import { newPipelineBuilder } from '../builders/helpers'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineResult, dlq, isOkResult, ok } from '../results'
 import {
     TopHogRegistry,
@@ -45,7 +45,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(myStep, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42 })))
+        await pipeline.process(createOkContext({ teamId: 42 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('events', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
@@ -63,7 +63,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(myStep, [timer('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42 })))
+        await pipeline.process(createOkContext({ teamId: 42 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('events', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, expect.any(Number))
@@ -86,7 +86,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42, userId: 'u_1' })))
+        await pipeline.process(createOkContext({ teamId: 42, userId: 'u_1' }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('by_team', undefined)
         expect(mockTracker.registerSum).toHaveBeenCalledWith('by_user', undefined)
@@ -103,7 +103,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(step, [count('heatmap_events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 7 })))
+        await pipeline.process(createOkContext({ teamId: 7 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('heatmap_events', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '7' }, 1)
@@ -118,7 +118,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(step, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '1' }, 1)
     })
@@ -130,7 +130,7 @@ describe('topHog wrapper', () => {
 
         const pipeline = newPipelineBuilder<{ teamId: number }>().pipe(topHog(step, [])).build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(step).toHaveBeenCalled()
         expect(mockTracker.registerSum).not.toHaveBeenCalled()
@@ -148,7 +148,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(namedStep, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        const result = await pipeline.process(createContext(ok({ teamId: 5 })))
+        const result = await pipeline.process(createOkContext({ teamId: 5 }, {}))
 
         expect(result.context.lastStep).toBe('namedStep')
     })
@@ -165,7 +165,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(trackedStep, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        const result = await pipeline.process(createContext(ok({ teamId: 5 })))
+        const result = await pipeline.process(createOkContext({ teamId: 5 }, {}))
 
         expect(isOkResult(result.result)).toBe(true)
         if (isOkResult(result.result)) {
@@ -194,7 +194,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42, size: 1024 })))
+        await pipeline.process(createOkContext({ teamId: 42, size: 1024 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('total_bytes', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1024)
@@ -220,7 +220,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42, size: 1024 })))
+        await pipeline.process(createOkContext({ teamId: 42, size: 1024 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('total_bytes', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1024)
@@ -236,14 +236,14 @@ describe('topHog wrapper', () => {
                 topHog(step, [
                     sumResult(
                         'total_bytes',
-                        (_result: PipelineResult<unknown>, input) => ({ team_id: String(input.teamId) }),
+                        (_result: PipelineResult<unknown, string>, input) => ({ team_id: String(input.teamId) }),
                         () => 100
                     ),
                 ])
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '1' }, 100)
     })
@@ -268,7 +268,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42 })))
+        await pipeline.process(createOkContext({ teamId: 42 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('output_bytes', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ bytes: '2048' }, 2048)
@@ -291,7 +291,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).not.toHaveBeenCalled()
     })
@@ -308,7 +308,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(myStep, [countResult('processed', (_result, input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42 })))
+        await pipeline.process(createOkContext({ teamId: 42 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('processed', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
@@ -322,14 +322,14 @@ describe('topHog wrapper', () => {
         const pipeline = newPipelineBuilder<{ teamId: number }>()
             .pipe(
                 topHog(step, [
-                    countResult('processed', (_result: PipelineResult<unknown>, input) => ({
+                    countResult('processed', (_result: PipelineResult<unknown, string>, input) => ({
                         team_id: String(input.teamId),
                     })),
                 ])
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '1' }, 1)
     })
@@ -346,7 +346,7 @@ describe('topHog wrapper', () => {
             .pipe(topHog(myStep, [countOk('processed', (output, input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42 })))
+        await pipeline.process(createOkContext({ teamId: 42 }, {}))
 
         expect(mockTracker.registerSum).toHaveBeenCalledWith('processed', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
@@ -363,7 +363,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).not.toHaveBeenCalled()
     })
@@ -388,7 +388,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42, size: 1024 })))
+        await pipeline.process(createOkContext({ teamId: 42, size: 1024 }, {}))
 
         expect(mockTracker.registerAverage).toHaveBeenCalledWith('avg_size', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1024)
@@ -414,7 +414,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42, size: 1024 })))
+        await pipeline.process(createOkContext({ teamId: 42, size: 1024 }, {}))
 
         expect(mockTracker.registerAverage).toHaveBeenCalledWith('avg_size', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1024)
@@ -430,14 +430,14 @@ describe('topHog wrapper', () => {
                 topHog(step, [
                     averageResult(
                         'avg_size',
-                        (_result: PipelineResult<unknown>, input) => ({ team_id: String(input.teamId) }),
-                        (_result: PipelineResult<unknown>, input) => input.size
+                        (_result: PipelineResult<unknown, string>, input) => ({ team_id: String(input.teamId) }),
+                        (_result: PipelineResult<unknown, string>, input) => input.size
                     ),
                 ])
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1, size: 512 })))
+        await pipeline.process(createOkContext({ teamId: 1, size: 512 }, {}))
 
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '1' }, 512)
     })
@@ -462,7 +462,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42 })))
+        await pipeline.process(createOkContext({ teamId: 42 }, {}))
 
         expect(mockTracker.registerAverage).toHaveBeenCalledWith('avg_count', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ count: '5' }, 5)
@@ -485,7 +485,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).not.toHaveBeenCalled()
     })
@@ -510,7 +510,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42, size: 2048 })))
+        await pipeline.process(createOkContext({ teamId: 42, size: 2048 }, {}))
 
         expect(mockTracker.registerMax).toHaveBeenCalledWith('max_size', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 2048)
@@ -536,7 +536,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42, size: 2048 })))
+        await pipeline.process(createOkContext({ teamId: 42, size: 2048 }, {}))
 
         expect(mockTracker.registerMax).toHaveBeenCalledWith('max_size', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 2048)
@@ -552,14 +552,14 @@ describe('topHog wrapper', () => {
                 topHog(step, [
                     maxResult(
                         'max_size',
-                        (_result: PipelineResult<unknown>, input) => ({ team_id: String(input.teamId) }),
-                        (_result: PipelineResult<unknown>, input) => input.size
+                        (_result: PipelineResult<unknown, string>, input) => ({ team_id: String(input.teamId) }),
+                        (_result: PipelineResult<unknown, string>, input) => input.size
                     ),
                 ])
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1, size: 512 })))
+        await pipeline.process(createOkContext({ teamId: 1, size: 512 }, {}))
 
         expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '1' }, 512)
     })
@@ -584,7 +584,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 42 })))
+        await pipeline.process(createOkContext({ teamId: 42 }, {}))
 
         expect(mockTracker.registerMax).toHaveBeenCalledWith('max_output_size', undefined)
         expect(mockTracker.record).toHaveBeenCalledWith({ size: '512' }, 512)
@@ -607,7 +607,7 @@ describe('topHog wrapper', () => {
             )
             .build()
 
-        await pipeline.process(createContext(ok({ teamId: 1 })))
+        await pipeline.process(createOkContext({ teamId: 1 }, {}))
 
         expect(mockTracker.record).not.toHaveBeenCalled()
     })

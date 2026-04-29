@@ -21,11 +21,34 @@ import type { featureFlagsLogicType } from './featureFlagsLogicType'
 export const FLAGS_PER_PAGE = 100
 
 export function flagMatchesSearch(flag: FeatureFlagType, search?: string): boolean {
-    if (!search) {
+    if (!search?.trim()) {
         return true
     }
-    const s = search.toLowerCase()
-    return flag.key.toLowerCase().includes(s) || !!flag.name?.toLowerCase().includes(s)
+
+    const searchValue = search.trim().toLowerCase()
+    const keyLower = flag.key.toLowerCase()
+    const nameLower = flag.name?.toLowerCase() || ''
+
+    // Get experiment names from experiment_set_metadata, filtering out null/undefined names
+    const experimentNames =
+        flag.experiment_set_metadata
+            ?.map((exp) => exp.name?.toLowerCase())
+            .filter(Boolean)
+            .join(' ') || ''
+
+    // Use regex pattern matching like the backend - escape metacharacters then replace spaces with word boundary pattern
+    const escapedSearchValue = searchValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regexPattern = escapedSearchValue.replace(/\s+/g, '[\\s\\-_]*')
+
+    try {
+        const regex = new RegExp(regexPattern, 'i')
+        return regex.test(keyLower) || regex.test(nameLower) || regex.test(experimentNames)
+    } catch {
+        // Fallback to simple case-insensitive substring search if regex fails
+        return (
+            keyLower.includes(searchValue) || nameLower.includes(searchValue) || experimentNames.includes(searchValue)
+        )
+    }
 }
 
 export function flagMatchesStatus(flag: FeatureFlagType, active?: string): boolean {
@@ -81,6 +104,7 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
     HISTORY = 'history',
+    NOTIFICATIONS = 'notifications',
     EXPOSURE = 'exposure',
     Analysis = 'analysis',
     USAGE = 'usage',
@@ -131,6 +155,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
+        updateFlagFromPartial: (flag: Partial<FeatureFlagType> & { id: number }) => ({ flag }),
         updateFlagActive: (id: number, active: boolean) => ({ id, active }),
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
@@ -186,6 +211,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 ...state,
                 results: state.results.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag)),
             }),
+            updateFlagFromPartial: (state, { flag }) => ({
+                ...state,
+                results: state.results.map((stateFlag) =>
+                    stateFlag.id === flag.id ? { ...stateFlag, ...flag } : stateFlag
+                ),
+            }),
             deleteFlag: (state, { id }) => ({
                 ...state,
                 count: state.count - 1,
@@ -202,6 +233,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     return featureFlags.results
                 },
                 updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
+                updateFlagFromPartial: (state, { flag }) =>
+                    state.map((f) => (f.id === flag.id ? { ...f, ...flag } : f)),
                 deleteFlag: (state, { id }) => state.filter((f) => f.id !== id),
             },
         ],
@@ -356,6 +389,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 replace = true
             }
             searchParams['tab'] = values.activeTab
+
+            // Preserve the activity deep-link param only when on the history tab
+            const currentActivity = router.values.searchParams['activity']
+            if (currentActivity && values.activeTab === FeatureFlagsTab.HISTORY) {
+                searchParams['activity'] = currentActivity
+            }
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
         }

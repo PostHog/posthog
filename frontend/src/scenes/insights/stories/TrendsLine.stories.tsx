@@ -1,14 +1,13 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
 
-import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof App>
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsLine',
     parameters: {
@@ -204,7 +203,6 @@ const waitForTrendsCanvasToStabilize: NonNullable<Story['play']> = async ({ canv
 TrendsLineMultiEditViewports.parameters = {
     testOptions: {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
-        snapshotTargetSelector: '[data-attr=trend-line-graph]',
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }

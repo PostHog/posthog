@@ -81,7 +81,10 @@ const CollapsibleTrigger = forwardRef<HTMLButtonElement, CollapsibleTriggerProps
                         {children}
                     </Label>
                     {!hideChevron && (
-                        <IconChevronRight className="size-3 text-tertiary opacity-0 group-hover:opacity-100 transition-all duration-150 group-data-[panel-open]:rotate-90" />
+                        <IconChevronRight
+                            aria-hidden={true}
+                            className="size-3 text-tertiary opacity-50 group-hover:opacity-100 transition-all duration-150 group-data-[panel-open]:rotate-90"
+                        />
                     )}
                 </CollapsiblePrimitiveTrigger>
             )

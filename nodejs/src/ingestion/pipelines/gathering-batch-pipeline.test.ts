@@ -1,24 +1,26 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
-import { createContext, createNewBatchPipeline } from './helpers'
+import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
+const TEST_REDIRECT_OUTPUT = 'test_redirect' as const
+
 // Mock batch processing pipeline for testing
-class MockBatchProcessingPipeline<T, C> implements BatchPipeline<T, T, C> {
-    private results: BatchPipelineResultWithContext<T, C>[] = []
+class MockBatchProcessingPipeline<T, C, R extends string = never> implements BatchPipeline<T, T, C, C, R> {
+    private results: BatchPipelineResultWithContext<T, C, R>[] = []
     private currentIndex = 0
 
-    constructor(results: BatchPipelineResultWithContext<T, C>[]) {
+    constructor(results: BatchPipelineResultWithContext<T, C, R>[]) {
         this.results = results
     }
 
-    feed(elements: BatchPipelineResultWithContext<T, C>): void {
+    feed(elements: OkResultWithContext<T, C>[]): void {
         this.results.push(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<T, C> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<T, C, R> | null> {
         if (this.currentIndex >= this.results.length) {
             return Promise.resolve(null)
         }
@@ -83,7 +85,7 @@ describe('GatheringBatchPipeline', () => {
             const spy = jest.spyOn(subPipeline, 'feed')
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
-            const testBatch = [createContext(ok('test'), context1)]
+            const testBatch = [createOkContext('test', context1)]
 
             gatherPipeline.feed(testBatch)
 
@@ -123,7 +125,7 @@ describe('GatheringBatchPipeline', () => {
         it('should preserve non-success results', async () => {
             const dropResult = drop<string>('test drop')
             const dlqResult = dlq<string>('test dlq', new Error('test error'))
-            const redirectResult = redirect<string>('test redirect', 'test-topic')
+            const redirectResult = redirect('test redirect', TEST_REDIRECT_OUTPUT)
 
             const subPipeline = new MockBatchProcessingPipeline([
                 [createContext(dropResult, context1)],
@@ -232,7 +234,7 @@ describe('GatheringBatchPipeline', () => {
         })
 
         it('should resume after returning null when more batches are fed', async () => {
-            const subPipeline = new MockBatchProcessingPipeline([
+            const subPipeline = new MockBatchProcessingPipeline<string, { message: Message }>([
                 [createContext(ok('first'), context1)],
                 [createContext(ok('second'), context2)],
             ])
@@ -248,7 +250,7 @@ describe('GatheringBatchPipeline', () => {
             expect(result2).toBeNull()
 
             // Feed more batches
-            subPipeline.feed([createContext(ok('third'), context3)])
+            subPipeline.feed([createOkContext('third', context3)])
 
             // Should resume processing
             const result3 = await gatherPipeline.next()

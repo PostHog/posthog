@@ -11,18 +11,20 @@ import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import MetricCounter, RetryPolicy
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
+from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
 
 logger = structlog.get_logger(__name__)
 
+# TODO: Check if the size of the buffer doesn't overload memory for the Temporal workflow handling the batch
 BUFFER_MAX_SIZE = 20
-BUFFER_FLUSH_TIMEOUT_SECONDS = 60
+BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
@@ -72,7 +74,7 @@ async def signal_with_start_grouping_v2_activity(input: SignalWithStartGroupingV
         TeamSignalGroupingV2Input(team_id=input.team_id),
         id=TeamSignalGroupingV2Workflow.workflow_id_for(input.team_id),
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        run_timeout=timedelta(hours=1),
+        run_timeout=timedelta(hours=3),
         start_signal="submit_batch",
         start_signal_args=[input.object_key],
     )
@@ -107,9 +109,7 @@ async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> 
 @temporalio.workflow.defn(name="buffer-signals")
 class BufferSignalsWorkflow:
     """
-    Buffers incoming signals in memory and flushes them to S3 when the buffer
-    is full (BUFFER_MAX_SIZE) or after BUFFER_FLUSH_TIMEOUT_SECONDS since the
-    first buffered signal. Sends the S3 object key to the grouping v2 workflow.
+    Buffers signals and flushes batch object keys to grouping v2.
 
     One instance per team (workflow ID: buffer-signals-{team_id}).
     Uses continue_as_new after each flush to keep history bounded.
@@ -117,6 +117,7 @@ class BufferSignalsWorkflow:
 
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
+        self._signals_emitted_counters: dict[tuple[str, str], MetricCounter] = {}
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -126,8 +127,25 @@ class BufferSignalsWorkflow:
     def get_buffer_size(self) -> int:
         return len(self._signal_buffer)
 
+    def _get_emitted_counter(self, team_id: int, source_product: str, source_type: str) -> MetricCounter:
+        key = (source_product, source_type)
+        if key not in self._signals_emitted_counters:
+            meter = workflow.metric_meter().with_additional_attributes(
+                {
+                    "team_id": str(team_id),
+                    "source_product": source_product,
+                    "source_type": source_type,
+                }
+            )
+            self._signals_emitted_counters[key] = meter.create_counter(
+                "signals_emitted",
+                "Number of signals emitted",
+            )
+        return self._signals_emitted_counters[key]
+
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
+        self._get_emitted_counter(signal.team_id, signal.source_product, signal.source_type).add(1)
         self._signal_buffer.append(signal)
 
     @temporalio.workflow.run
@@ -152,7 +170,47 @@ class BufferSignalsWorkflow:
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
 
-            # Flush to S3
+            # Filter out malicious signals
+            safety_results = await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        safety_filter_activity,
+                        SafetyFilterInput(description=s.description),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for s in batch
+                ]
+            )
+            safe_signals: list[EmitSignalInputs] = []
+            for signal, result in zip(batch, safety_results):
+                if result.safe:
+                    safe_signals.append(signal)
+                else:
+                    logger.warning(
+                        "Safety filter dropped signal",
+                        threat_type=result.threat_type,
+                        team_id=signal.team_id,
+                        source_product=signal.source_product,
+                        source_type=signal.source_type,
+                        source_id=signal.source_id,
+                    )
+            batch = safe_signals
+
+            if not batch:
+                # Compact history even when no safe signals remain — without
+                # continue_as_new, repeated all-unsafe batches would grow
+                # Temporal history unboundedly.
+                if len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                    workflow.continue_as_new(
+                        BufferSignalsInput(
+                            team_id=input.team_id,
+                            pending_signals=list(self._signal_buffer),
+                        )
+                    )
+                continue
+
+            # Flush to object storage
             flush_result: FlushBufferOutput = await workflow.execute_activity(
                 flush_signals_to_s3_activity,
                 FlushBufferInput(team_id=input.team_id, signals=batch),

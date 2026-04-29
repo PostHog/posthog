@@ -1,5 +1,5 @@
+use async_trait::async_trait;
 use aws_sdk_s3::{error::SdkError, primitives::ByteStream, Client as S3Client, Error as S3Error};
-use axum::async_trait;
 #[cfg(test)]
 use mockall::automock;
 use tracing::error;

@@ -4,6 +4,7 @@ import {
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
     ErrorTrackingSimilarIssuesQuery,
     EventsQuery,
@@ -44,7 +45,8 @@ export const errorTrackingQuery = ({
     groupKey,
     groupTypeIndex,
     limit = 50,
-    useQueryV2,
+    useQueryV3,
+    pendingFingerprintIssueStateUpdates,
 }: Pick<
     ErrorTrackingQuery,
     | 'orderBy'
@@ -58,11 +60,12 @@ export const errorTrackingQuery = ({
     | 'personId'
     | 'groupKey'
     | 'groupTypeIndex'
-    | 'useQueryV2'
+    | 'useQueryV3'
 > & {
     filterGroup: UniversalFiltersGroup
     columns: string[]
     volumeResolution?: number
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
 }): DataTableNode => {
     return {
         kind: NodeKind.DataTableNode,
@@ -83,7 +86,11 @@ export const errorTrackingQuery = ({
             personId,
             groupKey,
             groupTypeIndex,
-            useQueryV2,
+            useQueryV3,
+            // Only V3 understands these; omit when empty so cache keys stay stable.
+            ...(pendingFingerprintIssueStateUpdates && pendingFingerprintIssueStateUpdates.length > 0
+                ? { pendingFingerprintIssueStateUpdates }
+                : {}),
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },
@@ -151,7 +158,7 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => `'${f}'`).join(', ')}]`
+    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => `'${f}'`).join(', ')}] AND isNotNull(properties.$exception_issue_id)`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery

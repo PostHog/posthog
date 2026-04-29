@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
+import { PersonMessage } from './person-message'
 import { PersonsStore } from './persons-store'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
@@ -49,7 +49,7 @@ export class PersonsStoreTransaction {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return await this.store.updatePersonForMerge(person, update, distinctId, this.tx)
     }
 
@@ -60,7 +60,7 @@ export class PersonsStoreTransaction {
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
         forceUpdate?: boolean
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return await this.store.updatePersonWithPropertiesDiffForUpdate(
             person,
             propertiesToSet,
@@ -72,11 +72,11 @@ export class PersonsStoreTransaction {
         )
     }
 
-    async deletePerson(person: InternalPerson, distinctId: string): Promise<TopicMessage[]> {
+    async deletePerson(person: InternalPerson, distinctId: string): Promise<PersonMessage[]> {
         return await this.store.deletePerson(person, distinctId, this.tx)
     }
 
-    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]> {
+    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return await this.store.addDistinctId(person, distinctId, version, this.tx)
     }
 

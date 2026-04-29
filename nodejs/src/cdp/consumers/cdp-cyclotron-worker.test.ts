@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -35,8 +36,8 @@ describe('CdpCyclotronWorker', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorker(hub, hub)
+        team = await getFirstTeam(hub.postgres)
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub))
 
         fn = await insertHogFunction(
             hub.postgres,
@@ -186,6 +187,8 @@ describe('CdpCyclotronWorker', () => {
             } as any)
 
             const invocationId = invocation.id
+            // Capture reference time BEFORE execution to avoid timing race in lower-bound assertion
+            const beforeExecution = DateTime.now()
             const results = await processor.processInvocations([invocation])
             const result = results[0]
 
@@ -195,8 +198,8 @@ describe('CdpCyclotronWorker', () => {
             expect(result.invocation.id).toEqual(invocationId)
             expect(result.invocation.queue).toEqual('hog')
             // NOTE: Check the queue scheduled at is within the bounds of the backoff
-            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThan(
-                DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThanOrEqual(
+                beforeExecution.plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
             )
             expect(result.invocation.queueScheduledAt?.toMillis()).toBeLessThan(
                 DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_MAX_MS }).toMillis()

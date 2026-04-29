@@ -13,6 +13,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconLinux, IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -37,6 +38,8 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     /** Timezone to display the time in (e.g., 'UTC', 'America/New_York'). If not set, uses local timezone.
      * Note: When set, forces timestampStyle to 'absolute' to avoid broken relative date comparisons. */
     displayTimezone?: string
+    /** Custom suffix to replace "ago" in relative time display. e.g. suffix="old" renders "5 hours old" */
+    suffix?: string
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -181,6 +184,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         className,
         children,
         displayTimezone,
+        suffix,
         ...dropdownProps
     },
     ref
@@ -196,14 +200,19 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             return parsedTime
         }
     }, [parsedTime, displayTimezone])
+    const effectiveTimestampStyle = displayTimezone ? 'absolute' : timestampStyle
 
     const format = useCallback(() => {
-        return formatDate || formatTime
-            ? humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
-                  timestampStyle: displayTimezone ? 'absolute' : timestampStyle,
-              })
-            : displayTime.fromNow()
-    }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
+        if (formatDate || formatTime || effectiveTimestampStyle === 'absolute') {
+            return humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
+                timestampStyle: effectiveTimestampStyle,
+            })
+        }
+        if (suffix) {
+            return `${displayTime.fromNow(true)} ${suffix}`
+        }
+        return displayTime.fromNow()
+    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle, suffix])
 
     const [formattedContent, setFormattedContent] = useState(format)
 
@@ -230,7 +239,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         <span
             className={
                 !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
+                    ? cn('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
                     : className
             }
             ref={ref}

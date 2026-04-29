@@ -50,6 +50,9 @@
 }
 
 .DataVisualizationTable {
+    border: 0;
+    border-radius: 0;
+
     th {
         max-width: 15rem;
         overflow: visible;

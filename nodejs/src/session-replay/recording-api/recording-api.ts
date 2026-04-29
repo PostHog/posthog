@@ -1,8 +1,9 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import { ClickHouseClient, createClient as createClickHouseClient } from '@clickhouse/client'
+import https from 'https'
 import express from 'ultimate-express'
 
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -15,9 +16,11 @@ import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger, serializeError } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { getBlockDecryptor } from '../shared/crypto'
+import { SessionFeatureStore } from '../shared/features/session-feature-store'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '../shared/outputs'
 import { RetentionService } from '../shared/retention/retention-service'
 import { TeamService } from '../shared/teams/team-service'
 import { RecordingService } from './recording-service'
@@ -25,19 +28,19 @@ import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema,
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 export class RecordingApi {
-    private corsOrigin: string | null = null
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
     private s3Prefix: string | null = null
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
     private redisPool: RedisPool | null = null
-    private kafkaProducer: KafkaProducerWrapper | null = null
+    private clickhouseClient: ClickHouseClient | null = null
     private recordingService: RecordingService | null = null
 
     constructor(
         private config: RecordingApiConfig,
-        private postgres: PostgresRouter
+        private postgres: PostgresRouter,
+        private outputs: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
     ) {}
 
     public get service(): PluginServerService {
@@ -49,8 +52,6 @@ export class RecordingApi {
     }
 
     async start(recordingService?: RecordingService): Promise<void> {
-        this.corsOrigin = this.config.SITE_URL || null
-
         if (recordingService) {
             this.recordingService = recordingService
             logger.info('[RecordingApi] Started with injected RecordingService')
@@ -113,9 +114,24 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
-        // Initialize Kafka producer for emitting deletion events
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        const metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
+        const metadataStore = new SessionMetadataStore(this.outputs)
+        const featureStore = new SessionFeatureStore(this.outputs)
+
+        // Initialize ClickHouse client for block listing queries
+        const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
+        const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
+        this.clickhouseClient = createClickHouseClient({
+            url: `${chScheme}://${this.config.CLICKHOUSE_HOST}:${chPort}`,
+            username: this.config.CLICKHOUSE_USER,
+            password: this.config.CLICKHOUSE_PASSWORD || undefined,
+            database: this.config.CLICKHOUSE_DATABASE,
+            request_timeout: 30_000,
+            max_open_connections: 10,
+            // Internal ClickHouse uses self-signed certs with a hostname mismatch
+            ...(this.config.CLICKHOUSE_SECURE
+                ? { http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 10 }) } // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+                : {}),
+        })
 
         // Create the service layer
         this.recordingService = new RecordingService(
@@ -125,7 +141,9 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
-            this.postgres
+            featureStore,
+            this.postgres,
+            this.clickhouseClient
         )
 
         logger.info('[RecordingApi] Started successfully')
@@ -138,8 +156,8 @@ export class RecordingApi {
             await this.redisPool.drain()
             await this.redisPool.clear()
         }
-        if (this.kafkaProducer) {
-            await this.kafkaProducer.disconnect()
+        if (this.clickhouseClient) {
+            await this.clickhouseClient.close()
         }
     }
 
@@ -154,9 +172,6 @@ export class RecordingApi {
         }
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
-        }
-        if (!this.kafkaProducer) {
-            uninitializedComponents.push('kafkaProducer')
         }
 
         if (uninitializedComponents.length > 0) {
@@ -178,31 +193,16 @@ export class RecordingApi {
 
         const blockPath = '/api/projects/:team_id/recordings/:session_id/block'
 
-        router.options(blockPath, this.handleCorsPreflightForBlock)
+        const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
+
         router.get(blockPath, asyncHandler(this.getBlock))
+        router.get(blocksPath, asyncHandler(this.listBlocks))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
     }
 
-    private setCorsHeaders(req: express.Request, res: express.Response): void {
-        if (this.corsOrigin && req.headers.origin === this.corsOrigin) {
-            res.set('Access-Control-Allow-Origin', this.corsOrigin)
-            res.set('Vary', 'Origin')
-        }
-    }
-
-    private handleCorsPreflightForBlock = (req: express.Request, res: express.Response): void => {
-        this.setCorsHeaders(req, res)
-        res.set('Access-Control-Allow-Methods', 'GET')
-        res.set('Access-Control-Allow-Headers', 'X-Internal-Api-Secret')
-        res.set('Access-Control-Max-Age', '86400')
-        res.status(204).end()
-    }
-
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {
-        this.setCorsHeaders(req, res)
-
         // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -223,7 +223,7 @@ export class RecordingApi {
         }
 
         const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const { key, start: startByte, end: endByte, decompress } = queryResult.data
+        const { key, start_byte: startByte, end_byte: endByte, decompress } = queryResult.data
 
         // Validate S3 key format
         if (!this.recordingService.validateS3Key(key)) {
@@ -272,6 +272,34 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
+        }
+    }
+
+    private listBlocks = async (req: express.Request, res: express.Response): Promise<void> => {
+        const paramsResult = RecordingParamsSchema.safeParse(req.params)
+        if (!paramsResult.success) {
+            res.status(400).json({ error: paramsResult.error.issues[0].message })
+            return
+        }
+
+        if (!this.recordingService) {
+            res.status(503).json({ error: 'Service not initialized' })
+            return
+        }
+
+        const { team_id: teamId, session_id: sessionId } = paramsResult.data
+
+        try {
+            const blocks = await this.recordingService.listBlocks(sessionId, teamId)
+            res.json({ blocks })
+        } catch (error) {
+            logger.error('[RecordingApi] Error listing blocks', {
+                error: serializeError(error),
+                teamId,
+                sessionId,
+            })
+            captureException(error)
+            res.status(500).json({ error: 'Failed to list blocks' })
         }
     }
 

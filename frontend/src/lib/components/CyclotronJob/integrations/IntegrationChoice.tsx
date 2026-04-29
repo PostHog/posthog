@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal, IconX } from '@posthog/icons'
+import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -9,8 +9,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
-
-import { CyclotronJobInputSchemaType } from '~/types'
 
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
 
@@ -21,7 +19,7 @@ export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
-    schema?: CyclotronJobInputSchemaType
+    schema?: { requiredScopes?: string }
     integration?: string
     beforeRedirect?: () => void
 }
@@ -35,7 +33,8 @@ export function IntegrationChoice({
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
-    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal } = useActions(integrationsLogic)
+    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
+        useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -46,6 +45,13 @@ export function IntegrationChoice({
             onChange?.(integrationsOfKind[0].id)
         }
     }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
+
+    // Clear stale selection when the integration no longer exists (e.g. after disconnect)
+    useEffect(() => {
+        if (!integrationsLoading && value && integrations && !integrationKind) {
+            onChange?.(null)
+        }
+    }, [integrationsLoading, value, integrations, integrationKind, onChange])
 
     if (!kind) {
         return null
@@ -78,11 +84,16 @@ export function IntegrationChoice({
         closeNewIntegrationModal()
     }
 
+    // Stripe sandboxes have a separate client_id from live installs. The Stripe app
+    // forwards is_sandbox=true on the URL it sends users to, so we forward it through
+    // to the authorize endpoint when it's present.
+    const isSandbox = new URLSearchParams(window.location.search).get('is_sandbox') === 'true'
+
     const setupDef = getIntegrationSetup(kind)
     const setupMenuItem = setupDef
         ? setupDef.menuItem({ kind, openModal: openNewIntegrationModal, uploadKey })
         : {
-              to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
+              to: api.integrations.authorizeUrl({ kind, next: redirectUrl, is_sandbox: isSandbox || undefined }),
               disableClientSideRouting: true,
               onClick: beforeRedirect,
               label: integrationsOfKind?.length
@@ -122,8 +133,18 @@ export function IntegrationChoice({
                         value
                             ? {
                                   onClick: () => onChange?.(null),
-                                  label: 'Clear',
+                                  label: 'Clear selection',
                                   sideIcon: <IconX />,
+                              }
+                            : null,
+                        integrationKind
+                            ? {
+                                  onClick: () => {
+                                      deleteIntegration(integrationKind.id)
+                                  },
+                                  label: 'Disconnect integration',
+                                  status: 'danger' as const,
+                                  sideIcon: <IconTrash />,
                               }
                             : null,
                     ],

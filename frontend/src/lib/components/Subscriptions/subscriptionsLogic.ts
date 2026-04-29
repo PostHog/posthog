@@ -7,6 +7,7 @@ import { getInsightId } from 'scenes/insights/utils'
 
 import { SubscriptionType } from '~/types'
 
+import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
 import { SubscriptionBaseProps } from './utils'
 
@@ -18,6 +19,9 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
     ),
     actions({
         deleteSubscription: (id: number) => ({ id }),
+        deliverSubscription: (id: number) => ({ id }),
+        deliverSubscriptionSuccess: true,
+        deliverSubscriptionFailure: true,
     }),
 
     loaders(({ props }) => ({
@@ -45,6 +49,14 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         subscriptions: {
             deleteSubscription: (state, { id }) => state.filter((a) => a.id !== id),
         },
+        deliveringSubscriptionId: [
+            null as number | null,
+            {
+                deliverSubscription: (_, { id }) => id,
+                deliverSubscriptionSuccess: () => null,
+                deliverSubscriptionFailure: () => null,
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
@@ -54,6 +66,14 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 object: { name: 'Subscription', id },
                 callback: () => actions.loadSubscriptions(),
             })
+        },
+        deliverSubscription: async ({ id }) => {
+            const result = await runSubscriptionTestDelivery(() => api.subscriptions.testDelivery(id))
+            if (result === 'success') {
+                actions.deliverSubscriptionSuccess()
+            } else {
+                actions.deliverSubscriptionFailure()
+            }
         },
     })),
 

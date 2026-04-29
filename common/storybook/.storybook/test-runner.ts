@@ -52,7 +52,7 @@ declare module '@storybook/types' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
-            /** Narrow the snapshot to a specific element by specifying a CSS selector. Works for both component and scene (fullscreen) snapshots. */
+            /** Narrow the snapshot to a specific element. Only works for component (non-fullscreen) snapshots — throws an error if used with `layout: 'fullscreen'`. */
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
@@ -402,6 +402,13 @@ async function doTakeSnapshotWithTheme(
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
+        if (snapshotTargetSelector) {
+            throw new Error(
+                `snapshotTargetSelector is not supported with layout: 'fullscreen'. ` +
+                    `Fullscreen stories always snapshot body/main. ` +
+                    `Remove snapshotTargetSelector from testOptions or change the layout.`
+            )
+        }
         if (includeNavigationInSnapshot) {
             check = expectStoryToMatchViewportSnapshot
         } else {
@@ -427,17 +434,12 @@ async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme,
-    targetSelector?: string
+    theme: SnapshotTheme
 ): Promise<void> {
-    if (targetSelector) {
-        await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme)
-    } else {
-        // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
-        // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
-        // and not the order of the selectors in the query.
-        await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
-    }
+    // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
+    // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
+    // and not the order of the selectors in the query.
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(

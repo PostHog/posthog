@@ -10,10 +10,12 @@
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
-        "use-debounce": "catalog:"
+        "use-debounce": "catalog:",
+        "zod": "^4.0.0"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
+        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
@@ -25,6 +27,6 @@
         "fast-deep-equal": "*",
         "fuse.js": "*",
         "react": "*",
-        "zod": "*"
+        "rrule": "*"
     }
 }

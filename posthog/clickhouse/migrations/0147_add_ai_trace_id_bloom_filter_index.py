@@ -22,6 +22,6 @@ GRANULARITY 2
 
 operations = [
     run_sql_with_exceptions(ADD_COLUMN_SHARDED_EVENTS, node_roles=[NodeRole.DATA], sharded=True),
-    run_sql_with_exceptions(ADD_COLUMN_EVENTS, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(ADD_COLUMN_EVENTS, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(ADD_INDEX_SHARDED_EVENTS, node_roles=[NodeRole.DATA], sharded=True),
 ]

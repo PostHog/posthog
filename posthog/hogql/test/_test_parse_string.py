@@ -48,9 +48,9 @@ def parse_string_test_factory(backend: HogQLParserBackend):
             self.assertEqual(parse_string("`a\\osd`"), "a\\osd")
 
         def test_slash_escape_slash_multiple(self):
-            self.assertEqual(parse_string("`a\\\\nsd`"), "a\\\nsd")
-            self.assertEqual(parse_string("`a\\\\n\\sd`"), "a\\\n\\sd")
-            self.assertEqual(parse_string("`a\\\\n\\\\tsd`"), "a\\\n\\\tsd")
+            self.assertEqual(parse_string("`a\\\\nsd`"), "a\\nsd")
+            self.assertEqual(parse_string("`a\\\\n\\sd`"), "a\\n\\sd")
+            self.assertEqual(parse_string("`a\\\\n\\\\tsd`"), "a\\n\\tsd")
 
         def test_raises_on_mismatched_quotes(self):
             self.assertRaisesMessage(

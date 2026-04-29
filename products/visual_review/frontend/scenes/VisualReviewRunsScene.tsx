@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGear, IconGithub } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -10,7 +10,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { RunStatusBadge } from '../components/RunStatusBadge'
 import { RunSummaryStats } from '../components/RunSummaryStats'
 import type { RunApi } from '../generated/api.schemas'
 import { ReviewState, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
@@ -48,33 +47,33 @@ const EMPTY_MESSAGES: Record<ReviewState, string> = {
     stale: 'No stale runs.',
 }
 
-const TAB_STYLES: Record<ReviewState, string> = {
-    needs_review: 'bg-warning-highlight text-warning-dark',
-    clean: 'bg-success-highlight text-success-dark',
-    processing: 'bg-muted-alt text-muted',
-    stale: 'bg-muted-alt text-muted',
+const TAB_COUNT_TYPES: Record<ReviewState, 'warning' | 'highlight' | 'default' | 'muted'> = {
+    needs_review: 'warning',
+    clean: 'default',
+    processing: 'highlight',
+    stale: 'muted',
 }
 
 export function VisualReviewRunsScene(): JSX.Element {
-    const { runs, runsLoading, activeTab, counts, repoFullName } = useValues(visualReviewRunsSceneLogic)
-    const { loadRuns, loadCounts, setActiveTab } = useActions(visualReviewRunsSceneLogic)
+    const { runs, runsLoading, activeTab, counts, repoFullName, page, totalCount } =
+        useValues(visualReviewRunsSceneLogic)
+    const { loadRuns, loadCounts, setActiveTab, setPage } = useActions(visualReviewRunsSceneLogic)
 
     const columns: LemonTableColumns<RunApi> = [
-        {
-            title: 'Status',
-            key: 'status',
-            width: 120,
-            render: (_, run) => (
-                <div className="flex items-center gap-2">
-                    <RunStatusBadge status={run.status} />
-                    {run.approved && <span className="text-success text-xs font-medium">✓</span>}
-                </div>
-            ),
-        },
         {
             title: 'Branch',
             key: 'branch',
             render: (_, run) => <BranchCell run={run} repoFullName={repoFullName} />,
+        },
+        {
+            title: 'Type',
+            key: 'run_type',
+            width: 90,
+            render: (_, run) => (
+                <LemonTag type="muted" size="small" className="uppercase">
+                    {run.run_type}
+                </LemonTag>
+            ),
         },
         {
             title: 'Commit',
@@ -149,29 +148,39 @@ export function VisualReviewRunsScene(): JSX.Element {
                 }
             />
 
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key)}
-                tabs={tabs.map(({ key, label }) => ({
-                    key,
-                    label: (
-                        <span>
-                            {label}
-                            {counts[key] > 0 && (
-                                <span className={`ml-1.5 px-1.5 py-0.5 text-xs rounded-full ${TAB_STYLES[key]}`}>
-                                    {counts[key]}
-                                </span>
-                            )}
-                        </span>
-                    ),
-                }))}
-            />
+            <div className="mb-3">
+                <LemonSegmentedButton
+                    value={activeTab}
+                    onChange={(value) => setActiveTab(value)}
+                    options={tabs.map(({ key, label }) => ({
+                        value: key,
+                        label: (
+                            <span className="flex items-center gap-1.5">
+                                {label}
+                                {(key === 'needs_review' || key === 'processing') && counts[key] > 0 && (
+                                    <LemonTag type={TAB_COUNT_TYPES[key]} size="small">
+                                        {counts[key]}
+                                    </LemonTag>
+                                )}
+                            </span>
+                        ),
+                    }))}
+                    size="small"
+                />
+            </div>
 
             <LemonTable
                 dataSource={runs}
                 columns={columns}
                 loading={runsLoading}
-                pagination={{ pageSize: 20 }}
+                pagination={{
+                    controlled: true,
+                    pageSize: 20,
+                    currentPage: page,
+                    entryCount: totalCount,
+                    onBackward: () => setPage(page - 1),
+                    onForward: () => setPage(page + 1),
+                }}
                 nouns={['run', 'runs']}
                 emptyState={EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({

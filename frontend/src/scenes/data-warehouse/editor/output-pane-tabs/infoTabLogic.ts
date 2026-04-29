@@ -1,18 +1,11 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
+import { connect, kea, key, listeners, path, props, selectors } from 'kea'
 
-import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-
-import { DataModelingJob } from '~/types'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import type { infoTabLogicType } from './infoTabLogicType'
-
-const REFRESH_INTERVAL = 10000
-const DEFAULT_JOBS_PAGE_SIZE = 10
 
 export interface InfoTableRow {
     name: string
@@ -24,74 +17,25 @@ export interface InfoTableRow {
 
 export interface InfoTabLogicProps {
     tabId: string
+    viewId?: string
 }
 
 export const infoTabLogic = kea<infoTabLogicType>([
     path(['data-warehouse', 'editor', 'sidebar', 'infoTabLogic']),
     props({} as InfoTabLogicProps),
-    key((props) => props.tabId),
+    key((props) => `${props.tabId}-${props.viewId ?? 'new'}`),
     connect((props: InfoTabLogicProps) => ({
         values: [
             sqlEditorLogic({ tabId: props.tabId }),
-            ['metadata', 'editingView'],
+            ['metadata'],
             databaseTableListLogic,
             ['posthogTablesMap', 'dataWarehouseTablesMap'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMap'],
         ],
+        actions: [sqlEditorLogic({ tabId: props.tabId }), ['loadUpstream']],
+        logic: props.viewId ? [materializationJobsLogic({ viewId: props.viewId })] : [],
     })),
-    actions({
-        setStartingMaterialization: (starting: boolean) => ({ starting }),
-    }),
-    loaders(({ values }) => ({
-        dataModelingJobs: [
-            null as PaginatedResponse<DataModelingJob> | null,
-            {
-                loadDataModelingJobs: async (savedQueryId: string) => {
-                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
-                        savedQueryId,
-                        values.dataModelingJobs?.results.length
-                            ? Math.max(values.dataModelingJobs.results.length, DEFAULT_JOBS_PAGE_SIZE)
-                            : DEFAULT_JOBS_PAGE_SIZE,
-                        0
-                    )
-                },
-                loadOlderDataModelingJobs: async () => {
-                    const nextUrl = values.dataModelingJobs?.next
-
-                    if (!nextUrl) {
-                        return values.dataModelingJobs
-                    }
-
-                    const res = await api.get<PaginatedResponse<DataModelingJob>>(nextUrl)
-                    res.results = [...(values.dataModelingJobs?.results ?? []), ...res.results]
-
-                    return res
-                },
-            },
-        ],
-    })),
-    reducers({
-        startingMaterialization: [
-            false,
-            {
-                setStartingMaterialization: (_, { starting }: { starting: boolean }) => starting,
-                loadDataModelingJobsSuccess: (
-                    state: boolean,
-                    { dataModelingJobs }: { dataModelingJobs: PaginatedResponse<DataModelingJob> | null }
-                ) => {
-                    const currentJobStatus = dataModelingJobs?.results?.[0]?.status
-                    if (
-                        currentJobStatus &&
-                        ['Running', 'Completed', 'Failed', 'Cancelled'].includes(currentJobStatus)
-                    ) {
-                        return false
-                    }
-                    return state
-                },
-            },
-        ],
-    }),
     selectors({
         sourceTableItems: [
             (s) => [s.metadata, s.dataWarehouseSavedQueryMap],
@@ -122,27 +66,18 @@ export const infoTabLogic = kea<infoTabLogicType>([
                 )
             },
         ],
-        hasMoreJobsToLoad: [(s) => [s.dataModelingJobs], (dataModelingJobs) => !!dataModelingJobs?.next],
     }),
-    listeners(({ actions, cache }) => ({
-        loadDataModelingJobsSuccess: ({ payload }) => {
-            cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => {
-                    if (payload) {
-                        actions.loadDataModelingJobs(payload)
-                    }
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timeoutId)
-            }, 'dataModelingJobsRefreshTimeout')
-        },
-    })),
-    subscriptions(({ actions, values }) => ({
-        editingView: (editingView) => {
-            if (editingView) {
-                if (values.dataModelingJobs === null) {
-                    actions.loadDataModelingJobs(editingView.id)
+    listeners(({ actions, props }) => {
+        if (!props.viewId) {
+            return {}
+        }
+        const jobsLogic = materializationJobsLogic({ viewId: props.viewId })
+        return {
+            [jobsLogic.actionTypes.loadDataModelingJobsSuccess]: () => {
+                if (props.viewId) {
+                    actions.loadUpstream(props.viewId)
                 }
-            }
-        },
-    })),
+            },
+        }
+    }),
 ])

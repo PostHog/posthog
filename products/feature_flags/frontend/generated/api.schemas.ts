@@ -7,6 +7,49 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface CopyFlagsRequestApi {
+    /** Key of the feature flag to copy */
+    feature_flag_key: string
+    /** Source project ID to copy the flag from */
+    from_project: number
+    /**
+     * List of target project IDs to copy the flag to
+     * @maxItems 50
+     */
+    target_project_ids: number[]
+    /** Whether to also copy scheduled changes for this flag */
+    copy_schedule?: boolean
+    /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+    disable_copied_flag?: boolean
+}
+
+export interface CopyFlagsSuccessItemApi {
+    /** ID of the created feature flag */
+    id: number
+    /** Key of the feature flag */
+    key: string
+    /** Name of the feature flag */
+    name: string
+    /** Whether the flag is active */
+    active: boolean
+    /** Team ID the flag was copied to */
+    team_id: number
+}
+
+export interface CopyFlagsResultApi {
+    /** Project ID (present on failure) */
+    project_id?: number
+    /** Error message (present on failure) */
+    error_message?: string
+}
+
+export interface CopyFlagsResponseApi {
+    /** List of successfully copied flags */
+    success: CopyFlagsSuccessItemApi[]
+    /** List of failed copy attempts */
+    failed: CopyFlagsResultApi[]
+}
+
 /**
  * * `engineering` - Engineering
  * `data` - Data
@@ -112,6 +155,8 @@ export const BucketingIdentifierEnumApi = {
 
 export type FeatureFlagApiFilters = { [key: string]: unknown }
 
+export type FeatureFlagApiExperimentSetMetadataItem = { [key: string]: unknown }
+
 export type FeatureFlagApiSurveys = { [key: string]: unknown }
 
 export type FeatureFlagApiFeatures = { [key: string]: unknown }
@@ -137,6 +182,7 @@ export interface FeatureFlagApi {
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: readonly number[]
+    readonly experiment_set_metadata: readonly FeatureFlagApiExperimentSetMetadataItem[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
     rollback_conditions?: unknown | null
@@ -144,7 +190,7 @@ export interface FeatureFlagApi {
     performed_rollback?: boolean | null
     readonly can_edit: boolean
     tags?: unknown[]
-    evaluation_tags?: unknown[]
+    evaluation_contexts?: unknown[]
     readonly usage_dashboard: number
     analytics_dashboards?: number[]
     /** @nullable */
@@ -204,9 +250,9 @@ export interface PaginatedFeatureFlagListApi {
  * `person` - person
  * `group` - group
  */
-export type Type380EnumApi = (typeof Type380EnumApi)[keyof typeof Type380EnumApi]
+export type PropertyGroupTypeEnumApi = (typeof PropertyGroupTypeEnumApi)[keyof typeof PropertyGroupTypeEnumApi]
 
-export const Type380EnumApi = {
+export const PropertyGroupTypeEnumApi = {
     Cohort: 'cohort',
     Person: 'person',
     Group: 'group',
@@ -248,7 +294,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -280,9 +326,9 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
 
-export const Operator3e6EnumApi = {
+export const ExistenceOperatorEnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -295,7 +341,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -310,23 +356,22 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: Operator3e6EnumApi
+    operator: ExistenceOperatorEnumApi
     /** Optional value. Runtime behavior determines whether this is ignored. */
     value?: unknown
 }
 
 /**
  * * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
  * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
  */
-export type FeatureFlagFilterPropertyDateSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi]
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
 
-export const FeatureFlagFilterPropertyDateSchemaOperatorEnumApi = {
+export const DateOperatorEnumApi = {
     IsDateExact: 'is_date_exact',
-    IsDateAfter: 'is_date_after',
     IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
 } as const
 
 export interface FeatureFlagFilterPropertyDateSchemaApi {
@@ -337,7 +382,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -353,7 +398,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `is_date_exact` - is_date_exact
 * `is_date_after` - is_date_after
 * `is_date_before` - is_date_before */
-    operator: FeatureFlagFilterPropertyDateSchemaOperatorEnumApi
+    operator: DateOperatorEnumApi
     /** Date value in ISO format or relative date expression. */
     value: string
 }
@@ -392,7 +437,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -439,7 +484,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -571,6 +616,11 @@ export interface FeatureFlagConditionGroupSchemaApi {
      * @nullable
      */
     variant?: string | null
+    /**
+     * Group type index for this condition set. None means person-level aggregation.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
 }
 
 export interface FeatureFlagMultivariateVariantSchemaApi {
@@ -608,6 +658,11 @@ export interface FeatureFlagFiltersSchemaApi {
     payloads?: FeatureFlagFiltersSchemaApiPayloads
     /** Additional super condition groups used by experiments. */
     super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
+    /**
+     * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+     * @nullable
+     */
+    feature_enrollment?: boolean | null
 }
 
 export interface FeatureFlagCreateRequestSchemaApi {
@@ -621,8 +676,8 @@ export interface FeatureFlagCreateRequestSchemaApi {
     active?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
-    /** Evaluation context tags. Must be a subset of `tags`. */
-    evaluation_tags?: string[]
+    /** Evaluation contexts that control where this flag evaluates at runtime. */
+    evaluation_contexts?: string[]
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -636,8 +691,8 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     active?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
-    /** Evaluation context tags. Must be a subset of `tags`. */
-    evaluation_tags?: string[]
+    /** Evaluation contexts that control where this flag evaluates at runtime. */
+    evaluation_contexts?: string[]
 }
 
 export interface ChangeApi {
@@ -670,8 +725,15 @@ export interface DetailApi {
     readonly type: string
 }
 
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null | null
+
 export interface ActivityLogEntryApi {
-    readonly user: string
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
     readonly activity: string
     readonly scope: string
     readonly item_id: string
@@ -689,6 +751,126 @@ export interface ActivityLogPaginatedResponseApi {
     /** @nullable */
     previous: string | null
     total_count: number
+}
+
+export interface DependentFlagApi {
+    /** Feature flag ID */
+    id: number
+    /** Feature flag key */
+    key: string
+    /** Feature flag name */
+    name: string
+}
+
+export interface FeatureFlagStatusResponseApi {
+    /** Flag status: active, stale, deleted, or unknown */
+    status: string
+    /** Human-readable explanation of the status */
+    reason: string
+}
+
+export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
+
+/**
+ * Feature flag state at a given version plus reconstruction metadata.
+ */
+export interface FeatureFlagVersionResponseApi {
+    readonly id: number
+    /** @maxLength 400 */
+    key: string
+    name?: string
+    readonly filters: FeatureFlagVersionResponseApiFilters
+    active?: boolean
+    deleted?: boolean
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    rollback_conditions?: unknown | null
+    /** @nullable */
+    performed_rollback?: boolean | null
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /** @nullable */
+    has_enriched_analytics?: boolean | null
+    /** @nullable */
+    is_remote_configuration?: boolean | null
+    /** @nullable */
+    has_encrypted_payloads?: boolean | null
+    /** Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** Identifier used for bucketing users into rollout and variants
+
+* `distinct_id` - User ID (default)
+* `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
+    /**
+     * Last time this feature flag was called (from $feature_flag_called events)
+     * @nullable
+     */
+    last_called_at?: string | null
+    created_at?: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** False for the current version; true for reconstructed historical versions. */
+    readonly is_historical: boolean
+    /** @nullable */
+    readonly version_timestamp: string | null
+    /**
+     * User from the activity log entry that produced this version.
+     * @nullable
+     */
+    readonly modified_by: number | null
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
 }
 
 export type LocalEvaluationResponseApiGroupTypeMapping = { [key: string]: string }
@@ -730,7 +912,6 @@ export interface MinimalFeatureFlagApi {
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    readonly evaluation_tags: readonly string[]
     readonly evaluation_contexts: readonly string[]
 }
 
@@ -744,6 +925,163 @@ export interface LocalEvaluationResponseApi {
 export interface MyFlagsResponseApi {
     feature_flag: MinimalFeatureFlagApi
     value: unknown
+}
+
+/**
+ * The release condition to evaluate
+ */
+export type UserBlastRadiusRequestApiCondition = { [key: string]: unknown }
+
+export interface UserBlastRadiusRequestApi {
+    /** The release condition to evaluate */
+    condition: UserBlastRadiusRequestApiCondition
+    /**
+     * Group type index for group-based flags (null for person-based flags)
+     * @nullable
+     */
+    group_type_index?: number | null
+}
+
+export interface UserBlastRadiusResponseApi {
+    /** Number of entities matching the condition (users or groups depending on group_type_index) */
+    affected: number
+    /** Total number of entities of this type in the project */
+    total: number
+}
+
+/**
+ * * `FeatureFlag` - feature flag
+ */
+export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
+
+export const ModelNameEnumApi = {
+    FeatureFlag: 'FeatureFlag',
+} as const
+
+/**
+ * * `daily` - daily
+ * `weekly` - weekly
+ * `monthly` - monthly
+ * `yearly` - yearly
+ */
+export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+
+export const RecurrenceIntervalEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+    Yearly: 'yearly',
+} as const
+
+export interface ScheduledChangeApi {
+    readonly id: number
+    readonly team_id: number
+    /**
+     * The ID of the record to modify (e.g. the feature flag ID).
+     * @maxLength 200
+     */
+    record_id: string
+    /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+* `FeatureFlag` - feature flag */
+    model_name: ModelNameEnumApi
+    /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+    payload: unknown
+    /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
+    scheduled_at: string
+    /** @nullable */
+    readonly executed_at: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
+    is_recurring?: boolean
+    /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly
+* `yearly` - yearly */
+    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
+    /** @nullable */
+    readonly last_executed_at: string | null
+    /**
+     * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+     * @nullable
+     */
+    end_date?: string | null
+    /** @nullable */
+    readonly timezone: string | null
+}
+
+export interface PaginatedScheduledChangeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScheduledChangeApi[]
+}
+
+export interface PatchedScheduledChangeApi {
+    readonly id?: number
+    readonly team_id?: number
+    /**
+     * The ID of the record to modify (e.g. the feature flag ID).
+     * @maxLength 200
+     */
+    record_id?: string
+    /** The type of record to modify. Currently only "FeatureFlag" is supported.
+
+* `FeatureFlag` - feature flag */
+    model_name?: ModelNameEnumApi
+    /** The change to apply. Must include an 'operation' key and a 'value' key. Supported operations: 'update_status' (value: true/false to enable/disable the flag), 'add_release_condition' (value: object with 'groups', 'payloads', and 'multivariate' keys), 'update_variants' (value: object with 'variants' and 'payloads' keys). */
+    payload?: unknown
+    /** ISO 8601 datetime when the change should be applied (e.g. '2025-06-01T14:00:00Z'). */
+    scheduled_at?: string
+    /** @nullable */
+    readonly executed_at?: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly updated_at?: string
+    /** Whether this schedule repeats. Only the 'update_status' operation supports recurring schedules. */
+    is_recurring?: boolean
+    /** How often the schedule repeats. Required when is_recurring is true. One of: daily, weekly, monthly, yearly.
+
+* `daily` - daily
+* `weekly` - weekly
+* `monthly` - monthly
+* `yearly` - yearly */
+    recurrence_interval?: RecurrenceIntervalEnumApi | NullEnumApi | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    cron_expression?: string | null
+    /** @nullable */
+    readonly last_executed_at?: string | null
+    /**
+     * Optional ISO 8601 datetime after which a recurring schedule stops executing.
+     * @nullable
+     */
+    end_date?: string | null
+    /** @nullable */
+    readonly timezone?: string | null
 }
 
 export type FeatureFlagsListParams = {
@@ -761,9 +1099,9 @@ export type FeatureFlagsListParams = {
      */
     excluded_properties?: string
     /**
-     * Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
+     * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
-    has_evaluation_tags?: FeatureFlagsListHasEvaluationTags
+    has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts
     /**
      * Number of results to return per page.
      */
@@ -800,10 +1138,10 @@ export const FeatureFlagsListEvaluationRuntime = {
     Server: 'server',
 } as const
 
-export type FeatureFlagsListHasEvaluationTags =
-    (typeof FeatureFlagsListHasEvaluationTags)[keyof typeof FeatureFlagsListHasEvaluationTags]
+export type FeatureFlagsListHasEvaluationContexts =
+    (typeof FeatureFlagsListHasEvaluationContexts)[keyof typeof FeatureFlagsListHasEvaluationContexts]
 
-export const FeatureFlagsListHasEvaluationTags = {
+export const FeatureFlagsListHasEvaluationContexts = {
     False: 'false',
     True: 'true',
 } as const
@@ -817,7 +1155,7 @@ export const FeatureFlagsListType = {
     RemoteConfig: 'remote_config',
 } as const
 
-export type FeatureFlagsActivityRetrieve2Params = {
+export type FeatureFlagsActivityRetrieveParams = {
     /**
      * Number of items per page
      * @minimum 1
@@ -830,7 +1168,7 @@ export type FeatureFlagsActivityRetrieve2Params = {
     page?: number
 }
 
-export type FeatureFlagsActivityRetrieveParams = {
+export type FeatureFlagsAllActivityRetrieveParams = {
     /**
      * Number of items per page
      * @minimum 1
@@ -863,19 +1201,28 @@ export type FeatureFlagsLocalEvaluationRetrieveParams = {
     send_cohorts?: boolean | null
 }
 
-/**
- * Unspecified response body
- */
-export type FeatureFlagsLocalEvaluationRetrieve402 = { [key: string]: unknown }
-
-/**
- * Unspecified response body
- */
-export type FeatureFlagsLocalEvaluationRetrieve500 = { [key: string]: unknown }
-
 export type FeatureFlagsMyFlagsRetrieveParams = {
     /**
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string
+}
+
+export type ScheduledChangesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * Filter by model type. Use "FeatureFlag" to see feature flag schedules.
+     */
+    model_name?: string
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by the ID of a specific feature flag.
+     */
+    record_id?: string
 }

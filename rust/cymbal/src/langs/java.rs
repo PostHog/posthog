@@ -8,7 +8,7 @@ use tracing::warn;
 
 use crate::{
     error::{FrameError, ProguardError, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::{utils::add_raw_to_junk, CommonFrameMetadata},
     symbol_store::{
         chunk_id::OrChunkId,
@@ -157,6 +157,7 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             lang: "java".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             release: None,
@@ -174,6 +175,10 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
 
 impl From<(&RawJavaFrame, ProguardError)> for Frame {
     fn from((raw, error): (&RawJavaFrame, ProguardError)) -> Self {
+        record_frame_resolution_failure("java", error.metric_reason(), &error);
+
+        let resolve_failure = Some(error.to_string());
+
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
@@ -184,7 +189,7 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolved_name: None,
             lang: "java".to_string(),
             resolved: false,
-            resolve_failure: Some(error.to_string()),
+            resolve_failure,
             junk_drawer: None,
             code_variables: None,
             release: None,

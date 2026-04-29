@@ -9,12 +9,17 @@ on:
             - '.github/workflows/ci-phrocs.yml'
             - 'tools/phrocs/**'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
 
 jobs:
     test:
         runs-on: ubuntu-24.04
+        timeout-minutes: 10
 
         steps:
             - name: Checkout code

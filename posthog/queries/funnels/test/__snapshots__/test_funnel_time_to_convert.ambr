@@ -71,7 +71,7 @@
                                WHERE team_id = 99999
                                  AND event IN ['step one', 'step three', 'step two']
                                  AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC'))
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 99999
@@ -80,8 +80,8 @@
                          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
-                              OR step_2 = 1) ))))
-           WHERE step_0 = 1 ))
+                              OR step_2 = 1)))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps)),
@@ -94,7 +94,7 @@
             ceil((to_seconds - from_seconds) / bin_count) AS bin_width_seconds_raw,
             if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
      FROM step_runs
-     WHERE step_1_average_conversion_time_inner IS NOT NULL ),
+     WHERE step_1_average_conversion_time_inner IS NOT NULL),
   
     (SELECT bin_width_seconds
      FROM histogram_params) AS bin_width_seconds,
@@ -182,14 +182,14 @@
                          FROM events
                          WHERE team_id = 99999
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
-                   AND (1=1) ))
-           WHERE step_0 = 1 ))
+                   AND (1=1)))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps)),
@@ -202,7 +202,7 @@
             ceil((to_seconds - from_seconds) / bin_count) AS bin_width_seconds_raw,
             if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
      FROM step_runs
-     WHERE step_1_average_conversion_time_inner IS NOT NULL ),
+     WHERE step_1_average_conversion_time_inner IS NOT NULL),
   
     (SELECT bin_width_seconds
      FROM histogram_params) AS bin_width_seconds,
@@ -289,7 +289,7 @@
                          WHERE team_id = 99999
                            AND event IN ['step one', 'step three', 'step two']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 99999
@@ -298,7 +298,7 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1
-                        OR step_2 = 1) ))
+                        OR step_2 = 1)))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -339,7 +339,7 @@
                          WHERE team_id = 99999
                            AND event IN ['step one', 'step three', 'step two']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 99999
@@ -348,7 +348,7 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1
-                        OR step_2 = 1) ))
+                        OR step_2 = 1)))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -389,7 +389,7 @@
                          WHERE team_id = 99999
                            AND event IN ['step one', 'step three', 'step two']
                            AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') )
+                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC'))
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 99999
@@ -398,8 +398,8 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1
-                        OR step_2 = 1) ))
-           WHERE step_0 = 1 ))
+                        OR step_2 = 1)))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max(max_steps)),
@@ -412,7 +412,7 @@
             ceil((to_seconds - from_seconds) / bin_count) AS bin_width_seconds_raw,
             if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
      FROM step_runs
-     WHERE step_1_average_conversion_time_inner IS NOT NULL ),
+     WHERE step_1_average_conversion_time_inner IS NOT NULL),
   
     (SELECT bin_width_seconds
      FROM histogram_params) AS bin_width_seconds,

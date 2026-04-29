@@ -2,11 +2,9 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
-import { ReplayTaxonomicFilterProperty } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -21,9 +19,15 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
+
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
+    /** When the search query matched a value rather than a key, this is set to 'value'. Otherwise 'key' or omitted. */
+    matchedOn?: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn === 'value'. */
+    matchedValue?: string
 }
 
 export interface QuickFilterItem {
@@ -70,6 +74,7 @@ export interface TaxonomicFilterProps {
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
     schemaColumns?: DatabaseSchemaField[]
+    schemaColumnsLoading?: boolean
     endpointFilters?: Record<string, any>
     height?: number
     width?: number | string
@@ -96,10 +101,26 @@ export interface TaxonomicFilterProps {
     /** Allow users to select events that haven't been captured yet (default: false) */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
+    /** When true, the SQL expression tab shows a hint about using `AS column_name`
+     * or `-- column_name` to get a readable breakdown label. Only shown for long expressions. */
+    hogQLExpressionShowBreakdownLabelHint?: boolean
     /** Optionally customize definition popover contents for selected items. */
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     /** Override the group-level minSearchQueryLength for all groups in this instance. */
     minSearchQueryLength?: number
+    /** Override the "Suggested filters" tab label for specific contexts. */
+    suggestedFiltersLabel?: string
+    /** Hide the built-in search input when an external input drives the search query.
+     *  Note: the pill/icon category-dropdown affordance lives inside the built-in input,
+     *  so when you hide it the host is responsible for rendering `CategoryDropdown` itself
+     *  (e.g. as the suffix of its external input, under a shared `taxonomicFilterLogicKey`). */
+    hideSearchInput?: boolean
+    /** Controlled search query — synced into the logic on each change. Use with hideSearchInput for external input control. */
+    searchQuery?: string
+    /** Surface inline `$event_type` shortcuts in Events/EventProperties groups when the search
+     *  query matches a known autocapture interaction keyword. Consumers must handle
+     *  `isQuickFilterItem(item)` in their onChange to avoid mis-selecting as an event name. */
+    enableKeywordShortcuts?: boolean
 }
 
 export interface DataWarehousePopoverField {
@@ -145,6 +166,10 @@ export interface TaxonomicFilterGroup {
     render?: TaxonomicFilterRender
     /** if you want to override the default local items search behaviour e.g. for the replay group type */
     localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
+    /** Local-only groups don't participate in server-search mechanics (top matches, skeletons). */
+    isLocalOnly?: boolean
+    /** Meta groups (Suggested, Recent, Pinned) are excluded from loading indicators, top matches, auto-tab-away, and definition popovers. */
+    isMetaGroup?: boolean
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
@@ -154,6 +179,8 @@ export interface TaxonomicFilterGroup {
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
+    /** Name of a boolean selector on `logic` that indicates items are still loading. */
+    valueLoading?: string
     searchAlias?: string
     valuesEndpoint?: (propertyKey: string) => string | undefined
     getGroup?: (instance: any) => TaxonomicFilterGroup
@@ -173,6 +200,10 @@ export interface TaxonomicFilterGroup {
     minSearchQueryLength?: number
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
+    /** Synthetic results surfaced inline when the search query matches a keyword.
+     *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
+     *  handling in consumer onChange handlers. */
+    keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
 }
 
 export enum TaxonomicFilterGroupType {
@@ -218,6 +249,9 @@ export enum TaxonomicFilterGroupType {
     Logs = 'logs',
     LogAttributes = 'log_attributes',
     LogResourceAttributes = 'log_resource_attributes',
+    Spans = 'spans',
+    SpanAttributes = 'span_attributes',
+    SpanResourceAttributes = 'span_resource_attributes',
     // Misc
     Replay = 'replay',
     ReplaySavedFilters = 'replay_saved_filters',
@@ -230,8 +264,20 @@ export enum TaxonomicFilterGroupType {
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
     SuggestedFilters = 'suggested_filters',
+    RecentFilters = 'recent_filters',
+    PinnedFilters = 'pinned_filters',
     Empty = 'empty',
 }
+
+export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.RecentFilters,
+    TaxonomicFilterGroupType.PinnedFilters,
+    TaxonomicFilterGroupType.Empty,
+    TaxonomicFilterGroupType.Wildcards,
+    TaxonomicFilterGroupType.MaxAIContext,
+])
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
     listGroupType: TaxonomicFilterGroupType
@@ -253,6 +299,8 @@ export interface LoaderOptions {
 
 export type ListFuse = Fuse<{
     name: string
+    posthogName: string | undefined
+    recentLabel: string | undefined
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
@@ -274,5 +322,16 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
-    | ReplayTaxonomicFilterProperty
     | QuickFilterItem
+
+export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill', 'icon'] as const
+
+export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
+
+export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
+    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
+}
+
+export function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
+    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
+}

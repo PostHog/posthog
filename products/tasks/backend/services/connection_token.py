@@ -27,7 +27,7 @@ def get_sandbox_jwt_public_key() -> str:
     """
     Derive and cache the public key from the private key.
     """
-    private_key_pem = getattr(settings, "SANDBOX_JWT_PRIVATE_KEY", None)
+    private_key_pem = settings.SANDBOX_JWT_PRIVATE_KEY
     if not private_key_pem:
         raise ValueError("SANDBOX_JWT_PRIVATE_KEY setting is required")
 
@@ -54,7 +54,7 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
     Returns:
         A signed JWT token valid for 24 hours
     """
-    private_key = getattr(settings, "SANDBOX_JWT_PRIVATE_KEY", None)
+    private_key = settings.SANDBOX_JWT_PRIVATE_KEY
     if not private_key:
         raise ValueError("SANDBOX_JWT_PRIVATE_KEY setting is required for sandbox connection tokens")
 

@@ -8,6 +8,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.experiments.activities import (
+        backfill_experiment_metric,
         calculate_experiment_regular_metric,
         calculate_experiment_saved_metric,
         get_experiment_regular_metrics_for_hour,
@@ -16,6 +17,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.experiments.models import (
         ExperimentRegularMetricsWorkflowInputs,
         ExperimentSavedMetricsWorkflowInputs,
+        ExperimentTimeseriesRecalculationWorkflowInputs,
     )
 
 MAX_CONCURRENT_METRICS = 10
@@ -163,3 +165,20 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
             "succeeded": succeeded,
             "failed": failed,
         }
+
+
+@temporalio.workflow.defn(name="experiment-timeseries-recalculation-workflow")
+class ExperimentTimeseriesRecalculationWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ExperimentTimeseriesRecalculationWorkflowInputs:
+        return ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=inputs[0])
+
+    @temporalio.workflow.run
+    async def run(self, inputs: ExperimentTimeseriesRecalculationWorkflowInputs) -> dict:
+        return await temporalio.workflow.execute_activity(
+            backfill_experiment_metric,
+            inputs.recalculation_id,
+            start_to_close_timeout=timedelta(hours=3),
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(minutes=5)),
+            heartbeat_timeout=timedelta(minutes=20),
+        )

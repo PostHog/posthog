@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import {
     IconApps,
@@ -9,23 +10,40 @@ import {
     IconFolderOpen,
     IconHome,
     IconNotification,
+    IconCheck,
+    IconPencil,
     IconStar,
 } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
+import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
+import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
+import { inlineEditAppsLogic } from './inlineEditAppsLogic'
+import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
     identifier: PanelLayoutNavIdentifier
@@ -54,6 +72,108 @@ const panelTriggerItems: {
     },
 ]
 
+function getItemName(item: FileSystemEntry): string {
+    const pathSplit = splitPath(item.path)
+    const lastPart = pathSplit.pop()
+    return unescapePath(lastPart ?? item.path)
+}
+
+function formatRelativeDate(dateStr: string | null | undefined): string {
+    if (!dateStr) {
+        return ''
+    }
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) {
+        return ''
+    }
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    if (diffMins < 1) {
+        return 'now'
+    }
+    if (diffMins < 60) {
+        return `${diffMins}m`
+    }
+    const diffHours = Math.floor(diffMins / 60)
+    if (diffHours < 24) {
+        return `${diffHours}h`
+    }
+    const diffDays = Math.floor(diffHours / 24)
+    if (diffDays < 30) {
+        return `${diffDays}d`
+    }
+    const diffMonths = Math.floor(diffDays / 30)
+    return `${diffMonths}mo`
+}
+
+function useStarredState(item: FileSystemEntry): {
+    isAlreadyStarred: boolean
+    addShortcutItem: (item: FileSystemEntry) => void
+} {
+    const { addShortcutItem } = useActions(projectTreeDataLogic)
+    const { shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
+    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
+    return { isAlreadyStarred: shortcutNonFolderPaths.has(shortcutPath), addShortcutItem }
+}
+
+function AddToStarredContextAction({ item }: { item: FileSystemEntry }): JSX.Element {
+    const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
+
+    if (isAlreadyStarred) {
+        return (
+            <ContextMenuItem asChild disabled>
+                <ButtonPrimitive menuItem disabled>
+                    <IconStar className="size-4 text-tertiary" />
+                    Already starred
+                </ButtonPrimitive>
+            </ContextMenuItem>
+        )
+    }
+
+    return (
+        <ContextMenuItem asChild>
+            <ButtonPrimitive menuItem onClick={() => addShortcutItem(item)}>
+                <IconStar className="size-4 text-tertiary" />
+                Add to starred
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    )
+}
+
+function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.Element {
+    const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
+
+    if (isAlreadyStarred) {
+        return (
+            <DropdownMenuGroup>
+                <BrowserLikeMenuItems MenuItem={DropdownMenuItem} href={item.href ?? ''} />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild disabled>
+                    <ButtonPrimitive menuItem disabled>
+                        <IconStar className="size-4 text-tertiary" />
+                        Already starred
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+            </DropdownMenuGroup>
+        )
+    }
+
+    return (
+        <DropdownMenuGroup>
+            <BrowserLikeMenuItems MenuItem={DropdownMenuItem} href={item.href ?? ''} />
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem asChild>
+                <ButtonPrimitive menuItem onClick={() => addShortcutItem(item)}>
+                    <IconStar className="size-4 text-tertiary" />
+                    Add to starred
+                </ButtonPrimitive>
+            </DropdownMenuItem>
+        </DropdownMenuGroup>
+    )
+}
+
 export function NavTabBrowse(): JSX.Element {
     const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier, toggleNavSection } =
         useActions(panelLayoutLogic)
@@ -63,15 +183,22 @@ export function NavTabBrowse(): JSX.Element {
         expandedNavSections,
         activePanelIdentifier,
         activePanelIdentifierFromUrlAiFirst,
+        pathname,
     } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
+    const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
+    const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
+    const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
-        if (activePanelIdentifier !== item) {
+        const isOpening = activePanelIdentifier !== item
+        posthog.capture('nav panel trigger clicked', { panel: item, is_open: isOpening })
+        if (isOpening) {
             setActivePanelIdentifier(item)
             showLayoutPanel(true)
-        } else if (activePanelIdentifier === item) {
+        } else {
             clearActivePanelIdentifier()
             showLayoutPanel(false)
         }
@@ -82,23 +209,32 @@ export function NavTabBrowse(): JSX.Element {
             className={cn('flex-1', {
                 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive,
             })}
-            innerClassName="overflow-y-auto overflow-x-hidden px-1"
+            innerClassName="overflow-y-auto overflow-x-hidden px-2 focus-visible:outline-accent -outline-offset-2"
             direction="vertical"
             styledScrollbars
         >
             <Collapsible
                 open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
-                onOpenChange={() => toggleNavSection('project')}
+                onOpenChange={() => {
+                    posthog.capture('nav section toggled', {
+                        section: 'project',
+                        is_open: !expandedNavSections.project,
+                    })
+                    toggleNavSection('project')
+                }}
+                data-attr="nav-section-project"
             >
                 {!isLayoutNavCollapsed && (
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
-                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center pl-0')}>
+                <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"
                         icon={<IconHome />}
                         isCollapsed={isLayoutNavCollapsed}
+                        data-attr="nav-item-home"
+                        onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
                     />
 
                     {isProductAutonomyEnabled && (
@@ -107,6 +243,8 @@ export function NavTabBrowse(): JSX.Element {
                             label="Inbox"
                             icon={<IconNotification />}
                             isCollapsed={isLayoutNavCollapsed}
+                            data-attr="nav-item-inbox"
+                            onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
                         />
                     )}
 
@@ -115,6 +253,8 @@ export function NavTabBrowse(): JSX.Element {
                         label="Activity"
                         icon={<IconClock />}
                         isCollapsed={isLayoutNavCollapsed}
+                        data-attr="nav-item-activity"
+                        onClick={() => posthog.capture('nav item clicked', { item: 'activity' })}
                     />
 
                     <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
@@ -179,17 +319,127 @@ export function NavTabBrowse(): JSX.Element {
 
             {!isLayoutNavCollapsed && (
                 <Collapsible
-                    open={expandedNavSections.apps ?? false}
-                    onOpenChange={() => toggleNavSection('apps')}
+                    open={expandedNavSections.recents ?? false}
+                    onOpenChange={() => {
+                        posthog.capture('nav section toggled', {
+                            section: 'recents',
+                            is_open: !expandedNavSections.recents,
+                        })
+                        toggleNavSection('recents')
+                    }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
+                    data-attr="nav-section-recents"
                 >
-                    <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
+                    <SectionTrigger icon={<IconClock />} label="Recents" isCollapsed={isLayoutNavCollapsed} />
+                    <Collapsible.Panel className="pl-2">
+                        {recentItemsLoading && recentItems.length === 0 ? (
+                            <div className="flex items-center justify-center py-2">
+                                <Spinner className="size-4" />
+                            </div>
+                        ) : recentItems.length === 0 ? (
+                            <span className="text-xs text-tertiary px-2 py-1">No recent items</span>
+                        ) : (
+                            recentItems.map((item: FileSystemEntry) => {
+                                const name = getItemName(item)
+                                const isActive = item.href ? currentPath === item.href : false
+                                return (
+                                    <Tooltip title={name} placement="right" key={item.id}>
+                                        <LinkListItem.Root>
+                                            <LinkListItem.Group>
+                                                <Link
+                                                    to={item.href}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                        active: isActive,
+                                                        className: 'group -outline-offset-2 pr-0',
+                                                    }}
+                                                    data-attr={`nav-recent-item-${item.id}`}
+                                                    extraContextMenuItems={<AddToStarredContextAction item={item} />}
+                                                >
+                                                    <LinkListItem.Content
+                                                        icon={iconForType(item.type as FileSystemIconType)}
+                                                        title={name}
+                                                        meta={
+                                                            <span
+                                                                title={humanFriendlyDetailedTime(item.last_viewed_at)}
+                                                            >
+                                                                {formatRelativeDate(item.last_viewed_at)}
+                                                            </span>
+                                                        }
+                                                    />
+                                                </Link>
+                                                <LinkListItem.Trigger />
+                                            </LinkListItem.Group>
+                                            <LinkListItem.Actions>
+                                                <AddToStarredDropdownAction item={item} />
+                                            </LinkListItem.Actions>
+                                        </LinkListItem.Root>
+                                    </Tooltip>
+                                )
+                            })
+                        )}
+                    </Collapsible.Panel>
+                </Collapsible>
+            )}
+
+            {!isLayoutNavCollapsed && (
+                <Collapsible
+                    open={expandedNavSections.apps ?? false}
+                    onOpenChange={() => {
+                        posthog.capture('nav section toggled', {
+                            section: 'apps',
+                            is_open: !expandedNavSections.apps,
+                        })
+                        toggleNavSection('apps')
+                    }}
+                    className="mt-2 group/colorful-product-icons colorful-product-icons-true"
+                    data-attr="nav-section-apps"
+                >
+                    <div className="relative">
+                        <SectionTrigger icon={<IconApps />} label="My Apps" isCollapsed={isLayoutNavCollapsed} />
+                        {expandedNavSections.apps && (
+                            <ButtonPrimitive
+                                iconOnly
+                                size="xs"
+                                tooltip={isEditMode ? 'Save' : 'Choose which apps to show in the sidebar'}
+                                tooltipPlacement="top"
+                                onClick={() => {
+                                    if (isEditMode) {
+                                        posthog.capture('nav apps edit saved')
+                                        saveAndExitEditMode()
+                                    } else {
+                                        posthog.capture('nav apps edit toggled', { is_editing: true })
+                                        enterEditMode()
+                                    }
+                                }}
+                                data-attr="nav-apps-edit-button"
+                                className="absolute right-1 top-0 bottom-0 my-auto rounded-[var(--radius)] z-5"
+                            >
+                                {isEditMode ? (
+                                    <IconCheck className="size-3 text-primary" />
+                                ) : (
+                                    <IconPencil className="size-3 text-secondary" />
+                                )}
+                            </ButtonPrimitive>
+                        )}
+                    </div>
                     <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
                         {(expandedNavSections.apps ?? false) && (
                             <ProjectTree
-                                root="products://"
+                                root={isEditMode ? 'products://' : 'custom-products://'}
                                 onlyTree
                                 treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                                selectModeOverride={isEditMode ? 'multi' : undefined}
+                                checkedItemsOverride={isEditMode ? checkedItems : undefined}
+                                onItemCheckedOverride={
+                                    isEditMode
+                                        ? (id) => {
+                                              // Tree item IDs for products:// are "products/{path}"
+                                              const productPath = id.replace(/^products\//, '')
+                                              toggleProduct(productPath)
+                                          }
+                                        : undefined
+                                }
                             />
                         )}
                     </Collapsible.Panel>

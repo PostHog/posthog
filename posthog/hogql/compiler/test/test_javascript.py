@@ -205,8 +205,8 @@ return fibonacci(6);"""
         self.assertEqual(code, '!__imatch("hello", "H.*O")')
 
     def test_array_access(self):
-        code = to_js_expr("array[2]")
-        self.assertEqual(code, '__getProperty(__getGlobal("array"), 2, false)')
+        code = to_js_expr("arr[2]")
+        self.assertEqual(code, '__getProperty(__getGlobal("arr"), 2, false)')
 
     def test_tuple_access(self):
         code = to_js_expr("(1, 2, 3).2")

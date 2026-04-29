@@ -2,20 +2,18 @@
 
 import json
 from typing import Any, cast
-from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-import requests
 import structlog
-from requests import RequestException
 
 from posthog.models.integration import SlackIntegrationError
 from posthog.models.team import Team
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
+from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 from products.conversations.backend.support_slack import validate_support_request
 from products.conversations.backend.tasks import process_supporthog_event
 
@@ -23,15 +21,6 @@ logger = structlog.get_logger(__name__)
 
 # Event types we handle for support tickets
 SUPPORT_EVENT_TYPES = ["app_mention", "message", "reaction_added"]
-
-# Regional routing: EU is the primary region (Slack Request URL points here).
-# If EU doesn't own the workspace, it proxies the event to US.
-SUPPORTHOG_PRIMARY_REGION_DOMAIN = "eu.posthog.com"
-SUPPORTHOG_SECONDARY_REGION_DOMAIN = "us.posthog.com"
-
-if settings.DEBUG:
-    SUPPORTHOG_PRIMARY_REGION_DOMAIN = urlparse(settings.SITE_URL).netloc
-    SUPPORTHOG_SECONDARY_REGION_DOMAIN = "localhost:8000"
 
 
 def _team_for_slack_workspace(slack_team_id: str) -> Team | None:
@@ -61,35 +50,12 @@ def _route_event_to_relevant_region(request: HttpRequest, data: dict) -> None:
 
     team = _team_for_slack_workspace(slack_team_id) if slack_team_id else None
 
-    if team and not (settings.DEBUG and request.get_host() == SUPPORTHOG_PRIMARY_REGION_DOMAIN):
+    if team and not (settings.DEBUG and is_primary_region(request)):
         cast(Any, process_supporthog_event).delay(event=event, slack_team_id=slack_team_id, event_id=event_id)
-    elif request.get_host() == SUPPORTHOG_PRIMARY_REGION_DOMAIN:
-        _proxy_to_secondary_region(request)
+    elif is_primary_region(request):
+        proxy_to_secondary_region(request, log_prefix="supporthog")
     else:
         logger.warning("supporthog_no_team_any_region", slack_team_id=slack_team_id)
-
-
-def _proxy_to_secondary_region(request: HttpRequest) -> None:
-    parsed_url = urlparse(request.build_absolute_uri())
-    target_url = urlunparse(parsed_url._replace(netloc=SUPPORTHOG_SECONDARY_REGION_DOMAIN))
-    headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
-
-    try:
-        response = requests.request(
-            method=request.method or "POST",
-            url=target_url,
-            headers=headers,
-            params=dict(request.GET.lists()) if request.GET else None,
-            data=request.body or None,
-            timeout=3,
-        )
-        logger.info(
-            "supporthog_proxy_to_secondary_region",
-            target_url=target_url,
-            status_code=response.status_code,
-        )
-    except RequestException as exc:
-        logger.exception("supporthog_proxy_to_secondary_region_failed", error=str(exc), target_url=target_url)
 
 
 @csrf_exempt

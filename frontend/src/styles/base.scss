@@ -650,6 +650,7 @@
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
+    --z-chart-tooltip: calc(var(--z-modal) - 50);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code
@@ -1127,6 +1128,17 @@
         outline: 2px solid var(--color-accent);
     }
 
+    /* Radix menus highlight items on pointer-move; only show the outline for
+       keyboard focus, and render it inset so the container's rounded
+       overflow:hidden mask can't clip the corners */
+    .primitive-menu-content [data-highlighted]:not(:focus-visible) {
+        outline: none;
+    }
+
+    .primitive-menu-content [data-highlighted]:focus-visible {
+        outline-offset: -2px;
+    }
+
     .input-like {
         --input-ring-color: var(--color-bg-fill-highlight-75);
         --input-ring-size: 3px;
@@ -1600,6 +1612,12 @@
             animation-fill-mode: forwards !important;
             animation-duration: 0ms !important;
             animation-iteration-count: 1 !important;
+        }
+
+        // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
+        // makes it inherently non-deterministic, CSS animation overrides don't help
+        .Hogfetti {
+            display: none !important;
         }
 
         // Hide some parts of the UI that were causing flakiness

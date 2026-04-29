@@ -38,6 +38,7 @@ export interface RichContentEditorType {
     setMark: (id: string) => void
     getMentions: () => number[]
     isActive: (name: string, attributes?: {}) => boolean
+    isSelectionFullyWithinSingleMark: (markName: string) => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAt: (position: number, content: JSONContent) => void

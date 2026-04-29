@@ -25,6 +25,13 @@ var (
 		Name: "livestream_ph_events_total",
 		Help: "The total number of handled PostHog events, less than or equal to consumed",
 	})
+	NotificationErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_notification_errors_total",
+			Help: "Notification consumer errors by reason",
+		},
+		[]string{"reason"},
+	)
 
 	IncomingQueue = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "livestream_incoming_queue_use_ratio",
@@ -163,4 +170,33 @@ var (
 		Name: "livestream_redis_receive_drops_total",
 		Help: "Messages dropped at the Redis receive layer due to full message channel",
 	})
+	RedisPublishDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_drops_total",
+		Help: "Events dropped at the publish buffer due to full channel",
+	})
+	RedisPublishQueue = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_redis_publish_queue_use_ratio",
+		Help: "How much of the Redis publish buffer is used",
+	})
+
+	// /notifications handler metrics
+	NotificationSubs = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_active_notification_subscriptions",
+		Help: "Current number of active SSE connections on /notifications",
+	})
+	NotificationMessagesReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_notification_messages_received_total",
+		Help: "Total notification messages received from Redis pub/sub by /notifications handlers",
+	})
+	NotificationMessagesDeliveredTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_notification_messages_delivered_total",
+		Help: "Total notification messages written to an SSE client",
+	})
+	NotificationMessagesDroppedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_notification_messages_dropped_total",
+			Help: "Notification messages not delivered, labeled by reason",
+		},
+		[]string{"reason"},
+	)
 )

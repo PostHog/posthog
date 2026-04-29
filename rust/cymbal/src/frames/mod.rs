@@ -17,13 +17,34 @@ use crate::{
         java::RawJavaFrame,
         js::RawJSFrame,
         node::RawNodeFrame,
+        php::RawPHPFrame,
         python::RawPythonFrame,
         ruby::RawRubyFrame,
     },
-    metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
-    sanitize_string,
+    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
+    sanitize_source_line,
     symbol_store::Catalog,
 };
+
+/// Records the metric and tracing line for a single failed-frame construction. Each
+/// language-specific `From<(&RawFrame, Err, ...)> for Frame` impl calls this with the
+/// typed error in scope, so we don't have to round-trip the typed error through the
+/// `Frame` struct just to recover the metric reason later.
+pub(crate) fn record_frame_resolution_failure(
+    lang: &'static str,
+    reason: &'static str,
+    err: &dyn std::fmt::Display,
+) {
+    metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang, "reason" => reason).increment(1);
+    match reason {
+        "network_error" | "invalid_data" | "symbol_not_found" => {
+            tracing::warn!(lang = lang, reason = reason, error = %err, "frame resolution failed");
+        }
+        _ => {
+            tracing::debug!(lang = lang, reason = reason, error = %err, "frame resolution failed");
+        }
+    }
+}
 
 pub mod records;
 pub mod releases;
@@ -43,6 +64,8 @@ pub enum RawFrame {
     JavaScriptNode(RawNodeFrame),
     #[serde(rename = "go")]
     Go(RawGoFrame),
+    #[serde(rename = "php")]
+    Php(RawPHPFrame),
     #[serde(rename = "hermes")]
     Hermes(RawHermesFrame),
     #[serde(rename = "java")]
@@ -80,10 +103,10 @@ impl RawFrame {
             }
 
             RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
-            RawFrame::Apple(frame) => (
-                to_vec(frame.resolve(team_id, catalog, debug_images).await),
-                "apple",
-            ),
+            RawFrame::Apple(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "apple")
+            }
+            RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
             RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
             RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
             RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
@@ -92,7 +115,7 @@ impl RawFrame {
             RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
         };
 
-        // The raw id of the frame is set after it's resolved
+        // The raw id of the frame is set after it's resolved.
         let res = res.map(|mut fs| {
             fs.iter_mut()
                 .enumerate()
@@ -108,6 +131,20 @@ impl RawFrame {
         .label("lang", lang_tag)
         .fin();
 
+        if let Ok(frames) = &res {
+            for frame in frames {
+                if frame.resolved {
+                    metrics::counter!(FRAME_RESOLVED, "lang" => lang_tag).increment(1);
+                }
+                // Failure metrics are emitted by the language-specific `From` impls in
+                // `langs/*.rs` at the moment of frame construction, where the typed error
+                // is in scope (so we can call `metric_reason()` directly). This avoids
+                // having to carry the typed error on the `Frame` struct just to recover
+                // the metric label, which previously required a custom serializer plus
+                // `skip_deserializing` and silently dropped failure reasons on PG round-trip.
+            }
+        }
+
         res
     }
 
@@ -119,6 +156,7 @@ impl RawFrame {
             RawFrame::Java(frame) => frame.symbol_set_ref(),
             // Frames with no symbol sets
             RawFrame::Python(_)
+            | RawFrame::Php(_)
             | RawFrame::Ruby(_)
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
@@ -131,6 +169,7 @@ impl RawFrame {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
+            RawFrame::Php(raw) => raw.frame_id(),
             RawFrame::Python(raw) => raw.frame_id(),
             RawFrame::Ruby(raw) => raw.frame_id(),
             RawFrame::Go(raw) => raw.frame_id(),
@@ -176,8 +215,8 @@ pub struct Frame {
     pub resolved_name: Option<String>, // The name of the function, after symbolification
     pub lang: String, // The language of the frame. Always known (I guess?)
     pub resolved: bool, // Did we manage to resolve the frame?
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub resolve_failure: Option<String>, // If we failed to resolve the frame, why? Plain string so it round-trips cleanly through PG/JSON; the typed metric label is emitted at construction time via `record_frame_resolution_failure`.
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
@@ -285,10 +324,11 @@ impl ContextLine {
         if line.len() > constrained.len() {
             constrained.push_str("...✂️");
         }
-
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 
@@ -306,9 +346,11 @@ impl ContextLine {
             baseline.saturating_sub((-offset) as u32)
         };
 
+        // Use sanitize_source_line, not sanitize_string: source code indentation
+        // (spaces, tabs) is meaningful and must not be collapsed.
         Self {
             number,
-            line: sanitize_string(constrained),
+            line: sanitize_source_line(constrained),
         }
     }
 }

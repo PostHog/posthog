@@ -10,7 +10,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Query } from '~/queries/Query/Query'
 import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
-import { isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 
 import { QueryLogTable } from './QueryLogTable'
 
@@ -36,6 +36,17 @@ function toLine(hogql: string, position: number): number {
 function toColumn(hogql: string, position: number): number {
     return toLineColumn(hogql, position).column
 }
+
+export function getExecutedQueryTabLabel(query: Node): string {
+    const hogQLQuery = isHogQLQuery(query)
+        ? query
+        : (isDataTableNode(query) || isInsightVizNode(query)) && isHogQLQuery(query.source)
+          ? query.source
+          : null
+
+    return hogQLQuery?.connectionId ? 'Raw SQL' : 'Clickhouse'
+}
+
 interface QueryTabsProps<Q extends Node> {
     query: Q
     queryKey: `new-${string}`
@@ -141,10 +152,10 @@ export function QueryTabs<Q extends Node>({
                   key: 'clickhouse',
                   label: (
                       <>
-                          Clickhouse
-                          {clickHouseTime && (
+                          {getExecutedQueryTabLabel(query)}
+                          {clickHouseTime ? (
                               <LemonTag className="ml-2">{Math.floor(clickHouseTime * 10) / 10}s</LemonTag>
-                          )}
+                          ) : null}
                       </>
                   ),
                   content: (

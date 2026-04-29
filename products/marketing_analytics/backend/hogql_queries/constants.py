@@ -85,20 +85,31 @@ TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
 
+
 # Fallback query when no valid adapters are found (includes all 9 columns in correct order)
 # Order: match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
-FALLBACK_EMPTY_QUERY = (
-    f"SELECT '' as {MATCH_KEY_FIELD}, "
-    f"'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, "
-    f"'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, "
-    f"'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, "
-    f"0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} "
-    "WHERE 1=0"
-)
+def build_fallback_empty_query_ast() -> ast.SelectQuery:
+    return ast.SelectQuery(
+        select=[
+            ast.Alias(alias=MATCH_KEY_FIELD, expr=ast.Constant(value="")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.CAMPAIGN, expr=ast.Constant(value="No Campaign")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.ID, expr=ast.Constant(value="No ID")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.SOURCE, expr=ast.Constant(value="No Source")),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.CLICKS, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.COST, expr=ast.Constant(value=0.0)),
+            ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION, expr=ast.Constant(value=0.0)),
+            ast.Alias(
+                alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE, expr=ast.Constant(value=0.0)
+            ),
+        ],
+        where=ast.CompareOperation(
+            left=ast.Constant(value=1),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=0),
+        ),
+    )
+
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
@@ -182,8 +193,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -222,8 +233,8 @@ BASE_COLUMN_MAPPING = {
             ],
         ),
     ),
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: ast.Alias(
-        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION,
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
         expr=ast.Call(
             name="round",
             args=[
@@ -277,6 +288,18 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
     MarketingAnalyticsDrillDownLevel.CAMPAIGN: {
         "column_alias": MarketingAnalyticsBaseColumns.CAMPAIGN,
         "excluded_base_columns": frozenset(),
+    },
+    MarketingAnalyticsDrillDownLevel.MEDIUM: {
+        "column_alias": "Medium",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
+    MarketingAnalyticsDrillDownLevel.CONTENT: {
+        "column_alias": "Content",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
+    },
+    MarketingAnalyticsDrillDownLevel.TERM: {
+        "column_alias": "Term",
+        "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),
     },
 }
 
@@ -432,10 +455,10 @@ COLUMN_KIND_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: "unit",
     MarketingAnalyticsBaseColumns.CPC: "currency",
     MarketingAnalyticsBaseColumns.CTR: "percentage",
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: "unit",
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: "unit",
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: "currency",
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: "unit",
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: "currency",
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: "currency",
 }
 
 # isIncreaseBad mapping for MarketingAnalyticsBaseColumns
@@ -448,10 +471,10 @@ IS_INCREASE_BAD_MAPPING = {
     MarketingAnalyticsBaseColumns.IMPRESSIONS: False,  # More impressions is good
     MarketingAnalyticsBaseColumns.CPC: True,  # Higher CPC is bad
     MarketingAnalyticsBaseColumns.CTR: False,  # Higher CTR is good
-    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION: False,  # More reported conversions is good
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS: False,  # More reported conversions is good
     MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: False,  # Higher conversion value is good
     MarketingAnalyticsBaseColumns.REPORTED_ROAS: False,  # Higher ROAS is good
-    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION: True,  # Higher cost per conversion is bad
+    MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS: True,  # Higher cost per conversion is bad
 }
 
 

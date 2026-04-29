@@ -3,7 +3,10 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
+from posthog.models import Insight, Organization, OrganizationMembership, Team, User
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
 class UserPermissions:
@@ -192,7 +195,7 @@ class UserTeamPermissions:
             return None
 
         if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
-            return organization_membership.level
+            return cast("OrganizationMembership.Level", organization_membership.level)
 
         # Use prefetched data to check team privacy and access
         access_controls = self.p._prefetched_access_controls.get(self.team.id, [])
@@ -270,8 +273,8 @@ class UserTeamPermissions:
         if default_access_level == "member":
             return OrganizationMembership.Level.MEMBER
 
-        # No default access control set, all organization members have implicit access
-        return cast("OrganizationMembership.Level", organization_membership.level)
+        # No access control row in the database, admin by default. See: `default_access_level()` in `posthog/rbac/user_access_control.py`
+        return OrganizationMembership.Level.ADMIN
 
 
 class UserDashboardPermissions:
@@ -282,7 +285,7 @@ class UserDashboardPermissions:
     @cached_property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
-            self.dashboard.restriction_level
+            Dashboard.RestrictionLevel(self.dashboard.restriction_level)
             if cast(Organization, self.p.current_organization).is_feature_available(
                 AvailableFeature.ADVANCED_PERMISSIONS
             )

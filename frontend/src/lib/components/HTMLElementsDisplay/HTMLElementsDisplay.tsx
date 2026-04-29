@@ -109,7 +109,7 @@ interface HTMLElementsDisplayPropsBase {
     size?: 'small' | 'xsmall'
 }
 
-type HTMLElementsDisplayProps =
+export type HTMLElementsDisplayProps =
     | (HTMLElementsDisplayPropsBase & {
           editable: true
           // if provided the matching elements will be highlighted as a starting state

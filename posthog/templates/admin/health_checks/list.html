@@ -65,6 +65,7 @@
             <th>Batch size</th>
             <th>Max concurrent</th>
             <th>Rollout %</th>
+            <th>Active since</th>
             <th>Dry run</th>
             <th>Actions</th>
         </tr>
@@ -79,6 +80,7 @@
             <td>{{ check.batch_size }}</td>
             <td>{{ check.max_concurrent }}</td>
             <td>{{ check.rollout_percentage|floatformat:2 }}</td>
+            <td>{% if check.active_since_days %}{{ check.active_since_days }}d{% else %}All teams{% endif %}</td>
             <td>{% if check.dry_run %}<span class="badge-yes">Yes</span>{% else %}<span class="badge-no">No</span>{% endif %}</td>
             <td><a class="trigger-link" href="{% url 'health-check-trigger' check.kind %}">Trigger</a></td>
         </tr>

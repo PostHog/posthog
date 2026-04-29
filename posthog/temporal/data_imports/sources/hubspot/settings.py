@@ -1,8 +1,12 @@
 """Hubspot source settings and constants"""
 
-from dlt.common import pendulum
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
 
-STARTDATE = pendulum.datetime(year=2000, month=1, day=1)
+from products.data_warehouse.backend.types import IncrementalField
+
+STARTDATE = datetime(year=2000, month=1, day=1)
 
 CONTACT = "contact"
 COMPANY = "company"
@@ -144,4 +148,66 @@ DEFAULT_PROPS = {
     OBJECT_TYPE_PLURAL[QUOTE]: DEFAULT_QUOTE_PROPS,
     OBJECT_TYPE_PLURAL[EMAILS]: DEFAULT_EMAIL_PROPS,
     OBJECT_TYPE_PLURAL[MEETINGS]: DEFAULT_MEETINGS_PROPS,
+}
+
+
+@dataclass
+class HubspotEndpointConfig:
+    name: str
+    path: str
+    associations: list[str]
+    incremental_fields: list[IncrementalField]
+    partition_key: Optional[str] = None
+
+
+HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
+    "contacts": HubspotEndpointConfig(
+        name="contacts",
+        path="/crm/v3/objects/contacts",
+        associations=["deals", "tickets", "quotes"],
+        partition_key="createdate",
+        incremental_fields=[],
+    ),
+    "companies": HubspotEndpointConfig(
+        name="companies",
+        path="/crm/v3/objects/companies",
+        associations=["contacts", "deals", "tickets", "quotes"],
+        partition_key="createdate",
+        incremental_fields=[],
+    ),
+    "deals": HubspotEndpointConfig(
+        name="deals",
+        path="/crm/v3/objects/deals",
+        associations=[],
+        partition_key="createdate",
+        incremental_fields=[],
+    ),
+    "tickets": HubspotEndpointConfig(
+        name="tickets",
+        path="/crm/v3/objects/tickets",
+        associations=[],
+        partition_key="createdate",
+        incremental_fields=[],
+    ),
+    "quotes": HubspotEndpointConfig(
+        name="quotes",
+        path="/crm/v3/objects/quotes",
+        associations=[],
+        partition_key="hs_createdate",
+        incremental_fields=[],
+    ),
+    "emails": HubspotEndpointConfig(
+        name="emails",
+        path="/crm/v3/objects/emails",
+        associations=[],
+        partition_key="hs_timestamp",
+        incremental_fields=[],
+    ),
+    "meetings": HubspotEndpointConfig(
+        name="meetings",
+        path="/crm/v3/objects/meetings",
+        associations=[],
+        partition_key="hs_timestamp",
+        incremental_fields=[],
+    ),
 }

@@ -20,6 +20,39 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
+/// Install a panic hook that logs panics through the structured tracing logger.
+///
+/// Without this, panics write to stderr using the default formatter, which
+/// bypasses the JSON log layer and makes them invisible in Loki/Grafana.
+fn install_tracing_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("<unnamed>");
+        let location = panic_info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic payload".to_string()
+        };
+
+        error!(
+            thread = %thread_name,
+            location = %location,
+            payload = %payload,
+            "Thread panicked"
+        );
+
+        // Still call the default hook so the process aborts/unwinds as expected
+        default_hook(panic_info);
+    }));
+}
+
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
 common_alloc::used!();
@@ -158,12 +191,21 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     })
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Load configuration first to get OTEL settings
+fn main() -> Result<()> {
+    // Load configuration first (sync) so we can use worker_threads to size the runtime
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(config.worker_threads)
+        .enable_all()
+        .build()
+        .context("Failed to build tokio runtime")?;
+
+    runtime.block_on(async_main(config))
+}
+
+async fn async_main(config: Config) -> Result<()> {
     // Initialize tracing with structured output similar to feature-flags
     let log_layer = {
         let base = fmt::layer()
@@ -218,6 +260,10 @@ async fn main() -> Result<()> {
         .with(log_layer)
         .with(otel_layer)
         .init();
+
+    // Install panic hook after tracing is initialized so panics are logged
+    // through the structured JSON logger, making them visible in Loki/Grafana.
+    install_tracing_panic_hook();
 
     // Create a root span with pod hostname for all logs
     // This adds "pod" field to every log line for Loki/Grafana filtering

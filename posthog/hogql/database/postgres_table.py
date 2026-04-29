@@ -2,6 +2,7 @@ from typing import Optional
 
 from django.conf import settings
 
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
@@ -64,6 +65,10 @@ class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
     access_scope: Optional[APIScopeObject] = None
+    predicates: list[Expr] = []
+
+    def get_predicates(self) -> list[Expr]:
+        return self.predicates
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

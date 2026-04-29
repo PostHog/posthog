@@ -145,7 +145,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
         };
 
         // Run deduplication logic
-        let results = self.deduplicate_events_internal(&store, &events)?;
+        let results = self.deduplicate_events_internal(&store, &events).await?;
 
         // Emit metrics for each result with library info
         for (event, result) in events.iter().zip(results.iter()) {
@@ -169,7 +169,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
     }
 
     /// Internal deduplication logic operating on the store.
-    fn deduplicate_events_internal(
+    async fn deduplicate_events_internal(
         &self,
         store: &DeduplicationStore,
         events: &[&E],
@@ -188,7 +188,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
             .iter()
             .map(|e| e.dedup_key_bytes.as_slice())
             .collect();
-        let existing_records = batch_read_timestamp_records(store, keys_refs)?;
+        let existing_records = batch_read_timestamp_records(store, keys_refs).await?;
 
         // Step 3: Process results and prepare writes
         let event_count = enriched_events.len();
@@ -215,7 +215,7 @@ impl<E: DeduplicatableEvent> TimestampDeduplicator<E> {
         }
 
         // Step 4: Batch write to RocksDB
-        batch_write_timestamp_records(store, &writes)?;
+        batch_write_timestamp_records(store, writes).await?;
 
         Ok(dedup_results)
     }

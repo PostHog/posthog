@@ -67,7 +67,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event: '$ai_generation',
                                                             properties: {
                                                                 $ai_trace_id: 'trace_id_here',
-                                                                $ai_model: 'gpt-4o-mini',
+                                                                $ai_model: 'gpt-5-mini',
                                                                 $ai_provider: 'openai',
                                                                 $ai_input: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
                                                                 $ai_input_tokens: 10,
@@ -111,7 +111,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event='$ai_generation',
                                                             properties={
                                                                 '$ai_trace_id': 'trace_id_here',
-                                                                '$ai_model': 'gpt-4o-mini',
+                                                                '$ai_model': 'gpt-5-mini',
                                                                 '$ai_provider': 'openai',
                                                                 '$ai_input': [{'role': 'user', 'content': 'Tell me a fun fact about hedgehogs'}],
                                                                 '$ai_input_tokens': 10,
@@ -159,7 +159,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             Event:      "$ai_generation",
                                                             Properties: map[string]interface{}{
                                                                 "$ai_trace_id":        "trace_id_here",
-                                                                "$ai_model":           "gpt-4o-mini",
+                                                                "$ai_model":           "gpt-5-mini",
                                                                 "$ai_provider":        "openai",
                                                                 "$ai_input_tokens":    10,
                                                                 "$ai_output_tokens":   20,
@@ -183,7 +183,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <CodeBlock
                                                     language="ruby"
                                                     code={dedent`
-                                                        require 'posthog-ruby'
+                                                        require 'posthog'
 
                                                         posthog = PostHog::Client.new({
                                                             api_key: '<ph_project_token>',
@@ -202,7 +202,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event: '$ai_generation',
                                                             properties: {
                                                             '$ai_trace_id' => 'trace_id_here',
-                                                            '$ai_model' => 'gpt-4o-mini',
+                                                            '$ai_model' => 'gpt-5-mini',
                                                             '$ai_provider' => 'openai',
                                                             '$ai_input_tokens' => 10,
                                                             '$ai_output_tokens' => 20,
@@ -249,7 +249,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             'event' => '$ai_generation',
                                                             'properties' => [
                                                                 '$ai_trace_id' => 'trace_id_here',
-                                                                '$ai_model' => 'gpt-4o-mini',
+                                                                '$ai_model' => 'gpt-5-mini',
                                                                 '$ai_provider' => 'openai',
                                                                 '$ai_input_tokens' => 10,
                                                                 '$ai_output_tokens' => 20,
@@ -278,7 +278,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                     "properties": {
                                                                         "distinct_id": "user_123",
                                                                         "$ai_trace_id": "trace_id_here",
-                                                                        "$ai_model": "gpt-4o-mini",
+                                                                        "$ai_model": "gpt-5-mini",
                                                                         "$ai_provider": "openai",
                                                                         "$ai_input": [{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
                                                                         "$ai_input_tokens": 10,
@@ -298,13 +298,16 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             ))}
                         </Tab.Panels>
                     </Tab.Group>
-
+                </>
+            ),
+        },
+        {
+            title: 'Event properties',
+            content: (
+                <>
                     <Markdown>
-                        {dedent`
-                            ### Event Properties
-
-                            Each event type has specific properties. See the tabs below for detailed property documentation for each event type.
-                        `}
+                        Each event type has specific properties. See the tabs below for detailed property documentation
+                        for each event type.
                     </Markdown>
 
                     <Tab.Group tabs={['Generation', 'Trace', 'Span', 'Embedding']}>

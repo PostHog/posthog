@@ -7,7 +7,9 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation
+from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers, InCohortVia, InlineCohortCalculation, PersonsArgMaxVersion
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -268,3 +270,55 @@ class TestInlineCohortSubquery(BaseTest):
                 pretty=False,
             )
         self.assertEqual(len(response.results), 1)
+
+    @parameterized.expand(
+        [
+            ("subquery_off", InCohortVia.SUBQUERY, InlineCohortCalculation.OFF),
+            ("subquery_always", InCohortVia.SUBQUERY, InlineCohortCalculation.ALWAYS),
+            ("leftjoin_off", InCohortVia.LEFTJOIN, InlineCohortCalculation.OFF),
+            ("leftjoin_always", InCohortVia.LEFTJOIN, InlineCohortCalculation.ALWAYS),
+            ("conjoined_off", InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.OFF),
+            ("conjoined_always", InCohortVia.LEFTJOIN_CONJOINED, InlineCohortCalculation.ALWAYS),
+        ]
+    )
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_inline_cohort_limit_not_pushed_to_inner_query(self, _name, cohort_via, inline_mode):
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        cohort_prop_value = f"cohort_match_{random_uuid}"
+        # Create the cohort member FIRST (oldest created_at)
+        cohort_distinct_id = f"cohort_member_{random_uuid}"
+        _create_person(
+            properties={"email": "cohort_member@example.com", "cohort_marker": cohort_prop_value},
+            team=self.team,
+            distinct_ids=[cohort_distinct_id],
+            is_identified=True,
+        )
+        # Create many non-matching persons AFTER (newer created_at).
+        for i in range(10):
+            distinct_id = f"non_cohort_{i}_{random_uuid}"
+            _create_person(
+                properties={"email": f"user{i}@example.com", "cohort_marker": "no_match"},
+                team=self.team,
+                distinct_ids=[distinct_id],
+                is_identified=True,
+            )
+        sync_execute("OPTIMIZE TABLE person FINAL")
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "cohort_marker", "value": cohort_prop_value, "type": "person"}]}],
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+        response = execute_hogql_query(
+            f"SELECT id, properties.email FROM persons WHERE id IN COHORT {cohort.pk} ORDER BY created_at DESC LIMIT 3",
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                inCohortVia=cohort_via,
+                inlineCohortCalculation=inline_mode,
+                personsArgMaxVersion=PersonsArgMaxVersion.V2,
+            ),
+            pretty=False,
+        )
+        assert len(response.results or []) == 1, (
+            f"Expected 1 cohort member but got {len(response.results or [])}. "
+            f"The inner LIMIT is likely filtering out the cohort member before the cohort filter runs."
+        )

@@ -13,8 +13,8 @@
     </fieldset>
 
     <fieldset class="module aligned">
-        <h2>Jobs (recent 50)</h2>
-        {% if jobs %}
+        <h2>Jobs{% if page_obj %} ({{ page_obj.paginator.count }} total){% endif %}</h2>
+        {% if page_obj and page_obj.object_list %}
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
                 <tr style="background: #f5f5f5;">
@@ -29,7 +29,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for job in jobs %}
+                {% for job in page_obj %}
                 <tr style="border-bottom: 1px solid #eee;">
                     <td style="padding: 8px; font-family: monospace; font-size: 12px;">{{ job.id }}</td>
                     <td style="padding: 8px;">
@@ -51,14 +51,12 @@
                     <td style="padding: 8px;">{% if job.finished_at %}{{ job.finished_at|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
                     <td style="padding: 8px; text-align: right;">{% if job.rows_synced is not None %}{{ job.rows_synced }}{% else %}&mdash;{% endif %}</td>
                     <td style="padding: 8px;">
-                    <td style="padding: 8px;">
                         {% if job.workflow_id and job.workflow_run_id %}
                             <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ job.workflow_id }}/{{ job.workflow_run_id }}"
                                target="_blank">View workflow</a>
                         {% else %}
                             &mdash;
                         {% endif %}
-                    </td>
                     </td>
                     <td style="padding: 8px;">
                         {% if job.workflow_id %}
@@ -84,6 +82,25 @@
                 {% endfor %}
             </tbody>
         </table>
+
+        {% if page_obj.paginator.num_pages > 1 %}
+        <div style="padding: 10px; text-align: center; border-top: 1px solid #ddd;">
+            {% if page_obj.has_previous %}
+                <a href="?page=1">&laquo; First</a>
+                <a href="?page={{ page_obj.previous_page_number }}" style="margin-left: 8px;">&lsaquo; Previous</a>
+            {% endif %}
+
+            <span style="margin: 0 12px;">
+                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+            </span>
+
+            {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}">Next &rsaquo;</a>
+                <a href="?page={{ page_obj.paginator.num_pages }}" style="margin-left: 8px;">Last &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {% else %}
             <div class="form-row" style="padding: 10px; color: #666;">No jobs found for this schema.</div>
         {% endif %}

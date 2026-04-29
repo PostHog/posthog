@@ -21,6 +21,17 @@ export interface EmailServiceConfig {
     sesEndpoint: string
 }
 
+/**
+ * Strips control characters from an email subject to prevent header injection
+ * and delivery issues. Removes ASCII 0-31 (except horizontal tab) and DEL (127).
+ */
+export function sanitizeEmailSubject(subject: string): string {
+    return subject
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+        .replace(/[\r\n]+/g, ' ')
+        .trim()
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -145,9 +156,9 @@ export class EmailService {
         const mailOptions: SendMailOptions = {
             from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
-            subject: params.subject,
+            subject: sanitizeEmailSubject(params.subject),
             text: params.text,
-            html: addTrackingToEmail(params.html, result.invocation),
+            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation) } : {}),
         }
 
         const ccAddresses = parseAddressList(params.cc)
@@ -177,8 +188,18 @@ export class EmailService {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
         const trackingCode = generateEmailTrackingCode(result.invocation)
-        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
-        const htmlWithTrackingAndPreheader = maybeAddPreheaderToEmail(htmlWithTracking, params.preheader)
+
+        const htmlBody = params.html
+            ? {
+                  Html: {
+                      Data: maybeAddPreheaderToEmail(
+                          addTrackingToEmail(params.html, result.invocation),
+                          params.preheader
+                      ),
+                      Charset: 'UTF-8',
+                  },
+              }
+            : {}
 
         const sendEmailParams: SendEmailCommandInput = {
             FromEmailAddress: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
@@ -188,18 +209,15 @@ export class EmailService {
             Content: {
                 Simple: {
                     Subject: {
-                        Data: params.subject,
+                        Data: sanitizeEmailSubject(params.subject),
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        Html: {
-                            Data: htmlWithTrackingAndPreheader,
-                            Charset: 'UTF-8',
-                        },
                         Text: {
                             Data: params.text,
                             Charset: 'UTF-8',
                         },
+                        ...htmlBody,
                     },
                 },
             },

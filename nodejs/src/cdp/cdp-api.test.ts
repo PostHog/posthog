@@ -1,4 +1,4 @@
-import '../../tests/helpers/mocks/producer.mock'
+import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -9,6 +9,7 @@ import { setupExpressApp } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { HogFlow } from '~/schema/hogflow'
 
+import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -19,12 +20,14 @@ import { insertHogFunction as _insertHogFunction, createHogFunction } from './_t
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
+import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 describe('CDP API', () => {
     let hub: Hub
+    let cdpDeps: CdpConsumerBaseDeps
     let team: Team
     let app: express.Application
     let server: Server
@@ -74,9 +77,10 @@ describe('CDP API', () => {
             SITE_URL: 'http://localhost:8000',
         })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
-        api = new CdpApi(hub, hub)
+        cdpDeps = createCdpConsumerDeps(hub)
+        api = new CdpApi(hub, cdpDeps)
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -633,10 +637,14 @@ describe('CDP API', () => {
 
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
-        let originalKafkaProducer: any
+        let produceSpy: jest.SpyInstance
 
         beforeEach(async () => {
-            originalKafkaProducer = hub.kafkaProducer
+            // The batch hogflow route now goes through the outputs registry, which in
+            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
+            // on its `produce` intercepts the produced message without reconstructing
+            // the api.
+            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -662,7 +670,7 @@ describe('CDP API', () => {
         })
 
         afterEach(() => {
-            hub.kafkaProducer = originalKafkaProducer
+            produceSpy.mockRestore()
         })
 
         it('errors if missing team', async () => {
@@ -711,8 +719,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job request to kafka', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            hub.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
@@ -724,7 +731,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -742,8 +749,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job with filters from hog flow config when not provided', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            hub.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
@@ -751,7 +757,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -767,16 +773,93 @@ describe('CDP API', () => {
                 key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
             })
         })
+    })
 
-        it('errors if kafka producer not available', async () => {
-            hub.kafkaProducer = undefined as any
+    describe('scheduled hogflow invocations', () => {
+        let scheduleHogFlow: HogFlow
+        let mockQueueInvocations: jest.Mock
 
+        beforeEach(async () => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['cyclotronJobQueue'] = { queueInvocations: mockQueueInvocations } as any
+
+            scheduleHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test schedule hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_only_at_end',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'schedule',
+                },
+            })
+        })
+
+        it('errors if missing team', async () => {
+            const nonExistentTeamId = new UUIDT().toString()
             const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
+                .post(`/api/projects/${nonExistentTeamId}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
                 .send({})
 
-            expect(res.status).toEqual(500)
-            expect(res.body.error).toEqual('Kafka producer not available')
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Team not found')
+        })
+
+        it('errors if missing hog flow', async () => {
+            const nonExistentUuid = new UUIDT().toString()
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${nonExistentUuid}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Workflow not found')
+        })
+
+        it('errors if trigger type is not schedule', async () => {
+            const eventHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test event hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'event',
+                    filters: {},
+                },
+            })
+
+            const res = await supertest(app)
+                .post(`/api/projects/${eventHogFlow.team_id}/hog_flows/${eventHogFlow.id}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Workflow trigger must be of type "schedule"')
+        })
+
+        it('queues invocation and returns queued status', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
+                .send({ variables: { greeting: 'Hello' } })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('queued')
+            expect(res.body.invocation_id).toBeDefined()
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('queues invocation with empty variables when none provided', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${scheduleHogFlow.team_id}/hog_flows/${scheduleHogFlow.id}/scheduled_invocations`)
+                .send({})
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('queued')
+            expect(res.body.invocation_id).toBeDefined()
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
     })
 })

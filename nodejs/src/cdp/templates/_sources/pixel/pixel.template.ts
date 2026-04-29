@@ -27,8 +27,9 @@ if(not empty(inputs.distinct_id) and not empty(inputs.event)) {
 return {
   'httpResponse': {
     'status': 200,
-    'body': base64Decode('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='),
+    'body': 'R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
     'contentType': 'image/gif',
+    'isBase64Encoded': true
   }
 }
 `,

@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -72,7 +74,7 @@ describe('variantsPanelLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/@current/feature_flags/': (req) => {
+                [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: (req) => {
                     const url = new URL(req.url)
                     const search = url.searchParams.get('search')
 
@@ -85,7 +87,7 @@ describe('variantsPanelLogic', () => {
 
                     return [200, { results: mockFeatureFlags, count: mockFeatureFlags.length }]
                 },
-                '/api/projects/@current/experiments': () => [
+                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: () => [
                     200,
                     {
                         results: [
@@ -286,7 +288,7 @@ describe('variantsPanelLogic', () => {
         it('handles validation errors gracefully', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/': () => [500, { error: 'Server error' }],
+                    [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [500, { error: 'Server error' }],
                 },
             })
 

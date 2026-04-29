@@ -16,7 +16,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_summarization.constants import AI_EVENT_TYPES, TRACE_CAPTURE_RANGE
 
@@ -42,7 +42,7 @@ def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -
     end_dt = datetime.fromisoformat(window_end).astimezone(UTC) + TRACE_CAPTURE_RANGE
 
     query = parse_select(_TRACE_EVENTS_QUERY)
-    with tags_context(product=Product.LLM_ANALYTICS, team_id=team.id):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
             query_type="SummarizationTraceFetch",
             query=query,

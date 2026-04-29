@@ -1,17 +1,14 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Transition } from 'react-transition-group'
+import React, { useEffect, useState } from 'react'
 
-import { IconInfo, IconPieChart } from '@posthog/icons'
+import { IconPieChart } from '@posthog/icons'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
@@ -71,16 +68,24 @@ export function CardMeta({
     onMouseDown,
     samplingFactor,
     extraControls,
-    metaDescription,
-    metaTitle,
-    popoverTopHeading,
-    metaDescriptionText,
-    onMetaSave,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
     const { ref: topRef, width: topWidth } = useResizeObserver()
     const { ref: headingRef, width: headingWidth } = useResizeObserver()
+
+    // Keep the details content mounted during the 200 ms collapse animation
+    // so the outer `.CardMeta__details` height transition plays over real
+    // content rather than an empty container.
+    const [shouldRenderDetails, setShouldRenderDetails] = useState(areDetailsShown)
+    useEffect(() => {
+        if (areDetailsShown) {
+            setShouldRenderDetails(true)
+            return
+        }
+        const t = window.setTimeout(() => setShouldRenderDetails(false), 200)
+        return () => clearTimeout(t)
+    }, [areDetailsShown])
 
     // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
     const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
@@ -96,41 +101,6 @@ export function CardMeta({
         inStorybook() ||
         inStorybookTestRunner() ||
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
-
-    const [popoverVisible, setPopoverVisible] = useState(false)
-    const [pinned, setPinned] = useState(false)
-    const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>()
-
-    useEffect(() => () => clearTimeout(hoverTimerRef.current), [])
-
-    const clearHoverTimer = (): void => clearTimeout(hoverTimerRef.current)
-
-    const showDetails = useCallback(() => {
-        clearHoverTimer()
-        hoverTimerRef.current = setTimeout(() => setPopoverVisible(true), 300)
-    }, [])
-
-    const hideDetails = useCallback(() => {
-        clearHoverTimer()
-        hoverTimerRef.current = setTimeout(() => setPopoverVisible(false), 800)
-    }, [])
-
-    const handleClickInfo = useCallback(
-        (e: React.MouseEvent) => {
-            e.stopPropagation()
-            clearHoverTimer()
-            const newPinned = !pinned
-            setPinned(newPinned)
-            setPopoverVisible(newPinned)
-        },
-        [pinned]
-    )
-
-    const handleClickOutside = useCallback(() => {
-        clearHoverTimer()
-        setPinned(false)
-        setPopoverVisible(false)
-    }, [])
 
     return (
         <div
@@ -165,79 +135,7 @@ export function CardMeta({
                                         ))}
                                 </div>
                             </div>
-                            <div className="flex items-start gap-1">
-                                <div className="overflow-hidden min-w-0">{meta}</div>
-                                <Popover
-                                    visible={popoverVisible}
-                                    placement="bottom"
-                                    showArrow
-                                    onClickOutside={handleClickOutside}
-                                    onMouseEnterInside={showDetails}
-                                    onMouseLeaveInside={pinned ? undefined : hideDetails}
-                                    overlay={
-                                        <div
-                                            className="p-4 max-w-md space-y-2"
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                        >
-                                            {(popoverTopHeading ?? topHeading) && (
-                                                <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
-                                                    {popoverTopHeading ?? topHeading}
-                                                </h5>
-                                            )}
-                                            {onMetaSave ? (
-                                                <>
-                                                    <EditableField
-                                                        name="title"
-                                                        value={metaTitle || ''}
-                                                        onSave={(value) => onMetaSave({ name: value })}
-                                                        placeholder="Untitled"
-                                                        saveOnBlur
-                                                        clickToEdit
-                                                        compactButtons
-                                                        compactIcon
-                                                        className="font-semibold text-sm"
-                                                        data-attr="insight-card-title"
-                                                    />
-                                                    <EditableField
-                                                        name="description"
-                                                        value={metaDescriptionText || ''}
-                                                        onSave={(value) => onMetaSave({ description: value })}
-                                                        placeholder="Enter description (optional)"
-                                                        saveOnBlur
-                                                        clickToEdit
-                                                        multiline
-                                                        markdown
-                                                        compactButtons
-                                                        compactIcon
-                                                        className="text-xs w-full"
-                                                        data-attr="insight-card-description"
-                                                    />
-                                                </>
-                                            ) : (
-                                                <>
-                                                    {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
-                                                    {metaDescription}
-                                                </>
-                                            )}
-                                            {metaDetails}
-                                        </div>
-                                    }
-                                >
-                                    <div
-                                        className="pt-0.5"
-                                        onMouseEnter={showDetails}
-                                        onMouseLeave={pinned ? undefined : hideDetails}
-                                    >
-                                        <LemonButton
-                                            icon={<IconInfo />}
-                                            size="small"
-                                            noPadding
-                                            data-attr="card-meta-info"
-                                            onClick={handleClickInfo}
-                                        />
-                                    </div>
-                                </Popover>
-                            </div>
+                            {meta}
                         </>
                     ) : (
                         <>
@@ -299,13 +197,12 @@ export function CardMeta({
                         height: areDetailsShown && detailsHeight ? detailsHeight + 1 : 0,
                     }}
                 >
-                    {/* By using a transition about displaying then we make sure we aren't rendering the content when not needed */}
-                    <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
+                    {shouldRenderDetails && (
                         <div className="CardMeta__details__content" ref={detailsRef}>
                             {/* Stops the padding getting in the height calc  */}
                             <div className="p-4">{metaDetails}</div>
                         </div>
-                    </Transition>
+                    )}
                 </div>
             )}
         </div>

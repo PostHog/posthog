@@ -1,13 +1,13 @@
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '~/kafka/producer'
 import { Properties } from '~/plugin-scaffold'
 
 import { defaultConfig } from '../../config/config'
-import { KAFKA_PERSON } from '../../config/kafka-topics'
-import { BasePerson, ClickHousePerson, InternalPerson, RawPerson, TimestampFormat } from '../../types'
+import { PERSONS_OUTPUT } from '../../ingestion/analytics/outputs'
+import { BasePerson, InternalPerson, RawPerson, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
+import { PersonMessage } from '../../worker/ingestion/persons/person-message'
 import { eventToPersonProperties } from '../../worker/ingestion/persons/person-property-utils'
 import { captureException } from '../posthog'
 
@@ -122,25 +122,23 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): PersonMessage {
     return {
-        topic: KAFKA_PERSON,
-        messages: [
-            {
-                value: JSON.stringify({
-                    id: person.uuid,
-                    created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
-                    properties: JSON.stringify(person.properties),
-                    team_id: person.team_id,
-                    is_identified: Number(person.is_identified),
-                    is_deleted: Number(isDeleted),
-                    version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
-                    last_seen_at: person.last_seen_at
-                        ? castTimestampOrNow(person.last_seen_at, TimestampFormat.ClickHouseSecondPrecision)
-                        : null,
-                } as Omit<ClickHousePerson, 'timestamp'>),
-            },
-        ],
+        output: PERSONS_OUTPUT,
+        value: Buffer.from(
+            JSON.stringify({
+                id: person.uuid,
+                created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+                properties: JSON.stringify(person.properties),
+                team_id: person.team_id,
+                is_identified: Number(person.is_identified),
+                is_deleted: Number(isDeleted),
+                version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
+                last_seen_at: person.last_seen_at
+                    ? castTimestampOrNow(person.last_seen_at, TimestampFormat.ClickHouseSecondPrecision)
+                    : null,
+            })
+        ),
     }
 }
 

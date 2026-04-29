@@ -13,6 +13,9 @@ export interface TileLayout {
     h: number
 }
 
+const MIN_TILE_HEIGHT_ROWS = 2
+const MIN_TEXT_TILE_HEIGHT_ROWS = 1
+
 export interface DuplicateLayoutResult {
     duplicateLayouts: { sm?: TileLayout }
     tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
@@ -120,9 +123,7 @@ export const calculateLayouts = (
 
         let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
-            // First pass: calculate sm layout and establish order
             sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
-            referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
         } else {
             // Subsequent passes: follow the reference order from sm layout
             sortedDashboardTiles = tiles.sort((a, b) => {
@@ -162,8 +163,17 @@ export const calculateLayouts = (
             const layout = breakpoint === 'xs' ? undefined : tile.layouts?.[breakpoint]
             const { x, y, w, h } = layout || {}
 
+            const isTextTile = !!tile.text
+            const isButtonTile = !!tile.button_tile
+            if (isButtonTile) {
+                defaultW = 3
+                defaultH = 1
+            }
+            const xsSmH = breakpoint === 'xs' ? tile.layouts?.sm?.h : undefined
             const realW = Math.min(w || defaultW, columnCount)
-            const realH = h || defaultH
+            const realH = h || (typeof xsSmH === 'number' && xsSmH > 0 ? xsSmH : undefined) || defaultH
+            const minH = isTextTile || isButtonTile ? MIN_TEXT_TILE_HEIGHT_ROWS : MIN_TILE_HEIGHT_ROWS
+            const minW = isTextTile || isButtonTile ? 1 : 2
 
             return {
                 i: tile.id?.toString(),
@@ -171,8 +181,8 @@ export const calculateLayouts = (
                 y: y != null && Number.isInteger(y) ? y : Infinity,
                 w: realW,
                 h: realH,
-                minW: 1,
-                minH: 1,
+                minW,
+                minH,
             }
         })
 
@@ -222,6 +232,12 @@ export const calculateLayouts = (
             for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
                 lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
             }
+        }
+
+        if (breakpoint === 'sm') {
+            referenceOrder = [...cleanLayouts]
+                .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y))
+                .map((l) => parseInt(l.i))
         }
 
         allLayouts[breakpoint] = cleanLayouts

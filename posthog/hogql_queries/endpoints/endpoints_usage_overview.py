@@ -3,6 +3,7 @@ from posthog.schema import (
     EndpointsUsageOverviewItem,
     EndpointsUsageOverviewQuery,
     EndpointsUsageOverviewQueryResponse,
+    ProductKey,
 )
 
 from posthog.hogql import ast
@@ -106,10 +107,10 @@ class EndpointsUsageOverviewQueryRunner(EndpointsUsageQueryRunner[EndpointsUsage
         return False
 
     def _calculate(self) -> EndpointsUsageOverviewQueryResponse:
-        from posthog.clickhouse.query_tagging import tag_queries
+        from posthog.clickhouse.query_tagging import Feature, tag_queries
 
         # Execute current period query
-        tag_queries(name="endpoints_usage_overview")
+        tag_queries(name="endpoints_usage_overview", product=ProductKey.ENDPOINTS, feature=Feature.USAGE_REPORT)
         response = execute_hogql_query(
             query_type="endpoints_usage_overview_query",
             query=self.to_query(),
@@ -122,7 +123,9 @@ class EndpointsUsageOverviewQueryRunner(EndpointsUsageQueryRunner[EndpointsUsage
         # Execute previous period query if comparison is enabled
         previous_values: dict[str, float] | None = None
         if self.query_previous_date_range:
-            tag_queries(name="endpoints_usage_overview_previous")
+            tag_queries(
+                name="endpoints_usage_overview_previous", product=ProductKey.ENDPOINTS, feature=Feature.USAGE_REPORT
+            )
             previous_response = execute_hogql_query(
                 query_type="endpoints_usage_overview_query_previous",
                 query=self._build_query(is_previous=True),

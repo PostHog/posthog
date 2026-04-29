@@ -3,9 +3,8 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Tag
+from posthog.models import FeatureFlag
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 
 
 class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
@@ -56,7 +55,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("evaluation context tag", str(response.content))
+        self.assertIn("evaluation context is required", str(response.content))
 
     def test_create_flag_with_empty_tags_when_required(self):
         """Test creating a flag with empty evaluation tags when requirement is enabled should fail"""
@@ -68,13 +67,13 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
             {
                 "key": "test-flag-empty",
                 "name": "Test Flag Empty",
-                "evaluation_tags": [],
+                "evaluation_contexts": [],
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("evaluation context tag", str(response.content))
+        self.assertIn("evaluation context is required", str(response.content))
 
     def test_create_flag_with_tags_when_required(self):
         """Test creating a flag with evaluation tags when requirement is enabled should succeed"""
@@ -87,7 +86,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
                 "key": "test-flag-with-tags",
                 "name": "Test Flag With Tags",
                 "tags": ["production"],
-                "evaluation_tags": ["production"],
+                "evaluation_contexts": ["production"],
             },
             format="json",
         )
@@ -138,7 +137,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
                 "key": "test-flag-multiple",
                 "name": "Test Flag Multiple",
                 "tags": ["production", "staging"],
-                "evaluation_tags": ["production", "staging"],
+                "evaluation_contexts": ["production", "staging"],
             },
             format="json",
         )
@@ -180,7 +179,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
                 "key": "test-flag-with-tags",
                 "name": "Test Flag With Tags",
                 "tags": ["production", "staging"],
-                "evaluation_tags": ["production", "staging"],
+                "evaluation_contexts": ["production", "staging"],
             },
             format="json",
         )
@@ -191,14 +190,14 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         response = self.client.patch(
             f"/api/projects/@current/feature_flags/{flag.id}/",
             {
-                "evaluation_tags": [],
+                "evaluation_contexts": [],
             },
             format="json",
         )
 
         # Should fail because the flag has existing evaluation tags
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot remove all evaluation context tags", str(response.content))
+        self.assertIn("Cannot remove all evaluation contexts", str(response.content))
 
     def test_update_flag_keep_some_evaluation_tags_when_required(self):
         """Test that updating to keep at least one evaluation tag succeeds"""
@@ -212,7 +211,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
                 "key": "test-flag-multiple-tags",
                 "name": "Test Flag Multiple Tags",
                 "tags": ["production", "staging"],
-                "evaluation_tags": ["production", "staging"],
+                "evaluation_contexts": ["production", "staging"],
             },
             format="json",
         )
@@ -224,7 +223,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
             f"/api/projects/@current/feature_flags/{flag.id}/",
             {
                 "tags": ["production"],
-                "evaluation_tags": ["production"],
+                "evaluation_contexts": ["production"],
             },
             format="json",
         )
@@ -278,7 +277,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
                 "key": "test-flag-update",
                 "name": "Test Flag Update",
                 "tags": ["production"],
-                "evaluation_tags": ["production"],
+                "evaluation_contexts": ["production"],
             },
             format="json",
         )
@@ -338,7 +337,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
 
         # Should fail because experiments are subject to the requirement
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("evaluation context tag", str(response.content))
+        self.assertIn("evaluation context is required", str(response.content))
 
     def test_create_experiment_flag_with_tags_when_required(self):
         """Test that experiment flags can be created with tags when requirement is enabled"""
@@ -351,7 +350,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
                 "key": "experiment-flag-with-tags",
                 "name": "Experiment Flag With Tags",
                 "tags": ["production"],
-                "evaluation_tags": ["production"],
+                "evaluation_contexts": ["production"],
                 "creation_context": "experiments",
             },
             format="json",
@@ -372,8 +371,6 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
             team=self.team,
             created_by=self.user,
         )
-        tag = Tag.objects.create(name="production", team_id=self.team.id)
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag_with_tags, tag=tag)
         ctx = EvaluationContext.objects.create(name="production", team=self.team)
         FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=ctx)
 
@@ -386,13 +383,13 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         )
 
         # Test filtering for flags WITH evaluation tags
-        response = self.client.get(f"{self.feature_flag_url}?has_evaluation_tags=true")
+        response = self.client.get(f"{self.feature_flag_url}?has_evaluation_contexts=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["key"], "flag-with-tags")
 
         # Test filtering for flags WITHOUT evaluation tags
-        response = self.client.get(f"{self.feature_flag_url}?has_evaluation_tags=false")
+        response = self.client.get(f"{self.feature_flag_url}?has_evaluation_contexts=false")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["key"], "flag-without-tags")

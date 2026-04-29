@@ -43,7 +43,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 code: dedent`
                                     import { PostHog } from 'posthog-node'
 
-                                    const client = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+                                    const client = new PostHog(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST
                                     })
                                 `,

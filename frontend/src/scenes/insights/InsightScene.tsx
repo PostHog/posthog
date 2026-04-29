@@ -20,13 +20,18 @@ export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
     if (!tabId) {
         throw new Error('<InsightScene /> must receive a tabId prop')
     }
-    const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic({ tabId }))
+    const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic({ tabId }))
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
-            router.actions.push(urls.sqlEditor({ insightShortId: insightId }))
+            router.actions.push(
+                urls.sqlEditor({
+                    insightShortId: insightId,
+                    dashboard: dashboardId ?? undefined,
+                })
+            )
         }
-    }, [insightId, insight?.query?.kind, insightMode])
+    }, [insightId, insight?.query?.kind, insightMode, dashboardId])
 
     if (
         insightId === 'new' ||

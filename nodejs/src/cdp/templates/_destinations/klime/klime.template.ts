@@ -39,11 +39,9 @@ if (action == 'track') {
         payload['groupId'] := inputs.groupId
     }
     let props := {}
-    if (inputs.include_all_properties) {
-        for (let key, value in event.properties) {
-            if (not key like '$%') {
-                props[key] := value
-            }
+    for (let key, value in event.properties) {
+        if (not key like '$%') {
+            props[key] := value
         }
     }
     for (let key, value in inputs.properties) {
@@ -67,7 +65,11 @@ if (action == 'track') {
             }
         }
     }
-    for (let key, value in inputs.properties) {
+    let identifyMapping := inputs.userTraits
+    if (empty(identifyMapping)) {
+        identifyMapping := inputs.properties
+    }
+    for (let key, value in identifyMapping) {
         if (not empty(value)) {
             traits[key] := value
         }
@@ -86,13 +88,11 @@ if (action == 'track') {
     }
     payload['groupId'] := gid
     let traits := {}
-    if (inputs.include_all_properties) {
-        let groupSet := event.properties.$group_set
-        if (not empty(groupSet)) {
-            for (let key, value in groupSet) {
-                if (not key like '$%') {
-                    traits[key] := value
-                }
+    let groupSet := event.properties.$group_set
+    if (not empty(groupSet)) {
+        for (let key, value in groupSet) {
+            if (not key like '$%') {
+                traits[key] := value
             }
         }
     }
@@ -176,19 +176,28 @@ if (res.status >= 400) {
         {
             key: 'include_all_properties',
             type: 'boolean',
-            label: 'Include all properties',
+            label: 'Include all person properties',
             description:
-                'If set, all event properties (for track), person properties (for identify), or group properties (for group) will be included. Individual properties can be overridden below.',
+                'If set, all person properties will be included as traits on identify events. May cause timeouts for persons with many properties.',
             default: false,
             secret: false,
             required: true,
         },
         {
+            key: 'userTraits',
+            type: 'dictionary',
+            label: 'User trait mapping',
+            description:
+                'Map of trait names to values, sent on identify events. By default sends email and name from person properties.',
+            default: { email: '{person.properties.email}', name: '{person.properties.name}' },
+            secret: false,
+            required: false,
+        },
+        {
             key: 'properties',
             type: 'dictionary',
             label: 'Property mapping',
-            description:
-                'Map of property names to values. These are sent as properties (track) or traits (identify/group).',
+            description: 'Map of property names to values. These are sent as properties (track) or traits (group).',
             default: {},
             secret: false,
             required: false,

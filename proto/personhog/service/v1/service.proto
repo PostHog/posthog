@@ -31,6 +31,11 @@ service PersonHogService {
 
   // Cohort membership
   rpc CheckCohortMembership(personhog.types.v1.CheckCohortMembershipRequest) returns (personhog.types.v1.CohortMembershipResponse);
+  rpc CountCohortMembers(personhog.types.v1.CountCohortMembersRequest) returns (personhog.types.v1.CountCohortMembersResponse);
+  rpc DeleteCohortMember(personhog.types.v1.DeleteCohortMemberRequest) returns (personhog.types.v1.DeleteCohortMemberResponse);
+  rpc DeleteCohortMembersBulk(personhog.types.v1.DeleteCohortMembersBulkRequest) returns (personhog.types.v1.DeleteCohortMembersBulkResponse);
+  rpc InsertCohortMembers(personhog.types.v1.InsertCohortMembersRequest) returns (personhog.types.v1.InsertCohortMembersResponse);
+  rpc ListCohortMemberIds(personhog.types.v1.ListCohortMemberIdsRequest) returns (personhog.types.v1.ListCohortMemberIdsResponse);
 
   // Groups
   rpc GetGroup(personhog.types.v1.GetGroupRequest) returns (personhog.types.v1.GetGroupResponse);
@@ -42,4 +47,16 @@ service PersonHogService {
   rpc GetGroupTypeMappingsByTeamIds(personhog.types.v1.GetGroupTypeMappingsByTeamIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
   rpc GetGroupTypeMappingsByProjectId(personhog.types.v1.GetGroupTypeMappingsByProjectIdRequest) returns (personhog.types.v1.GroupTypeMappingsResponse);
   rpc GetGroupTypeMappingsByProjectIds(personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
+
+  // Person property updates (routed to leader)
+  rpc UpdatePersonProperties(personhog.types.v1.UpdatePersonPropertiesRequest) returns (personhog.types.v1.UpdatePersonPropertiesResponse);
+
+  // Person deletes
+  // WARNING: This is a write operation on person data. It should route to the leader
+  // once personhog-leader supports deletes. Currently routed through the replica
+  // (which uses the primary Postgres pool) as a temporary measure.
+  // TODO: Migrate routing to leader before personhog-leader goes live.
+  rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
+  // WARNING: Same routing caveat as DeletePersons above.
+  rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
 }

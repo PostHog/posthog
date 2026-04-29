@@ -1,10 +1,11 @@
-import re
 import time
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional
+
+import re2
 
 from common.hogvm.python.debugger import color_bytecode, debugger
 from common.hogvm.python.objects import (
@@ -19,6 +20,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
+    _CASE_INSENSITIVE_OPTS,
     HogVMException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
@@ -264,34 +266,32 @@ def execute_bytecode(
             case Operation.LIKE:
                 push_stack(like(pop_stack(), pop_stack()))
             case Operation.ILIKE:
-                push_stack(like(pop_stack(), pop_stack(), re.IGNORECASE))
+                push_stack(like(pop_stack(), pop_stack(), case_insensitive=True))
             case Operation.NOT_LIKE:
                 push_stack(not like(pop_stack(), pop_stack()))
             case Operation.NOT_ILIKE:
-                push_stack(not like(pop_stack(), pop_stack(), re.IGNORECASE))
+                push_stack(not like(pop_stack(), pop_stack(), case_insensitive=True))
             case Operation.IN:
                 push_stack(pop_stack() in pop_stack())
             case Operation.NOT_IN:
                 push_stack(pop_stack() not in pop_stack())
             case Operation.REGEX:
                 args = [pop_stack(), pop_stack()]
-                # TODO: swap this for re2, as used in HogQL/ClickHouse and in the NodeJS VM
-                push_stack(bool(re.search(re.compile(args[1]), args[0])) if args[0] and args[1] else False)
+                push_stack(bool(re2.search(re2.compile(args[1]), args[0])) if args[0] and args[1] else False)
             case Operation.NOT_REGEX:
                 args = [pop_stack(), pop_stack()]
-                # TODO: swap this for re2, as used in HogQL/ClickHouse and in the NodeJS VM
-                push_stack(not bool(re.search(re.compile(args[1]), args[0])) if args[0] and args[1] else False)
+                push_stack(not bool(re2.search(re2.compile(args[1]), args[0])) if args[0] and args[1] else False)
             case Operation.IREGEX:
                 args = [pop_stack(), pop_stack()]
                 push_stack(
-                    bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0]))
+                    bool(re2.search(re2.compile(args[1], options=_CASE_INSENSITIVE_OPTS), args[0]))
                     if args[0] and args[1]
                     else False
                 )
             case Operation.NOT_IREGEX:
                 args = [pop_stack(), pop_stack()]
                 push_stack(
-                    not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0]))
+                    not bool(re2.search(re2.compile(args[1], options=_CASE_INSENSITIVE_OPTS), args[0]))
                     if args[0] and args[1]
                     else False
                 )

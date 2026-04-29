@@ -1,7 +1,8 @@
 import json
+import types
 import typing
 import datetime as dt
-from dataclasses import asdict, dataclass, fields
+from dataclasses import Field, asdict, dataclass, fields
 from uuid import UUID
 
 from django.conf import settings
@@ -38,6 +39,78 @@ from posthog.temporal.common.schedule import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def align_timestamp_to_interval(timestamp: dt.datetime, batch_export: BatchExport) -> dt.datetime:
+    """Align a timestamp to the batch export's interval boundary.
+
+    For batch exports, intervals can have an offset from the default start time,
+    specified in the batch export's timezone. For example, a daily export might
+    run at 5am US/Pacific instead of midnight UTC.
+
+    Args:
+        timestamp: The timestamp to align (must be timezone-aware, typically UTC).
+        batch_export: The batch export configuration with interval, offset, and timezone.
+
+    Returns:
+        The start of the interval containing the timestamp (in UTC).
+
+    Examples:
+        Daily interval at 5am UTC:
+        - 2021-01-15 10:30:00 UTC aligns to 2021-01-15 05:00:00 UTC
+        - 2021-01-15 04:30:00 UTC aligns to 2021-01-14 05:00:00 UTC
+
+        Daily interval at 1am US/Pacific (PST = UTC-8 in winter):
+        - 2021-01-15 10:00:00 UTC (= 02:00 PST) aligns to 2021-01-15 09:00:00 UTC (= 01:00 PST)
+        - 2021-01-15 08:30:00 UTC (= 00:30 PST) aligns to 2021-01-14 09:00:00 UTC (= 01:00 PST prev day)
+    """
+    interval = batch_export.interval
+    interval_seconds = int(batch_export.interval_time_delta.total_seconds())
+
+    # For hourly or sub-hourly intervals, timezone doesn't matter
+    if interval == "hour" or interval.startswith("every"):
+        ts = timestamp.timestamp()
+        aligned = (ts // interval_seconds) * interval_seconds
+        return dt.datetime.fromtimestamp(aligned, tz=dt.UTC)
+
+    # Convert timestamp to the batch export's timezone for alignment
+    tz = batch_export.timezone_info
+    local_timestamp = timestamp.astimezone(tz)
+    offset_hour = batch_export.offset_hour or 0
+
+    if interval == "day":
+        # Find the start of the current "day" (which starts at offset_hour in local time)
+        day_start = local_timestamp.replace(hour=offset_hour, minute=0, second=0, microsecond=0)
+        if day_start > local_timestamp:
+            day_start -= dt.timedelta(days=1)
+        return day_start.astimezone(dt.UTC)
+
+    elif interval == "week":
+        offset_day = batch_export.offset_day or 0
+
+        # Get current day of week (Monday=0, Sunday=6 in Python)
+        # But batch exports use Sunday=0, so we need to convert
+        python_weekday = local_timestamp.weekday()  # Monday=0
+        batch_export_weekday = (python_weekday + 1) % 7  # Sunday=0
+
+        # Calculate days since the start of the week (at offset_day)
+        days_since_week_start = (batch_export_weekday - offset_day) % 7
+
+        # Find the start of the current "week"
+        week_start_date = local_timestamp.date() - dt.timedelta(days=days_since_week_start)
+        week_start = dt.datetime.combine(
+            week_start_date,
+            dt.time(hour=offset_hour, minute=0, second=0),
+            tzinfo=tz,
+        )
+
+        if week_start > local_timestamp:
+            week_start -= dt.timedelta(weeks=1)
+
+        return week_start.astimezone(dt.UTC)
+
+    else:
+        raise ValueError(f"Unknown interval: {interval}")
 
 
 class BatchExportField(typing.TypedDict):
@@ -80,6 +153,21 @@ class BackfillDetails:
     is_earliest_backfill: bool = False
 
 
+def _field_is_type(f: Field, target: type) -> bool:
+    """Check if a dataclass field's type is or contains the target type.
+
+    Handles plain types (int, bool), PEP 604 unions (int | None),
+    and typing.Optional / typing.Union.
+    """
+    if f.type is target:
+        return True
+    if isinstance(f.type, types.UnionType):
+        return target in f.type.__args__
+    if typing.get_origin(f.type) is typing.Union:
+        return target in typing.get_args(f.type)
+    return False
+
+
 @dataclass(kw_only=True)
 class BaseBatchExportInputs:
     """Base class for all batch export inputs containing common fields.
@@ -96,6 +184,7 @@ class BaseBatchExportInputs:
     batch_export_id: str
     team_id: int
     interval: str = "hour"
+    timezone: str = "UTC"
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
@@ -106,6 +195,23 @@ class BaseBatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
     integration_id: int | None = None
+
+    def __post_init__(self):
+        """Coerce string values to their declared types.
+
+        EncryptedJSONField may not preserve Python types, so fields can
+        arrive as strings (e.g. "true" instead of True, "5432" instead of 5432).
+        """
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if value is None:
+                continue
+            if _field_is_type(f, bool):
+                if isinstance(value, str):
+                    setattr(self, f.name, value.lower() == "true")
+            elif _field_is_type(f, int):
+                if isinstance(value, str):
+                    setattr(self, f.name, int(value))
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -157,13 +263,6 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     max_file_size_mb: int | None = None
     use_virtual_style_addressing: bool = False
 
-    def __post_init__(self):
-        if self.max_file_size_mb:
-            self.max_file_size_mb = int(self.max_file_size_mb)
-
-        if self.use_virtual_style_addressing and isinstance(self.use_virtual_style_addressing, str):
-            self.use_virtual_style_addressing = self.use_virtual_style_addressing.lower() == "true"  # type: ignore
-
 
 @dataclass(kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
@@ -186,22 +285,15 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
-    user: str
-    password: str
-    host: str
     database: str
     schema: str = "public"
     table_name: str = "events"
-    port: int = 5432
+
+    user: str | None = None
+    host: str | None = None
+    port: int | None = 5432
+    password: str | None = None
     has_self_signed_cert: bool = False
-
-    def __post_init__(self):
-        if self.has_self_signed_cert == "True":  # type: ignore
-            self.has_self_signed_cert = True
-        elif self.has_self_signed_cert == "False":  # type: ignore
-            self.has_self_signed_cert = False
-
-        self.port = int(self.port)
 
 
 IAMRole = str
@@ -242,6 +334,7 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
     copy_inputs: RedshiftCopyInputs | None = None
 
     def __post_init__(self):
+        super().__post_init__()
         if (
             self.mode == "COPY"
             and self.copy_inputs is not None
@@ -280,20 +373,14 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
-    project_id: str
     dataset_id: str
     table_id: str = "events"
-    private_key: str
-    private_key_id: str
-    token_uri: str
-    client_email: str
+    project_id: str | None = None
+    private_key: str | None = None
+    private_key_id: str | None = None
+    token_uri: str | None = None
+    client_email: str | None = None
     use_json_type: bool = False
-
-    def __post_init__(self):
-        if self.use_json_type == "True":  # type: ignore
-            self.use_json_type = True
-        elif self.use_json_type == "False":  # type: ignore
-            self.use_json_type = False
 
 
 @dataclass(kw_only=True)
@@ -325,10 +412,6 @@ class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-
-    def __post_init__(self):
-        if self.max_file_size_mb:
-            self.max_file_size_mb = int(self.max_file_size_mb)
 
 
 @dataclass(kw_only=True)
@@ -906,6 +989,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     team_id=batch_export.team.id,
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
+                    timezone=str(batch_export.timezone_info),
                     batch_export_model=BatchExportModel(
                         name=batch_export.model or "events",
                         schema=batch_export.schema,
@@ -943,7 +1027,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     return batch_export
 
 
-async def acreate_batch_export_backfill(
+async def aget_or_create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
     start_at: str | None,
@@ -951,7 +1035,10 @@ async def acreate_batch_export_backfill(
     status: str = BatchExportRun.Status.RUNNING,
     backfill_id: str | None = None,
 ) -> BatchExportBackfill:
-    """Create a BatchExportBackfill.
+    """Create a BatchExportBackfill, or return an existing one if a backfill_id is provided and already exists.
+
+    We use `aget_or_create` to handle the rare case (which we have seen in production) where the Temporal activity
+    retries due to a timeout, but the previous attempt has committed the row to Postgres.
 
     Args:
         batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
@@ -961,17 +1048,23 @@ async def acreate_batch_export_backfill(
         status: The initial status for the created BatchExportBackfill.
         backfill_id: Pre-generated UUID for the backfill. If provided, will be used as the model's primary key.
     """
-    kwargs: dict = {
-        "batch_export_id": batch_export_id,
+
+    defaults: dict = {
         "status": status,
         "start_at": dt.datetime.fromisoformat(start_at) if start_at else None,
         "end_at": dt.datetime.fromisoformat(end_at) if end_at else None,
-        "team_id": team_id,
     }
+
     if backfill_id is not None:
-        kwargs["id"] = backfill_id
-    backfill = BatchExportBackfill(**kwargs)
-    await backfill.asave()
+        backfill, _created = await BatchExportBackfill.objects.aget_or_create(
+            id=backfill_id,
+            team_id=team_id,
+            batch_export_id=batch_export_id,
+            defaults=defaults,
+        )
+    else:
+        backfill = BatchExportBackfill(**defaults, team_id=team_id, batch_export_id=batch_export_id)
+        await backfill.asave()
 
     return backfill
 

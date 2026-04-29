@@ -38,9 +38,6 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
             ),
         },
     },
-    errorTrackingSuppressionRules: {
-        web: { version: '1.249.4' },
-    },
     sessionReplayLogCapture: {
         android: {
             version: '3.4.0',

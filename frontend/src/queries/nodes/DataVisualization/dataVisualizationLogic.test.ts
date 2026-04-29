@@ -225,6 +225,47 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([
+        {
+            displayType: ChartDisplayType.ActionsLineGraph,
+            name: 'line chart',
+        },
+        {
+            displayType: ChartDisplayType.ActionsAreaGraph,
+            name: 'area chart',
+        },
+    ])('uses the first numeric column as x-axis when enabling a $name on all-numeric data', async ({ displayType }) => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['screen_width', 'screen_height'],
+            types: [
+                ['screen_width', 'Int64'],
+                ['screen_height', 'Int64'],
+            ],
+            results: [
+                [1920, 1080],
+                [1440, 900],
+            ],
+        })
+
+        logic.actions.setVisualizationType(displayType)
+
+        await expectLogic(logic).toMatchValues({
+            effectiveVisualizationType: displayType,
+            selectedXAxis: 'screen_width',
+            selectedYAxis: [
+                {
+                    name: 'screen_height',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+            ],
+        })
+    })
+
     it('fills x-axis labels with empty values when no x-axis is selected', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['first_value', 'second_value', 'third_value'],
@@ -342,5 +383,134 @@ describe('dataVisualizationLogic', () => {
                 },
             },
         })
+    })
+
+    it('transposes table results without changing the query source', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['region', 'value'],
+            types: [
+                ['region', 'String'],
+                ['value', 'Int64'],
+            ],
+            results: [
+                ['US', 10],
+                ['EU', 20],
+            ],
+        })
+
+        logic.actions.setTransposeResults(true)
+
+        await expectLogic(logic).toMatchValues({
+            isTransposed: true,
+            isPinningEnabled: false,
+            tabularData: [
+                [
+                    {
+                        value: 'region',
+                        formattedValue: null,
+                        type: 'STRING',
+                        sourceColumnName: 'region',
+                        isTransposedHeader: true,
+                    },
+                    {
+                        value: 'US',
+                        formattedValue: 'US',
+                        type: 'STRING',
+                        sourceColumnName: 'region',
+                    },
+                    {
+                        value: 'EU',
+                        formattedValue: 'EU',
+                        type: 'STRING',
+                        sourceColumnName: 'region',
+                    },
+                ],
+                [
+                    {
+                        value: 'value',
+                        formattedValue: null,
+                        type: 'STRING',
+                        sourceColumnName: 'value',
+                        isTransposedHeader: true,
+                    },
+                    {
+                        value: 10,
+                        formattedValue: '10',
+                        type: 'INTEGER',
+                        sourceColumnName: 'value',
+                    },
+                    {
+                        value: 20,
+                        formattedValue: '20',
+                        type: 'INTEGER',
+                        sourceColumnName: 'value',
+                    },
+                ],
+            ],
+        })
+
+        expect(logic.values.query.source).toEqual(defaultQuery.source)
+        expect(logic.values.query.tableSettings?.transpose).toEqual(true)
+    })
+
+    it('does not mutate the original query when updating y-axis formatting', async () => {
+        const queryWithAxisSettings: DataVisualizationNode = {
+            ...defaultQuery,
+            chartSettings: {
+                yAxis: [
+                    {
+                        column: 'value',
+                        settings: {
+                            formatting: {
+                                prefix: '',
+                                suffix: '',
+                            },
+                        },
+                    },
+                ],
+            },
+        }
+
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: queryWithAxisSettings,
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['label', 'value'],
+            types: [
+                ['label', 'String'],
+                ['value', 'Float64'],
+            ],
+            results: [['A', 1.2345]],
+        })
+
+        logic.actions.updateSeriesIndex(0, 'value', {
+            formatting: {
+                decimalPlaces: 2,
+            },
+        })
+
+        await expectLogic(logic).toMatchValues({
+            query: expect.objectContaining({
+                chartSettings: expect.objectContaining({
+                    yAxis: [
+                        expect.objectContaining({
+                            column: 'value',
+                            settings: expect.objectContaining({
+                                formatting: expect.objectContaining({
+                                    decimalPlaces: 2,
+                                }),
+                            }),
+                        }),
+                    ],
+                }),
+            }),
+        })
+
+        expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
     })
 })

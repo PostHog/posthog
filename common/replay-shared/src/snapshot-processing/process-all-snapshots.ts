@@ -275,7 +275,7 @@ function processSnapshot(
     const currentTimestamp = snapshot.timestamp
 
     if (currentTimestamp === context.previousTimestamp) {
-        if (context.seenHashes.size === 0) {
+        if (context.seenHashes.size === 0 && snapshotIndex > 0) {
             context.seenHashes.add(hashSnapshot(sortedSnapshots[snapshotIndex - 1]))
         }
         const snapshotHash = hashSnapshot(snapshot)

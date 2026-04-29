@@ -18,7 +18,7 @@ class ArtifactStorage:
 
     FOLDER = os.getenv("OBJECT_STORAGE_VISUAL_REVIEW_FOLDER", "visual_review")
     MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10MB per image
-    PRESIGNED_EXPIRATION = 60 * 15  # 15 minutes
+    PRESIGNED_EXPIRATION = 60 * 60  # 1 hour
 
     def __init__(self, repo_id: str):
         self.repo_id = repo_id

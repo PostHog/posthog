@@ -391,9 +391,11 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     assert!(result.is_some());
     let info = result.unwrap();
 
-    // manually construct expected remote attempt path (unhashed, for metadata.json)
+    // All remote paths (metadata and objects) now include hash prefix
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
     let expected_remote_path = format!(
-        "{}/{}/{}/{}",
+        "{}/{}/{}/{}/{}",
+        hash,
         config.s3_key_prefix,
         partition.topic(),
         partition.partition_number(),
@@ -403,28 +405,11 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
 
     let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!remote_checkpoint_files.is_empty());
-    // metadata.json at unhashed path; object files at hashed path
-    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
-    let expected_object_prefix = format!(
-        "{}/{}/{}/{}/{}",
-        hash,
-        config.s3_key_prefix,
-        partition.topic(),
-        partition.partition_number(),
-        CheckpointMetadata::generate_id(attempt_timestamp),
-    );
     for k in remote_checkpoint_files.keys() {
-        if k.ends_with("metadata.json") {
-            assert!(
-                !k.contains(&hash),
-                "metadata.json must not contain hash, got: {k}"
-            );
-        } else {
-            assert!(
-                k.starts_with(&expected_object_prefix),
-                "object file key must have hashed path, got: {k}"
-            );
-        }
+        assert!(
+            k.starts_with(&expected_remote_path),
+            "all keys should be under hashed path, got: {k}"
+        );
     }
 
     // Verify exported files contain expected RocksDB checkpoint files
@@ -497,9 +482,11 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     assert!(result.is_some());
     let orig_info = result.unwrap();
 
-    // manually construct expected remote attempt path (unhashed)
+    // All remote paths (metadata and objects) now include hash prefix
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
     let orig_expected_remote_path = format!(
-        "{}/{}/{}/{}",
+        "{}/{}/{}/{}/{}",
+        hash,
         config.s3_key_prefix,
         partition.topic(),
         partition.partition_number(),
@@ -512,27 +499,11 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
 
     let orig_remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
     assert!(!orig_remote_checkpoint_files.is_empty());
-    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
-    let orig_expected_object_prefix = format!(
-        "{}/{}/{}/{}/{}",
-        hash,
-        config.s3_key_prefix,
-        partition.topic(),
-        partition.partition_number(),
-        CheckpointMetadata::generate_id(attempt_timestamp),
-    );
     for k in orig_remote_checkpoint_files.keys() {
-        if k.ends_with("metadata.json") {
-            assert!(
-                !k.contains(&hash),
-                "metadata.json must not contain hash, got: {k}"
-            );
-        } else {
-            assert!(
-                k.starts_with(&orig_expected_object_prefix),
-                "object file key must have hashed path, got: {k}"
-            );
-        }
+        assert!(
+            k.starts_with(&orig_expected_remote_path),
+            "all keys should be under hashed path, got: {k}"
+        );
     }
 
     // Verify exported files contain expected RocksDB checkpoint files, including SSTs
@@ -559,13 +530,6 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     let next_attempt_timestamp = Utc::now();
     let next_checkpoint_id = CheckpointMetadata::generate_id(next_attempt_timestamp);
     let next_expected_remote_path = format!(
-        "{}/{}/{}/{}",
-        config.s3_key_prefix,
-        partition.topic(),
-        partition.partition_number(),
-        next_checkpoint_id,
-    );
-    let next_expected_object_prefix = format!(
         "{}/{}/{}/{}/{}",
         hash,
         config.s3_key_prefix,
@@ -599,17 +563,10 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
 
     assert!(!next_remote_checkpoint_files.is_empty());
     for k in next_remote_checkpoint_files.keys() {
-        if k.ends_with("metadata.json") {
-            assert!(
-                !k.contains(&hash),
-                "metadata.json must not contain hash, got: {k}"
-            );
-        } else {
-            assert!(
-                k.starts_with(&next_expected_object_prefix),
-                "object file key must have hashed path, got: {k}"
-            );
-        }
+        assert!(
+            k.starts_with(&next_expected_remote_path),
+            "all keys should be under hashed path, got: {k}"
+        );
     }
 
     // there should be no new SST files uploaded in this checkpoint

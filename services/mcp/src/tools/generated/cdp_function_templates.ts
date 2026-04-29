@@ -6,13 +6,14 @@ import {
     HogFunctionTemplatesListQueryParams,
     HogFunctionTemplatesRetrieveParams,
 } from '@/generated/cdp_function_templates/api'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CdpFunctionTemplatesListSchema = HogFunctionTemplatesListQueryParams
 
 const cdpFunctionTemplatesList = (): ToolBase<
     typeof CdpFunctionTemplatesListSchema,
-    Schemas.PaginatedHogFunctionTemplateList & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.PaginatedHogFunctionTemplateList>
 > => ({
     name: 'cdp-function-templates-list',
     schema: CdpFunctionTemplatesListSchema,
@@ -20,7 +21,7 @@ const cdpFunctionTemplatesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedHogFunctionTemplateList>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_function_templates/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_function_templates/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -29,10 +30,23 @@ const cdpFunctionTemplatesList = (): ToolBase<
                 types: params.types,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/pipeline/templates`,
-        }
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'name',
+                    'description',
+                    'type',
+                    'status',
+                    'category',
+                    'free',
+                    'icon_url',
+                    'code_language',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/pipeline/templates')
     },
 })
 
@@ -48,7 +62,7 @@ const cdpFunctionTemplatesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.HogFunctionTemplate>({
             method: 'GET',
-            path: `/api/projects/${projectId}/hog_function_templates/${params.template_id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_function_templates/${encodeURIComponent(String(params.template_id))}/`,
         })
         return result
     },

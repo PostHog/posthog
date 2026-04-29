@@ -11,21 +11,25 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 from pydantic import BaseModel
-from redis.exceptions import RedisError
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     HogQLQuery,
     HogQLQueryModifiers,
     InCohortVia,
     InlineCohortCalculation,
+    InsightVizNode,
     IntervalType,
     MaterializationMode,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    QueryLogTags,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
@@ -36,7 +40,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
@@ -60,6 +64,7 @@ class TheTestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
     other_attr: Optional[list[Any]] = []
+    tags: QueryLogTags | None = None
 
 
 class TestQueryRunner(BaseTest):
@@ -76,7 +81,7 @@ class TestQueryRunner(BaseTest):
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
-            def calculate(self):
+            def _calculate(self):
                 return TheTestBasicQueryResponse(
                     results=[
                         ["row", 1, 2, 3],
@@ -99,6 +104,21 @@ class TestQueryRunner(BaseTest):
 
         return TestQueryRunner
 
+    def test_calculate_runs_validators_before_calculation(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        validation_rule = mock.MagicMock()
+        validation_rule.validate.side_effect = ValidationError("Validation failed")
+        TestQueryRunner.validators = lambda self: (validation_rule,)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True) as mock_calculate:
+            with self.assertRaises(ValidationError) as context:
+                runner.calculate()
+
+        self.assertIn("Validation failed", str(context.exception))
+        validation_rule.validate.assert_called_once_with(runner.validation_context)
+        mock_calculate.assert_not_called()
+
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -112,6 +132,45 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+
+    @parameterized.expand(
+        [
+            [
+                DataVisualizationNode(source=HogQLQuery(query="SELECT 1")),
+                HogQLQuery(query="SELECT 1"),
+            ],
+            [
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                HogQLQuery(query="SELECT 1"),
+            ],
+            [
+                DataTableNode(source=HogQLQuery(query="SELECT 2")),
+                HogQLQuery(query="SELECT 2"),
+            ],
+            [
+                {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2"}},
+                HogQLQuery(query="SELECT 2"),
+            ],
+            [
+                InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])),
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+            ],
+            [
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+                TrendsQuery(series=[EventsNode(event="$pageview")]),
+            ],
+        ]
+    )
+    def test_get_query_runner_uses_source_query_for_wrappers(self, query, expected_source_query):
+        runner = get_query_runner(query=query, team=self.team)
+
+        self.assertEqual(runner.query, expected_source_query)
 
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -146,9 +205,10 @@ class TestQueryRunner(BaseTest):
                 "inlineCohortCalculation": InlineCohortCalculation.AUTO,
                 "materializationMode": MaterializationMode.LEGACY_NULL_AS_NULL,
                 "optimizeJoinedFilters": False,
-                "optimizeProjections": False,
+                "optimizeProjections": True,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "sessionIdPushdown": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
                 "useMaterializedViews": True,
@@ -230,12 +290,12 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_450d82bef38d66f548b7ef465827a80cbab3de31913363b0ef5ed2d69a02e9b2"
+        assert cache_key == "cache_42_68a2c8e2bf539173ac6e464a103418bb433834fbce3157ed121192f403d69a0c"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        class TestSubclassQueryRunner(TestQueryRunner):
+        class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
         # set the pk directly as it affects the hash in the _cache_key call
@@ -244,7 +304,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_68a7a0c2cd6fbf1c74db8cde440b7391345c9e5dbae7b45651a018d8194eeafe"
+        assert cache_key == "cache_42_4eb789b3c70480ba14a762c56a648f2bf7a117a3c31b60ed3c5cb826444ddf4c"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -255,7 +315,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_471a20fc7da3ec182478de571e6a34b5782d1db5d85c33abf8585563002f1652"
+        assert cache_key == "cache_42_f67778c870f29df1c38c85726fd6f2b319b920f6f3414acf2de1927271503977"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -488,133 +548,65 @@ class TestQueryRunner(BaseTest):
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
 
+    @parameterized.expand(
+        [
+            ("success", None, None, 1, 0),
+            ("error_result", "error", None, 1, 0),
+            ("exception", "raise", ValueError, 0, 1),
+        ]
+    )
+    def test_survey_query_execution_metrics(
+        self, _name, calculate_mode, expected_exception, success_delta, failure_delta
+    ):
+        from posthog.hogql_queries.query_runner import SURVEY_QUERY_EXECUTION_DURATION, SURVEY_QUERY_EXECUTION_TOTAL
 
-class TestQueryCoalescing(BaseTest):
-    maxDiff = None
+        TestQueryRunner = self.setup_test_query_runner_class()
+        query_labels = {
+            "query_type": "TestQuery",
+            "query_name": "test_query_name",
+        }
+        if calculate_mode == "error":
+            TestQueryRunner.calculate = lambda self: TheTestBasicQueryResponse(results=[], error="Some error occurred")
+        elif calculate_mode == "raise":
 
-    def tearDown(self):
-        super().tearDown()
-        cache.clear()
+            def calculate_raises(self):
+                raise ValueError("Query execution failed")
 
-    def setup_test_query_runner_class(self):
-        """Setup required methods and attributes of the abstract base class."""
+            TestQueryRunner.calculate = calculate_raises
 
-        class _TestQueryRunner(QueryRunner):
-            query: TheTestQuery
-            cached_response: TheTestCachedBasicQueryResponse
+        runner = TestQueryRunner(
+            query={
+                "some_attr": "bla",
+                "tags": {"productKey": "surveys", "scene": "TestScene", "name": "test_query_name"},
+            },
+            team=self.team,
+        )
 
-            def calculate(self):
-                return TheTestBasicQueryResponse(
-                    results=[
-                        ["row", 1, 2, 3],
-                        (i for i in range(10)),
-                    ]
-                )
+        before_success = SURVEY_QUERY_EXECUTION_TOTAL.labels(
+            **query_labels, category="success", error_type="none"
+        )._value.get()
+        before_failure = SURVEY_QUERY_EXECUTION_TOTAL.labels(
+            **query_labels, category="error", error_type="ValueError"
+        )._value.get()
+        before_duration_sum = SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get()
 
-            def _refresh_frequency(self) -> timedelta:
-                return timedelta(minutes=4)
-
-            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
-                if not last_refresh:
-                    raise ValueError("Cached results require a last_refresh")
-                if lazy:
-                    return last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))
-                return last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
-
-        _TestQueryRunner.__abstractmethods__ = frozenset()
-        return _TestQueryRunner
-
-    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_coalescing_used_for_blocking_if_stale(self, _mock_ff):
-        """RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE routes through QueryCoalescer."""
-        Runner = self.setup_test_query_runner_class()
-        runner = Runner(query={"some_attr": "bla"}, team=self.team)
-
-        with mock.patch("posthog.hogql_queries.query_coalescer.QueryCoalescer") as MockCoalescer:
-            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **kw: execute()
-            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-
-        MockCoalescer.assert_called_once()
-        self.assertFalse(MockCoalescer.call_args.kwargs["dry_run"])
-
-    def test_coalescing_skipped_for_force_blocking(self):
-        """CALCULATE_BLOCKING_ALWAYS does not use query coalescing."""
-        Runner = self.setup_test_query_runner_class()
-        runner = Runner(query={"some_attr": "bla"}, team=self.team)
-
-        with mock.patch("posthog.hogql_queries.query_coalescer.QueryCoalescer") as MockCoalescer:
+        if expected_exception:
+            with pytest.raises(expected_exception):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        else:
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        MockCoalescer.assert_not_called()
-
-    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_coalescing_dry_run_when_feature_flag_off(self, _mock_ff):
-        """When feature flag is off, coalescer runs in dry-run mode."""
-        Runner = self.setup_test_query_runner_class()
-        runner = Runner(query={"some_attr": "bla"}, team=self.team)
-
-        with mock.patch("posthog.hogql_queries.query_coalescer.QueryCoalescer") as MockCoalescer:
-            MockCoalescer.return_value.run_coalesced.side_effect = lambda execute, **kw: execute()
-            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-
-        MockCoalescer.assert_called_once()
-        self.assertTrue(MockCoalescer.call_args.kwargs["dry_run"])
-
-    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_coalescing_leader_exception_releases_lock(self, _mock_ff):
-        """If the leader's calculate() raises, the lock should be released
-        so followers fall back to their own calculation."""
-
-        Runner = self.setup_test_query_runner_class()
-
-        def failing_calculate(self_inner):
-            raise ValueError("boom")
-
-        Runner.calculate = failing_calculate
-
-        with self.assertRaises(Exception):
-            runner = Runner(query={"some_attr": "bla"}, team=self.team)
-            runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-
-        # Lock should be released, a second request should be able to acquire it
-        from posthog.hogql_queries.query_coalescer import QueryCoalescer
-
-        runner2 = Runner(query={"some_attr": "bla"}, team=self.team)
-        cache_key = runner2.get_cache_key()
-        coalescer = QueryCoalescer(cache_key, "test-query-id")
-        self.assertTrue(coalescer._try_acquire())
-
-    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_coalesced_follower_raises_when_leader_fails(self, _mock_ff):
-        from posthog.hogql_queries.query_coalescer import QueryCoalescingError
-
-        Runner = self.setup_test_query_runner_class()
-        follower_runner = Runner(query={"some_attr": "bla"}, team=self.team)
-
-        # Follower can't acquire lock and wait returns None (no done key) → raises
-        with mock.patch(
-            "posthog.hogql_queries.query_coalescer.QueryCoalescer._try_acquire",
-            return_value=False,
-        ):
-            with mock.patch(
-                "posthog.hogql_queries.query_coalescer.QueryCoalescer._wait_for_result",
-                return_value=None,
-            ):
-                with self.assertRaises(QueryCoalescingError):
-                    follower_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-
-    def test_coalescing_redis_failure_degrades_gracefully(self):
-        Runner = self.setup_test_query_runner_class()
-        runner = Runner(query={"some_attr": "bla"}, team=self.team)
-
-        with mock.patch(
-            "posthog.hogql_queries.query_coalescer.QueryCoalescer._try_acquire",
-            side_effect=RedisError("Redis connection refused"),
-        ):
-            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-
-        self.assertIsInstance(response, TheTestCachedBasicQueryResponse)
-        self.assertEqual(response.is_cached, False)
+        assert (
+            SURVEY_QUERY_EXECUTION_TOTAL.labels(**query_labels, category="success", error_type="none")._value.get()
+            - before_success
+            == success_delta
+        )
+        assert (
+            SURVEY_QUERY_EXECUTION_TOTAL.labels(**query_labels, category="error", error_type="ValueError")._value.get()
+            - before_failure
+            == failure_delta
+        )
+        assert SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get() > before_duration_sum
 
 
 class TestSeriesCustomNameCaching(BaseTest):
@@ -880,7 +872,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+        from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         query = StickinessQuery(
             series=[
@@ -945,7 +937,7 @@ class TestApplySeriesCustomNames(BaseTest):
 
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
-        from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
+        from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         query = LifecycleQuery(
             series=[

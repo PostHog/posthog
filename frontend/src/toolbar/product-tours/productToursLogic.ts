@@ -1,8 +1,8 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import isEqual from 'lodash.isequal'
 import { findElement } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -21,7 +21,8 @@ import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
@@ -100,6 +101,9 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         try {
             return document.querySelector(step.selector) as HTMLElement | null
         } catch {
+            toolbarLogger.warn('product_tours', 'Failed to query element with manual selector', {
+                selector: step.selector,
+            })
             return null
         }
     }
@@ -111,6 +115,7 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         try {
             return document.querySelector(step.selector) as HTMLElement | null
         } catch {
+            toolbarLogger.warn('product_tours', 'Failed to query element with selector', { selector: step.selector })
             return null
         }
     }
@@ -416,7 +421,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 cache.lastDraftPayload = null
             } else {
                 const incomingPayload = buildDraftPayload(selectedTour, values.tours)
-                if (!isEqual(incomingPayload, cache.lastDraftPayload)) {
+                if (!equal(incomingPayload, cache.lastDraftPayload)) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     ;(actions.setTourFormValues as any)(selectedTour)
                     cache.lastDraftPayload = incomingPayload
@@ -428,7 +433,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 return
             }
             const payload = buildDraftPayload(tourForm, values.tours)
-            if (isEqual(cache.lastDraftPayload, payload)) {
+            if (equal(cache.lastDraftPayload, payload)) {
                 return
             }
             cache.lastDraftPayload = payload
@@ -460,7 +465,8 @@ export const productToursLogic = kea<productToursLogicType>([
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
             const inferenceData = inferSelector(element)?.selector
             const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
-                console.warn('[Product Tours] Failed to capture element screenshot:', e)
+                toolbarLogger.warn('product_tours', 'Failed to capture element screenshot')
+                captureToolbarException(e, 'product_tour_screenshot')
                 return null
             })
 
@@ -623,6 +629,8 @@ export const productToursLogic = kea<productToursLogicType>([
                     actions.selectTour(null)
                 }
             } catch (e: any) {
+                toolbarLogger.error('product_tours', 'Failed to save tour', { tourId: tourForm?.id })
+                captureToolbarException(e, 'product_tour_save')
                 lemonToast.error(e.detail || 'Failed to save tour')
             }
         },

@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
@@ -17,7 +18,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UnexpectedNeverError, humanFriendlyDuration, percentage, tryDecodeURIComponent } from 'lib/utils'
+import {
+    UnexpectedNeverError,
+    capitalizeFirstLetter,
+    humanFriendlyDuration,
+    percentage,
+    tryDecodeURIComponent,
+} from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
@@ -98,13 +105,23 @@ const PAGE_LIKE_BREAKDOWNS = new Set([
     WebStatsBreakdown.FrustrationMetrics,
 ])
 
-const buildOpenUrl = (breakdownBy: WebStatsBreakdown, value: string, effectiveDomain: string | null): string | null => {
+const buildOpenUrl = (
+    breakdownBy: WebStatsBreakdown,
+    value: string,
+    effectiveDomain: string | null,
+    includeHost?: boolean
+): string | null => {
     if (!value || !PAGE_LIKE_BREAKDOWNS.has(breakdownBy)) {
         return null
     }
 
     // For ExitClick, the value is already a full URL
     if (breakdownBy === WebStatsBreakdown.ExitClick) {
+        return value.startsWith('http') ? value : `https://${value}`
+    }
+
+    // When includeHost is true, the value already contains host+path (e.g. example.com/about)
+    if (includeHost) {
         return value.startsWith('http') ? value : `https://${value}`
     }
 
@@ -127,14 +144,16 @@ const PathValueWithHoverLink = ({
     children,
     breakdownBy,
     value,
+    includeHost,
 }: {
     children: React.ReactNode
     breakdownBy: WebStatsBreakdown
     value: string
+    includeHost?: boolean
 }): JSX.Element => {
     const { effectiveDomain } = useValues(webAnalyticsFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const url = buildOpenUrl(breakdownBy, value, effectiveDomain)
+    const url = buildOpenUrl(breakdownBy, value, effectiveDomain, includeHost)
 
     if (!url || !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
         return <>{children}</>
@@ -244,14 +263,14 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    const { breakdownBy } = source
+    const { breakdownBy, includeHost } = source
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
-            return <>Path</>
+            return <>{includeHost ? 'Host + path' : 'Path'}</>
         case WebStatsBreakdown.InitialPage:
-            return <>Initial Path</>
+            return <>{includeHost ? 'Host + entry path' : 'Initial Path'}</>
         case WebStatsBreakdown.ExitPage:
-            return <>End Path</>
+            return <>{includeHost ? 'Host + end path' : 'End Path'}</>
         case WebStatsBreakdown.PreviousPage:
             return <>Previous Page</>
         case WebStatsBreakdown.ExitClick:
@@ -309,7 +328,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     if (source.kind !== NodeKind.WebStatsTableQuery) {
         return null
     }
-    const { breakdownBy } = source
+    const { breakdownBy, includeHost } = source
 
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
@@ -322,7 +341,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             const decoded = tryDecodeURIComponent(value)
             const displayValue = source.doPathCleaning ? parseAliasToReadable(decoded) : decoded
             return (
-                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value}>
+                <PathValueWithHoverLink breakdownBy={breakdownBy} value={value} includeHost={includeHost}>
                     {displayValue}
                 </PathValueWithHoverLink>
             )
@@ -617,6 +636,7 @@ export const WebStatsTrendTile = ({
     const isDragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DRAG_TO_ZOOM]
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
+    const showComparisonLabels = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -646,14 +666,31 @@ export const WebStatsTrendTile = ({
     )
 
     const context = useMemo((): QueryContext => {
+        const compareFilter = 'compareFilter' in query.source ? query.source.compareFilter : undefined
+
         const baseContext: QueryContext = {
             ...webAnalyticsDataTableQueryContext,
             insightProps: {
                 ...insightProps,
                 query,
             },
-            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
+            compareFilter,
             onDateRangeZoom: isDragToZoomEnabled ? zoomIntoPeriod : undefined,
+            ...(showComparisonLabels
+                ? {
+                      formatCompareLabel: (label: string, dateLabel?: string) => {
+                          const lowerLabel = label.toLowerCase()
+                          const dateSuffix = dateLabel ? ` (${dateLabel})` : ''
+                          if (lowerLabel === 'previous') {
+                              return `Previous${dateSuffix}`
+                          }
+                          if (lowerLabel === 'current') {
+                              return `Current${dateSuffix}`
+                          }
+                          return capitalizeFirstLetter(label)
+                      },
+                  }
+                : {}),
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -693,7 +730,15 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, onRegionMapClick, zoomIntoPeriod, insightProps, query])
+    }, [
+        onWorldMapClick,
+        onRegionMapClick,
+        zoomIntoPeriod,
+        insightProps,
+        query,
+        showComparisonLabels,
+        isDragToZoomEnabled,
+    ])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -769,7 +814,7 @@ export const MarketingAnalyticsTrendTile = ({
         { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col min-h-100">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-between m-2 mr-4">
                     <LemonSelect
@@ -827,6 +872,8 @@ export const WebStatsTableTile = ({
         breakdownBy === WebStatsBreakdown.Viewport ||
         breakdownBy === WebStatsBreakdown.Timezone
 
+    const includeHost = query.source.kind === NodeKind.WebStatsTableQuery ? query.source.includeHost : false
+
     const utmSource = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMSource)!
     const utmMedium = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMMedium)!
     const utmCampaign = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMCampaign)!
@@ -874,6 +921,11 @@ export const WebStatsTableTile = ({
         (breakdownValue: string | null) => {
             if (productTab === ProductTab.PAGE_REPORTS) {
                 lemonToast.info('Filters are not yet supported in this tile')
+                return
+            }
+
+            // When includeHost is active, breakdown value contains host+path which doesn't map to a single property filter
+            if (includeHost) {
                 return
             }
 
@@ -930,6 +982,7 @@ export const WebStatsTableTile = ({
             type,
             key,
             productTab,
+            includeHost,
             breakdownBy,
             utmSource,
             utmMedium,
@@ -1158,6 +1211,47 @@ export const WebVitalsPathBreakdownTile = ({
     )
 }
 
+const HogQLTableTile = ({
+    uniqueKey,
+    attachTo,
+    query,
+    insightProps,
+    tileId,
+}: {
+    uniqueKey: string
+    attachTo?: BuiltLogic | LogicWrapper
+    query: DataTableNode
+    insightProps: InsightLogicProps
+    tileId: TileId
+}): JSX.Element => {
+    const context = useMemo((): QueryContext => {
+        if (tileId === TileId.BOT_CRAWLERS) {
+            return {
+                ...webAnalyticsDataTableQueryContext,
+                insightProps,
+                rowProps: (record: unknown) => {
+                    const result = (record as { result?: unknown[] })?.result
+                    const botName = Array.isArray(result) ? (result[0] as string) : null
+                    if (!botName) {
+                        return {}
+                    }
+                    return {
+                        className: 'cursor-pointer',
+                        onClick: () => router.actions.push(urls.webAnalyticsBotDetail(botName)),
+                    }
+                },
+            }
+        }
+        return { ...webAnalyticsDataTableQueryContext, insightProps }
+    }, [insightProps, tileId])
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+            <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
+        </div>
+    )
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -1269,6 +1363,18 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.DataVisualizationNode) {
         return <AveragePageViewVisualizationTile attachTo={attachTo} query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.HogQLQuery) {
+        return (
+            <HogQLTableTile
+                uniqueKey={uniqueKey}
+                attachTo={attachTo}
+                query={query}
+                insightProps={insightProps}
+                tileId={tileId}
+            />
+        )
     }
 
     return (

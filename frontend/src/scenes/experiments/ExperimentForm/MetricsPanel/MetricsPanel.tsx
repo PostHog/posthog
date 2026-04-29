@@ -107,10 +107,6 @@ export const MetricsPanel = ({
                     onSaveSharedMetrics(sharedMetrics, context)
                     closeSharedMetricModal()
                 }}
-                onDelete={(metric, context) => {
-                    onDeleteMetric(convertSharedMetricToExperimentMetric(metric), context)
-                    closeSharedMetricModal()
-                }}
             />
             <ExposureCriteriaModal onSave={onSaveExposureCriteria} />
         </div>

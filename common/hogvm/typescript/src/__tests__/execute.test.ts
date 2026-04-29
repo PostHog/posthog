@@ -1911,7 +1911,7 @@ describe('hogvm execute', () => {
     test('ternary', () => {
         const values: any[] = []
         const functions = {
-            noisy_print: (e) => {
+            noisy_print: (e: any) => {
                 values.push(e)
                 return e
             },
@@ -1953,7 +1953,7 @@ describe('hogvm execute', () => {
     test('ifNull', () => {
         const values: any[] = []
         const functions = {
-            noisy_print: (e) => {
+            noisy_print: (e: any) => {
                 values.push(e)
                 return e
             },

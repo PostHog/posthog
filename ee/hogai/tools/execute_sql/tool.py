@@ -93,6 +93,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             name=viz_title,
             description=viz_description,
             insight_id=artifact_message.artifact_id,
+            user=self._user,
         )
 
         try:

@@ -1,7 +1,6 @@
 import { ReactNode } from 'react'
 
 export type Feature =
-    | 'errorTrackingSuppressionRules'
     | 'errorTrackingExceptionAutocapture'
     | 'sessionReplayLogCapture'
     | 'sessionReplayCanvasCapture'

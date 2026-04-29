@@ -56,6 +56,9 @@ export function EventPropertyFilters<
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
                 ]
             }
             onChange={(value: AnyPropertyFilter[]) => {
@@ -69,6 +72,7 @@ export function EventPropertyFilters<
             }}
             pageKey={`EventPropertyFilters.${id}`}
             eventNames={eventNames}
+            buttonText="Property filters"
         />
     ) : (
         <div>Error: property groups are not supported.</div>

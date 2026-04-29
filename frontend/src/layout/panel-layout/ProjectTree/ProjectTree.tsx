@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -14,23 +15,32 @@ import {
     IconStar,
 } from '@posthog/icons'
 
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import {
+    LemonTree,
+    LemonTreeRef,
+    LemonTreeSelectMode,
+    LemonTreeSize,
+    TreeDataItem,
+} from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { isMobile } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -52,15 +62,21 @@ export interface ProjectTreeProps {
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
+    /** Override the select mode from the internal logic */
+    selectModeOverride?: LemonTreeSelectMode
+    /** Override the checked items from the internal logic */
+    checkedItemsOverride?: Record<string, boolean>
+    /** Override the onItemChecked handler from the internal logic */
+    onItemCheckedOverride?: (id: string, checked: boolean) => void
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
-const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal'
+const CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY = 'custom-product-dismissal-v2'
+const CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY = 'cmd-k-helper-dismissal'
 const SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY = 'seen-custom-products'
-const DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY = 'data-pipelines-clicked'
 
 const USER_PRODUCT_LIST_REASON_DEFAULTS: { [key in UserProductListReason]?: string } = {
     [UserProductListReason.USED_BY_COLLEAGUES]:
@@ -95,9 +111,6 @@ const isItemActive = (item: TreeDataItem): boolean => {
     if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
         return true
     }
-    if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
-        return true
-    }
     if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
         return true
     }
@@ -112,9 +125,13 @@ export function ProjectTree({
     searchPlaceholder,
     treeSize = 'default',
     showRecents,
+    selectModeOverride,
+    checkedItemsOverride,
+    onItemCheckedOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems } = useValues(projectTreeDataLogic)
+    const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
+    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -128,7 +145,7 @@ export function ProjectTree({
         scrollTargetId,
         editingItemId,
         sortMethod: projectSortMethod,
-        selectMode,
+        selectMode: projectTreeSelectMode,
         sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
@@ -140,7 +157,7 @@ export function ProjectTree({
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        onItemChecked,
+        onItemChecked: projectTreeOnItemChecked,
         moveCheckedItems,
         clearScrollTarget,
         setEditingItemId,
@@ -148,6 +165,9 @@ export function ProjectTree({
         setSelectMode,
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
+
+    const selectMode = selectModeOverride ?? projectTreeSelectMode
+    const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
     const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -157,6 +177,7 @@ export function ProjectTree({
 
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)
     const { seed } = useActions(customProductsLogic)
+    const { toggleCommand } = useActions(commandLogic)
 
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
@@ -166,26 +187,36 @@ export function ProjectTree({
         CUSTOM_PRODUCT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
     )
+    const [cmdKHelperDismissed, setCmdKHelperDismissed] = useLocalStorage<boolean>(
+        CMD_K_HELPER_DISMISSAL_LOCAL_STORAGE_KEY,
+        false
+    )
+    // Capture the original-banner dismissal state once on mount so the Cmd+K hint only appears
+    // on subsequent sessions — dismissing the first banner shouldn't swap in the second immediately.
+    const [originalDismissedOnMount] = useState<boolean>(() => customProductHelperDismissed === true)
+
     const [seenCustomProducts, setSeenCustomProducts] = useLocalStorage<string[]>(
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
-    const [dataPipelinesClicked, setDataPipelinesClicked] = useLocalStorage<boolean>(
-        `${currentTeamId ?? '*'}-${DATA_PIPELINES_CLICKED_LOCAL_STORAGE_KEY}`,
-        false
-    )
-
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
     const isAIFirst = useFeatureFlag('AI_FIRST')
+    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
-    // Filter out Data pipelines item if it's been clicked
-    if (dataPipelinesClicked) {
-        treeData = treeData.filter((item) => item.record?.path !== 'Data pipelines')
+    // Apply checked items override for external control (e.g. product selection)
+    if (checkedItemsOverride) {
+        const applyChecked = (items: TreeDataItem[]): TreeDataItem[] =>
+            items.map((item) => ({
+                ...item,
+                checked: checkedItemsOverride[item.id] ?? false,
+                children: item.children ? applyChecked(item.children) : undefined,
+            }))
+        treeData = applyChecked(treeData)
     }
 
     if (fullFileSystemFiltered.length <= 5) {
@@ -235,8 +266,12 @@ export function ProjectTree({
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
             )
 
-            if ((fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) && !isAIFirst) {
-                const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
+            const showOriginalBanner = fullFileSystemFiltered.length === 0 || !customProductHelperDismissed
+            const showCmdKBanner =
+                !showOriginalBanner && originalDismissedOnMount && !cmdKHelperDismissed && !isMobile()
+
+            if (showOriginalBanner) {
+                const CustomIcon = !isAIFirst && isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
                     name: 'Example custom products',
@@ -244,7 +279,7 @@ export function ProjectTree({
                     displayName: (
                         <div
                             className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                                'mt-6': fullFileSystemFiltered.length === 0,
+                                'mt-6': fullFileSystemFiltered.length === 0 && !isAIFirst,
                             })}
                         >
                             You can display your preferred apps here. You can configure what items show up in here by
@@ -259,13 +294,36 @@ export function ProjectTree({
                                     Dismiss.
                                 </span>
                             )}
-                            <br />
-                            <br />
                             {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
-                                <span className="cursor-pointer underline" onClick={seed}>
-                                    {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
-                                </span>
+                                <>
+                                    <br />
+                                    <br />
+                                    <span className="cursor-pointer underline" onClick={seed}>
+                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                    </span>
+                                </>
                             )}
+                        </div>
+                    ),
+                })
+            } else if (showCmdKBanner) {
+                treeData.push({
+                    id: 'products/cmd-k-helper-category',
+                    name: 'Quick search tip',
+                    type: 'category',
+                    displayName: (
+                        <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
+                            Want to browse all apps or jump back into something recent? Press{' '}
+                            <span
+                                className="cursor-pointer inline-flex items-center gap-1"
+                                onClick={() => toggleCommand()}
+                            >
+                                <KeyboardShortcut command k />
+                            </span>{' '}
+                            to open search. It's faster than hunting through the sidebar.{' '}
+                            <span className="cursor-pointer underline" onClick={() => setCmdKHelperDismissed(true)}>
+                                Dismiss.
+                            </span>
                         </div>
                     ),
                 })
@@ -320,10 +378,21 @@ export function ProjectTree({
                     return
                 }
 
-                // Track when Data pipelines button is clicked
-                if (item?.record?.path === 'Data pipelines' && !dataPipelinesClicked) {
-                    setDataPipelinesClicked(true)
+                if (item?.id.startsWith('project://-load-more/')) {
+                    const path = item.id.substring('project://-load-more/'.length)
+                    if (path) {
+                        loadFolder(path)
+                    }
+                    return
                 }
+
+                posthog.capture('project tree item clicked', {
+                    root: root ?? null,
+                    item_type: item?.type ?? null,
+                    record_type: item?.record?.type ?? null,
+                    has_href: !!item?.record?.href,
+                    name: item?.name ?? null,
+                })
 
                 if (item?.record?.href) {
                     router.actions.push(
@@ -333,12 +402,6 @@ export function ProjectTree({
 
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
-                }
-                if (item?.id.startsWith('project://-load-more/')) {
-                    const path = item.id.substring('project://-load-more/'.length)
-                    if (path) {
-                        loadFolder(path)
-                    }
                 }
 
                 if (item?.id.startsWith('shortcuts')) {
@@ -354,6 +417,11 @@ export function ProjectTree({
             }}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
+                    posthog.capture('project tree folder toggled', {
+                        root: root ?? null,
+                        is_expanded: isExpanded,
+                        name: folder.name ?? null,
+                    })
                     toggleFolderOpen(folder?.id || '', isExpanded)
                 }
             }}
@@ -379,6 +447,20 @@ export function ProjectTree({
                     return false
                 }
 
+                // Sibling reorder within the Starred (shortcuts://) list. All the index/position
+                // math lives in the kea logic so the component can stay focused on rendering.
+                if (
+                    isStarredReorderEnabled &&
+                    typeof oldId === 'string' &&
+                    typeof newId === 'string' &&
+                    shortcutEntryIdMap.has(oldId) &&
+                    shortcutEntryIdMap.has(newId)
+                ) {
+                    const position = dragEvent.position === 'after' ? 'after' : 'before'
+                    reorderShortcutByDrag(oldId, newId, position)
+                    return
+                }
+
                 const items = searchTerm && searchResults.results ? searchResults.results : viableItems
                 const oldItem = items.find((i) => itemToId(i) === oldId)
                 const newItem = items.find((i) => itemToId(i) === newId)
@@ -402,10 +484,19 @@ export function ProjectTree({
                 }
             }}
             isItemDraggable={(item) => {
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return isStarredReorderEnabled
+                }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
+            getItemDropMode={(item) => (shortcutEntryIdMap.has(item.id) ? 'reorder' : 'onto')}
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
+
+                // Allow dropping onto other top-level starred items to reorder them.
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return isStarredReorderEnabled
+                }
 
                 // disable dropping for these IDS
                 if (!item.id.startsWith('project://')) {
@@ -434,6 +525,9 @@ export function ProjectTree({
                 )
             }}
             itemSideAction={(item) => {
+                if (selectMode === 'multi') {
+                    return undefined
+                }
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }
@@ -445,6 +539,10 @@ export function ProjectTree({
                 )
             }}
             itemSideActionButton={(item) => {
+                if (selectMode === 'multi') {
+                    return undefined
+                }
+
                 const showDropdownMenu =
                     root === 'products://' ||
                     root === 'custom-products://' ||
@@ -453,13 +551,13 @@ export function ProjectTree({
                 if (showDropdownMenu) {
                     if (item.name === 'Product analytics') {
                         return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconPlusSmall className="text-tertiary" />
                             </ButtonPrimitive>
                         )
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
                         return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconChevronRight className="size-3 text-tertiary rotate-90" />
                             </ButtonPrimitive>
                         )
@@ -565,6 +663,15 @@ export function ProjectTree({
                         return <>View all</>
                     }
                     return <>Create a new {nameNode}</>
+                }
+
+                if (root === 'data-and-people://' || root === 'project://' || root === 'shortcuts://') {
+                    const key = item.record?.sceneKey
+                    const description = sceneConfigurations[key]?.description
+                    if (description) {
+                        return <>{description}</>
+                    }
+                    return undefined
                 }
 
                 return undefined

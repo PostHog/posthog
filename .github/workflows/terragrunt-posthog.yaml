@@ -24,6 +24,7 @@ concurrency:
 jobs:
     setup:
         runs-on: ubuntu-22.04
+        timeout-minutes: 15
         outputs:
             matrix_data: ${{ steps.changes.outputs.matrix_data }}
         steps:
@@ -72,6 +73,7 @@ jobs:
         needs: [setup]
         name: ${{ matrix.service_name }}
         runs-on: ubuntu-22.04
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:
@@ -89,7 +91,7 @@ jobs:
               uses: actions/checkout@v6
 
             - name: Configure AWS Credentials
-              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
                   aws-region: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
                   role-to-assume: ${{ secrets.POSTHOG_PROVIDER_TF_AWS_ROLE_ARN }}

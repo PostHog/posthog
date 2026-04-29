@@ -17,14 +17,15 @@ import {
     RubyOnRailsInstallation,
     SvelteInstallation,
 } from '@posthog/shared-onboarding/error-tracking'
-import { JSEventCapture, PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
+import { PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 const JS_WEB_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
 }
 
 const PYTHON_SNIPPETS = {
@@ -82,6 +83,7 @@ const ErrorTrackingRubyInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ErrorTrackingRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyOnRailsInstallation,
+    wizardIntegrationName: 'Ruby on Rails',
 })
 
 const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
@@ -90,15 +92,18 @@ const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ErrorTrackingAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
+    wizardIntegrationName: 'Android',
 })
 const ErrorTrackingIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
+    wizardIntegrationName: 'Swift',
 })
 const ErrorTrackingFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
 })
 const ErrorTrackingReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
+    wizardIntegrationName: 'React Native',
 })
 const ErrorTrackingAPIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: APIInstallation,

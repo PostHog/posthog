@@ -1,0 +1,29 @@
+[package]
+name = "k8s-awareness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["runtime", "client"] }
+futures = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+http = "1"
+rstest = "0.26"
+serde_json = { workspace = true }
+tempfile = "3"
+testcontainers = { workspace = true }
+testcontainers-modules = { version = "0.15", features = ["k3s"] }
+tokio = { workspace = true, features = ["test-util"] }
+tower-test = "0.4"
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

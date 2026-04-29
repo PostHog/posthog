@@ -941,7 +941,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            file_stream = io.BufferedReader(file)
+            file_stream = io.BufferedReader(file)  # ty: ignore[invalid-assignment]
         else:
             file.seek(0)
             file_stream = file
@@ -1157,6 +1157,7 @@ def snowflake_default_fields() -> list[BatchExportField]:
     # Fields kept for backwards compatibility with legacy apps schema.
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements"})
     batch_export_fields.append({"expression": "''", "alias": "site_url"})
+    batch_export_fields.append({"expression": "NOW64()", "alias": "snowflake_ingested_timestamp"})
     batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
 
     # For historical reasons, 'set' and 'set_once' are prefixed with 'people_'.
@@ -1465,7 +1466,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

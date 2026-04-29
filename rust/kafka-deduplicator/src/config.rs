@@ -288,19 +288,31 @@ pub struct Config {
     // Limits memory usage by bounding the number of in-flight HTTP connections
     // Critical during rebalance when many partitions are assigned simultaneously
     // Higher values speed up rebalance; streaming bounds memory per download to ~8KB
-    #[envconfig(default = "200")]
+    #[envconfig(default = "40")]
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     // Maximum concurrent S3 file uploads during checkpoint export
-    // Less critical than downloads since uploads are bounded by max_concurrent_checkpoints
-    #[envconfig(default = "200")]
+    // Controls the LimitStore semaphore that bounds concurrent S3 HTTP requests
+    #[envconfig(default = "40")]
     pub max_concurrent_checkpoint_file_uploads: usize,
+
+    // Maximum upload futures actively polled per partition checkpoint (files open with
+    // read buffers + BufWriters). Bounds memory independently from S3 HTTP concurrency.
+    // Each active buffer consumes ~18MB (8MB read buffer + ~10MB BufWriter).
+    #[envconfig(default = "40")]
+    pub max_upload_buffers_per_partition: usize,
 
     // Maximum time allowed for a complete checkpoint import for a single partition (seconds).
     // This includes listing checkpoints, downloading metadata, and downloading all files.
     // Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
     #[envconfig(default = "240")]
     pub checkpoint_partition_import_timeout_secs: u64,
+
+    // Maximum age of a local metadata.json before we consider the local store stale
+    // and fall back to S3 import. Separate from checkpoint_import_window_hours which
+    // controls the S3 listing window.
+    #[envconfig(default = "7200")] // 2 hours
+    pub local_checkpoint_max_staleness_secs: u64,
 
     //// End checkpoint configuration ////
     //// Kafka-assigner mode configuration ////
@@ -603,6 +615,11 @@ impl Config {
     /// Get checkpoint partition import timeout as Duration
     pub fn checkpoint_partition_import_timeout(&self) -> Duration {
         Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
+    }
+
+    /// Get max staleness for local checkpoint data as Duration
+    pub fn local_checkpoint_max_staleness(&self) -> Duration {
+        Duration::from_secs(self.local_checkpoint_max_staleness_secs)
     }
 
     /// Build Kafka consumer configuration for the group-based batch consumer.

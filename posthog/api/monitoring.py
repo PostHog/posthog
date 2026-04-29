@@ -7,9 +7,13 @@ from prometheus_client import Counter
 from posthog.clickhouse.query_tagging import tag_queries
 
 
+# Keep values in sync with `posthog.clickhouse.query_tagging.Feature` — pydantic validates
+# the `feature` field on `QueryTags` against that enum, so a value here that is missing
+# there will fail at runtime.
 class Feature(StrEnum):
     COHORT = "cohort"
     DASHBOARD = "dashboard"
+    DEBUG_QUERY = "debug_query"
     INSIGHT = "insight"
     QUERY = "query"
 

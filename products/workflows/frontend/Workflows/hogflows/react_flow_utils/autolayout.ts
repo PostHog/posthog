@@ -1,5 +1,7 @@
 import { Edge, Position } from '@xyflow/react'
-import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+
+import { getElk } from 'lib/elk'
 
 import { TRIGGER_NODE_ID } from '../../workflowLogic'
 import type { HogFlowActionNode } from '../types'
@@ -24,8 +26,6 @@ const getElkPortSide = (position: Position): string => {
             return 'EAST'
     }
 }
-
-const elk = new ELK()
 
 export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[]): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
@@ -75,6 +75,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         })) as ElkExtendedEdge[],
     }
 
+    const elk = await getElk()
     const layoutedGraph = await elk.layout(graph)
 
     /**

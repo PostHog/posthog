@@ -97,7 +97,7 @@ class Command(BaseCommand):
                         options["table_column"],
                         prop,
                     )
-                    for prop in options.get("property")
+                    for prop in options.get("property") or []
                 ],
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],

@@ -9,10 +9,13 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+from posthog.schema import ProductKey
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -85,7 +88,7 @@ def validate_endpoint_name(value: str) -> None:
         )
 
 
-class EndpointVersion(models.Model):
+class EndpointVersion(UpdatedMetaFields, models.Model):
     """Immutable snapshot of an endpoint's query at a specific version.
 
     Each time an endpoint's query is modified, a new version is created.
@@ -94,6 +97,12 @@ class EndpointVersion(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="Team this version belongs to (denormalized from endpoint for HogQL system table access)",
+    )
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
     description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
@@ -105,10 +114,9 @@ class EndpointVersion(models.Model):
         related_name="endpoint_versions_created",
     )
 
-    cache_age_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Cache age in seconds. If null, uses default interval-based caching.",
+    data_freshness_seconds = models.IntegerField(
+        default=86400,
+        help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
     )
     saved_query = models.ForeignKey(
         "data_warehouse.DataWarehouseSavedQuery",
@@ -156,12 +164,19 @@ class EndpointVersion(models.Model):
     def get_columns(self) -> list[dict]:
         """Return columns, lazily populating from ClickHouse if not yet computed."""
         if self.columns is None:
-            columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
-            # Refresh from DB to check if another request already populated it
+            columns: list[dict] = []
+            exc: Exception | None = None
+            try:
+                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+            except Exception as e:
+                exc = e
+            # Save before capture_exception (which can hang serializing large AST objects)
             self.refresh_from_db(fields=["columns"])
             if self.columns is None:
                 self.columns = columns
-                self.save(update_fields=["columns"])
+                self.save(update_fields=["columns", "updated_at"])
+            if exc is not None:
+                capture_exception(exc)
         return self.columns
 
     def disable_materialization(self) -> None:
@@ -171,7 +186,7 @@ class EndpointVersion(models.Model):
         self.saved_query.revert_materialization()
         self.saved_query.soft_delete()
         self.saved_query = None
-        self.save(update_fields=["saved_query"])
+        self.save(update_fields=["saved_query", "updated_at"])
 
     @property
     def is_materialized(self) -> bool:
@@ -193,11 +208,8 @@ class EndpointVersion(models.Model):
         MATERIALIZABLE_QUERY_TYPES = {
             "HogQLQuery",
             "TrendsQuery",
-            "FunnelsQuery",
             "LifecycleQuery",
             "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
         }
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
@@ -207,12 +219,19 @@ class EndpointVersion(models.Model):
                 f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
             )
 
-        # Check for multiple breakdowns in insight queries
-        if query_kind != "HogQLQuery":
-            breakdown_filter = self.query.get("breakdownFilter") or {}
-            breakdowns = breakdown_filter.get("breakdowns") or []
-            if len(breakdowns) > 1:
-                return False, "Multiple breakdowns not supported for materialization"
+        # Block compare mode — materialization can't reconstruct doubled series
+        compare_filter = self.query.get("compareFilter") or {}
+        if compare_filter.get("compare"):
+            return False, "Compare mode is not supported for materialized endpoints."
+
+        # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
+        # inject_series_index tags as separate series, causing a mismatch at read time.
+        breakdown_filter = self.query.get("breakdownFilter") or {}
+        if breakdown_filter.get("breakdown_type") == "cohort":
+            return False, "Cohort breakdowns are not supported for materialized endpoints."
+        for breakdown in breakdown_filter.get("breakdowns") or []:
+            if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
+                return False, "Cohort breakdowns are not supported for materialized endpoints."
 
         if self.query.get("variables"):
             from products.endpoints.backend.materialization import analyze_variables_for_materialization
@@ -237,33 +256,31 @@ class EndpointVersion(models.Model):
         hogql_string = query.get("query", "")
         if not hogql_string:
             return []
-        try:
-            from posthog.hogql.query import HogQLQueryExecutor
+        from posthog.hogql.query import HogQLQueryExecutor
 
-            from posthog.clickhouse.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
-            parsed = parse_select(hogql_string)
-            cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
+        parsed = parse_select(hogql_string)
+        cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
 
-            team = Team.objects.get(pk=team_id)
-            executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
-            clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
+        team = Team.objects.get(pk=team_id)
+        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
+        clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
-            if not clickhouse_sql:
-                return []
-
-            # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
-            rows = sync_execute(
-                f"DESCRIBE TABLE ({clickhouse_sql})",
-                clickhouse_context.values,
-                team_id=team_id,
-                readonly=True,
-            )
-
-            return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
-        except Exception as e:
-            capture_exception(e)
+        if not clickhouse_sql:
             return []
+
+        tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
+
+        # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
+        rows = sync_execute(
+            f"DESCRIBE TABLE ({clickhouse_sql})",
+            clickhouse_context.values,
+            team_id=team_id,
+            readonly=True,
+        )
+
+        return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
 
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
@@ -272,7 +289,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     Endpoints allow creating reusable query endpoints like:
     /api/environments/{team_id}/endpoints/{endpoint_name}/run
 
-    Query, description, cache_age_seconds, and materialization settings are stored
+    Query, description, data_freshness_seconds, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
     """
 
@@ -294,7 +311,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_executed_at = models.DateTimeField(
@@ -343,20 +360,24 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         """
         # Get previous version's settings before incrementing
         previous_version = self.get_version()
-        previous_cache_age = previous_version.cache_age_seconds if previous_version else None
+        previous_data_freshness = previous_version.data_freshness_seconds if previous_version else 86400
         previous_description = previous_version.description if previous_version else ""
 
         self.current_version += 1
         self.save(update_fields=["current_version", "updated_at"])
 
         # Create new version, inheriting settings from previous version
-        columns = EndpointVersion.extract_columns(query, team_id=self.team_id)
+        try:
+            columns: list[dict] | None = EndpointVersion.extract_columns(query, team_id=self.team_id)
+        except Exception:
+            columns = None
         version = EndpointVersion.objects.create(
             endpoint=self,
+            team=self.team,
             version=self.current_version,
             query=query,
             created_by=user,
-            cache_age_seconds=previous_cache_age,
+            data_freshness_seconds=previous_data_freshness,
             description=previous_description,
             columns=columns,
         )

@@ -50,11 +50,14 @@ cd /home/user/posthog
 uv sync --python /tmp/python-install/python/bin/python3
 source .venv/bin/activate
 
-# Run a specific test
+# Run a specific test (if hogli is available)
+hogli test path/to/test.py::TestClass::test_method -v
+
+# Or use pytest directly
 pytest path/to/test.py::TestClass::test_method -v
 
 # Run all tests in a directory
-pytest posthog/hogql/test/ -v
+hogli test posthog/hogql/test/ -v
 ```
 
 ## Docker Services

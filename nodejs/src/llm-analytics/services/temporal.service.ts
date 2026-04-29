@@ -2,12 +2,13 @@ import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/clien
 import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
-import { PluginsServerConfig, RawKafkaEvent } from '../../types'
+import { RawKafkaEvent } from '../../types'
 import { isDevEnv } from '../../utils/env-utils'
 import { logger } from '../../utils/logger'
+import { LlmAnalyticsConfig } from '../config'
 
 export type TemporalServiceConfig = Pick<
-    PluginsServerConfig,
+    LlmAnalyticsConfig,
     | 'TEMPORAL_CLIENT_ROOT_CA'
     | 'TEMPORAL_CLIENT_CERT'
     | 'TEMPORAL_CLIENT_KEY'

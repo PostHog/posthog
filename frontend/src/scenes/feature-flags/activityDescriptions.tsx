@@ -365,14 +365,13 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
-    // Suppressed in favor of evaluation_contexts to avoid duplicate activity entries
-    evaluation_tags: () => null,
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
     created_by: () => null,
     updated_at: () => null,
     experiment_set: () => null,
+    experiment_set_metadata: () => null,
     features: () => null,
     usage_dashboard: () => null,
     can_edit: () => null,

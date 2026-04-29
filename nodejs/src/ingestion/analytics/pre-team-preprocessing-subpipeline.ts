@@ -32,7 +32,6 @@ export interface PreTeamPreprocessingSubpipelineConfig {
     teamManager: TeamManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
-    overflowTopic: string
     preservePartitionLocality: boolean
 }
 
@@ -40,15 +39,13 @@ export function createPreTeamPreprocessingSubpipeline<TInput extends PreTeamPrep
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PreTeamPreprocessingSubpipelineConfig
 ) {
-    const { teamManager, eventIngestionRestrictionManager, overflowEnabled, overflowTopic, preservePartitionLocality } =
-        config
+    const { teamManager, eventIngestionRestrictionManager, overflowEnabled, preservePartitionLocality } = config
 
     return builder
         .pipe(createParseHeadersStep())
         .pipe(
             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowEnabled,
-                overflowTopic,
                 preservePartitionLocality,
             })
         )

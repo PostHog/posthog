@@ -2,15 +2,15 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { BatchWritingStore } from '../stores/batch-writing-store'
+import { PersonMessage } from './person-message'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 export type FlushResult = {
-    topicMessage: TopicMessage
+    messages: PersonMessage[]
     teamId: number
     distinctId?: string
     uuid?: string
@@ -61,7 +61,7 @@ export interface PersonsStore extends BatchWritingStore {
         update: Partial<InternalPerson>,
         distinctId: string,
         tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, TopicMessage[], boolean]>
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
     /**
      * Updates person for regular updates with specific properties to set and unset
@@ -74,12 +74,12 @@ export interface PersonsStore extends BatchWritingStore {
         distinctId: string,
         forceUpdate?: boolean,
         tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, TopicMessage[], boolean]>
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
     /**
      * Deletes a person
      */
-    deletePerson(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<TopicMessage[]>
+    deletePerson(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<PersonMessage[]>
 
     /**
      * Adds a distinct ID to a person
@@ -89,7 +89,7 @@ export interface PersonsStore extends BatchWritingStore {
         distinctId: string,
         version: number,
         tx?: PersonRepositoryTransaction
-    ): Promise<TopicMessage[]>
+    ): Promise<PersonMessage[]>
 
     /**
      * Moves distinct IDs from one person to another

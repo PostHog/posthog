@@ -5,7 +5,6 @@ use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -14,28 +13,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
-use capture::error_tracking_sampler;
 use capture::server::serve;
+use capture::setup;
 
 common_alloc::used!();
-
-async fn shutdown() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
-    capture::metrics_middleware::set_shutdown_status(
-        capture::metrics_middleware::ShutdownStatus::Terminating,
-    );
-    tracing::info!("Shutdown status change: TERMINATING");
-}
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -130,26 +111,32 @@ async fn main() {
     let pod = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     let _root_span = tracing::info_span!("service", pod = %pod).entered();
 
-    // Initialize feature flag configs
-    error_tracking_sampler::init_dual_write(
-        config.error_tracking_dual_write_enabled,
-        config.error_tracking_dual_write_sample_rate,
-    );
-    if config.error_tracking_dual_write_enabled {
-        tracing::info!(
-            sample_rate = config.error_tracking_dual_write_sample_rate,
-            "Error tracking dual-write enabled"
-        );
-    }
+    // Use OTEL_SERVICE_NAME (set per-variant by the chart's releaseName) as the
+    // lifecycle Manager identity so `common/lifecycle` metrics carry the correct
+    // `service_name` label. This binary is shared by capture, capture-replay,
+    // capture-mirrored, and capture-ai deployments — hardcoding a literal here
+    // would collapse their lifecycle metrics into a single bucket in Grafana.
+    let mut manager = lifecycle::Manager::builder(config.otel_service_name.as_str())
+        .with_trap_signals(true)
+        .with_prestop_check(true)
+        .with_health_poll_interval(Duration::from_secs(2))
+        .build();
 
-    // Open the TCP port and start the server
+    let handles = setup::register_components(&mut manager, &config);
+    let guard = manager.monitor_background();
+
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await;
+    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
 
-    capture::metrics_middleware::set_shutdown_status(
-        capture::metrics_middleware::ShutdownStatus::Completed,
-    );
-    tracing::info!("Shutdown status change: COMPLETED");
+    let components = setup::build_components(config, handles).await;
+
+    serve(listener, components).await;
+
+    match guard.wait().await {
+        Ok(()) => tracing::info!("All lifecycle components completed cleanly"),
+        Err(e) => tracing::warn!("Lifecycle monitor reported: {e}"),
+    }
+    tracing::info!("Shutdown complete");
 }

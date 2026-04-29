@@ -148,7 +148,6 @@ export const exportsLogic = kea<exportsLogicType>([
             format = ExporterFormat.PNG,
             timestamp,
             duration = 5,
-            mode = SessionRecordingPlayerMode.Screenshot,
             options,
         }) => {
             const exportData: TriggerExportProps = {
@@ -156,12 +155,10 @@ export const exportsLogic = kea<exportsLogicType>([
                 export_context: {
                     session_recording_id: sessionRecordingId,
                     timestamp: timestamp,
-                    css_selector: options?.css_selector || '.replayer-wrapper',
                     width: options?.width || 1400,
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                     duration: duration,
-                    mode: mode,
                 },
             }
 

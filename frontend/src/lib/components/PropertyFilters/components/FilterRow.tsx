@@ -69,13 +69,11 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx(
-                    'property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full grow',
-                    {
-                        'sm:grow-0': isValid,
-                        'wrap-filters': !disablePopover,
-                    }
-                )}
+                className={clsx('property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full', {
+                    'grow sm:grow-0': isValid,
+                    'grow-0': !isValid,
+                    'wrap-filters': !disablePopover,
+                })}
                 data-attr={'property-filter-' + index}
             >
                 {disablePopover ? (
@@ -108,7 +106,7 @@ export const FilterRow = React.memo(function FilterRow({
                         ) : !disabledReason ? (
                             <LemonButton
                                 onClick={() => setOpen(!open)}
-                                className={clsx('new-prop-filter grow', labelClassName)}
+                                className={clsx('new-prop-filter', labelClassName)}
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
                                 size={size}

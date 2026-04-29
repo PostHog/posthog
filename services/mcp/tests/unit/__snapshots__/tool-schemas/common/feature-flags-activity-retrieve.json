@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this feature flag.",
+            "type": "number"
+        },
+        "limit": {
+            "default": 10,
+            "description": "Number of items per page",
+            "minimum": 1,
+            "type": "number"
+        },
+        "page": {
+            "default": 1,
+            "description": "Page number",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

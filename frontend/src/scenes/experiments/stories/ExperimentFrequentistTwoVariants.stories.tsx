@@ -30,9 +30,10 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.feature_flag.id}/`]: {},
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_FREQUENTIST_TWO_VARIANTS.feature_flag.id}/status/`]:
                     {},
+                [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (body.query.kind === NodeKind.ExperimentExposureQuery) {
@@ -51,7 +52,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 
 // Small delay to ensure charts render completely
 export const ExperimentFrequentistTwoVariants: Story = { play: makeDelay(500) }

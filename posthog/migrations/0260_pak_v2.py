@@ -2,7 +2,7 @@
 
 from django.db import migrations, models
 
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import hash_key_value
 
 
 def hash_all_keys(apps, schema_editor):

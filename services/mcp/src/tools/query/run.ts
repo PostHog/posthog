@@ -1,16 +1,18 @@
 import type { z } from 'zod'
 
-import { QUERY_RESULTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { withUiApp } from '@/resources/ui-apps'
 import { QueryRunInputSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { analyzeQuery } from '../shared'
+import { extractHogQLMetadata, formatHogQLMetadataForAgent } from './hogql-error-format'
 
 const schema = QueryRunInputSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = { query: unknown; results: unknown; _posthogUrl: string }
+type Result = WithPostHogUrl<{ query: unknown; results: unknown }>
 
 export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { query } = params
@@ -22,12 +24,14 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
     })
 
     if (!queryResult.success) {
-        throw new Error(`Failed to query insight: ${queryResult.error.message}`)
+        const metadata = extractHogQLMetadata(queryResult.error)
+        const metadataBlock = formatHogQLMetadataForAgent(metadata)
+        const suffix = metadataBlock ? `\n\n${metadataBlock}` : ''
+        throw new Error(`Failed to query insight: ${queryResult.error.message}${suffix}`)
     }
 
-    const baseUrl = context.api.getProjectBaseUrl(projectId)
     const queryParam = encodeURIComponent(JSON.stringify(query))
-    const posthogUrl = `${baseUrl}/insights/new?q=${queryParam}`
+    const path = `/insights/new#q=${queryParam}`
 
     const queryInfo = analyzeQuery(query)
 
@@ -40,33 +44,33 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
         queryInfo.visualization === 'funnel' ||
         queryInfo.visualization === 'paths'
     ) {
-        return {
-            query: queryInfo.innerQuery || query,
-            results: queryResult.data.results,
-            _posthogUrl: posthogUrl,
-        }
+        return withPostHogUrl(
+            context,
+            {
+                query: queryInfo.innerQuery || query,
+                results: queryResult.data.results,
+            },
+            path
+        )
     }
 
     // HogQL/table results have columns and results arrays
-    return {
-        query,
-        results: {
-            columns: queryResult.data.columns || [],
-            results: queryResult.data.results || [],
+    return withPostHogUrl(
+        context,
+        {
+            query,
+            results: {
+                columns: queryResult.data.columns || [],
+                results: queryResult.data.results || [],
+            },
         },
-        _posthogUrl: posthogUrl,
-    }
+        path
+    )
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'query-run',
-    schema,
-    handler: queryRunHandler,
-    _meta: {
-        ui: {
-            resourceUri: QUERY_RESULTS_RESOURCE_URI,
-        },
-    },
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('query-results', {
+        name: 'query-run',
+        schema,
+        handler: queryRunHandler,
+    })

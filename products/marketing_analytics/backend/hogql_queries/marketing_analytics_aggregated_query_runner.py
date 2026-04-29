@@ -8,6 +8,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQueryResponse,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
 )
 
@@ -34,36 +35,29 @@ class MarketingAnalyticsAggregatedQueryRunner(
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
         if conversion_aggregator:
-            join_type = "LEFT JOIN"
+            join_conditions: list[ast.Expr] = [
+                # Join on match_key - adapters output campaign_name or campaign_id based on team prefs
+                # Conversion goals always use utm_campaign as match_key
+                ast.CompareOperation(
+                    left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)),
+                ),
+            ]
+            if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CAMPAIGN:
+                join_conditions.append(
+                    ast.CompareOperation(
+                        left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
+                    )
+                )
             unified_join = ast.JoinExpr(
-                join_type=join_type,
+                join_type="LEFT JOIN",
                 table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
                 alias=self.config.unified_conversion_goals_cte_alias,
                 constraint=ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            # Join on match_key - adapters output campaign_name or campaign_id based on team prefs
-                            # Conversion goals always use utm_campaign as match_key
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
-                                ),
-                            ),
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
-                                ),
-                            ),
-                        ]
-                    ),
+                    expr=ast.And(exprs=join_conditions) if len(join_conditions) > 1 else join_conditions[0],
                     constraint_type="ON",
                 ),
             )
@@ -93,7 +87,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 MarketingAnalyticsBaseColumns.CPC,
                 MarketingAnalyticsBaseColumns.CTR,
                 MarketingAnalyticsBaseColumns.REPORTED_ROAS,
-                MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION,
+                MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS,
             )
         }
 
@@ -375,7 +369,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             results_dict[MarketingAnalyticsBaseColumns.CTR.value] = ctr_item
 
         # Calculate Cost per Reported Conversion
-        total_reported_conversion_item = results_dict.get(MarketingAnalyticsBaseColumns.REPORTED_CONVERSION.value)
+        total_reported_conversion_item = results_dict.get(MarketingAnalyticsBaseColumns.REPORTED_CONVERSIONS.value)
         if total_cost_item and total_reported_conversion_item:
             if (
                 has_comparison
@@ -386,7 +380,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 previous_cprc = self._calculate_rate(total_cost_item.previous, total_reported_conversion_item.previous)
 
                 cprc_item = to_marketing_analytics_data(
-                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION.value,
+                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS.value,
                     value=current_cprc,
                     previous=previous_cprc,
                     has_comparison=has_comparison,
@@ -394,12 +388,12 @@ class MarketingAnalyticsAggregatedQueryRunner(
             else:
                 cprc_value = self._calculate_rate(total_cost_item.value, total_reported_conversion_item.value)
                 cprc_item = to_marketing_analytics_data(
-                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION.value,
+                    key=MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS.value,
                     value=cprc_value,
                     previous=None,
                     has_comparison=has_comparison,
                 )
-            results_dict[MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSION.value] = cprc_item
+            results_dict[MarketingAnalyticsBaseColumns.COST_PER_REPORTED_CONVERSIONS.value] = cprc_item
 
         # Calculate Reported ROAS (Return on Ad Spend = Reported Conversion Value / Cost)
         total_reported_conversion_value_item = results_dict.get(

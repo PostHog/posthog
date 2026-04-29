@@ -6,10 +6,11 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from posthog.api.search import ENTITY_MAP, class_queryset, search_entities
-from posthog.helpers.full_text_search import process_query
-from posthog.models import Dashboard, FeatureFlag, Insight, Team
+from posthog.helpers.full_text_search import build_search_vector, process_query
+from posthog.models import FeatureFlag, Insight, Team
 from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.notebooks.backend.models import Notebook
@@ -185,6 +186,10 @@ class TestSearch(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["type"], "hog_flow")
         self.assertEqual(results[0]["extra_fields"]["name"], "second workflow")
+
+    def test_build_search_vector_requires_search_fields(self):
+        with pytest.raises(ValueError, match="search_fields cannot be empty"):
+            build_search_vector({})
 
     def test_filters(self):
         # Create feature flags with specific tags to identify them

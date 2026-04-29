@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { BaseBatchPipeline } from './base-batch-pipeline'
-import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { DefaultContext, createBatch, createContext, createNewBatchPipeline } from './helpers'
+import { createBatch, createContext, createNewBatchPipeline, createOkContext } from './helpers'
 import { dlq, drop, ok } from './results'
 
 function createTestMessage(overrides: Partial<Message> = {}): Message {
@@ -247,10 +247,13 @@ describe('BaseBatchPipeline', () => {
             const initialSideEffect1 = Promise.resolve('initial-side-effect-1')
             const initialSideEffect2 = Promise.resolve('initial-side-effect-2')
             const batch = [
-                createContext(ok({ message: messages[0] }), {
-                    message: messages[0],
-                    sideEffects: [initialSideEffect1, initialSideEffect2],
-                }),
+                createOkContext(
+                    { message: messages[0] },
+                    {
+                        message: messages[0],
+                        sideEffects: [initialSideEffect1, initialSideEffect2],
+                    }
+                ),
             ]
 
             const rootPipeline = createNewBatchPipeline().build()
@@ -278,10 +281,13 @@ describe('BaseBatchPipeline', () => {
 
             const existingSideEffect = Promise.resolve('existing-side-effect')
             const batch = [
-                createContext(ok({ message: messages[0] }), {
-                    message: messages[0],
-                    sideEffects: [existingSideEffect],
-                }),
+                createOkContext(
+                    { message: messages[0] },
+                    {
+                        message: messages[0],
+                        sideEffects: [existingSideEffect],
+                    }
+                ),
             ]
 
             const rootPipeline = createNewBatchPipeline().build()
@@ -300,10 +306,13 @@ describe('BaseBatchPipeline', () => {
             const messages: Message[] = [createTestMessage({ value: Buffer.from('test'), offset: 1 })]
 
             const batch = [
-                createContext(ok({ message: messages[0] }), {
-                    message: messages[0],
-                    sideEffects: [],
-                }),
+                createOkContext(
+                    { message: messages[0] },
+                    {
+                        message: messages[0],
+                        sideEffects: [],
+                    }
+                ),
             ]
 
             const rootPipeline = createNewBatchPipeline().build()
@@ -332,18 +341,27 @@ describe('BaseBatchPipeline', () => {
             const sideEffect3 = Promise.resolve('context-3')
 
             const batch = [
-                createContext(ok({ message: messages[0] }), {
-                    message: messages[0],
-                    sideEffects: [sideEffect1],
-                }),
-                createContext(ok({ message: messages[1] }), {
-                    message: messages[1],
-                    sideEffects: [sideEffect2, sideEffect3],
-                }),
-                createContext(ok({ message: messages[2] }), {
-                    message: messages[2],
-                    sideEffects: [],
-                }),
+                createOkContext(
+                    { message: messages[0] },
+                    {
+                        message: messages[0],
+                        sideEffects: [sideEffect1],
+                    }
+                ),
+                createOkContext(
+                    { message: messages[1] },
+                    {
+                        message: messages[1],
+                        sideEffects: [sideEffect2, sideEffect3],
+                    }
+                ),
+                createOkContext(
+                    { message: messages[2] },
+                    {
+                        message: messages[2],
+                        sideEffects: [],
+                    }
+                ),
             ]
 
             const rootPipeline = createNewBatchPipeline().build()
@@ -399,11 +417,14 @@ describe('BaseBatchPipeline', () => {
 
             const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
             const batch = [
-                createContext(ok({ message: messages[0] }), {
-                    message: messages[0],
-                    sideEffects: [],
-                    warnings: [contextWarning],
-                }),
+                createOkContext(
+                    { message: messages[0] },
+                    {
+                        message: messages[0],
+                        sideEffects: [],
+                        warnings: [contextWarning],
+                    }
+                ),
             ]
 
             const rootPipeline = createNewBatchPipeline().build()
@@ -431,21 +452,30 @@ describe('BaseBatchPipeline', () => {
             const contextWarning2 = { type: 'context_warning_2', details: { idx: 2 } }
 
             const batch = [
-                createContext(ok({ message: messages[0] }), {
-                    message: messages[0],
-                    sideEffects: [],
-                    warnings: [contextWarning1],
-                }),
-                createContext(ok({ message: messages[1] }), {
-                    message: messages[1],
-                    sideEffects: [],
-                    warnings: [contextWarning2],
-                }),
-                createContext(ok({ message: messages[2] }), {
-                    message: messages[2],
-                    sideEffects: [],
-                    warnings: [],
-                }),
+                createOkContext(
+                    { message: messages[0] },
+                    {
+                        message: messages[0],
+                        sideEffects: [],
+                        warnings: [contextWarning1],
+                    }
+                ),
+                createOkContext(
+                    { message: messages[1] },
+                    {
+                        message: messages[1],
+                        sideEffects: [],
+                        warnings: [contextWarning2],
+                    }
+                ),
+                createOkContext(
+                    { message: messages[2] },
+                    {
+                        message: messages[2],
+                        sideEffects: [],
+                        warnings: [],
+                    }
+                ),
             ]
 
             const rootPipeline = createNewBatchPipeline().build()
@@ -483,12 +513,15 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const contextWarning = { type: 'context_warning', details: { message: 'existing' } }
-            const batch: BatchPipelineResultWithContext<{ message: Message }, DefaultContext> = [
-                createContext(ok({ message: messages[0] }), {
-                    message: messages[0],
-                    sideEffects: [],
-                    warnings: [contextWarning],
-                }),
+            const batch = [
+                createOkContext(
+                    { message: messages[0] },
+                    {
+                        message: messages[0],
+                        sideEffects: [],
+                        warnings: [contextWarning],
+                    }
+                ),
                 createContext(drop('drop_reason'), {
                     message: messages[1],
                     sideEffects: [],
@@ -496,13 +529,12 @@ describe('BaseBatchPipeline', () => {
                 }),
             ]
 
-            const rootPipeline = createNewBatchPipeline().build()
+            const mockPrevious = createMockPipeline(batch)
             const pipeline = new BaseBatchPipeline((items: any[]) => {
                 // Only process OK results
                 return Promise.resolve(items.map(() => ok({ processed: 'result' })))
-            }, rootPipeline)
+            }, mockPrevious)
 
-            pipeline.feed(batch)
             const results = await pipeline.next()
 
             expect(results).toHaveLength(2)

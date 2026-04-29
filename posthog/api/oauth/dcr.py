@@ -17,6 +17,7 @@ from django.core.validators import RegexValidator
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import AbstractApplication
 from rest_framework import serializers, status
@@ -186,6 +187,17 @@ class DynamicClientRegistrationView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        posthoganalytics.capture(
+            distinct_id=str(app.client_id),
+            event="dcr_application_created",
+            properties={
+                "client_name": data.get("client_name", "MCP Client"),
+                "app_id": str(app.pk),
+                "client_type": "confidential" if is_confidential else "public",
+                "redirect_uris_count": len(data["redirect_uris"]),
+            },
+        )
 
         auth_method = data.get("token_endpoint_auth_method", "none")
 

@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react'
 
+import { EmptyState } from '@posthog/mosaic'
+
 import { type HorizontalBar, HorizontalBarChart } from './charts'
 import type { FunnelVisualizerProps } from './types'
 import { formatNumber, formatPercent, normalizeFunnelSteps } from './utils'
@@ -8,17 +10,7 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
     const steps = normalizeFunnelSteps(results)
 
     if (steps.length === 0) {
-        return (
-            <div
-                style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary, #6b7280)',
-                }}
-            >
-                No funnel data available
-            </div>
-        )
+        return <EmptyState icon="funnel" description="No funnel data available" />
     }
 
     const firstCount = steps[0]?.count || 1

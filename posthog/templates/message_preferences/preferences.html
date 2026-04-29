@@ -9,86 +9,86 @@
     <body>
         {% block content %}
         <div class="min-h-screen bg-gray-50">
-            <div class="max-w-lg mx-auto py-12 px-4 sm:px-6 lg:px-8">
-                <div class="bg-white shadow-xl rounded-xl p-8">
-                    <h1 class="text-3xl font-bold text-gray-900 mb-2">Message Preferences</h1>
-                    <p class="text-gray-600 text-lg mb-8">Manage message preferences for {{ recipient.identifier }}</p>
+            <div class="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                <div class="bg-white shadow-xl rounded-xl p-8 mb-12">
+                    <h1 class="text-2xl font-bold text-gray-900 mb-2">Message preferences for {{ recipient.identifier|escape }}</h1>
+                    <p class="text-gray-600 text-base mb-8">Choose which emails you'd like to receive. Changes are saved automatically.</p>
 
                     <form id="preferences-form" class="space-y-6">
                         {% csrf_token %}
                         <input type="hidden" name="token" value="{{ token }}" />
 
                         {% for category in categories %}
+                        {% if forloop.last %}
+                        <hr class="border-gray-200" />
+                        {% endif %}
                         <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
                             <div class="flex items-start justify-between gap-4">
                                 <div class="flex-1 min-w-0">
                                     <h3 class="text-lg font-medium text-gray-900">{{ category.name }}</h3>
                                     <p class="text-sm text-gray-500 mt-1">{{ category.description }}</p>
                                 </div>
-                                <div class="relative inline-block w-12 flex-shrink-0 align-top select-none">
-                                    <input
-                                        type="checkbox"
-                                        name="{{ category.id }}"
-                                        id="{{ category.id }}"
-                                        {% if category.status != "OPTED_OUT" %}checked{% endif %}
-                                        class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500"
-                                    />
-                                    <label
-                                        for="{{ category.id }}"
-                                        class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
-                                    ></label>
+                                <div class="flex flex-col items-end flex-shrink-0 w-40">
+                                    <div class="relative inline-block w-12 select-none">
+                                        <input
+                                            type="checkbox"
+                                            name="{{ category.id }}"
+                                            id="{{ category.id }}"
+                                            {% if category.status != "OPTED_OUT" %}checked{% endif %}
+                                            class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500"
+                                        />
+                                        <label
+                                            for="{{ category.id }}"
+                                            class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
+                                        ></label>
+                                    </div>
+                                    <span class="text-xs font-medium mt-1 text-right {% if category.status != 'OPTED_OUT' %}text-green-700{% else %}text-gray-500{% endif %}" data-status-for="{{ category.id }}">
+                                        {% if category.status != "OPTED_OUT" %}Subscribed{% else %}Not subscribed{% endif %}
+                                    </span>
                                 </div>
                             </div>
                         </div>
                         {% endfor %}
 
-                        <div class="mt-8">
-                            <button
-                                type="submit"
-                                class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out"
-                            >
-                                Save preferences
-                            </button>
-                        </div>
                     </form>
 
-                    <div id="success-message" class="hidden mt-4 p-4 rounded-md bg-green-50 text-green-700">
-                        <p class="text-sm font-medium">Your preferences have been updated successfully!</p>
-                    </div>
-
-                    <div id="error-message" class="hidden mt-4 p-4 rounded-md bg-red-50 text-red-700">
-                        <p class="text-sm font-medium">
-                            There was an error updating your preferences. Please try again.
-                        </p>
-                    </div>
                 </div>
             </div>
         </div>
 
         <script nonce="{{ request.csp_nonce }}">
             document.addEventListener('DOMContentLoaded', function () {
-                const form = document.getElementById('preferences-form')
                 const toggles = document.querySelectorAll('.toggle-checkbox')
 
-                toggles.forEach((toggle) => {
-                    toggle.addEventListener('change', function () {
-                        const card = this.closest('.bg-gray-50')
-                        card.style.transform = 'scale(1.02)'
-                        setTimeout(() => {
-                            card.style.transform = 'scale(1)'
-                        }, 200)
-                    })
-                })
+                function updateStatusLabel(toggle, text, colorClass) {
+                    const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
+                    if (!statusLabel) return
+                    statusLabel.textContent = text
+                    statusLabel.className = 'text-xs font-medium mt-1 text-right ' + colorClass
+                }
 
-                form.addEventListener('submit', async function (e) {
-                    e.preventDefault()
-                    const submitButton = form.querySelector('button[type="submit"]')
-                    submitButton.disabled = true
+                function showToast(message, isError) {
+                    const toast = document.createElement('div')
+                    toast.className =
+                        'fixed top-4 right-4 ' + (isError ? 'bg-red-500' : 'bg-green-500') + ' text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
+                    const iconPath = isError
+                        ? 'M6 18L18 6M6 6l12 12'
+                        : 'M5 13l4 4L19 7'
+                    toast.innerHTML = '<div class="flex items-center space-x-2"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="' + iconPath + '"/></svg><span class="font-medium">' + message + '</span></div>'
+                    document.body.appendChild(toast)
+                    toast.style.transform = 'translateX(100%)'
+                    requestAnimationFrame(() => { toast.style.transform = 'translateX(0)' })
+                    setTimeout(() => {
+                        toast.style.transform = 'translateX(100%)'
+                        setTimeout(() => toast.remove(), 500)
+                    }, 2500)
+                }
+
+                async function savePreferences(changedToggle) {
+                    updateStatusLabel(changedToggle, 'Saving…', 'text-amber-600')
 
                     const formData = new FormData()
                     formData.append('token', document.querySelector('input[name="token"]').value)
-
-                    // Add all toggle states to formData using the full category key
                     toggles.forEach((toggle) => {
                         formData.append('preferences[]', `${toggle.name}:${toggle.checked}`)
                     })
@@ -107,60 +107,25 @@
                             throw new Error(data.error)
                         }
 
-                        // Enhanced success message
-                        const successMsg = document.createElement('div')
-                        successMsg.className =
-                            'fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
-                        successMsg.innerHTML = `
-                <div class="flex items-center space-x-2">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                    </svg>
-                    <span class="font-medium">Preferences updated successfully</span>
-                </div>
-            `
-                        document.body.appendChild(successMsg)
-
-                        // Animate in
-                        successMsg.style.transform = 'translateX(100%)'
-                        requestAnimationFrame(() => {
-                            successMsg.style.transform = 'translateX(0)'
-                        })
-
-                        // Animate out
-                        setTimeout(() => {
-                            successMsg.style.transform = 'translateX(100%)'
-                            setTimeout(() => successMsg.remove(), 500)
-                        }, 2500)
+                        toggles.forEach(t => { t.defaultChecked = t.checked })
+                        updateStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        showToast('Preferences updated successfully', false)
                     } catch (error) {
-                        // Enhanced error message
-                        const errorMsg = document.createElement('div')
-                        errorMsg.className =
-                            'fixed top-4 right-4 bg-red-500 text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
-                        errorMsg.innerHTML = `
-                <div class="flex items-center space-x-2">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                    <span class="font-medium">${error.message || 'Failed to update preferences'}</span>
-                </div>
-            `
-                        document.body.appendChild(errorMsg)
-
-                        // Animate in
-                        errorMsg.style.transform = 'translateX(100%)'
-                        requestAnimationFrame(() => {
-                            errorMsg.style.transform = 'translateX(0)'
-                        })
-
-                        // Animate out
-                        setTimeout(() => {
-                            errorMsg.style.transform = 'translateX(100%)'
-                            setTimeout(() => errorMsg.remove(), 500)
-                        }, 2500)
-                    } finally {
-                        submitButton.disabled = false
+                        // Revert the toggle on failure
+                        changedToggle.checked = !changedToggle.checked
+                        updateStatusLabel(changedToggle, changedToggle.checked ? 'Subscribed' : 'Not subscribed', changedToggle.checked ? 'text-green-700' : 'text-gray-500')
+                        showToast(error.message || 'Failed to update preferences', true)
                     }
+                }
+
+                toggles.forEach((toggle) => {
+                    toggle.addEventListener('change', function () {
+                        const card = this.closest('.bg-gray-50')
+                        card.style.transform = 'scale(1.02)'
+                        setTimeout(() => { card.style.transform = 'scale(1)' }, 200)
+
+                        savePreferences(this)
+                    })
                 })
             })
         </script>

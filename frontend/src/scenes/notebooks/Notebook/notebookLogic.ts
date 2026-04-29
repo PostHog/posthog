@@ -1,3 +1,4 @@
+import { sendableSteps } from '@tiptap/pm/collab'
 import {
     BuiltLogic,
     actions,
@@ -21,6 +22,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
@@ -66,6 +69,7 @@ import {
 } from '../types'
 import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
@@ -104,6 +108,8 @@ export const notebookLogic = kea<notebookLogicType>([
 
     connect((props: NotebookLogicProps) => ({
         values: [
+            featureFlagLogic,
+            ['featureFlags'],
             notebooksModel,
             ['scratchpadNotebook', 'notebookTemplates'],
             commentsLogic({
@@ -115,6 +121,8 @@ export const notebookLogic = kea<notebookLogicType>([
             ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
+            notebookCollabLogic({ shortId: props.shortId }),
+            ['ttEditor'],
         ],
         actions: [
             notebooksModel,
@@ -126,6 +134,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['setItemContext', 'maybeLoadComments'],
+            notebookCollabLogic({ shortId: props.shortId }),
+            ['ackLocalSteps', 'applyRemoteSteps'],
         ],
     })),
     actions({
@@ -351,6 +361,63 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
+                    if (values.collabEnabled && values.ttEditor) {
+                        const sendable = sendableSteps(values.ttEditor.state)
+                        if (!sendable) {
+                            return values.notebook
+                        }
+                        const stepsJson = sendable.steps.map((s) => s.toJSON())
+
+                        try {
+                            const response = await api.create(
+                                `api/projects/@current/notebooks/${values.notebook.short_id}/collab/save/`,
+                                {
+                                    client_id: sendable.clientID,
+                                    version: sendable.version,
+                                    steps: stepsJson,
+                                    content: values.editor?.getJSON(),
+                                    text_content: values.editor?.getText() || '',
+                                    title: notebook.title,
+                                    cursor_head: values.ttEditor.state.selection.head,
+                                }
+                            )
+                            actions.ackLocalSteps(stepsJson, String(sendable.clientID))
+                            if (notebook.content === values.localContent) {
+                                actions.clearLocalContent()
+                            }
+                            refreshTreeItem('notebook', String(values.notebook.short_id))
+                            return response
+                        } catch (error: any) {
+                            if (error.status === 409 && error.data?.steps) {
+                                // Apply the missed range (deduped by version against SSE), then retry
+                                // PM-collab rebases our pending steps against the new state
+                                const steps = error.data.steps as Record<string, any>[]
+                                const clientIds = error.data.client_ids as string[]
+                                const serverVersion = error.data.version as number
+                                const firstMissedVersion = serverVersion - steps.length + 1
+                                actions.applyRemoteSteps(
+                                    steps.map((step, i) => ({
+                                        step,
+                                        clientId: clientIds[i],
+                                        version: firstMissedVersion + i,
+                                    }))
+                                )
+                                actions.saveNotebook({
+                                    content: values.editor?.getJSON() ?? notebook.content,
+                                    title: notebook.title,
+                                })
+                                return values.notebook
+                            }
+                            if (error.status === 410) {
+                                actions.clearLocalContent()
+                                actions.loadNotebook()
+                                return values.notebook
+                            }
+                            throw error
+                        }
+                    }
+
+                    // Legacy path: full-doc PATCH
                     try {
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
@@ -464,6 +531,11 @@ export const notebookLogic = kea<notebookLogicType>([
             (props, isTemplate): boolean => {
                 return props.shortId === 'scratchpad' || props.mode === 'canvas' || isTemplate
             },
+        ],
+        collabEnabled: [
+            (s) => [s.featureFlags, s.isLocalOnly],
+            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean): boolean =>
+                !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] && !isLocalOnly,
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -801,9 +873,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 cache.throttledOnUpdateEditorTimeout = null
             }, 16) // ~60fps throttling
         },
-        setEditor: () => {
-            values.editor?.setContent(values.content)
-        },
+        setEditor: () => {},
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
         loadNotebookSuccess: () => {
@@ -855,6 +925,12 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.mode !== 'notebook') {
                 return
             }
+
+            // When collab is enabled, SSE will handle real-time sync, no polling needed
+            if (values.collabEnabled) {
+                return
+            }
+
             // Remove any existing refresh timeout
             cache.disposables.dispose('refreshTimeout')
 

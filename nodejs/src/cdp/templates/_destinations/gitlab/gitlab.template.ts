@@ -15,10 +15,11 @@ let payload := {
     'method': 'POST',
     'headers': {
         'PRIVATE-TOKEN': inputs.gitlab_project.access_token,
+        'Content-Type': 'application/json'
     },
     'body': {
         'title': inputs.title,
-        'body': f'{inputs.description}\n\n[View in PostHog]({posthog_issue_url})'
+        'description': f'{inputs.description}\n\n[View in PostHog]({posthog_issue_url})'
     }
 }
 

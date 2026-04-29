@@ -1,0 +1,224 @@
+{
+    "template_name": "Real time analytics",
+    "dashboard_description": "Understand your site or app traffic in (near) real time.",
+    "dashboard_filters": {
+        "date_to": null,
+        "date_from": "dStart",
+        "properties": [
+            {
+                "key": "dateDiff('minute', timestamp, now()) < 30",
+                "type": "hogql",
+                "value": null
+            }
+        ]
+    },
+    "tags": [],
+    "tiles": [
+        {
+            "name": "Unique users (last 30 minutes)",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "All events",
+                            "properties": [
+                                {
+                                    "key": "dateDiff('minute', timestamp, now()) < 30",
+                                    "type": "hogql"
+                                }
+                            ]
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "dStart",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "BoldNumber",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "308997",
+                    "w": 3,
+                    "x": 3,
+                    "y": 0,
+                    "minH": 4,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "308997",
+                    "w": 1,
+                    "x": 0,
+                    "y": 25,
+                    "minH": 4,
+                    "minW": 1
+                }
+            },
+            "description": "Number of unique users recently."
+        },
+        {
+            "name": "Unique sessions (last 30 minutes)",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "unique_session",
+                            "name": "All events",
+                            "properties": [
+                                {
+                                    "key": "dateDiff('minute', timestamp, now()) < 30",
+                                    "type": "hogql"
+                                }
+                            ]
+                        }
+                    ],
+                    "interval": "hour",
+                    "dateRange": {
+                        "date_from": "dStart",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "BoldNumber",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown_type": "event"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "308996",
+                    "w": 3,
+                    "x": 0,
+                    "y": 0,
+                    "minH": 4,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "308996",
+                    "w": 1,
+                    "x": 0,
+                    "y": 30,
+                    "minH": 4,
+                    "minW": 1
+                }
+            },
+            "description": "Number of unique sessions recently, events without session IDs are excluded."
+        },
+        {
+            "name": "Unique users by location (last 30 minutes)",
+            "type": "INSIGHT",
+            "color": null,
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "math": "dau",
+                            "name": "All events",
+                            "properties": [
+                                {
+                                    "key": "dateDiff('minute', timestamp, now()) < 30",
+                                    "type": "hogql"
+                                }
+                            ]
+                        }
+                    ],
+                    "interval": "day",
+                    "dateRange": {
+                        "date_from": "dStart",
+                        "explicitDate": false
+                    },
+                    "properties": [],
+                    "trendsFilter": {
+                        "display": "WorldMap",
+                        "showLegend": false,
+                        "yAxisScaleType": "linear",
+                        "showValuesOnSeries": false,
+                        "smoothingIntervals": 1,
+                        "showPercentStackView": false,
+                        "aggregationAxisFormat": "numeric",
+                        "showAlertThresholdLines": false
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "$geoip_country_code",
+                        "breakdown_type": "person"
+                    },
+                    "filterTestAccounts": true
+                }
+            },
+            "layouts": {
+                "sm": {
+                    "h": 5,
+                    "i": "309010",
+                    "w": 6,
+                    "x": 6,
+                    "y": 5,
+                    "minH": 5,
+                    "minW": 3,
+                    "moved": false,
+                    "static": false
+                },
+                "xs": {
+                    "h": 5,
+                    "i": "309010",
+                    "w": 1,
+                    "x": 0,
+                    "y": 15,
+                    "minH": 5,
+                    "minW": 1
+                }
+            },
+            "description": "Where your recent users are from."
+        }
+    ],
+    "variables": [],
+    "image_url": "https://posthog.com/template_art/realtime-dash.png",
+    "scope": "global",
+    "availability_contexts": null
+}

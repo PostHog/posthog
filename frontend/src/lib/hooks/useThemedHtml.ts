@@ -6,9 +6,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-export function useThemedHtml(overflowHidden = true): void {
+export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dark' | null = null): void {
     const { isDarkModeOn, customCss } = useValues(themeLogic)
     const { sceneConfig } = useValues(sceneLogic)
+    const isDarkTheme = forcedTheme ? forcedTheme === 'dark' : isDarkModeOn
 
     const CUSTOM_THEME_STYLES_ID = 'ph-custom-theme-styles'
 
@@ -18,7 +19,7 @@ export function useThemedHtml(overflowHidden = true): void {
             document.head.removeChild(oldStyle)
         }
 
-        document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
+        document.body.setAttribute('theme', isDarkTheme ? 'dark' : 'light')
 
         if (customCss) {
             const newStyle = document.createElement('style')
@@ -26,7 +27,7 @@ export function useThemedHtml(overflowHidden = true): void {
             newStyle.appendChild(document.createTextNode(customCss))
             document.head.appendChild(newStyle)
         }
-    }, [isDarkModeOn, customCss])
+    }, [customCss, isDarkTheme])
 
     useEffect(() => {
         // overflow-hidden since each area handles scrolling individually (e.g. navbar, scene, side panel)
@@ -53,5 +54,5 @@ export function useThemedHtml(overflowHidden = true): void {
             console.warn('Failed to set theme-color meta tag. This could indicate the variables no longer exist', e)
             posthog.captureException(new Error('Failed to set theme-color meta tag'), { extra: { error: e } })
         }
-    }, [isDarkModeOn, sceneConfig?.projectBased])
+    }, [isDarkTheme, sceneConfig?.projectBased])
 }

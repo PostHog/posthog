@@ -208,6 +208,8 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
                     meanRadius: 3,
                     outlierBackgroundColor: `${seriesColor}80`,
                     outlierBorderColor: seriesColor,
+                    minStats: 'whiskerMin' as const,
+                    maxStats: 'whiskerMax' as const,
                 }
             })
 

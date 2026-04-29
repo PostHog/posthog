@@ -193,6 +193,29 @@ func TestUserNaturalDecay(t *testing.T) {
 	assert.Equal(t, int64(1), count, "only user2 should remain after user1 ages out")
 }
 
+func TestWriteTimePruning(t *testing.T) {
+	w, client := setupMiniredis(t)
+	ctx := context.Background()
+
+	// Seed old members past the TTL window
+	key := userKey("token_a")
+	oldScore := float64(time.Now().Add(-2 * time.Minute).Unix())
+	cmd := client.B().Zadd().Key(key).ScoreMember().
+		ScoreMember(oldScore, "stale_user1").
+		ScoreMember(oldScore, "stale_user2").
+		Build()
+	require.NoError(t, client.Do(ctx, cmd).Error())
+
+	// Write a fresh member
+	require.NoError(t, w.AddUser(ctx, "token_a", "fresh_user"))
+
+	// Verify pruning happened at write time
+	card := client.B().Zcard().Key(key).Build()
+	count, err := client.Do(ctx, card).AsInt64()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count, "stale members should be pruned by AddUser, only fresh_user remains")
+}
+
 func TestCrossTokenIsolation(t *testing.T) {
 	w, _ := setupMiniredis(t)
 	ctx := context.Background()

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -53,29 +53,60 @@ function buildSpanTree(spans: Span[]): SpanNode[] {
     return roots
 }
 
+function sortChildren(nodes: SpanNode[]): SpanNode[] {
+    return [...nodes].sort((a, b) => parseTimestampUs(a.span.timestamp) - parseTimestampUs(b.span.timestamp))
+}
+
 function flattenTree(nodes: SpanNode[]): SpanNode[] {
     const result: SpanNode[] = []
     function walk(node: SpanNode): void {
         result.push(node)
-        for (const child of node.children) {
+        for (const child of sortChildren(node.children)) {
             walk(child)
         }
     }
-    for (const root of nodes) {
+    for (const root of sortChildren(nodes)) {
         walk(root)
     }
     return result
 }
 
 export function formatDuration(durationNano: number): string {
-    const ms = durationNano / 1_000_000
-    if (ms < 0.1) {
-        return `${(ms * 1000).toFixed(0)}\u00B5s`
+    const us = durationNano / 1_000
+    if (us < 100) {
+        return `${us.toFixed(1)}\u00B5s`
     }
+    const ms = us / 1_000
     if (ms < 1000) {
-        return `${ms.toFixed(1)}ms`
+        return `${ms.toFixed(ms < 10 ? 2 : 1)}ms`
     }
     return `${(ms / 1000).toFixed(2)}s`
+}
+
+/**
+ * Parse an ISO 8601 timestamp string to microseconds since epoch.
+ * `Date.getTime()` only gives millisecond resolution, losing sub-ms
+ * precision from timestamps like "2024-01-15T10:30:00.123456Z".
+ */
+function parseTimestampUs(iso: string): number {
+    const ms = new Date(iso).getTime()
+    // Extract fractional seconds beyond milliseconds
+    const dot = iso.indexOf('.')
+    if (dot === -1) {
+        return ms * 1_000
+    }
+    // Find the end of fractional digits (before 'Z')
+    const fracEnd = iso.search(/[Z+-](\d\d:\d\d)?$/i)
+    if (fracEnd === -1) {
+        return ms * 1_000
+    }
+    const fracStr = iso.slice(dot + 1, fracEnd)
+    // Pad or truncate to 6 digits (microseconds)
+    const padded = fracStr.padEnd(6, '0').slice(0, 6)
+    const totalUs = parseInt(padded, 10)
+    // ms already includes the first 3 fractional digits, so add the remaining sub-ms part
+    const subMsUs = totalUs % 1_000
+    return ms * 1_000 + subMsUs
 }
 
 function buildServiceColorMap(spans: Span[]): Map<string, number> {
@@ -85,26 +116,54 @@ function buildServiceColorMap(spans: Span[]): Map<string, number> {
     return map
 }
 
-/** Generate evenly spaced tick marks for the timeline */
-function getTimelineTicks(durationMs: number): number[] {
-    if (durationMs <= 0) {
+/** Generate evenly spaced tick marks for the timeline (in microseconds) */
+function getTimelineTicks(durationUs: number): number[] {
+    if (durationUs <= 0) {
         return []
     }
     const targetTickCount = 5
-    const rawInterval = durationMs / targetTickCount
+    const rawInterval = durationUs / targetTickCount
     const magnitude = Math.pow(10, Math.floor(Math.log10(rawInterval)))
     const niceIntervals = [1, 2, 5, 10]
     const interval = niceIntervals.find((n) => n * magnitude >= rawInterval)! * magnitude
     const ticks: number[] = []
-    for (let t = interval; t < durationMs; t += interval) {
+    for (let t = interval; t < durationUs; t += interval) {
         ticks.push(t)
     }
     return ticks
 }
 
 const INDENT_PX = 16
-const LABEL_WIDTH = 280
+const DEFAULT_LABEL_COLUMN_WIDTH = 280
+const MIN_LABEL_COLUMN_WIDTH = 120
+const MAX_LABEL_COLUMN_WIDTH = 800
+const LABEL_COLUMN_WIDTH_STORAGE_KEY = 'tracing-trace-label-width'
+/** Hit area for the vertical splitter (centered on the label/timeline border). */
+const LABEL_SPLITTER_HIT_PX = 8
 const ROW_HEIGHT = 32
+
+function clampLabelColumnWidth(px: number): number {
+    return Math.min(MAX_LABEL_COLUMN_WIDTH, Math.max(MIN_LABEL_COLUMN_WIDTH, Math.round(px)))
+}
+
+function readStoredLabelColumnWidth(): number | null {
+    if (typeof window === 'undefined') {
+        return null
+    }
+    try {
+        const raw = window.localStorage.getItem(LABEL_COLUMN_WIDTH_STORAGE_KEY)
+        if (raw == null) {
+            return null
+        }
+        const n = Number.parseInt(raw, 10)
+        if (!Number.isFinite(n)) {
+            return null
+        }
+        return clampLabelColumnWidth(n)
+    } catch {
+        return null
+    }
+}
 const ERROR_COLOR = 'var(--danger)'
 
 const TREE_LINE_W = 2
@@ -209,9 +268,9 @@ function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
                     </>
                 )}
                 <span className="text-muted font-medium">Start</span>
-                <span className="font-mono">{new Date(span.timestamp).toISOString()}</span>
+                <span className="font-mono">{span.timestamp}</span>
                 <span className="text-muted font-medium">End</span>
-                <span className="font-mono">{new Date(span.end_time).toISOString()}</span>
+                <span className="font-mono">{span.end_time}</span>
             </div>
         </div>
     )
@@ -220,36 +279,107 @@ function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
 export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
     const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
     const [cursorPct, setCursorPct] = useState<number | null>(null)
+    const [labelColumnWidth, setLabelColumnWidth] = useState(
+        () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH
+    )
+    const labelResizeActiveRef = useRef(false)
+    const labelSplitterDragCleanupRef = useRef<(() => void) | null>(null)
     const timelineRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        return () => {
+            labelSplitterDragCleanupRef.current?.()
+        }
+    }, [])
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
     const tree = useMemo(() => buildSpanTree(spans), [spans])
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
 
+    const { traceStartUs, traceDurationUs } = useMemo(() => {
+        if (spans.length === 0) {
+            return { traceStartUs: 0, traceDurationUs: 0 }
+        }
+        const startTimesUs = spans.map((s) => parseTimestampUs(s.timestamp))
+        const endTimesUs = spans.map((s) => parseTimestampUs(s.timestamp) + s.duration_nano / 1_000)
+        const traceStartUs = Math.min(...startTimesUs)
+        const traceEndUs = Math.max(...endTimesUs)
+        return { traceStartUs, traceDurationUs: traceEndUs - traceStartUs }
+    }, [spans])
+
     // Pre-compute snap points (span start/end as percentages of trace duration)
     const snapPointsPct = useMemo(() => {
-        if (spans.length === 0) {
-            return []
-        }
-        const timestamps = spans.map((s) => new Date(s.timestamp).getTime())
-        const endTimes = spans.map((s) => new Date(s.end_time).getTime())
-        const start = Math.min(...timestamps)
-        const end = Math.max(...endTimes)
-        const duration = end - start
-        if (duration <= 0) {
+        if (traceDurationUs <= 0) {
             return []
         }
         const points = new Set<number>()
         for (const s of spans) {
-            points.add(((new Date(s.timestamp).getTime() - start) / duration) * 100)
-            points.add(((new Date(s.end_time).getTime() - start) / duration) * 100)
+            const spanStartUs = parseTimestampUs(s.timestamp)
+            points.add(((spanStartUs - traceStartUs) / traceDurationUs) * 100)
+            points.add(((spanStartUs + s.duration_nano / 1_000 - traceStartUs) / traceDurationUs) * 100)
         }
         return [...points].sort((a, b) => a - b)
-    }, [spans])
+    }, [spans, traceStartUs, traceDurationUs])
 
     const SNAP_THRESHOLD_PX = 6
 
+    const persistLabelColumnWidth = useCallback((width: number): void => {
+        try {
+            window.localStorage.setItem(LABEL_COLUMN_WIDTH_STORAGE_KEY, String(width))
+        } catch {
+            // Quota or private mode
+        }
+    }, [])
+
+    const handleLabelSplitterMouseDown = useCallback(
+        (e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setCursorPct(null)
+            labelResizeActiveRef.current = true
+            document.body.classList.add('is-resizing')
+            const startX = e.clientX
+            const startWidth = labelColumnWidth
+            let lastWidth = startWidth
+
+            const onMove = (ev: MouseEvent): void => {
+                lastWidth = clampLabelColumnWidth(startWidth + (ev.clientX - startX))
+                setLabelColumnWidth(lastWidth)
+            }
+            const onUp = (): void => {
+                labelSplitterDragCleanupRef.current = null
+                document.removeEventListener('mousemove', onMove)
+                document.removeEventListener('mouseup', onUp)
+                document.body.classList.remove('is-resizing')
+                labelResizeActiveRef.current = false
+                persistLabelColumnWidth(lastWidth)
+            }
+            labelSplitterDragCleanupRef.current = onUp
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+        },
+        [labelColumnWidth, persistLabelColumnWidth]
+    )
+
+    const handleLabelSplitterKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault()
+                const delta = e.key === 'ArrowLeft' ? -10 : 10
+                setLabelColumnWidth((w) => {
+                    const next = clampLabelColumnWidth(w + delta)
+                    persistLabelColumnWidth(next)
+                    return next
+                })
+            }
+        },
+        [persistLabelColumnWidth]
+    )
+
     const handleTimelineMouseMove = useCallback(
         (e: React.MouseEvent) => {
+            if (labelResizeActiveRef.current) {
+                return
+            }
             const timeline = timelineRef.current
             if (!timeline) {
                 return
@@ -284,14 +414,9 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
         return <div className="text-muted p-4">No spans in this trace</div>
     }
 
-    const timestamps = spans.map((s) => new Date(s.timestamp).getTime())
-    const endTimes = spans.map((s) => new Date(s.end_time).getTime())
-    const traceStart = Math.min(...timestamps)
-    const traceEnd = Math.max(...endTimes)
-    const traceDurationMs = traceEnd - traceStart
-    const ticks = getTimelineTicks(traceDurationMs)
+    const ticks = getTimelineTicks(traceDurationUs)
 
-    const cursorTimeMs = cursorPct !== null ? (cursorPct / 100) * traceDurationMs : null
+    const cursorTimeUs = cursorPct !== null ? (cursorPct / 100) * traceDurationUs : null
 
     return (
         <div
@@ -304,7 +429,9 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 <div
                     className="absolute top-0 bottom-0 border-l border-dashed border-primary pointer-events-none z-20"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ left: `calc(${LABEL_WIDTH}px + (100% - ${LABEL_WIDTH}px) * ${cursorPct / 100})` }}
+                    style={{
+                        left: `calc(${labelColumnWidth}px + (100% - ${labelColumnWidth}px) * ${cursorPct / 100})`,
+                    }}
                 />
             )}
 
@@ -313,39 +440,39 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                 <div
                     className="shrink-0 text-xs font-medium text-muted px-2 flex items-center border-r border-border"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: LABEL_WIDTH }}
+                    style={{ width: labelColumnWidth }}
                 >
                     Span
                 </div>
                 <div className="relative grow h-7" ref={timelineRef}>
                     {(cursorPct === null || cursorPct > 5) && (
-                        <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] text-muted">0ms</span>
+                        <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] text-muted">0</span>
                     )}
                     {ticks
-                        .filter((tickMs) => {
-                            const pct = (tickMs / traceDurationMs) * 100
+                        .filter((tickUs) => {
+                            const pct = (tickUs / traceDurationUs) * 100
                             return pct > 5 && pct < 90
                         })
-                        .map((tickMs) => {
-                            const pct = (tickMs / traceDurationMs) * 100
+                        .map((tickUs) => {
+                            const pct = (tickUs / traceDurationUs) * 100
                             return (
                                 <span
-                                    key={tickMs}
+                                    key={tickUs}
                                     className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 text-[10px] text-muted"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ left: `${pct}%` }}
                                 >
-                                    {formatDuration(tickMs * 1_000_000)}
+                                    {formatDuration(tickUs * 1_000)}
                                 </span>
                             )
                         })}
                     {(cursorPct === null || cursorPct < 95) && (
                         <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-muted">
-                            {formatDuration(traceDurationMs * 1_000_000)}
+                            {formatDuration(traceDurationUs * 1_000)}
                         </span>
                     )}
                     {/* Cursor time label in header */}
-                    {cursorPct !== null && cursorTimeMs !== null && (
+                    {cursorPct !== null && cursorTimeUs !== null && (
                         <span
                             className={`absolute bottom-0 text-[10px] font-mono font-medium pointer-events-none ${
                                 cursorPct < 50 ? 'translate-x-1' : '-translate-x-full -ml-1'
@@ -353,7 +480,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ left: `${cursorPct}%` }}
                         >
-                            {formatDuration(cursorTimeMs * 1_000_000)}
+                            {formatDuration(cursorTimeUs * 1_000)}
                         </span>
                     )}
                 </div>
@@ -362,15 +489,18 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
             {/* Span rows */}
             {flatSpans.map((node) => {
                 const { span } = node
-                const spanStart = new Date(span.timestamp).getTime()
-                const spanEnd = new Date(span.end_time).getTime()
-                const leftPct = traceDurationMs > 0 ? ((spanStart - traceStart) / traceDurationMs) * 100 : 0
-                const widthPct =
-                    traceDurationMs > 0 ? Math.max(((spanEnd - spanStart) / traceDurationMs) * 100, 0.3) : 100
+                const spanStartUs = parseTimestampUs(span.timestamp)
+                const spanDurationUs = span.duration_nano / 1_000
+                const leftPct =
+                    traceDurationUs > 0 ? Math.max(((spanStartUs - traceStartUs) / traceDurationUs) * 100, 0) : 0
+                const rawWidthPct = traceDurationUs > 0 ? (spanDurationUs / traceDurationUs) * 100 : 100
+                const widthPct = Math.max(Math.min(rawWidthPct, 100 - leftPct), 0.3)
 
                 const isError = span.status_code === 2
+                const isUnmatched = !span.matched_filter
                 const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
                 const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
+                const barColor = isUnmatched ? 'var(--border)' : seriesColor
                 const isSelected = selectedSpanId === span.uuid
 
                 return (
@@ -396,7 +526,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                             <div
                                 className="shrink-0 flex items-center overflow-hidden border-r border-border px-2"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ width: LABEL_WIDTH }}
+                                style={{ width: labelColumnWidth }}
                             >
                                 <TreeIndent node={node} />
                                 {isError && (
@@ -406,7 +536,7 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                 )}
                                 <Tooltip title={span.name}>
                                     <span
-                                        className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'}`}
+                                        className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
                                     >
                                         {span.name}
                                     </span>
@@ -420,11 +550,11 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                 style={{ height: ROW_HEIGHT - 8 }}
                             >
                                 {/* Grid lines */}
-                                {ticks.map((tickMs) => {
-                                    const pct = (tickMs / traceDurationMs) * 100
+                                {ticks.map((tickUs) => {
+                                    const pct = (tickUs / traceDurationUs) * 100
                                     return (
                                         <span
-                                            key={tickMs}
+                                            key={tickUs}
                                             className="absolute top-0 bottom-0 border-l border-border"
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ left: `${pct}%` }}
@@ -450,11 +580,13 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                                             left: `${leftPct}%`,
                                             width: `${widthPct}%`,
                                             minWidth: 2,
-                                            backgroundColor: `color-mix(in srgb, ${seriesColor} 20%, transparent)`,
-                                            borderLeft: `1px solid ${seriesColor}`,
+                                            backgroundColor: `color-mix(in srgb, ${barColor} 20%, transparent)`,
+                                            borderLeft: `1px solid ${barColor}`,
                                         }}
                                     >
-                                        <span className="text-[11px] truncate whitespace-nowrap flex items-center gap-1.5">
+                                        <span
+                                            className={`text-[11px] truncate whitespace-nowrap flex items-center gap-1.5 ${isUnmatched ? 'opacity-40' : ''}`}
+                                        >
                                             <span className="text-muted-alt font-medium">{span.service_name}</span>
                                             <span className="text-muted">{formatDuration(span.duration_nano)}</span>
                                         </span>
@@ -468,6 +600,25 @@ export function TraceFlameChart({ spans }: TraceFlameChartProps): JSX.Element {
                     </div>
                 )
             })}
+
+            {/* Full-height splitter between label column and timeline */}
+            <div
+                role="separator"
+                aria-label="Resize span name column"
+                aria-orientation="vertical"
+                aria-valuenow={labelColumnWidth}
+                aria-valuemin={MIN_LABEL_COLUMN_WIDTH}
+                aria-valuemax={MAX_LABEL_COLUMN_WIDTH}
+                tabIndex={0}
+                className="absolute top-0 bottom-0 z-30 cursor-ew-resize touch-none hover:bg-accent-highlight-primary/30"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    left: labelColumnWidth - LABEL_SPLITTER_HIT_PX / 2,
+                    width: LABEL_SPLITTER_HIT_PX,
+                }}
+                onMouseDown={handleLabelSplitterMouseDown}
+                onKeyDown={handleLabelSplitterKeyDown}
+            />
         </div>
     )
 }

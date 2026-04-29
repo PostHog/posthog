@@ -20,7 +20,7 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
-import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 import {
     ActionFilter as ActionFilterType,
@@ -110,6 +110,8 @@ export interface ActionFilterProps {
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
+    /** Extra content rendered in the footer alongside the "Add series" button */
+    customFooter?: React.ReactNode
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -149,6 +151,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         hogQLGlobals,
         definitionPopoverRenderer,
         operatorAllowlist,
+        customFooter,
     },
     ref
 ): JSX.Element {
@@ -277,7 +280,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                         }
                                         hasBreakdown={!!filters.breakdown}
                                         mathAvailability={mathAvailability}
-                                        groupTitle={isFunnelsFilter(filters) ? 'Any of the events below' : undefined}
+                                        groupTitle={filter.custom_name || 'Any of the events below'}
                                         actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
                                         dataWarehousePopoverFields={dataWarehousePopoverFields}
                                         excludedProperties={excludedProperties}
@@ -310,23 +313,22 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
-                    {!singleFilter && (
-                        <LemonButton
-                            type={buttonType}
-                            onClick={() => addFilter()}
-                            data-attr="add-action-event-button"
-                            icon={<IconPlusSmall />}
-                            size="small"
-                            disabled={reachedLimit || disabled || readOnly}
-                            {...buttonProps}
-                        >
-                            {!reachedLimit
-                                ? buttonCopy || 'Action or event'
-                                : `Reached limit of ${entitiesLimit} ${
-                                      filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
-                                  }`}
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type={buttonType}
+                        onClick={() => addFilter()}
+                        data-attr="add-action-event-button"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        disabled={reachedLimit || disabled || readOnly}
+                        {...buttonProps}
+                    >
+                        {!reachedLimit
+                            ? buttonCopy || 'Action or event'
+                            : `Reached limit of ${entitiesLimit} ${
+                                  filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
+                              }`}
+                    </LemonButton>
+                    {customFooter}
                 </div>
             )}
         </div>

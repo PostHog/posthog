@@ -354,12 +354,12 @@ mod tests {
             .files
             .iter()
             .any(|f| f.remote_filepath.ends_with("file2.sst")));
-        // metadata key (for metadata.json) must not contain hash
+        // metadata key (for metadata.json) now uses hash prefix like object files
         let meta_key = plan.info.get_metadata_key();
-        assert!(!meta_key.contains(&hash));
+        assert!(meta_key.contains(&hash));
         assert_eq!(
             meta_key,
-            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}/metadata.json")
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}/metadata.json")
         );
     }
 

@@ -3,7 +3,6 @@ import typing as t
 import datetime as dt
 
 import pytest
-from unittest import mock
 
 from django.conf import settings
 from django.test.client import Client as HttpClient
@@ -811,16 +810,6 @@ def databricks_integration_2(team, user):
     )
 
 
-@pytest.fixture
-def enable_databricks(team):
-    """Enable the Databricks batch exports feature flag to be able to run the test."""
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ):
-        yield
-
-
 def test_can_update_batch_export_with_integration(
     client: HttpClient,
     temporal,
@@ -829,7 +818,6 @@ def test_can_update_batch_export_with_integration(
     user,
     databricks_integration,
     databricks_integration_2,
-    enable_databricks,
 ):
     """Test we can update a batch export with an integration (for example Databricks)."""
 
@@ -901,7 +889,6 @@ def test_can_update_batch_export_with_integration_to_none(
     team,
     user,
     databricks_integration,
-    enable_databricks,
 ):
     """Test we cannot update a batch export that requires an integration to None."""
 

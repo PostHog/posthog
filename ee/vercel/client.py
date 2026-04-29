@@ -198,6 +198,33 @@ class VercelAPIClient:
             refresh_token=json_data.get("refresh_token"),
         )
 
+    def import_resource(
+        self,
+        integration_config_id: str,
+        resource_id: str,
+        product_id: str,
+        name: str,
+        secrets: list[dict[str, Any]] | None = None,
+    ) -> OperationResult:
+        """Register a resource on Vercel's side (upsert). Used after connectable account linking."""
+        url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}"
+        payload: dict[str, Any] = {
+            "productId": product_id,
+            "name": name,
+            "status": "ready",
+            "ownership": "linked",
+        }
+        if secrets:
+            payload["secrets"] = secrets
+        return self._crud_operation(
+            "PUT",
+            url,
+            "Successfully imported resource to Vercel",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id},
+            {},
+            json=payload,
+        )
+
     def update_resource_secrets(
         self, integration_config_id: str, resource_id: str, secrets: list[dict[str, Any]]
     ) -> OperationResult:
@@ -289,6 +316,22 @@ class VercelAPIClient:
                 error="exchange_failed",
                 error_description=str(e),
             )
+
+    def check_installation_active(self, installation_id: str) -> bool:
+        """Check if a Vercel installation is still active.
+
+        Returns True if the installation exists and is accessible, False if
+        Vercel returns 401/403/404 (meaning it's been removed). Raises on
+        transient errors (5xx / network) so callers can distinguish
+        "definitely gone" from "can't tell".
+        """
+        try:
+            self._request("GET", f"{self.base_url}/installations/{installation_id}")
+            return True
+        except APIError as e:
+            if e.status_code in (401, 403, 404):
+                return False
+            raise
 
     def sso_token_exchange(
         self,

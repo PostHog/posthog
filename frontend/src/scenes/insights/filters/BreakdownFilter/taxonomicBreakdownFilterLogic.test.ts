@@ -33,6 +33,7 @@ const makeProps = (
 ): breakdownLogic.TaxonomicBreakdownFilterLogicProps => ({
     insightProps,
     isTrends: true,
+    isFunnels: false,
     updateBreakdownFilter,
     updateDisplay,
     ...overrides,
@@ -204,12 +205,12 @@ describe('taxonomicBreakdownFilterLogic', () => {
         })
     })
 
-    describe('isAddBreakdownDisabled', () => {
+    describe('addBreakdownDisabledReason', () => {
         it('no breakdowns', async () => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -223,7 +224,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -242,7 +243,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
 
             logic = taxonomicBreakdownFilterLogic(
@@ -263,7 +264,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
         })
 
@@ -291,7 +292,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
+                addBreakdownDisabledReason: expect.stringContaining('up to 3'),
             })
         })
 
@@ -306,7 +307,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
+                addBreakdownDisabledReason: expect.stringContaining('single breakdown'),
             })
 
             logic = taxonomicBreakdownFilterLogic(
@@ -319,7 +320,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: true,
+                addBreakdownDisabledReason: expect.stringContaining('single breakdown'),
             })
         })
 
@@ -334,7 +335,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
             })
 
             logic = taxonomicBreakdownFilterLogic(
@@ -347,7 +348,58 @@ describe('taxonomicBreakdownFilterLogic', () => {
             )
             logic.mount()
             await expectLogic(logic).toMatchValues({
-                isAddBreakdownDisabled: false,
+                addBreakdownDisabledReason: null,
+            })
+        })
+
+        it('funnels limit cohort breakdown to one', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdown_type: 'cohort',
+                        breakdown: [1],
+                    },
+                    isTrends: false,
+                    isFunnels: true,
+                })
+            )
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                addBreakdownDisabledReason: expect.stringContaining('single cohort breakdown'),
+            })
+        })
+
+        it('trends allow multiple cohort breakdowns', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdown_type: 'cohort',
+                        breakdown: [1, 2, 3],
+                    },
+                    isTrends: true,
+                    isFunnels: false,
+                })
+            )
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                addBreakdownDisabledReason: null,
+            })
+        })
+
+        it('funnels allow first cohort breakdown', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdown_type: 'cohort',
+                        breakdown: [],
+                    },
+                    isTrends: false,
+                    isFunnels: true,
+                })
+            )
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                addBreakdownDisabledReason: null,
             })
         })
     })
@@ -374,6 +426,39 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 ],
                 breakdown_group_type_index: undefined,
                 breakdown_histogram_bin_count: undefined,
+            })
+        })
+
+        it('appends a second distinct breakdown', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdowns: [
+                            {
+                                property: 'c',
+                                type: 'event',
+                            },
+                        ],
+                    },
+                })
+            )
+            logic.mount()
+
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown('d', group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: undefined,
+                breakdowns: [
+                    { property: 'c', type: 'event' },
+                    { property: 'd', type: 'event' },
+                ],
+                breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
+                breakdown_normalize_url: undefined,
             })
         })
 
@@ -641,8 +726,46 @@ describe('taxonomicBreakdownFilterLogic', () => {
             expect(updateBreakdownFilter.mock.calls[0][0]).toHaveProperty('breakdowns', undefined)
         })
 
-        it('resets the map view when adding a next breakdown', async () => {
+        it('replaceBreakdown replaces a cohort instead of appending', async () => {
+            const updateBreakdownFilter = jest.fn()
             logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdown_type: 'cohort',
+                        breakdown: [1],
+                    },
+                    isTrends: false,
+                    isFunnels: true,
+                    updateBreakdownFilter,
+                })
+            )
+            logic.mount()
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(
+                TaxonomicFilterGroupType.CohortsWithAllUsers,
+                undefined
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.replaceBreakdown(
+                    {
+                        type: 'cohort',
+                        value: 1,
+                    },
+                    {
+                        group: group,
+                        value: 2,
+                    }
+                )
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown: [2],
+                breakdown_type: 'cohort',
+            })
+        })
+
+        it('resets the map view when adding a next breakdown', async () => {
+            const logic = taxonomicBreakdownFilterLogic(
                 makeProps({
                     breakdownFilter: {
                         breakdowns: [{ property: '$geoip_country_code', type: 'person' }],

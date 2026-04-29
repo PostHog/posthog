@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -10,9 +12,13 @@ import { FeatureFlagFilters } from '~/types'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
+    convertIndexBasedPayloadsToVariantKeys,
     featureFlagLogic,
     hasMultipleVariantsActive,
     hasZeroRollout,
+    indexToVariantKeyFeatureFlagPayloads,
+    scheduleDateFromStoredISO,
+    scheduleDateToProjectTzISO,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
@@ -40,6 +46,123 @@ const MOCK_DEPENDENT_FLAGS = [
     { id: 10, key: 'dependent-flag-1', name: 'Dependent Flag 1' },
     { id: 11, key: 'dependent-flag-2', name: 'Dependent Flag 2' },
 ]
+
+describe('payload conversion helpers', () => {
+    const variants = [
+        { key: 'control', rollout_percentage: 50 },
+        { key: 'test', rollout_percentage: 50 },
+    ]
+
+    it.each([
+        [
+            'already keyed by variant key',
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+        ],
+        [
+            'keyed by variant index',
+            {
+                0: '{"color":"red"}',
+                1: '{"color":"blue"}',
+            },
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+        ],
+        [
+            'with mixed keys while preferring explicit variant keys',
+            {
+                control: '{"color":"red"}',
+                0: '{"color":"green"}',
+                1: '{"color":"blue"}',
+            },
+            {
+                control: '{"color":"red"}',
+                test: '{"color":"blue"}',
+            },
+        ],
+    ])('converts multivariate payloads %s', (_label, payloads, expected) => {
+        expect(convertIndexBasedPayloadsToVariantKeys(variants, payloads)).toEqual(expected)
+    })
+
+    it('keeps boolean flag payload handling unchanged', () => {
+        expect(
+            indexToVariantKeyFeatureFlagPayloads({
+                filters: {
+                    groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                    multivariate: null,
+                    payloads: {
+                        true: '{"enabled":true}',
+                        false: '{"enabled":false}',
+                    },
+                },
+            } as unknown as FeatureFlagType)
+        ).toEqual({
+            filters: {
+                groups: [{ properties: [], rollout_percentage: 100, variant: null }],
+                multivariate: null,
+                payloads: {
+                    true: '{"enabled":true}',
+                },
+            },
+        })
+    })
+})
+
+describe('schedule timezone helpers', () => {
+    // Scenarios covered: project tz east and west of browser tz, and matching the browser.
+    it.each([
+        ['America/New_York', '2026-02-05T10:00:00', '2026-02-05T15:00:00.000Z'],
+        ['America/Los_Angeles', '2026-02-05T10:00:00', '2026-02-05T18:00:00.000Z'],
+        ['UTC', '2026-02-05T10:00:00', '2026-02-05T10:00:00.000Z'],
+        ['Asia/Tokyo', '2026-02-05T10:00:00', '2026-02-05T01:00:00.000Z'],
+    ])('scheduleDateToProjectTzISO interprets the wall clock in %s', (timezone, wallClock, expectedIso) => {
+        // Build a browser-local Dayjs regardless of the Jest host timezone.
+        const local = dayjs(wallClock)
+        expect(scheduleDateToProjectTzISO(local, timezone)).toBe(expectedIso)
+    })
+
+    it.each([
+        ['America/New_York', '2026-02-05T15:00:00.000Z', '2026-02-05 10:00'],
+        ['America/Los_Angeles', '2026-02-05T18:00:00.000Z', '2026-02-05 10:00'],
+        ['UTC', '2026-02-05T10:00:00.000Z', '2026-02-05 10:00'],
+        ['Asia/Tokyo', '2026-02-05T01:00:00.000Z', '2026-02-05 10:00'],
+    ])(
+        'scheduleDateFromStoredISO exposes the project-timezone wall clock as a local Dayjs in %s',
+        (timezone, stored, expectedWallClock) => {
+            const restored = scheduleDateFromStoredISO(stored, timezone)
+            expect(restored.format('YYYY-MM-DD HH:mm')).toBe(expectedWallClock)
+        }
+    )
+
+    it.each([['America/New_York'], ['America/Los_Angeles'], ['UTC'], ['Asia/Tokyo']])(
+        'round-trips the user-entered wall clock in %s',
+        (timezone) => {
+            const userPicked = dayjs('2026-02-05T10:30:00')
+            const iso = scheduleDateToProjectTzISO(userPicked, timezone)
+            const restored = scheduleDateFromStoredISO(iso, timezone)
+            expect(restored.format('YYYY-MM-DD HH:mm')).toBe('2026-02-05 10:30')
+        }
+    )
+
+    // end_date is persisted as end-of-day (HH:mm:ss.999) — verify sub-second precision survives the trip.
+    it.each([['America/New_York'], ['America/Los_Angeles'], ['UTC'], ['Asia/Tokyo']])(
+        'preserves millisecond precision through the round trip in %s',
+        (timezone) => {
+            const endOfDay = dayjs('2026-02-05T00:00:00').tz(timezone, true).endOf('day')
+            const iso = endOfDay.toISOString()
+            const restored = scheduleDateFromStoredISO(iso, timezone)
+            expect(restored.format('YYYY-MM-DD HH:mm:ss.SSS')).toBe('2026-02-05 23:59:59.999')
+        }
+    )
+})
 
 describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
@@ -220,6 +343,7 @@ describe('featureFlagLogic', () => {
                 ...MOCK_FEATURE_FLAG,
                 id: 2,
                 experiment_set: [MOCK_EXPERIMENT.id],
+                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name }],
             }
 
             const experimentLogic = featureFlagLogic({ id: 2 })
@@ -262,6 +386,7 @@ describe('featureFlagLogic', () => {
                 ...MOCK_FEATURE_FLAG,
                 id: 3,
                 experiment_set: null,
+                experiment_set_metadata: null,
             }
 
             const noExperimentLogic = featureFlagLogic({ id: 3 })
@@ -593,5 +718,229 @@ describe('validateFeatureFlagKey', () => {
 
     it('accepts key at exactly 400 characters', () => {
         expect(validateFeatureFlagKey('a'.repeat(400))).toBeUndefined()
+    })
+})
+
+describe('variant reordering', () => {
+    let logic: ReturnType<typeof featureFlagLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
+
+        // Set up a multivariate flag with test variants
+        logic.actions.setFeatureFlag({
+            ...MOCK_FEATURE_FLAG,
+            filters: {
+                groups: [],
+                multivariate: {
+                    variants: [
+                        { key: 'control', name: 'Control', rollout_percentage: 33 },
+                        { key: 'test-a', name: 'Test A', rollout_percentage: 33 },
+                        { key: 'test-b', name: 'Test B', rollout_percentage: 34 },
+                    ],
+                },
+                payloads: { 0: { option: 'default' }, 1: { option: 'variant-a' }, 2: { option: 'variant-b' } },
+            },
+        })
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    describe('moveVariantUp', () => {
+        it('moves variant up by one position', () => {
+            logic.actions.moveVariantUp(1) // Move 'test-a' up
+
+            const variants = logic.values.variants
+            expect(variants[0].key).toBe('test-a')
+            expect(variants[1].key).toBe('control')
+            expect(variants[2].key).toBe('test-b')
+        })
+
+        it('reorders payloads when moving variant up', () => {
+            logic.actions.moveVariantUp(1) // Move 'test-a' up
+
+            const payloads = logic.values.featureFlag.filters?.payloads
+            expect(payloads?.[0]).toEqual({ option: 'variant-a' }) // test-a payload now at index 0
+            expect(payloads?.[1]).toEqual({ option: 'default' }) // control payload now at index 1
+            expect(payloads?.[2]).toEqual({ option: 'variant-b' }) // test-b payload stays at index 2
+        })
+
+        it('does nothing when trying to move first variant up', () => {
+            const originalVariants = [...logic.values.variants]
+            logic.actions.moveVariantUp(0)
+
+            expect(logic.values.variants).toEqual(originalVariants)
+        })
+
+        it('handles negative indices gracefully', () => {
+            const originalVariants = [...logic.values.variants]
+            logic.actions.moveVariantUp(-1)
+
+            expect(logic.values.variants).toEqual(originalVariants)
+        })
+    })
+
+    describe('moveVariantDown', () => {
+        it('moves variant down by one position', () => {
+            logic.actions.moveVariantDown(0) // Move 'control' down
+
+            const variants = logic.values.variants
+            expect(variants[0].key).toBe('test-a')
+            expect(variants[1].key).toBe('control')
+            expect(variants[2].key).toBe('test-b')
+        })
+
+        it('reorders payloads when moving variant down', () => {
+            logic.actions.moveVariantDown(0) // Move 'control' down
+
+            const payloads = logic.values.featureFlag.filters?.payloads
+            expect(payloads?.[0]).toEqual({ option: 'variant-a' }) // test-a payload now at index 0
+            expect(payloads?.[1]).toEqual({ option: 'default' }) // control payload now at index 1
+            expect(payloads?.[2]).toEqual({ option: 'variant-b' }) // test-b payload stays at index 2
+        })
+
+        it('does nothing when trying to move last variant down', () => {
+            const originalVariants = [...logic.values.variants]
+            logic.actions.moveVariantDown(2) // Try to move last variant down
+
+            expect(logic.values.variants).toEqual(originalVariants)
+        })
+
+        it('handles out of bounds indices gracefully', () => {
+            const originalVariants = [...logic.values.variants]
+            logic.actions.moveVariantDown(10) // Out of bounds index
+
+            expect(logic.values.variants).toEqual(originalVariants)
+        })
+    })
+
+    describe('reorderVariants', () => {
+        it('moves variant from beginning to end', () => {
+            logic.actions.reorderVariants(0, 2) // Move 'control' from index 0 to 2
+
+            const variants = logic.values.variants
+            expect(variants[0].key).toBe('test-a')
+            expect(variants[1].key).toBe('test-b')
+            expect(variants[2].key).toBe('control')
+        })
+
+        it('moves variant from end to beginning', () => {
+            logic.actions.reorderVariants(2, 0) // Move 'test-b' from index 2 to 0
+
+            const variants = logic.values.variants
+            expect(variants[0].key).toBe('test-b')
+            expect(variants[1].key).toBe('control')
+            expect(variants[2].key).toBe('test-a')
+        })
+
+        it('moves variant forward by one position', () => {
+            logic.actions.reorderVariants(0, 1) // Move 'control' from index 0 to 1
+
+            const variants = logic.values.variants
+            expect(variants[0].key).toBe('test-a')
+            expect(variants[1].key).toBe('control')
+            expect(variants[2].key).toBe('test-b')
+        })
+
+        it('moves variant backward by one position', () => {
+            logic.actions.reorderVariants(1, 0) // Move 'test-a' from index 1 to 0
+
+            const variants = logic.values.variants
+            expect(variants[0].key).toBe('test-a')
+            expect(variants[1].key).toBe('control')
+            expect(variants[2].key).toBe('test-b')
+        })
+
+        it('correctly reorders payloads with complex reordering', () => {
+            logic.actions.reorderVariants(0, 2) // Move 'control' from index 0 to 2
+
+            const payloads = logic.values.featureFlag.filters?.payloads
+            expect(payloads?.[0]).toEqual({ option: 'variant-a' }) // test-a payload
+            expect(payloads?.[1]).toEqual({ option: 'variant-b' }) // test-b payload
+            expect(payloads?.[2]).toEqual({ option: 'default' }) // control payload
+        })
+
+        it('does nothing when fromIndex equals toIndex', () => {
+            const originalVariants = [...logic.values.variants]
+            const originalPayloads = { ...logic.values.featureFlag.filters?.payloads }
+
+            logic.actions.reorderVariants(1, 1)
+
+            expect(logic.values.variants).toEqual(originalVariants)
+            expect(logic.values.featureFlag.filters?.payloads).toEqual(originalPayloads)
+        })
+
+        it('handles invalid indices gracefully', () => {
+            const originalVariants = [...logic.values.variants]
+
+            logic.actions.reorderVariants(-1, 1) // Invalid fromIndex
+            expect(logic.values.variants).toEqual(originalVariants)
+
+            logic.actions.reorderVariants(1, -1) // Invalid toIndex
+            expect(logic.values.variants).toEqual(originalVariants)
+
+            logic.actions.reorderVariants(10, 1) // Out of bounds fromIndex
+            expect(logic.values.variants).toEqual(originalVariants)
+
+            logic.actions.reorderVariants(1, 10) // Out of bounds toIndex
+            expect(logic.values.variants).toEqual(originalVariants)
+        })
+
+        it('preserves all variant properties during reordering', () => {
+            logic.actions.reorderVariants(0, 2)
+
+            const variants = logic.values.variants
+            expect(variants[0]).toEqual({
+                key: 'test-a',
+                name: 'Test A',
+                rollout_percentage: 33,
+            })
+            expect(variants[1]).toEqual({
+                key: 'test-b',
+                name: 'Test B',
+                rollout_percentage: 34,
+            })
+            expect(variants[2]).toEqual({
+                key: 'control',
+                name: 'Control',
+                rollout_percentage: 33,
+            })
+        })
+    })
+
+    describe('payload synchronization edge cases', () => {
+        it('handles missing payloads gracefully', () => {
+            logic.actions.setFeatureFlag({
+                ...logic.values.featureFlag,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: undefined,
+                },
+            })
+
+            expect(() => logic.actions.reorderVariants(0, 2)).not.toThrow()
+            expect(logic.values.variants[0].key).toBe('test-a')
+        })
+
+        it('handles sparse payloads correctly', () => {
+            logic.actions.setFeatureFlag({
+                ...logic.values.featureFlag,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { 0: { option: 'default' }, 2: { option: 'variant-b' } }, // Missing index 1
+                },
+            })
+
+            logic.actions.reorderVariants(0, 2)
+
+            const payloads = logic.values.featureFlag.filters?.payloads
+            expect(payloads?.[0]).toBeUndefined() // test-a had no payload
+            expect(payloads?.[1]).toEqual({ option: 'variant-b' }) // test-b payload
+            expect(payloads?.[2]).toEqual({ option: 'default' }) // control payload
+        })
     })
 })

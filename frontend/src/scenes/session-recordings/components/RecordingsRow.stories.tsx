@@ -1,6 +1,6 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
-import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
+import { RecordingRow, RecordingRowProps } from 'scenes/session-recordings/components/RecordingRow'
 
 import { SessionRecordingType } from '~/types'
 
@@ -29,7 +29,7 @@ function asRecording(param: Partial<SessionRecordingType>): SessionRecordingType
     }
 }
 
-const meta: Meta<typeof RecordingRow> = {
+const meta: Meta<RecordingRowProps> = {
     title: 'Home/RecordingRow',
     component: RecordingRow,
     parameters: {
@@ -38,25 +38,28 @@ const meta: Meta<typeof RecordingRow> = {
         },
     },
 }
+type Story = StoryObj<RecordingRowProps>
 export default meta
 
-export const Default: StoryFn<typeof RecordingRow> = () => {
-    const recordings = [
-        { activity_score: 99 },
-        { activity_score: 75 },
-        { activity_score: 50 },
-        { activity_score: 25 },
-        { activity_score: 5 },
-        { activity_score: 0 },
-    ]
+export const Default: Story = {
+    render: () => {
+        const recordings = [
+            { activity_score: 99 },
+            { activity_score: 75 },
+            { activity_score: 50 },
+            { activity_score: 25 },
+            { activity_score: 5 },
+            { activity_score: 0 },
+        ]
 
-    return (
-        <div className="flex flex-col gap-2 p-4">
-            {recordings.map((params, index) => (
-                <div key={index} className="border rounded p-2">
-                    <RecordingRow recording={asRecording(params)} />
-                </div>
-            ))}
-        </div>
-    )
+        return (
+            <div className="flex flex-col gap-2 p-4">
+                {recordings.map((params, index) => (
+                    <div key={index} className="border rounded p-2">
+                        <RecordingRow recording={asRecording(params)} />
+                    </div>
+                ))}
+            </div>
+        )
+    },
 }

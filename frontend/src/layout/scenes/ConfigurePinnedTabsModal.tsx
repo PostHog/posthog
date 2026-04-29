@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { LemonButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -44,7 +45,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
         : isAIFirst
-          ? 'Home'
+          ? 'Launchpad'
           : "Project's default dashboard"
     const homepageSubtitle = isUsingProjectDefault
         ? isAIFirst
@@ -134,9 +135,9 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
         isHomepage?: (tab: SceneTab) => boolean
     ): JSX.Element => (
         <section className="space-y-3">
-            <div>
-                <h3 className="text-lg font-semibold text-primary">{title}</h3>
-                <p className="text-sm text-muted-alt">{description}</p>
+            <div className="flex flex-col">
+                <h3 className="text-lg font-semibold text-primary m-0">{title}</h3>
+                <p className="text-sm text-tertiary m-0">{description}</p>
             </div>
             {sectionTabs.length > 0 ? (
                 <div className="space-y-2">
@@ -153,52 +154,43 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Configure tabs & home" width="48rem">
             <div className="space-y-6">
-                {renderSection(
-                    'Pinned tabs',
-                    'Pinned tabs are only visible to you and persist with the project.',
-                    personalPinnedTabs,
-                    (tab) => [homepageAction(tab), { label: 'Unpin', onClick: () => unpinTab(tab.id) }],
-                    'No pinned tabs yet.',
-                    (tab) => homepage?.id === tab.id
-                )}
-                {renderSection(
-                    'Regular tabs (unpinned)',
-                    'Regular tabs are discarded when you close your browser.',
-                    regularTabs,
-                    (tab) => [homepageAction(tab), { label: 'Pin', onClick: () => pinTab(tab.id) }],
-                    'No regular tabs available to pin.',
-                    (tab) => homepage?.id === tab.id
-                )}
-                <section className="space-y-3">
-                    <div>
-                        <h3 className="text-lg font-semibold text-primary">Homepage</h3>
-                        <p className="text-sm text-muted-alt">Choose your personal homepage for this project.</p>
+                <section className="flex flex-col gap-3">
+                    <div className="flex flex-col">
+                        <h3 className="text-lg font-semibold text-primary m-0">Homepage</h3>
+                        <p className="text-sm text-tertiary m-0">Choose your personal homepage for this project.</p>
                     </div>
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
-                        <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
-                            <div className="min-w-0">
-                                <div className="truncate font-medium text-primary">{homepageDisplayTitle}</div>
-                                {homepageSubtitle && (
-                                    <div className="truncate text-xs text-muted">{homepageSubtitle}</div>
-                                )}
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
+                            <div className="flex min-w-0 items-center gap-2">
+                                <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
+                                <div className="min-w-0">
+                                    <div className="truncate font-medium text-primary">{homepageDisplayTitle}</div>
+                                    {homepageSubtitle && (
+                                        <div className="truncate text-xs text-muted">{homepageSubtitle}</div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
                             {isAIFirst ? (
-                                <>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={() => setHomepage(null)}
-                                        disabled={isUsingProjectDefault}
-                                    >
-                                        Home
-                                    </LemonButton>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={() => {
+                                <LemonSegmentedButton
+                                    size="small"
+                                    value={
+                                        isUsingProjectDefault
+                                            ? 'launchpad'
+                                            : isUsingNewTabHomepage
+                                              ? 'search'
+                                              : isUsingDefaultDashboard
+                                                ? 'default_dashboard'
+                                                : undefined
+                                    }
+                                    onChange={(newValue) => {
+                                        posthog.capture('homepage configure set homepage', {
+                                            'homepage choice': newValue,
+                                        })
+                                        if (newValue === 'launchpad') {
+                                            setHomepage(null)
+                                        } else if (newValue === 'search') {
+                                            setHomepage(newTabHomepage)
+                                        } else if (newValue === 'default_dashboard') {
                                             const dashboardId = currentTeam?.primary_dashboard
                                             if (dashboardId) {
                                                 setHomepage({
@@ -215,32 +207,46 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                                     sceneParams: emptySceneParams,
                                                 })
                                             }
-                                        }}
-                                        disabled={isUsingDefaultDashboard || !currentTeam?.primary_dashboard}
-                                        disabledReason={
-                                            !currentTeam?.primary_dashboard
-                                                ? 'No default dashboard configured'
-                                                : undefined
                                         }
-                                    >
-                                        Default dashboard
-                                    </LemonButton>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={() => setHomepage(newTabHomepage)}
-                                        disabled={isUsingNewTabHomepage}
-                                    >
-                                        Search
-                                    </LemonButton>
-                                </>
+                                    }}
+                                    options={[
+                                        {
+                                            value: 'launchpad' as const,
+                                            label: (
+                                                <>
+                                                    Launchpad{' '}
+                                                    <LemonTag size="small" type="highlight" className="ml-1">
+                                                        New
+                                                    </LemonTag>
+                                                </>
+                                            ),
+                                            'data-attr': 'configure-homepage-modal-set-launchpad',
+                                            tooltip: 'An AI-powered home with quick actions and recent items',
+                                        },
+                                        {
+                                            value: 'search' as const,
+                                            label: 'Search',
+                                            'data-attr': 'configure-homepage-modal-set-search',
+                                            tooltip: 'A search page to quickly find anything in your project',
+                                        },
+                                        {
+                                            value: 'default_dashboard' as const,
+                                            label: 'Default dashboard',
+                                            'data-attr': 'configure-homepage-modal-set-default-dashboard',
+                                            tooltip: "Open your project's default dashboard when you go home",
+                                            disabledReason: !currentTeam?.primary_dashboard
+                                                ? 'No default dashboard configured'
+                                                : undefined,
+                                        },
+                                    ]}
+                                />
                             ) : (
-                                <>
+                                <div className="flex flex-wrap gap-2">
                                     <LemonButton
                                         size="small"
                                         type="secondary"
                                         onClick={() => setHomepage(null)}
-                                        disabled={isUsingProjectDefault}
+                                        disabledReason={isUsingProjectDefault ? 'Already your homepage' : undefined}
                                     >
                                         Use default dashboard
                                     </LemonButton>
@@ -248,31 +254,56 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                         size="small"
                                         type="secondary"
                                         onClick={() => setHomepage(newTabHomepage)}
-                                        disabled={isUsingNewTabHomepage}
+                                        disabledReason={isUsingNewTabHomepage ? 'Already your homepage' : undefined}
                                     >
                                         Use new tab page
                                     </LemonButton>
-                                </>
+                                </div>
                             )}
                         </div>
+                        {(isAIFirst ? isUsingDefaultDashboard : isUsingProjectDefault) && (
+                            <section className="space-y-3 bg-surface-secondary rounded-lg p-3 border">
+                                <div className="flex flex-col">
+                                    <h4 className="text-base font-semibold text-primary m-0">
+                                        Set default dashboard (project based)
+                                    </h4>
+                                    <p className="text-sm text-tertiary m-0">
+                                        This dashboard opens by default for everyone who has not set a custom homepage.
+                                    </p>
+                                </div>
+                                <LemonSelect<number | null>
+                                    className="w-full"
+                                    fullWidth
+                                    options={projectDefaultDashboardOptions}
+                                    value={projectDefaultDashboardId}
+                                    data-attr="configure-homepage-modal-set-default-dashboard-select"
+                                    onChange={(dashboardId) => {
+                                        posthog.capture('homepage configure default dashboard changed')
+                                        updateCurrentTeam({ primary_dashboard: dashboardId ?? null })
+                                    }}
+                                    disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
+                                />
+                            </section>
+                        )}
                     </div>
                 </section>
-                <section className="space-y-3">
-                    <div>
-                        <h3 className="text-lg font-semibold text-primary">Project default dashboard</h3>
-                        <p className="text-sm text-muted-alt">
-                            This dashboard opens by default for everyone who has not set a custom homepage.
-                        </p>
-                    </div>
-                    <LemonSelect<number | null>
-                        className="w-full"
-                        fullWidth
-                        options={projectDefaultDashboardOptions}
-                        value={projectDefaultDashboardId}
-                        onChange={(dashboardId) => updateCurrentTeam({ primary_dashboard: dashboardId ?? null })}
-                        disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
-                    />
-                </section>
+
+                {renderSection(
+                    'Pinned tabs',
+                    'Pinned tabs are only visible to you and persist with the project.',
+                    personalPinnedTabs,
+                    (tab) => [homepageAction(tab), { label: 'Unpin', onClick: () => unpinTab(tab.id) }],
+                    'No pinned tabs yet.',
+                    (tab) => homepage?.id === tab.id
+                )}
+                {renderSection(
+                    'Regular tabs (unpinned)',
+                    'Regular tabs are discarded when you close your browser.',
+                    regularTabs,
+                    (tab) => [homepageAction(tab), { label: 'Pin', onClick: () => pinTab(tab.id) }],
+                    'No regular tabs available to pin.',
+                    (tab) => homepage?.id === tab.id
+                )}
             </div>
         </LemonModal>
     )

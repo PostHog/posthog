@@ -5,7 +5,7 @@ import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
 import React from 'react'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -40,6 +40,15 @@ import {
     mockStream,
 } from './testUtils'
 import { EnhancedToolCall } from './Thread'
+
+jest.mock(
+    '@posthog/hogvm',
+    () => ({
+        exec: jest.fn(),
+        execAsync: jest.fn(),
+    }),
+    { virtual: true }
+)
 
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
@@ -744,6 +753,44 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('form resume actions', () => {
+        it('resumes the conversation with submitted form answers', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.continueAfterForm({ q1: 'answer1' })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['continueAfterForm', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: null,
+                    conversation: MOCK_CONVERSATION_ID,
+                    resume_payload: { action: 'form', form_answers: { q1: 'answer1' } },
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('resumes the conversation when the form is dismissed', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.continueAfterFormDismissal()
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['continueAfterFormDismissal', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: null,
+                    conversation: MOCK_CONVERSATION_ID,
+                    resume_payload: { action: 'dismiss_form' },
+                }),
+                expect.any(Object)
+            )
+        })
+    })
+
     describe('traceId functionality', () => {
         it('sets and stores traceId correctly', async () => {
             const testTraceId = 'test-trace-id-123'
@@ -938,6 +985,56 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('400 error message handling', () => {
+        it('surfaces server detail message for 400 errors', async () => {
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, { detail: 'The server error message' })
+            )
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            })
+                .toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+                .toMatchValues({
+                    threadGrouped: expect.arrayContaining([
+                        expect.objectContaining({
+                            type: AssistantMessageType.Failure,
+                            content: 'The server error message',
+                        }),
+                    ]),
+                })
+        })
+
+        it('shows content length message for 400 errors with content attr', async () => {
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(
+                new ApiError('Bad Request', 400, undefined, { attr: 'content', detail: 'Content too long' })
+            )
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            })
+                .toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+                .toMatchValues({
+                    threadGrouped: expect.arrayContaining([
+                        expect.objectContaining({
+                            type: AssistantMessageType.Failure,
+                            content: 'Oops! Your message is too long. Ensure it has no more than 40000 characters.',
+                        }),
+                    ]),
+                })
+        })
+    })
+
     describe('processNotebookUpdate', () => {
         it('navigates to notebook when not already on notebook page', async () => {
             router.actions.push(urls.ai())
@@ -1079,6 +1176,90 @@ describe('maxThreadLogic', () => {
 
             // Check that threadRaw is empty
             expect(logic.values.threadRaw).toEqual([])
+        })
+
+        it('loads full conversation details when mounted from a history entry without messages', async () => {
+            const conversationWithoutMessages: ConversationDetail = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'History entry',
+                user: MOCK_DEFAULT_BASIC_USER,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                type: ConversationType.Assistant,
+            }
+
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
+                conversation: conversationWithoutMessages,
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadConversation'])
+        })
+
+        it('populates the thread before reconnecting when mounted on an in-progress stream', async () => {
+            // afterMount must load the conversation and hydrate threadRaw BEFORE calling
+            // reconnectToStream — otherwise the propsChanged-driven setThread would fire
+            // after the reconnected stream has already pushed tokens, clobbering them.
+            const loadedMessages = [
+                { type: AssistantMessageType.Human, content: 'first question', id: 'human-1' },
+                { type: AssistantMessageType.Assistant, content: 'first answer', id: 'assistant-1' },
+            ]
+            logic.unmount()
+            const getSpy = jest.spyOn(api.conversations, 'get').mockResolvedValue({
+                ...MOCK_IN_PROGRESS_CONVERSATION,
+                messages: loadedMessages,
+            } as ConversationDetail)
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                tabId: 'test',
+                conversation: {
+                    // No messages field — simulates a list-level cache entry for an in-progress chat.
+                    ...MOCK_IN_PROGRESS_CONVERSATION,
+                } as ConversationDetail,
+            })
+            logic.mount()
+            // Drain pending microtasks/timers so the async afterMount runs to completion.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(getSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID)
+            // The loaded history must be present in threadRaw — proving setThread ran.
+            expect(logic.values.threadRaw).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ id: 'human-1', content: 'first question', status: 'completed' }),
+                    expect.objectContaining({ id: 'assistant-1', content: 'first answer', status: 'completed' }),
+                ])
+            )
+            // And reconnectToStream must have fired — proving the load-then-reconnect flow ran
+            // end to end, not just the load.
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ conversation: MOCK_CONVERSATION_ID, content: null }),
+                expect.any(Object)
+            )
+        })
+
+        it('does not fetch or reconnect when mounted for a new chat', async () => {
+            // parentConversationId (from maxLogic.conversationId) is the real signal for "existing
+            // backend conversation". The local maxThreadLogic.conversationId selector falls back
+            // to the frontend-generated UUID, so gating on it would fire loadConversation on every
+            // new chat and 404.
+            logic.unmount()
+            maxLogicInstance.actions.startNewConversation()
+            const getSpy = jest.spyOn(api.conversations, 'get')
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(getSpy).not.toHaveBeenCalled()
+            expect(streamSpy).not.toHaveBeenCalled()
         })
 
         it('updates threadRaw with status fields when conversation prop changes with new messages', async () => {
@@ -2592,7 +2773,7 @@ describe('maxThreadLogic', () => {
     })
 
     describe('submissionDisabledReason selector', () => {
-        it('returns "Please answer the questions above" when multiQuestionFormPending is true', async () => {
+        it('returns "Please answer, skip, or dismiss the form above" when multiQuestionFormPending is true', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setThread([
                     {
@@ -2611,7 +2792,7 @@ describe('maxThreadLogic', () => {
                     },
                 ])
             }).toMatchValues({
-                submissionDisabledReason: 'Please answer the questions above',
+                submissionDisabledReason: 'Please answer, skip, or dismiss the form above',
             })
         })
     })

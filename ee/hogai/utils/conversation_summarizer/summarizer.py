@@ -61,9 +61,9 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
         self._extend_context_window = extend_context_window
 
     def _get_model(self):
-        # Haiku has 200k token limit. Sonnet has 1M token limit.
+        # Haiku has 200k token limit. Sonnet has 1M token limit (GA on claude-sonnet-4-6).
         return MaxChatAnthropic(
-            model="claude-sonnet-4-5" if self._extend_context_window else "claude-haiku-4-5",
+            model="claude-sonnet-4-6" if self._extend_context_window else "claude-haiku-4-5",
             streaming=False,
             stream_usage=False,
             max_tokens=8192,
@@ -71,7 +71,6 @@ class AnthropicConversationSummarizer(ConversationSummarizer):
             user=self._user,
             team=self._team,
             billable=True,
-            betas=["context-1m-2025-08-07"] if self._extend_context_window else None,
         )
 
     def _construct_messages(self, messages: Sequence[BaseMessage]):

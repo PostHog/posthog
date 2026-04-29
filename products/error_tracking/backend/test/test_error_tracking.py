@@ -11,6 +11,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingSpikeEvent,
     ErrorTrackingSymbolSet,
 )
 
@@ -106,6 +107,51 @@ class TestErrorTracking(BaseTest):
         new_issue_two = ErrorTrackingIssue.objects.get(id=override_two.issue_id)
         assert new_issue_two.name == "Untitled issue"
         assert new_issue_two.description is None
+
+    def test_merge_reassigns_spike_events(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+
+        spike_one = ErrorTrackingSpikeEvent.objects.create(
+            team=self.team,
+            issue=issue_one,
+            detected_at=datetime.now(),
+            computed_baseline=5.0,
+            current_bucket_value=100,
+        )
+        spike_two = ErrorTrackingSpikeEvent.objects.create(
+            team=self.team,
+            issue=issue_two,
+            detected_at=datetime.now(),
+            computed_baseline=10.0,
+            current_bucket_value=200,
+        )
+
+        issue_two.merge(issue_ids=[issue_one.id])
+
+        # Both spike events now belong to issue_two
+        assert ErrorTrackingSpikeEvent.objects.filter(issue=issue_two).count() == 2
+        spike_one.refresh_from_db()
+        assert spike_one.issue_id == issue_two.id
+        spike_two.refresh_from_db()
+        assert spike_two.issue_id == issue_two.id
+
+    def test_split_deletes_spike_events(self):
+        issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
+
+        ErrorTrackingSpikeEvent.objects.create(
+            team=self.team, issue=issue, detected_at=datetime.now(), computed_baseline=5.0, current_bucket_value=100
+        )
+        ErrorTrackingSpikeEvent.objects.create(
+            team=self.team, issue=issue, detected_at=datetime.now(), computed_baseline=10.0, current_bucket_value=200
+        )
+
+        assert ErrorTrackingSpikeEvent.objects.filter(issue=issue).count() == 2
+
+        issue.split(fingerprints=[{"fingerprint": "fingerprint_one"}])
+
+        # Spike events on the original issue are deleted
+        assert ErrorTrackingSpikeEvent.objects.filter(issue=issue).count() == 0
 
     def test_error_tracking_issue_assignment_cascade_deletes(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team)

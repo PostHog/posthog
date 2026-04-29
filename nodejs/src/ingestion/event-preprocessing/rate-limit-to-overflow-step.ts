@@ -1,4 +1,5 @@
 import { EventHeaders, PipelineEvent } from '../../types'
+import { OVERFLOW_OUTPUT, OverflowOutput } from '../common/outputs'
 import { PipelineResult, ok, redirect } from '../pipelines/results'
 import { OverflowEventBatch, OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 
@@ -8,11 +9,10 @@ export interface RateLimitToOverflowStepInput {
 }
 
 export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepInput>(
-    overflowTopic: string,
     preservePartitionLocality: boolean,
     overflowRedirectService?: OverflowRedirectService
 ) {
-    return async function rateLimitToOverflowStep(inputs: T[]): Promise<PipelineResult<T>[]> {
+    return async function rateLimitToOverflowStep(inputs: T[]): Promise<PipelineResult<T, OverflowOutput>[]> {
         if (!overflowRedirectService) {
             return inputs.map((input) => ok(input))
         }
@@ -55,7 +55,7 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
             const eventKey = `${token}:${distinctId}`
 
             if (keysToRedirect.has(eventKey)) {
-                return redirect('rate_limit_exceeded', overflowTopic, preservePartitionLocality)
+                return redirect('rate_limit_exceeded', OVERFLOW_OUTPUT, preservePartitionLocality)
             } else {
                 return ok(input)
             }

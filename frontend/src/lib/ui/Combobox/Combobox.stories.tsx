@@ -11,13 +11,13 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from '../PopoverPrimitive/PopoverPrimitive'
-import { Combobox } from './Combobox'
+import { Combobox, ComboboxProps } from './Combobox'
 
 const meta = {
     title: 'UI/Combobox',
-    component: Combobox,
+    component: Combobox as any,
     tags: ['autodocs'],
-} satisfies Meta<typeof Combobox>
+} satisfies Meta<ComboboxProps>
 
 export default meta
 

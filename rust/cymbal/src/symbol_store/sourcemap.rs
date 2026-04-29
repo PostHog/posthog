@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use base64::Engine;
-use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
+use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, SourceAndMap};
 use reqwest::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{dart_minified_names::parse_dart_minified_names, Fetcher, Parser};
+use super::{caching::Countable, dart_minified_names::parse_dart_minified_names, Fetcher, Parser};
 
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
@@ -31,6 +31,8 @@ pub struct OwnedSourceMapCache {
     /// dart2js minified names mapping (minified -> original) for Flutter Web support.
     /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
     dart_minified_names: Option<HashMap<String, String>>,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
 }
 
 impl OwnedSourceMapCache {
@@ -38,14 +40,17 @@ impl OwnedSourceMapCache {
         // Pass-through parse once to assert we're given valid data, so the unwrap below
         // is safe.
         SourceMapCache::parse(&data)?;
+        let decompressed_bytes = data.len();
         Ok(Self {
             data,
             dart_minified_names: None,
+            decompressed_bytes,
         })
     }
 
     pub fn from_source_and_map(
         sam: SourceAndMap,
+        decompressed_bytes: usize,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
         // Parse dart2js minified names before we lose access to the raw JSON
         let dart_minified_names = parse_dart_minified_names(&sam.sourcemap);
@@ -56,6 +61,7 @@ impl OwnedSourceMapCache {
         Ok(Self {
             data,
             dart_minified_names,
+            decompressed_bytes,
         })
     }
 
@@ -71,6 +77,12 @@ impl OwnedSourceMapCache {
     }
 }
 
+impl Countable for OwnedSourceMapCache {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
+    }
+}
+
 impl SourcemapProvider {
     pub fn new(config: &Config) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
@@ -79,7 +91,27 @@ impl SourcemapProvider {
             .timeout(timeout)
             .connect_timeout(connect_timeout);
 
-        if !config.allow_internal_ips {
+        fn valid_proxy_url(var: &str) -> bool {
+            std::env::var(var)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .and_then(|v| reqwest::Url::parse(&v).ok())
+                .is_some()
+        }
+
+        let has_proxy = valid_proxy_url("HTTP_PROXY")
+            || valid_proxy_url("HTTPS_PROXY")
+            || valid_proxy_url("http_proxy")
+            || valid_proxy_url("https_proxy");
+
+        if has_proxy {
+            // When an egress proxy (e.g. smokescreen) is configured, it handles SSRF
+            // protection. The PublicIPv4Resolver would block the connection to the proxy
+            // itself since it resolves to a cluster-internal IP.
+            info!(
+                "HTTP(S)_PROXY is set, skipping PublicIPv4Resolver (proxy handles SSRF protection)"
+            );
+        } else if !config.allow_internal_ips {
             client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));
         } else {
             warn!("Internal IPs are allowed, this is a security risk");
@@ -143,8 +175,9 @@ impl Parser for SourcemapProvider {
     type Err = ResolveError;
     async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let sam: SourceAndMap = read_symbol_data(data).map_err(JsResolveErr::JSDataError)?;
-        let smc = OwnedSourceMapCache::from_source_and_map(sam)
+        let (sam, decompressed_bytes): (SourceAndMap, usize) =
+            read_symbol_data_with_byte_count(data).map_err(JsResolveErr::JSDataError)?;
+        let smc = OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
             .map_err(|_| JsResolveErr::InvalidSourceAndMap)?;
 
         start.label("success", "true").fin();

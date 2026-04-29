@@ -1,5 +1,4 @@
 import { startRegistration } from '@simplewebauthn/browser'
-import { isString } from '@tiptap/core'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
@@ -71,6 +70,12 @@ export const signupLogic = kea<signupLogicType>([
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
         setError: (error: string | null) => ({ error }),
+        // Turnstile challenge actions
+        setChallengeRequired: (required: boolean) => ({ required }),
+        setChallengeNonce: (nonce: string | null) => ({ nonce }),
+        setTurnstileSiteKey: (siteKey: string | null) => ({ siteKey }),
+        setTurnstileToken: (token: string | null) => ({ token }),
+        resetChallenge: true,
     })),
     reducers(() => ({
         panel: [
@@ -108,6 +113,33 @@ export const signupLogic = kea<signupLogicType>([
             null as string | null,
             {
                 setError: (_, { error }) => error,
+            },
+        ],
+        challengeRequired: [
+            false,
+            {
+                setChallengeRequired: (_, { required }) => required,
+                resetChallenge: () => false,
+            },
+        ],
+        challengeNonce: [
+            null as string | null,
+            {
+                setChallengeNonce: (_, { nonce }) => nonce,
+                resetChallenge: () => null,
+            },
+        ],
+        turnstileSiteKey: [
+            null as string | null,
+            {
+                setTurnstileSiteKey: (_, { siteKey }) => siteKey,
+            },
+        ],
+        turnstileToken: [
+            null as string | null,
+            {
+                setTurnstileToken: (_, { token }) => token,
+                resetChallenge: () => null,
             },
         ],
     })),
@@ -206,6 +238,11 @@ export const signupLogic = kea<signupLogicType>([
                         signupData.password = values.signupPanelAuth.password
                     }
 
+                    if (values.turnstileToken && values.challengeNonce) {
+                        signupData.turnstile_token = values.turnstileToken
+                        signupData.challenge_nonce = values.challengeNonce
+                    }
+
                     const res = await api.create('api/signup/', signupData)
 
                     if (!payload.organization_name) {
@@ -221,6 +258,16 @@ export const signupLogic = kea<signupLogicType>([
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     const error = e as Record<string, any>
+
+                    if (error.code === 'challenge_required') {
+                        actions.setTurnstileToken(null)
+                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                        actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    actions.resetChallenge()
 
                     if (error.code === 'throttled') {
                         actions.setSignupPanelOnboardingManualErrors({
@@ -311,14 +358,21 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
-                    const res = await api.create('api/signup/', {
+                    const signupData: Record<string, any> = {
                         ...values.signupPanel1,
                         ...payload,
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
                         next_url: nextUrl ?? undefined,
-                    })
+                    }
+
+                    if (values.turnstileToken && values.challengeNonce) {
+                        signupData.turnstile_token = values.turnstileToken
+                        signupData.challenge_nonce = values.challengeNonce
+                    }
+
+                    const res = await api.create('api/signup/', signupData)
 
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
@@ -329,6 +383,16 @@ export const signupLogic = kea<signupLogicType>([
                     location.href = res.redirect_url || '/'
                 } catch (e) {
                     const error = e as Record<string, any>
+
+                    if (error.code === 'challenge_required') {
+                        actions.setTurnstileToken(null)
+                        actions.setChallengeNonce(error.data?.extra?.challenge_nonce)
+                        actions.setTurnstileSiteKey(error.data?.extra?.turnstile_site_key)
+                        actions.setChallengeRequired(true)
+                        return
+                    }
+
+                    actions.resetChallenge()
 
                     if (error.code === 'throttled') {
                         actions.setSignupPanel2ManualErrors({
@@ -355,8 +419,7 @@ export const signupLogic = kea<signupLogicType>([
             (s) => [s.signupPanelAuth, s.signupPanel1],
             (signupPanelAuth, signupPanel1): ValidatedPasswordResult => {
                 // Use new form if available, fallback to legacy
-                const password = signupPanelAuth.password || signupPanel1.password
-                return validatePassword(password)
+                return validatePassword(signupPanelAuth.password || signupPanel1.password)
             },
         ],
         emailCaseNotice: [
@@ -436,6 +499,15 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setPanel(2)
             }
         },
+        setTurnstileToken: ({ token }) => {
+            if (token && values.challengeNonce) {
+                if (values.passkeySignupEnabled) {
+                    actions.submitSignupPanelOnboarding()
+                } else {
+                    actions.submitSignupPanel2()
+                }
+            }
+        },
         registerPasskey: async () => {
             const email = values.signupPanelEmail.email
             if (!email) {
@@ -492,7 +564,7 @@ export const signupLogic = kea<signupLogicType>([
                 const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
                 const regionsAllowList = ['eu', 'us']
                 const isRegionOverrideValid =
-                    isString(regionOverrideFlag) && regionsAllowList.includes(regionOverrideFlag)
+                    typeof regionOverrideFlag === 'string' && regionsAllowList.includes(regionOverrideFlag)
                 // KLUDGE: the backend can technically return null
                 // and, we don't want to redirect to the app unless the preflight region is valid
                 const isPreflightRegionValid =
