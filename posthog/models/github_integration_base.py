@@ -121,6 +121,36 @@ class GitHubIntegrationBase:
         )
 
     @staticmethod
+    def verify_user_installation_access(installation_id: str, user_access_token: str) -> bool:
+        """Check that a GitHub user has access to the given App installation.
+
+        Calls ``GET /user/installations/{id}/repositories`` with the user's
+        OAuth token.  Returns ``True`` when the user has access, ``False``
+        when GitHub returns 404 (no access).  Raises on network errors or
+        unexpected status codes so callers can surface an appropriate error.
+        """
+        response = requests.get(  # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- installation_id is validated as digits-only by callers
+            f"https://api.github.com/user/installations/{installation_id}/repositories",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {user_access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            params={"per_page": 1},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            return True
+        if response.status_code == 404:
+            return False
+        logger.warning(
+            "verify_user_installation_access: unexpected status",
+            installation_id=installation_id,
+            status_code=response.status_code,
+        )
+        raise requests.RequestException(f"Unexpected status {response.status_code} verifying installation access")
+
+    @staticmethod
     def _rate_limit_header(headers: Mapping[str, str] | None, name: str) -> float | None:
         if headers is None:
             return None

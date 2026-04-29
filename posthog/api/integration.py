@@ -12,6 +12,8 @@ from django.shortcuts import redirect
 from django.utils import timezone
 
 import stripe
+import requests
+import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -62,6 +64,8 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+logger = structlog.get_logger(__name__)
 
 
 def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, install_signature: str) -> bool:
@@ -241,6 +245,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             config = validated_data.get("config", {})
             installation_id = config.get("installation_id")
             state = config.get("state")
+            code = config.get("code")
 
             if not installation_id:
                 raise ValidationError("An installation_id must be provided")
@@ -248,41 +253,73 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if not state:
                 raise ValidationError("A state token must be provided")
 
+            if not code:
+                raise ValidationError("An OAuth code must be provided")
+
             cache_key = f"github_state:{request.user.id}"
             expected_state = cache.get(cache_key)
             if not expected_state or expected_state != state:
                 raise ValidationError("Invalid or expired state token")
             cache.delete(cache_key)
 
+            # Exchange the OAuth code for the user's access token and identity.
+            # This requires GITHUB_APP_CLIENT_SECRET to be configured.
+            authorization = GitHubIntegration.github_user_from_code(code)
+            if authorization is None:
+                raise ValidationError(
+                    "Failed to exchange the OAuth code — ensure GITHUB_APP_CLIENT_SECRET is configured"
+                )
+
+            # Verify the connecting user actually has access to this installation.
+            # Without this, an attacker could supply another tenant's installation_id
+            # with their own OAuth code and obtain an installation token scoped to
+            # the other tenant's repos.
+            if not re.fullmatch(r"\d{1,20}", str(installation_id)):
+                raise ValidationError("Invalid installation_id")
+            try:
+                has_access = GitHubIntegration.verify_user_installation_access(
+                    installation_id, authorization.access_token
+                )
+            except requests.RequestException:
+                logger.warning(
+                    "github_integration_create: installation ownership check failed",
+                    installation_id=installation_id,
+                    user_id=request.user.id,
+                    exc_info=True,
+                )
+                raise ValidationError("Failed to verify installation access")
+            if not has_access:
+                logger.warning(
+                    "github_integration_create: user does not have access to installation",
+                    installation_id=installation_id,
+                    user_id=request.user.id,
+                )
+                raise ValidationError("You do not have access to this GitHub installation")
+
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
 
-            # If the frontend forwarded an OAuth code from "Request user authorization during installation",
-            # exchange it for the connecting user's identity and user-to-server tokens. We store the
-            # login on the team integration (shown on the integration card) and auto-create a
-            # UserIntegration so the user immediately has personal GitHub credentials for
-            # PR authorship and identity attribution - no separate "Linked accounts" step needed
-            code = config.get("code")
-            if code:
-                authorization = GitHubIntegration.github_user_from_code(code)
-                if authorization is not None:
-                    instance.config["connecting_user_github_login"] = authorization.gh_login
-                    instance.save(update_fields=["config"])
-                    # Auto-create a UserIntegration so the user immediately has personal
-                    # GitHub credentials. create_only=True uses get_or_create atomically —
-                    # an existing personal integration (e.g. set up via Linked Accounts) is
-                    # left untouched even under concurrent requests.
-                    user_github_integration_from_installation(
-                        request.user,
-                        GitHubInstallationAccess(
-                            installation_id=installation_id,
-                            installation_info=instance.config,
-                            access_token=instance.sensitive_config.get("access_token", ""),
-                            token_expires_at=_installation_token_expires_at(instance),
-                            repository_selection=instance.config.get("repository_selection", "selected"),
-                        ),
-                        authorization,
-                        create_only=True,
-                    )
+            # Store the connecting user's GitHub login on the team integration
+            # (shown on the integration card) and auto-create a UserIntegration
+            # so the user immediately has personal GitHub credentials for
+            # PR authorship and identity attribution
+            instance.config["connecting_user_github_login"] = authorization.gh_login
+            instance.save(update_fields=["config"])
+            # Auto-create a UserIntegration so the user immediately has personal
+            # GitHub credentials. create_only=True uses get_or_create atomically —
+            # an existing personal integration (e.g. set up via Linked Accounts) is
+            # left untouched even under concurrent requests.
+            user_github_integration_from_installation(
+                request.user,
+                GitHubInstallationAccess(
+                    installation_id=installation_id,
+                    installation_info=instance.config,
+                    access_token=instance.sensitive_config.get("access_token", ""),
+                    token_expires_at=_installation_token_expires_at(instance),
+                    repository_selection=instance.config.get("repository_selection", "selected"),
+                ),
+                authorization,
+                create_only=True,
+            )
 
             return instance
 
