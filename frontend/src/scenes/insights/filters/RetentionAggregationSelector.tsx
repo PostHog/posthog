@@ -160,13 +160,8 @@ export function RetentionAggregationSelector(): JSX.Element {
                                     {aggregationType === 'sum'
                                         ? PROPERTY_MATH_DEFINITIONS[PropertyMathType.Sum].name.toLowerCase()
                                         : PROPERTY_MATH_DEFINITIONS[PropertyMathType.Average].name.toLowerCase()}{' '}
-                                    from{' '}
-                                    {aggregationPropertyType === 'person'
-                                        ? 'person'
-                                        : aggregationPropertyType === 'data_warehouse'
-                                          ? 'data warehouse'
-                                          : 'event'}{' '}
-                                    property <code>{currentValue}</code>.
+                                    from {aggregationPropertyType.replace('_', ' ')} property{' '}
+                                    <code>{currentValue}</code>.
                                     {aggregationPropertyType === 'event' && (
                                         <>
                                             <br />
