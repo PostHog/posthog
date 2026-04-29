@@ -291,10 +291,12 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Delay survey popup',
-        sdkVersions: { 'posthog-js': '1.141.0' },
+        sdkVersions: {
+            'posthog-js': '1.141.0',
+            'posthog-ios': '3.54.0',
+        },
         unsupportedSdks: [
             { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3193' },
-            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/499' },
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/448' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/322' },
         ],
