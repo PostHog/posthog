@@ -68,6 +68,7 @@ Any_Source_Errors: dict[str, str | None] = {
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
     "Integration matching query does not exist": None,
+    "Encrypted credentials could not be decrypted": "Encrypted credentials could not be decrypted - please re-enter your credentials",
 }
 
 

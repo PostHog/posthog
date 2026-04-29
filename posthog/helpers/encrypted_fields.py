@@ -8,10 +8,13 @@ from django.conf import settings
 from django.db import models
 from django.utils.functional import cached_property
 
+import structlog
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+logger = structlog.get_logger(__name__)
 
 
 class EncryptedFieldMixin:
@@ -90,10 +93,24 @@ class EncryptedFieldMixin:
         try:
             value = self.decrypt(value=value)
         except InvalidToken:
-            pass
+            # When `ignore_decrypt_errors=True`, `decrypt` returns the value as-is and we
+            # never reach this branch. Reaching here means a ciphertext could not be
+            # decrypted with any available key — surface it instead of silently passing
+            # encrypted bytes through to consumers.
+            self._log_decrypt_failure()
+            raise
         except UnicodeEncodeError:
             pass
         return super().to_python(value)  # type: ignore
+
+    def _log_decrypt_failure(self, *, nested: bool = False) -> None:
+        model = getattr(self, "model", None)
+        logger.warning(
+            "encrypted_field_decrypt_failed",
+            model=getattr(model, "__name__", None) if model else None,
+            field=getattr(self, "name", None),
+            nested=nested,
+        )
 
     def clean(self, value, model_instance):
         """
@@ -171,7 +188,14 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
         try:
             value = self._decrypt_values(value=json.loads(value))
         except InvalidToken:
-            pass
+            # If we get here, at least one nested value could not be decrypted with any
+            # available key. Falling back to the raw JSON (as the previous implementation
+            # did) silently leaks ciphertext into downstream code that expects plaintext
+            # — e.g. the data warehouse SSH-tunnel port parser then crashes inside a
+            # Temporal activity. Log and re-raise so callers / fields with
+            # `ignore_decrypt_errors=True` opt in explicitly to the soft-fail behavior.
+            self._log_decrypt_failure(nested=True)
+            raise
         except UnicodeEncodeError:
             pass
         return super(EncryptedFieldMixin, self).to_python(value)

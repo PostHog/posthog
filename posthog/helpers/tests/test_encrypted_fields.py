@@ -1,8 +1,13 @@
+import json
+
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from posthog.helpers.encrypted_fields import EncryptedFieldMixin
+from cryptography.fernet import InvalidToken
+
+from posthog.helpers.encrypted_fields import EncryptedFieldMixin, EncryptedJSONField
 
 
 class TestEncryptedFields(BaseTest):
@@ -22,3 +27,36 @@ class TestEncryptedFields(BaseTest):
         decrypted = ef.f.decrypt(bytes(encrypted, "utf-8")).decode("utf-8")
 
         assert decrypted == "test-case"
+
+    def test_encrypted_json_field_raises_on_undecryptable_value(self):
+        """A nested ciphertext that cannot be decrypted must raise instead of silently
+        passing the encrypted blob through to consumers (which previously crashed
+        downstream parsers with `ValueError: invalid literal for int()`)."""
+
+        field = EncryptedJSONField()
+        # Build a value where one nested string is encrypted under a *different* key,
+        # so it will not be decryptable with the current `field.f`.
+        valid_token = field.encrypt("443")
+        # A Fernet token with a different MAC — guaranteed to not decrypt under our keys.
+        bad_token = (
+            "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAP89mTGU6xUyLcVUIB4ySnX2Y8ZgwLALpzYGfm76Fk64vPRY62flSIigMa_MqTlKyA=="
+        )
+        raw = json.dumps({"port": valid_token, "secret": bad_token})
+
+        with pytest.raises(InvalidToken):
+            field.to_python(raw)
+
+    def test_encrypted_json_field_ignore_decrypt_errors_returns_value(self):
+        """`ignore_decrypt_errors=True` keeps the legacy soft-fail behavior."""
+
+        field = EncryptedJSONField(ignore_decrypt_errors=True)
+        bad_token = (
+            "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAP89mTGU6xUyLcVUIB4ySnX2Y8ZgwLALpzYGfm76Fk64vPRY62flSIigMa_MqTlKyA=="
+        )
+        raw = json.dumps({"k": bad_token})
+
+        result = field.to_python(raw)
+
+        # With `ignore_decrypt_errors=True` we do not raise; the un-decryptable
+        # value is returned as-is (no plaintext available).
+        assert result == {"k": bad_token}

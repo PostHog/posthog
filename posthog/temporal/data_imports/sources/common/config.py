@@ -566,13 +566,33 @@ def str_to_bool(s: str | bool) -> bool:
     return s.lower() in {"true", "yes", "1"}
 
 
+class EncryptedCredentialsError(ValueError):
+    """Raised when an encrypted credential leaks into a plaintext converter.
+
+    Indicates that an `EncryptedJSONField` value was persisted with an
+    encryption key that is no longer available (e.g. key rotation), so the
+    decrypted dict still contains raw Fernet ciphertext. The data warehouse
+    pipeline maps this exception to a non-retryable error so the source is
+    disabled with a clear message instead of looping on `int(<ciphertext>)`.
+    """
+
+
+def _looks_like_fernet_token(s: str) -> bool:
+    # All Fernet v1 tokens start with `gAAAAA` (URL-safe base64 of the
+    # version byte 0x80 plus the leading timestamp bytes).
+    return s.startswith("gAAAAA")
+
+
 def str_to_int(s: str | int) -> int:
     """A converter to return a str to an int."""
 
     if isinstance(s, int):
         return s
-    else:
-        return int(s)
+    if _looks_like_fernet_token(s):
+        raise EncryptedCredentialsError(
+            "Encrypted credentials could not be decrypted - please re-enter your credentials"
+        )
+    return int(s)
 
 
 def str_to_optional_int(s: str | int | None) -> int | None:
@@ -581,8 +601,11 @@ def str_to_optional_int(s: str | int | None) -> int | None:
         return s
     elif s is None or s.strip() == "":
         return None
-    else:
-        return int(s)
+    if _looks_like_fernet_token(s):
+        raise EncryptedCredentialsError(
+            "Encrypted credentials could not be decrypted - please re-enter your credentials"
+        )
+    return int(s)
 
 
 _DefaultType = typing.TypeVar("_DefaultType")

@@ -1,5 +1,7 @@
 import typing
 
+import pytest
+
 from posthog.temporal.data_imports.sources.common import config
 
 
@@ -437,3 +439,47 @@ def test_validate_dict_with_nested_dict():
 
     assert is_valid is False
     assert len(errors) == 1
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "gAAAAABp8oE6_tsGSDpvyZDfakefakefakefakefakefake==",
+        "gAAAAAAabc",
+    ],
+)
+def test_str_to_int_rejects_fernet_token(value):
+    """A Fernet ciphertext leaking into a port converter should not crash with `ValueError: invalid literal for int()`."""
+
+    with pytest.raises(config.EncryptedCredentialsError, match="re-enter your credentials"):
+        config.str_to_int(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "gAAAAABp8oE6_tsGSDpvyZDfakefakefakefakefakefake==",
+        "gAAAAAAabc",
+    ],
+)
+def test_str_to_optional_int_rejects_fernet_token(value):
+    with pytest.raises(config.EncryptedCredentialsError, match="re-enter your credentials"):
+        config.str_to_optional_int(value)
+
+
+def test_str_to_int_still_parses_plain_integer():
+    assert config.str_to_int("22") == 22
+    assert config.str_to_int(2222) == 2222
+
+
+def test_str_to_optional_int_still_parses_plain_and_empty():
+    assert config.str_to_optional_int("22") == 22
+    assert config.str_to_optional_int("") is None
+    assert config.str_to_optional_int(None) is None
+    assert config.str_to_optional_int(2222) == 2222
+
+
+def test_encrypted_credentials_error_is_a_value_error():
+    """`EncryptedCredentialsError` should still satisfy any code that catches `ValueError`."""
+
+    assert issubclass(config.EncryptedCredentialsError, ValueError)
