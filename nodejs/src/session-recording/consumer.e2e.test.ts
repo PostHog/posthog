@@ -25,13 +25,12 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
-    REPLAY_EVENTS_OUTPUT,
-    SESSION_FEATURES_OUTPUT,
     TOPHOG_OUTPUT,
 } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '../session-replay/shared/outputs'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../utils/db/postgres'

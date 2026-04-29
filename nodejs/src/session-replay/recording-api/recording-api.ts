@@ -3,7 +3,6 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
-import { ReplayEventsOutput, SessionFeaturesOutput } from '../../ingestion/common/outputs'
 import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import {
     HealthCheckResult,
@@ -21,6 +20,7 @@ import { SessionFeatureStore } from '../shared/features/session-feature-store'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '../shared/outputs'
 import { RetentionService } from '../shared/retention/retention-service'
 import { TeamService } from '../shared/teams/team-service'
 import { RecordingService } from './recording-service'

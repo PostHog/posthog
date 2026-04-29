@@ -24,12 +24,6 @@ export type LogEntriesOutput = typeof LOG_ENTRIES_OUTPUT
 export const TOPHOG_OUTPUT = 'tophog' as const
 export type TophogOutput = typeof TOPHOG_OUTPUT
 
-export const REPLAY_EVENTS_OUTPUT = 'replay_events' as const
-export type ReplayEventsOutput = typeof REPLAY_EVENTS_OUTPUT
-
-export const SESSION_FEATURES_OUTPUT = 'session_features' as const
-export type SessionFeaturesOutput = typeof SESSION_FEATURES_OUTPUT
-
 // Producer names
 
 /**

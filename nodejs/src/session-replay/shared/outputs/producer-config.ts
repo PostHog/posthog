@@ -8,7 +8,7 @@ import type { AllowedConfigKey } from '../../../ingestion/outputs/kafka-producer
  * Other services still use the legacy `KAFKA_PRODUCER_*` map in
  * `ingestion/common/config.ts` and have not been migrated.
  */
-export const DEFAULT_PRODUCER_CONFIG_MAP = {
+export const SESSION_REPLAY_DEFAULT_PRODUCER_CONFIG_MAP = {
     'client.id': 'KAFKA_DEFAULT_PRODUCER_CLIENT_ID',
     'metadata.broker.list': 'KAFKA_DEFAULT_PRODUCER_METADATA_BROKER_LIST',
     'security.protocol': 'KAFKA_DEFAULT_PRODUCER_SECURITY_PROTOCOL',
@@ -31,7 +31,7 @@ export const DEFAULT_PRODUCER_CONFIG_MAP = {
     'max.in.flight.requests.per.connection': 'KAFKA_DEFAULT_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION',
 } as const satisfies Partial<Record<AllowedConfigKey, string>>
 
-/** Env var keys referenced by `DEFAULT_PRODUCER_CONFIG_MAP`. */
+/** Env var keys referenced by `SESSION_REPLAY_DEFAULT_PRODUCER_CONFIG_MAP`. */
 export type KafkaDefaultProducerEnvConfig = {
     KAFKA_DEFAULT_PRODUCER_CLIENT_ID: string
     KAFKA_DEFAULT_PRODUCER_METADATA_BROKER_LIST: string

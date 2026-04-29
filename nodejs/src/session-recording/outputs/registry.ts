@@ -3,11 +3,10 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
-    REPLAY_EVENTS_OUTPUT,
-    SESSION_FEATURES_OUTPUT,
     TOPHOG_OUTPUT,
 } from '../../ingestion/common/outputs'
 import { IngestionOutputsBuilder } from '../../ingestion/outputs/ingestion-outputs-builder'
+import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '../../session-replay/shared/outputs'
 
 /** Register all session replay outputs on the builder. Call `.build(registry, config)` to resolve. */
 export function createOutputsRegistry() {

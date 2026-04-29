@@ -1,10 +1,10 @@
 import { randomUUID } from 'crypto'
 
-import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '../../../ingestion/common/outputs'
 import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '../outputs'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {

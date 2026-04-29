@@ -9,8 +9,6 @@ import {
     IngestionWarningsOutput,
     LogEntriesOutput,
     OverflowOutput,
-    ReplayEventsOutput,
-    SessionFeaturesOutput,
     TophogOutput,
 } from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
@@ -29,6 +27,7 @@ import { SessionFeatureStore } from '../session-replay/shared/features/session-f
 import { getKeyStore } from '../session-replay/shared/keystore'
 import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
 import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '../session-replay/shared/outputs'
 import { RetentionService } from '../session-replay/shared/retention/retention-service'
 import { TeamService } from '../session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
