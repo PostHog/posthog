@@ -30,6 +30,7 @@ export {
     useTaxonomicAutocomplete,
     useTaxonomicAutocompleteCategories,
     useTaxonomicAutocompleteItemDetails,
+    useTaxonomicAutocompleteShortcutItems,
 } from './AutocompleteInput'
 export { TaxonomicFilterContext, useTaxonomicFilterContext } from './context'
 export type { TaxonomicFilterRootProps } from './Root'
@@ -50,6 +51,7 @@ export type {
     TaxonomicAutocompleteItemDetails,
     TaxonomicAutocompleteItemsProps,
     TaxonomicAutocompleteListProps,
+    TaxonomicAutocompleteMenuTriggerProps,
     TaxonomicAutocompletePage,
     TaxonomicAutocompletePageKind,
     TaxonomicAutocompleteRootProps,

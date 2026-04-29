@@ -52,6 +52,13 @@ import {
     Button,
     ButtonGroup,
     cn,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
     InputGroup,
     InputGroupInput,
     Popover,
@@ -190,6 +197,23 @@ interface AutocompleteCtx {
     detailsTypes: ReadonlySet<TaxonomicFilterGroupType>
     addDetailsType: (t: TaxonomicFilterGroupType) => void
     removeDetailsType: (t: TaxonomicFilterGroupType) => void
+    /**
+     * Group types managed by `<MenuTrigger>` shortcuts — excluded from
+     * popover chips + list so they only surface in the dropdown menu.
+     */
+    dropdownManagedTypes: ReadonlySet<TaxonomicFilterGroupType>
+    addDropdownManagedType: (t: TaxonomicFilterGroupType) => void
+    removeDropdownManagedType: (t: TaxonomicFilterGroupType) => void
+    /** True while a `<MenuTrigger>` is mounted. */
+    hasMenuTrigger: boolean
+    setHasMenuTrigger: (v: boolean) => void
+    /**
+     * Ref to the trigger button when `<MenuTrigger>` is in use — Content
+     * uses this as the popover anchor instead of `<PopoverTrigger>`. Lets
+     * the menu and popover share the same visible button without their
+     * click handlers fighting each other.
+     */
+    triggerRef: RefObject<HTMLElement | null>
     /** Open the configurator for an entry (e.g. clicking the item segment of SegmentedTrigger). */
     openConfigureFor: (entry: IndexedItem) => void
     /** Open the details sheet for an entry (e.g. arrow-right → View cell). */
@@ -313,6 +337,11 @@ export function Root({
     const [pendingTitle, setPendingTitle] = useState<ReactNode | null>(null)
     const [configuredTypes, setConfiguredTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
     const [detailsTypes, setDetailsTypes] = useState<Set<TaxonomicFilterGroupType>>(() => new Set())
+    const [dropdownManagedTypes, setDropdownManagedTypes] = useState<Set<TaxonomicFilterGroupType>>(
+        () => new Set()
+    )
+    const [hasMenuTrigger, setHasMenuTrigger] = useState(false)
+    const triggerRef = useRef<HTMLElement | null>(null)
     const seededRef = useRef(false)
     const inputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = useCallback((): void => {
@@ -359,6 +388,26 @@ export function Root({
             return next
         })
     }, [])
+    const addDropdownManagedType = useCallback((t: TaxonomicFilterGroupType): void => {
+        setDropdownManagedTypes((prev) => {
+            if (prev.has(t)) {
+                return prev
+            }
+            const next = new Set(prev)
+            next.add(t)
+            return next
+        })
+    }, [])
+    const removeDropdownManagedType = useCallback((t: TaxonomicFilterGroupType): void => {
+        setDropdownManagedTypes((prev) => {
+            if (!prev.has(t)) {
+                return prev
+            }
+            const next = new Set(prev)
+            next.delete(t)
+            return next
+        })
+    }, [])
 
     const isControlled = open !== undefined
     const isOpen = isControlled ? open : internalOpen
@@ -373,17 +422,19 @@ export function Root({
     )
 
     const visibleGroups = useMemo(
-        // Only exclude *curation* meta (Recent / Pinned / Suggested) — those
-        // exist as user shortcuts elsewhere and shouldn't appear as chips.
-        // The orchestrator's `metaGroupTypes` lumps in render-driven groups
-        // like HogQLExpression and Wildcards, but those ARE first-class
-        // selectable categories from this picker's perspective and need to
-        // surface in the chip row + targetGroups so synthetic rows render.
-        () =>
-            excludeMetaFromAll
-                ? groups.filter((g) => !CURATION_META_GROUP_TYPES.has(g.type))
-                : groups,
-        [groups, excludeMetaFromAll]
+        // Exclude *curation* meta (Recent / Pinned / Suggested) — those
+        // exist as user shortcuts elsewhere. Also exclude any types
+        // registered as `dropdownManagedTypes` by `<MenuTrigger>` (DWH /
+        // HogQL surfaced as menu shortcuts, not chips).
+        () => {
+            const hidden = new Set<TaxonomicFilterGroupType>()
+            if (excludeMetaFromAll) {
+                CURATION_META_GROUP_TYPES.forEach((t) => hidden.add(t))
+            }
+            dropdownManagedTypes.forEach((t) => hidden.add(t))
+            return hidden.size > 0 ? groups.filter((g) => !hidden.has(g.type)) : groups
+        },
+        [groups, excludeMetaFromAll, dropdownManagedTypes]
     )
 
     // Resolve `defaultSelected` once a matching group is available. Single
@@ -592,6 +643,12 @@ export function Root({
             detailsTypes,
             addDetailsType,
             removeDetailsType,
+            dropdownManagedTypes,
+            addDropdownManagedType,
+            removeDropdownManagedType,
+            hasMenuTrigger,
+            setHasMenuTrigger,
+            triggerRef,
             openConfigureFor,
             openDetailsFor,
             commitPending,
@@ -630,6 +687,10 @@ export function Root({
             detailsTypes,
             addDetailsType,
             removeDetailsType,
+            dropdownManagedTypes,
+            addDropdownManagedType,
+            removeDropdownManagedType,
+            hasMenuTrigger,
             openConfigureFor,
             openDetailsFor,
             commitPending,
@@ -692,7 +753,24 @@ export function Root({
 function PopoverWrapper({ children }: { children: ReactNode }): JSX.Element {
     const ctx = useAutocompleteCtx()
     return (
-        <Popover open={ctx.open} onOpenChange={ctx.setOpen}>
+        <Popover
+            open={ctx.open}
+            onOpenChange={(open, details) => {
+                // When MenuTrigger is mounted, the popover trigger and the
+                // dropdown-menu trigger live on the same button. Pressing
+                // it should open the MENU only — `trigger-press` opens
+                // here are dropped. Programmatic opens (menu items calling
+                // ctx.setOpen) come through with reason='none' and pass.
+                if (
+                    open &&
+                    ctx.hasMenuTrigger &&
+                    (details?.reason === 'trigger-press' || details?.reason === 'trigger-hover')
+                ) {
+                    return
+                }
+                ctx.setOpen(open)
+            }}
+        >
             {children}
         </Popover>
     )
@@ -817,15 +895,9 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
     }
 
     return (
-        // Hard height — `min-h` + `max-h` still let Floating UI nudge the
-        // popup as content swapped between root and sub-views. `h-[480px]`
-        // pins it dead, list scrolls inside.
+        // Hard height pins the surface so view-stack swaps don't reflow.
         <PopoverContent
             className={cn(
-                // `gap-0` overrides Quill's default `gap-4` between popup
-                // children — base-ui's AriaCombobox slips hidden inputs in
-                // alongside our wrapper, and the gap was bumping our
-                // wrapper down inside the popup.
                 'p-0 gap-0 w-(--anchor-width) min-w-[320px] h-[480px] overflow-hidden',
                 className
             )}
@@ -841,9 +913,7 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
             >
                 {/* Wrapper owns: Esc-as-back in sub-view, Tab loop in
                     sub-view (covers Header back button + form fields), and
-                    base-ui key swallowing in root view. `flex-1 min-h-0
-                    overflow-hidden` so the inner ScrollArea can shrink + clip
-                    cleanly without the popover doing the scrolling. */}
+                    base-ui key swallowing in root view. */}
                 <div
                     className="flex flex-col flex-1 min-h-0 overflow-hidden"
                     onKeyDown={(e) => {
@@ -1729,10 +1799,248 @@ function SegmentedTrigger({
     )
 }
 
+/**
+ * Pinned + suggested entries surfaced through `<MenuTrigger>` shortcuts.
+ * Pinned items come from `taxonomicFilterPinnedPropertiesLogic`; suggested
+ * items come from the orchestrator's synthetic `SuggestedFilters` group
+ * (`group.options`). Both are mapped back to the source group so
+ * `ctx.onSelectEntry(entry)` commits to the right group.
+ */
+export function useTaxonomicAutocompleteShortcutItems(): {
+    pinned: TaxonomicAutocompleteEntry[]
+    suggested: TaxonomicAutocompleteEntry[]
+} {
+    const { groups } = useTaxonomicFilterContext()
+    const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
+
+    return useMemo<{ pinned: TaxonomicAutocompleteEntry[]; suggested: TaxonomicAutocompleteEntry[] }>(() => {
+        const findGroup = (type: TaxonomicFilterGroupType | undefined): TaxonomicFilterGroup | undefined =>
+            type ? groups.find((g) => g.type === type) : undefined
+
+        const buildEntry = (
+            item: TaxonomicDefinitionTypes,
+            sourceType: TaxonomicFilterGroupType | undefined
+        ): TaxonomicAutocompleteEntry | null => {
+            const group = findGroup(sourceType)
+            if (!group) {
+                return null
+            }
+            const name = getRawName(item, group)
+            return { item, group, name, friendlyLabel: getFriendlyLabel(item, group) }
+        }
+
+        const pinned: TaxonomicAutocompleteEntry[] = (
+            pinnedFilterItems as Array<TaxonomicDefinitionTypes & { _pinnedContext?: { sourceGroupType?: TaxonomicFilterGroupType } }>
+        )
+            .map((item) => buildEntry(item, item._pinnedContext?.sourceGroupType))
+            .filter((e): e is TaxonomicAutocompleteEntry => e != null)
+
+        const suggestedGroup = findGroup(TaxonomicFilterGroupType.SuggestedFilters)
+        const suggestedOptions =
+            ((suggestedGroup as { options?: Array<{ name: string; group: TaxonomicFilterGroupType }> } | undefined)
+                ?.options ?? []) as Array<{ name: string; group: TaxonomicFilterGroupType }>
+        const suggested: TaxonomicAutocompleteEntry[] = suggestedOptions
+            .map((opt) =>
+                buildEntry({ name: opt.name } as unknown as TaxonomicDefinitionTypes, opt.group)
+            )
+            .filter((e): e is TaxonomicAutocompleteEntry => e != null)
+
+        return { pinned, suggested }
+    }, [groups, pinnedFilterItems])
+}
+
+const DEFAULT_MENU_SHORTCUT_GROUPS: readonly TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
+
+export interface TaxonomicAutocompleteMenuTriggerProps {
+    /**
+     * Group types managed by the menu — surfaced as menu items, removed
+     * from popover chips/list. Default: DataWarehouse + HogQLExpression.
+     */
+    shortcutGroups?: readonly TaxonomicFilterGroupType[]
+    /** Label for the "open the search popover" menu item. */
+    chooseFilterLabel?: ReactNode
+    /** Static render element passed to the menu trigger. */
+    render?: ReactElement
+    /** Render-function form. Receives full trigger state. */
+    children?: ReactNode | ((state: TaxonomicAutocompleteTriggerState) => ReactElement)
+}
+
+/**
+ * Dropdown-menu trigger that fronts the popover with quick-action items.
+ * Click → opens menu, menu offers:
+ *   - "Choose filter…" → opens the popover (search list)
+ *   - Pinned items → commit directly
+ *   - Suggested items → commit directly
+ *   - Per-shortcut group → DWH opens popover at DWH category, HogQL opens
+ *     the editor sub-page
+ *
+ * Composes Popover + DropdownMenu on the same button via `render` so the
+ * popover can still anchor to the trigger (PopoverWrapper gates the
+ * trigger-press so the click only opens the menu, not the popover).
+ */
+function MenuTrigger({
+    shortcutGroups = DEFAULT_MENU_SHORTCUT_GROUPS,
+    chooseFilterLabel = 'Choose filter…',
+    render,
+    children,
+}: TaxonomicAutocompleteMenuTriggerProps): JSX.Element {
+    const ctx = useAutocompleteCtx()
+    const { groups } = useTaxonomicFilterContext()
+    const { pinned, suggested } = useTaxonomicAutocompleteShortcutItems()
+    const [menuOpen, setMenuOpen] = useState(false)
+
+    // Register shortcut groups + flag the trigger so PopoverWrapper gates
+    // the trigger-press. Stable join key avoids re-running on render.
+    const key = shortcutGroups.join(',')
+    useEffect(() => {
+        shortcutGroups.forEach((t) => ctx.addDropdownManagedType(t))
+        ctx.setHasMenuTrigger(true)
+        return () => {
+            shortcutGroups.forEach((t) => ctx.removeDropdownManagedType(t))
+            ctx.setHasMenuTrigger(false)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key])
+
+    const selected = ctx.selectedEntry
+    const label =
+        (selected?.friendlyLabel && selected.friendlyLabel.length > 0 ? selected.friendlyLabel : selected?.name) ||
+        ctx.triggerLabel ||
+        ctx.inputPlaceholder ||
+        'Filter'
+    const state: TaxonomicAutocompleteTriggerState = {
+        open: ctx.open,
+        selected,
+        label,
+        placeholder: ctx.inputPlaceholder,
+        value: ctx.value,
+        category: ctx.category,
+        clearSelection: ctx.clearSelection,
+    }
+    let triggerEl: ReactElement
+    if (typeof children === 'function') {
+        triggerEl = children(state)
+    } else if (render) {
+        triggerEl = render
+    } else {
+        triggerEl = <Button variant="outline">{label}</Button>
+    }
+
+    const dwhGroup = groups.find((g) => g.type === TaxonomicFilterGroupType.DataWarehouse)
+    const hogqlGroup = groups.find((g) => g.type === TaxonomicFilterGroupType.HogQLExpression)
+    const showDwhShortcut =
+        shortcutGroups.includes(TaxonomicFilterGroupType.DataWarehouse) && !!dwhGroup
+    const showHogqlShortcut =
+        shortcutGroups.includes(TaxonomicFilterGroupType.HogQLExpression) && !!hogqlGroup
+
+    return (
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            {/* Single button = both the menu trigger AND the popover anchor.
+                base-ui composes both components' props onto the same DOM
+                node via render. Clicks open the menu; the popover's
+                trigger-press reason is dropped in PopoverWrapper so it
+                doesn't auto-open. Programmatic opens (menu items calling
+                ctx.setOpen) bypass the gate. */}
+            <DropdownMenuTrigger render={<PopoverTrigger render={triggerEl} />} />
+            <DropdownMenuContent align="start" className="min-w-[240px]">
+                <DropdownMenuItem
+                    onClick={() => {
+                        setMenuOpen(false)
+                        ctx.setOpen(true)
+                    }}
+                    data-attr="taxonomic-menu-choose-filter"
+                >
+                    {chooseFilterLabel}
+                </DropdownMenuItem>
+                {pinned.length > 0 && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>Pinned</DropdownMenuLabel>
+                            {pinned.map((entry) => {
+                                const entryValue = entry.group.getValue?.(entry.item)
+                                const itemKey = `pinned-${entry.group.type}-${String(entryValue ?? entry.name)}`
+                                return (
+                                    <DropdownMenuItem
+                                        key={itemKey}
+                                        onClick={() => {
+                                            setMenuOpen(false)
+                                            ctx.onSelectEntry(entry)
+                                        }}
+                                    >
+                                        {entry.friendlyLabel ?? entry.name}
+                                    </DropdownMenuItem>
+                                )
+                            })}
+                        </DropdownMenuGroup>
+                    </>
+                )}
+                {suggested.length > 0 && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>Suggested</DropdownMenuLabel>
+                            {suggested.map((entry) => {
+                                const entryValue = entry.group.getValue?.(entry.item)
+                                const itemKey = `suggested-${entry.group.type}-${String(entryValue ?? entry.name)}`
+                                return (
+                                    <DropdownMenuItem
+                                        key={itemKey}
+                                        onClick={() => {
+                                            setMenuOpen(false)
+                                            ctx.onSelectEntry(entry)
+                                        }}
+                                    >
+                                        {entry.friendlyLabel ?? entry.name}
+                                    </DropdownMenuItem>
+                                )
+                            })}
+                        </DropdownMenuGroup>
+                    </>
+                )}
+                {(showDwhShortcut || showHogqlShortcut) && <DropdownMenuSeparator />}
+                {showDwhShortcut && dwhGroup && (
+                    <DropdownMenuItem
+                        onClick={() => {
+                            setMenuOpen(false)
+                            ctx.setCategory(TaxonomicFilterGroupType.DataWarehouse)
+                            ctx.setOpen(true)
+                        }}
+                        data-attr="taxonomic-menu-shortcut-dwh"
+                    >
+                        {dwhGroup.name}
+                    </DropdownMenuItem>
+                )}
+                {showHogqlShortcut && hogqlGroup && (
+                    <DropdownMenuItem
+                        onClick={() => {
+                            setMenuOpen(false)
+                            const synthetic: IndexedItem = {
+                                item: { name: hogqlGroup.name } as TaxonomicDefinitionTypes,
+                                group: hogqlGroup,
+                                name: hogqlGroup.name,
+                            }
+                            ctx.openConfigureFor(synthetic)
+                            ctx.setOpen(true)
+                        }}
+                        data-attr="taxonomic-menu-shortcut-hogql"
+                    >
+                        {hogqlGroup.name}
+                    </DropdownMenuItem>
+                )}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
 export const TaxonomicAutocomplete = {
     Root,
     Popover: PopoverWrapper,
     Trigger,
+    MenuTrigger,
     SegmentedTrigger,
     Content,
     Header,

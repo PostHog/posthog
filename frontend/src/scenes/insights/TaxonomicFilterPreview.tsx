@@ -365,7 +365,7 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
             <div className="grid grid-cols-2 gap-2">
                 <div>
                     <div className="text-xxs text-secondary mb-1">Legacy panel</div>
-                    {/* <TaxonomicFilter
+                    <TaxonomicFilter
                         taxonomicFilterLogicKey={`scenario-${scenario.id}`}
                         taxonomicGroupTypes={scenario.groupTypes}
                         eventNames={scenario.eventNames}
@@ -378,7 +378,7 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                         onChange={handle(setLegacy)}
                         width={360}
                         height={320}
-                    /> */}
+                    />
                 </div>
                 <div>
                     <div className="text-xxs text-secondary mb-1">New TaxonomicAutocomplete</div>
@@ -410,7 +410,7 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                             }
                         >
                             <TaxonomicAutocomplete.Popover>
-                                <TaxonomicAutocomplete.Trigger />
+                                <TaxonomicAutocomplete.MenuTrigger />
                                 <TaxonomicAutocomplete.Content>
                                     <TaxonomicAutocomplete.Header rootTitle={scenario.label} />
                                     <TaxonomicAutocomplete.RootView>
