@@ -8,8 +8,8 @@ class LimitDefinition:
 
     Each entry names a per-team resource we watch. When a team is about to
     create a resource that would put them at or above ``default``, the
-    evaluator emits a ``resource limit hit`` PostHog event so ops can route
-    via Action and Slack destination. The create itself is not blocked.
+    evaluator emits a ``resource limit hit`` event. The create itself is
+    not blocked.
     """
 
     key: str
