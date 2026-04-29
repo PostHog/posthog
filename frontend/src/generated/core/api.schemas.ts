@@ -255,6 +255,10 @@ export interface OrganizationInviteApi {
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown | null
+    /** List of {team_id, resource, resource_id, access_level?} dicts describing resource grants the invitee should receive on acceptance. A non-empty list marks the invite as a guest invite. */
+    guest_resources?: unknown
+    /** If true, the membership created on acceptance can authenticate with password even when the organization enforces SSO. Meaningful for guest invites where the invitee is external and may not be in the SSO directory. */
+    bypass_sso?: boolean
     send_email?: boolean
     combine_pending_invites?: boolean
 }
@@ -2955,6 +2959,8 @@ export interface PendingInviteApi {
  */
 export type UserApiNotificationSettings = { [key: string]: unknown }
 
+export type UserApiGuestGrantsItem = { [key: string]: unknown }
+
 export interface UserApi {
     readonly date_joined: string
     readonly uuid: string
@@ -3021,6 +3027,15 @@ export interface UserApi {
     /** @nullable */
     readonly is_organization_first_user: boolean | null
     readonly pending_invites: readonly PendingInviteApi[]
+    readonly is_guest_in_current_project: boolean
+    /** Build the frontend-facing grant list directly from AccessControl rows.
+
+The AC table stores the numeric PK in `resource_id`, but the FE uses URL-style
+identifiers (notebook short_id). Translate before emitting so the landing scene
+can build correct links.
+
+Scope: notebook only — dashboard / insight rows land in the follow-up PR. */
+    readonly guest_grants: readonly UserApiGuestGrantsItem[]
 }
 
 export interface PaginatedUserListApi {
@@ -3036,6 +3051,8 @@ export interface PaginatedUserListApi {
  * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
  */
 export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
+
+export type PatchedUserApiGuestGrantsItem = { [key: string]: unknown }
 
 export interface PatchedUserApi {
     readonly date_joined?: string
@@ -3103,6 +3120,15 @@ export interface PatchedUserApi {
     /** @nullable */
     readonly is_organization_first_user?: boolean | null
     readonly pending_invites?: readonly PendingInviteApi[]
+    readonly is_guest_in_current_project?: boolean
+    /** Build the frontend-facing grant list directly from AccessControl rows.
+
+The AC table stores the numeric PK in `resource_id`, but the FE uses URL-style
+identifiers (notebook short_id). Translate before emitting so the landing scene
+can build correct links.
+
+Scope: notebook only — dashboard / insight rows land in the follow-up PR. */
+    readonly guest_grants?: readonly PatchedUserApiGuestGrantsItem[]
 }
 
 export type SubscriptionsDeliveriesListParams = {

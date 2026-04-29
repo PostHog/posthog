@@ -396,6 +396,9 @@ export interface OrganizationMemberApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly last_login: string
+    readonly is_guest: boolean
+    /** @nullable */
+    readonly guest_grant_count: number | null
 }
 
 export interface PaginatedOrganizationMemberListApi {
@@ -420,6 +423,9 @@ export interface PatchedOrganizationMemberApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly last_login?: string
+    readonly is_guest?: boolean
+    /** @nullable */
+    readonly guest_grant_count?: number | null
 }
 
 export type RoleApiMembersItem = { [key: string]: unknown }
@@ -815,7 +821,6 @@ export type ActivityLogListParams = {
 
 * `Cohort` - Cohort
 * `FeatureFlag` - FeatureFlag
-* `GuestResourceGrant` - GuestResourceGrant
 * `Person` - Person
 * `Group` - Group
 * `Insight` - Insight
@@ -889,7 +894,6 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
     FeatureFlag: 'FeatureFlag',
-    GuestResourceGrant: 'GuestResourceGrant',
     Person: 'Person',
     Group: 'Group',
     Insight: 'Insight',
@@ -950,7 +954,6 @@ export const ActivityLogListScope = {
 /**
  * * `Cohort` - Cohort
  * `FeatureFlag` - FeatureFlag
- * `GuestResourceGrant` - GuestResourceGrant
  * `Person` - Person
  * `Group` - Group
  * `Insight` - Insight
@@ -1012,7 +1015,6 @@ export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
     FeatureFlag: 'FeatureFlag',
-    GuestResourceGrant: 'GuestResourceGrant',
     Person: 'Person',
     Group: 'Group',
     Insight: 'Insight',

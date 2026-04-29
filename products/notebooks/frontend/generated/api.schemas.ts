@@ -66,6 +66,23 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
+/**
+ * Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from
+nested user-serializer payloads when the requester is a guest.
+
+Declare which fields hold serialized users in `guest_redacted_user_fields`:
+
+    class NotebookMinimalSerializer(
+        GuestRedactedUserFieldsMixin,
+        serializers.ModelSerializer,
+        UserAccessControlSerializerMixin,
+    ):
+        guest_redacted_user_fields = ("created_by", "last_modified_by")
+
+Place this mixin BEFORE `serializers.ModelSerializer` in the MRO so its
+`to_representation` runs after the base implementation has already produced the
+serialized dict.
+ */
 export interface NotebookMinimalApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -99,6 +116,23 @@ export interface PaginatedNotebookMinimalListApi {
     results: NotebookMinimalApi[]
 }
 
+/**
+ * Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from
+nested user-serializer payloads when the requester is a guest.
+
+Declare which fields hold serialized users in `guest_redacted_user_fields`:
+
+    class NotebookMinimalSerializer(
+        GuestRedactedUserFieldsMixin,
+        serializers.ModelSerializer,
+        UserAccessControlSerializerMixin,
+    ):
+        guest_redacted_user_fields = ("created_by", "last_modified_by")
+
+Place this mixin BEFORE `serializers.ModelSerializer` in the MRO so its
+`to_representation` runs after the base implementation has already produced the
+serialized dict.
+ */
 export interface NotebookApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -137,6 +171,23 @@ export interface NotebookApi {
     _create_in_folder?: string
 }
 
+/**
+ * Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from
+nested user-serializer payloads when the requester is a guest.
+
+Declare which fields hold serialized users in `guest_redacted_user_fields`:
+
+    class NotebookMinimalSerializer(
+        GuestRedactedUserFieldsMixin,
+        serializers.ModelSerializer,
+        UserAccessControlSerializerMixin,
+    ):
+        guest_redacted_user_fields = ("created_by", "last_modified_by")
+
+Place this mixin BEFORE `serializers.ModelSerializer` in the MRO so its
+`to_representation` runs after the base implementation has already produced the
+serialized dict.
+ */
 export interface PatchedNotebookApi {
     /** UUID of the notebook. */
     readonly id?: string

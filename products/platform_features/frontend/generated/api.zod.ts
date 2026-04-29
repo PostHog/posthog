@@ -169,6 +169,21 @@ export const MembersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional(),
 })
 
+/**
+ * Promote a guest membership to a regular member.
+
+Deletes all `AccessControl` rows scoped to this membership and flips the `is_guest`
+flag. The caller-facing UI should warn that promotion resets the user's access
+controls — after promotion, the new regular member has no explicit AC rows and
+relies on default project access instead. Admin+ only.
+ */
+export const MembersPromoteGuestCreateBody = /* @__PURE__ */ zod.object({
+    level: zod
+        .union([zod.literal(1), zod.literal(8), zod.literal(15)])
+        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner')
+        .optional(),
+})
+
 export const rolesCreateBodyNameMax = 200
 
 export const RolesCreateBody = /* @__PURE__ */ zod.object({
