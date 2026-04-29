@@ -4,9 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { clickAtIndex, hoverAtIndex } from 'lib/hog-charts/test-helpers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightLogicProps, IndexedTrendResult } from '~/types'
+import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
 import { trendsSeries } from './test-data'
