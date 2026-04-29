@@ -35,5 +35,5 @@
       expect_found: true
     - query: "tracking snippet"
       expect_found: true
-    - query: "billing invoice"
+    - query: "cryptocurrency blockchain"
       expect_found: false

@@ -7,7 +7,12 @@ to import. Inputs and outputs are frozen dataclasses — no ORM leaks.
 Exposes source CRUD used by the DRF viewset and any future admin tooling.
 """
 
+import re
+from functools import reduce
+from operator import or_
 from uuid import UUID
+
+from django.db.models import Q
 
 from .. import logic
 from ..models import KnowledgeChunk, KnowledgeSource
@@ -143,6 +148,8 @@ def has_ready_sources(team_id: int) -> bool:
 
 _SEARCH_LIMIT_CAP = 20
 
+_WORD_RE = re.compile(r"\w{2,}", re.UNICODE)
+
 
 def search_knowledge(
     team_id: int,
@@ -151,24 +158,25 @@ def search_knowledge(
     limit: int = 10,
 ) -> list[contracts.KnowledgeSearchResult]:
     """
-    ILIKE search over chunks belonging to READY sources for the given team.
+    Word-level ILIKE search over chunks belonging to READY sources.
 
-    Returns up to `limit` chunks (capped at _SEARCH_LIMIT_CAP) with their
-    source metadata. Uses the GIN trigram index for performance. Results are
-    ordered by char_count ascending (shorter, more focused chunks first).
+    Splits the query into words (≥2 chars) and matches chunks containing
+    ANY of them (OR). Uses the GIN trigram index for performance. Results
+    are ordered by char_count ascending (shorter, more focused chunks first).
     """
     limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
 
-    if not query.strip():
+    words = _WORD_RE.findall(query)
+    if not words:
         return []
 
-    safe_query = query.strip()
+    word_filters = reduce(or_, (Q(content__icontains=w) for w in words))
 
     chunks = (
         KnowledgeChunk.objects.filter(
+            word_filters,
             team_id=team_id,
             source__status=SourceStatus.READY,
-            content__icontains=safe_query,
         )
         .select_related("source", "document")
         .only(

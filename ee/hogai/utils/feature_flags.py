@@ -1,5 +1,7 @@
 from typing import Literal, cast
 
+from django.conf import settings
+
 import posthoganalytics
 
 from posthog.models import Team, User
@@ -102,6 +104,8 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_business_knowledge_feature_flag(team: Team) -> bool:
+    if settings.DEBUG:
+        return True
     return posthoganalytics.feature_enabled(
         "product-business-knowledge",
         str(team.organization_id),
