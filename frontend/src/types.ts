@@ -6396,7 +6396,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
     | ProductKey.LLM_ANALYTICS
-    | ProductKey.WORKFLOWS,
+    | ProductKey.WORKFLOWS
+    | ProductKey.LOGS,
     OnboardingProduct
 >
 

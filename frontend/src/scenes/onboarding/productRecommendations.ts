@@ -35,7 +35,7 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
         description: 'Watch session recordings and monitor errors to debug issues',
         iconKey: 'IconWarning',
         iconColor: 'rgb(235 157 42)',
-        products: [ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING],
+        products: [ProductKey.SESSION_REPLAY, ProductKey.ERROR_TRACKING, ProductKey.LOGS],
     },
     {
         key: 'launch_features',
