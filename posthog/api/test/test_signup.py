@@ -1181,7 +1181,7 @@ class TestSignupAPI(APIBaseTest):
         existing_user.save()
         self.assertTrue(existing_user.has_usable_password())
 
-        passkey = WebauthnCredential.objects.create(
+        WebauthnCredential.objects.create(
             user=existing_user,
             credential_id=b"test-credential-id",
             label="Test passkey",
@@ -1211,7 +1211,6 @@ class TestSignupAPI(APIBaseTest):
         self.assertTrue(existing_user.is_email_verified)
         self.assertFalse(existing_user.has_usable_password())
         self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
-        self.assertFalse(WebauthnCredential.objects.filter(pk=passkey.pk).exists())
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
