@@ -8,9 +8,12 @@ import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 export function AppMetricsTrends({
     appMetricsTrends,
     loading,
+    metricLabels,
 }: {
     appMetricsTrends: AppMetricsTimeSeriesResponse | null
     loading: boolean
+    /** Optional display labels keyed by series name (e.g. `{ rows_synced: 'Rows synced' }`). */
+    metricLabels?: Record<string, string>
 }): JSX.Element {
     return (
         <div className="relative border rounded min-h-[20rem] h-[70vh] bg-white">
@@ -33,15 +36,18 @@ export function AppMetricsTrends({
                         },
                         data: appMetricsTrends.labels,
                     }}
-                    yData={appMetricsTrends.series.map((x) => ({
-                        column: {
-                            name: x.name,
-                            type: { name: 'INTEGER', isNumerical: true },
-                            label: x.name,
-                            dataIndex: 0,
-                        },
-                        data: x.values,
-                    }))}
+                    yData={appMetricsTrends.series.map((x) => {
+                        const label = metricLabels?.[x.name] ?? x.name
+                        return {
+                            column: {
+                                name: label,
+                                type: { name: 'INTEGER', isNumerical: true },
+                                label,
+                                dataIndex: 0,
+                            },
+                            data: x.values,
+                        }
+                    })}
                     visualizationType={ChartDisplayType.ActionsLineGraph}
                     chartSettings={{
                         showLegend: true,

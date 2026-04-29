@@ -169,6 +169,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
+        logger=logger,
         team_id=inputs.team_id,
     )
 

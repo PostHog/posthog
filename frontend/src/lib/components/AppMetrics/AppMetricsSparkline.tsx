@@ -9,13 +9,25 @@ import { inStorybookTestRunner } from 'lib/utils'
 
 import { AppMetricsLogicProps, appMetricsLogic } from './appMetricsLogic'
 
-export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
+export interface AppMetricsSparklineProps extends AppMetricsLogicProps {
+    /** Series names to render in the success color. Defaults to `['success']`. */
+    successMetricNames?: string[]
+    /** Optional display labels keyed by series name (e.g. `{ rows_synced: 'Rows synced' }`). */
+    metricLabels?: Record<string, string>
+}
+
+export function AppMetricsSparkline({
+    successMetricNames,
+    metricLabels,
+    ...props
+}: AppMetricsSparklineProps): JSX.Element {
     const logic = appMetricsLogic(props)
     const { appMetricsTrends, appMetricsTrendsLoading, params } = useValues(logic)
     const { loadAppMetricsTrends } = useActions(logic)
     const { ref: inViewRef, inView } = useInView({
         triggerOnce: true,
     })
+    const successNames = successMetricNames ?? ['success']
 
     useEffect(() => {
         if (inStorybookTestRunner() || (inView && !appMetricsTrendsLoading)) {
@@ -38,12 +50,12 @@ export function AppMetricsSparkline(props: AppMetricsLogicProps): JSX.Element {
 
         return (
             sortedSeries?.map((s) => ({
-                color: s.name === 'success' ? 'success' : 'danger',
-                name: s.name,
+                color: successNames.includes(s.name) ? 'success' : 'danger',
+                name: metricLabels?.[s.name] ?? s.name,
                 values: s.values,
             })) || []
         )
-    }, [appMetricsTrends, params])
+    }, [appMetricsTrends, params, successNames, metricLabels])
 
     const labels = appMetricsTrends?.labels || []
 
