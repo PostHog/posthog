@@ -1,3 +1,5 @@
+import './LLMAnalyticsTraceScene.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -490,7 +492,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative flex flex-col gap-3 md:h-[calc(100vh-var(--breadcrumbs-height-full)-var(--scene-padding)-var(--scene-padding-bottom))]">
+                <div className="LLMAnalyticsTraceScene__wrapper relative flex flex-col gap-3">
                     <div className="flex flex-col gap-4">
                         <SceneTitleSection
                             name={trace.id}
