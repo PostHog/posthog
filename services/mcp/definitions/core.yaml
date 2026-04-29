@@ -392,6 +392,9 @@ tools:
     members-partial-update:
         operation: members_partial_update
         enabled: false
+    members-promote-guest-create:
+        operation: members_promote_guest_create
+        enabled: false
     members-scoped-api-keys-retrieve:
         operation: members_scoped_api_keys_retrieve
         enabled: false

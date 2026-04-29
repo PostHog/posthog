@@ -53,20 +53,24 @@ export const notebooksCreateBodyTitleMax = 256
 export const notebooksCreateBodyVersionMin = -2147483648
 export const notebooksCreateBodyVersionMax = 2147483647
 
-export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksCreateBodyVersionMin)
-        .max(notebooksCreateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-})
+export const NotebooksCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
+        content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+        text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+        version: zod
+            .number()
+            .min(notebooksCreateBodyVersionMin)
+            .max(notebooksCreateBodyVersionMax)
+            .optional()
+            .describe(
+                'Version number for optimistic concurrency control. Must match the current version when updating content.'
+            ),
+        deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    })
+    .describe(
+        'Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from\nnested user-serializer payloads when the requester is a guest.\n\nDeclare which fields hold serialized users in `guest_redacted_user_fields`:\n\n    class NotebookMinimalSerializer(\n        GuestRedactedUserFieldsMixin,\n        serializers.ModelSerializer,\n        UserAccessControlSerializerMixin,\n    ):\n        guest_redacted_user_fields = ("created_by", "last_modified_by")\n\nPlace this mixin BEFORE `serializers.ModelSerializer` in the MRO so its\n`to_representation` runs after the base implementation has already produced the\nserialized dict.'
+    )
 
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
@@ -97,20 +101,24 @@ export const notebooksPartialUpdateBodyTitleMax = 256
 export const notebooksPartialUpdateBodyVersionMin = -2147483648
 export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
-export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
-    text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
-    version: zod
-        .number()
-        .min(notebooksPartialUpdateBodyVersionMin)
-        .max(notebooksPartialUpdateBodyVersionMax)
-        .optional()
-        .describe(
-            'Version number for optimistic concurrency control. Must match the current version when updating content.'
-        ),
-    deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
-})
+export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
+        content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+        text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+        version: zod
+            .number()
+            .min(notebooksPartialUpdateBodyVersionMin)
+            .max(notebooksPartialUpdateBodyVersionMax)
+            .optional()
+            .describe(
+                'Version number for optimistic concurrency control. Must match the current version when updating content.'
+            ),
+        deleted: zod.boolean().optional().describe('Whether the notebook has been soft-deleted.'),
+    })
+    .describe(
+        'Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from\nnested user-serializer payloads when the requester is a guest.\n\nDeclare which fields hold serialized users in `guest_redacted_user_fields`:\n\n    class NotebookMinimalSerializer(\n        GuestRedactedUserFieldsMixin,\n        serializers.ModelSerializer,\n        UserAccessControlSerializerMixin,\n    ):\n        guest_redacted_user_fields = ("created_by", "last_modified_by")\n\nPlace this mixin BEFORE `serializers.ModelSerializer` in the MRO so its\n`to_representation` runs after the base implementation has already produced the\nserialized dict.'
+    )
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true

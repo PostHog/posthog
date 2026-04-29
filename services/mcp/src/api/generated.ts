@@ -21930,6 +21930,23 @@ export namespace Schemas {
       readonly sync_interval: string | null;
     }
 
+    /**
+     * Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from
+    nested user-serializer payloads when the requester is a guest.
+
+    Declare which fields hold serialized users in `guest_redacted_user_fields`:
+
+        class NotebookMinimalSerializer(
+            GuestRedactedUserFieldsMixin,
+            serializers.ModelSerializer,
+            UserAccessControlSerializerMixin,
+        ):
+            guest_redacted_user_fields = ("created_by", "last_modified_by")
+
+    Place this mixin BEFORE `serializers.ModelSerializer` in the MRO so its
+    `to_representation` runs after the base implementation has already produced the
+    serialized dict.
+     */
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -21988,6 +22005,23 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    /**
+     * Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from
+    nested user-serializer payloads when the requester is a guest.
+
+    Declare which fields hold serialized users in `guest_redacted_user_fields`:
+
+        class NotebookMinimalSerializer(
+            GuestRedactedUserFieldsMixin,
+            serializers.ModelSerializer,
+            UserAccessControlSerializerMixin,
+        ):
+            guest_redacted_user_fields = ("created_by", "last_modified_by")
+
+    Place this mixin BEFORE `serializers.ModelSerializer` in the MRO so its
+    `to_representation` runs after the base implementation has already produced the
+    serialized dict.
+     */
     export interface NotebookMinimal {
       /** UUID of the notebook. */
       readonly id: string;
@@ -22330,6 +22364,10 @@ export namespace Schemas {
       message?: string | null;
       /** List of team IDs and corresponding access levels to private projects. */
       private_project_access?: unknown | null;
+      /** List of {team_id, resource, resource_id, access_level?} dicts describing resource grants the invitee should receive on acceptance. A non-empty list marks the invite as a guest invite. */
+      guest_resources?: unknown;
+      /** If true, the membership created on acceptance can authenticate with password even when the organization enforces SSO. Meaningful for guest invites where the invitee is external and may not be in the SSO directory. */
+      bypass_sso?: boolean;
       send_email?: boolean;
       combine_pending_invites?: boolean;
     }
@@ -22347,6 +22385,9 @@ export namespace Schemas {
       readonly is_2fa_enabled: boolean;
       readonly has_social_auth: boolean;
       readonly last_login: string;
+      readonly is_guest: boolean;
+      /** @nullable */
+      readonly guest_grant_count: number | null;
     }
 
     /**
@@ -25432,6 +25473,8 @@ export namespace Schemas {
      */
     export type UserNotificationSettings = {[key: string]: unknown};
 
+    export type UserGuestGrantsItem = {[key: string]: unknown};
+
     export interface User {
       readonly date_joined: string;
       readonly uuid: string;
@@ -25498,6 +25541,15 @@ export namespace Schemas {
       /** @nullable */
       readonly is_organization_first_user: boolean | null;
       readonly pending_invites: readonly PendingInvite[];
+      readonly is_guest_in_current_project: boolean;
+      /** Build the frontend-facing grant list directly from AccessControl rows.
+
+    The AC table stores the numeric PK in `resource_id`, but the FE uses URL-style
+    identifiers (notebook short_id). Translate before emitting so the landing scene
+    can build correct links.
+
+    Scope: notebook only — dashboard / insight rows land in the follow-up PR. */
+      readonly guest_grants: readonly UserGuestGrantsItem[];
     }
 
     export interface PaginatedUserList {
@@ -28013,6 +28065,23 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
     }
 
+    /**
+     * Serializer mixin that redacts PII (email, uuid, distinct_id, role, ...) from
+    nested user-serializer payloads when the requester is a guest.
+
+    Declare which fields hold serialized users in `guest_redacted_user_fields`:
+
+        class NotebookMinimalSerializer(
+            GuestRedactedUserFieldsMixin,
+            serializers.ModelSerializer,
+            UserAccessControlSerializerMixin,
+        ):
+            guest_redacted_user_fields = ("created_by", "last_modified_by")
+
+    Place this mixin BEFORE `serializers.ModelSerializer` in the MRO so its
+    `to_representation` runs after the base implementation has already produced the
+    serialized dict.
+     */
     export interface PatchedNotebook {
       /** UUID of the notebook. */
       readonly id?: string;
@@ -28195,6 +28264,9 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+      readonly is_guest?: boolean;
+      /** @nullable */
+      readonly guest_grant_count?: number | null;
     }
 
     export interface PatchedPersistedFolder {
@@ -30700,6 +30772,8 @@ export namespace Schemas {
      */
     export type PatchedUserNotificationSettings = {[key: string]: unknown};
 
+    export type PatchedUserGuestGrantsItem = {[key: string]: unknown};
+
     export interface PatchedUser {
       readonly date_joined?: string;
       readonly uuid?: string;
@@ -30766,6 +30840,15 @@ export namespace Schemas {
       /** @nullable */
       readonly is_organization_first_user?: boolean | null;
       readonly pending_invites?: readonly PendingInvite[];
+      readonly is_guest_in_current_project?: boolean;
+      /** Build the frontend-facing grant list directly from AccessControl rows.
+
+    The AC table stores the numeric PK in `resource_id`, but the FE uses URL-style
+    identifiers (notebook short_id). Translate before emitting so the landing scene
+    can build correct links.
+
+    Scope: notebook only — dashboard / insight rows land in the follow-up PR. */
+      readonly guest_grants?: readonly PatchedUserGuestGrantsItem[];
     }
 
     export interface PatchedUserInterview {
@@ -40848,7 +40931,6 @@ export namespace Schemas {
 
     * `Cohort` - Cohort
     * `FeatureFlag` - FeatureFlag
-    * `GuestResourceGrant` - GuestResourceGrant
     * `Person` - Person
     * `Group` - Group
     * `Insight` - Insight
@@ -40923,7 +41005,6 @@ export namespace Schemas {
     export const ActivityLogListScope = {
       Cohort: 'Cohort',
       FeatureFlag: 'FeatureFlag',
-      GuestResourceGrant: 'GuestResourceGrant',
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',
@@ -40984,7 +41065,6 @@ export namespace Schemas {
     /**
      * * `Cohort` - Cohort
     * `FeatureFlag` - FeatureFlag
-    * `GuestResourceGrant` - GuestResourceGrant
     * `Person` - Person
     * `Group` - Group
     * `Insight` - Insight
@@ -41047,7 +41127,6 @@ export namespace Schemas {
     export const ActivityLogListScopesItem = {
       Cohort: 'Cohort',
       FeatureFlag: 'FeatureFlag',
-      GuestResourceGrant: 'GuestResourceGrant',
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',

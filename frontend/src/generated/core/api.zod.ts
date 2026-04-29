@@ -121,6 +121,18 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .nullish()
         .describe('List of team IDs and corresponding access levels to private projects.'),
+    guest_resources: zod
+        .unknown()
+        .optional()
+        .describe(
+            'List of {team_id, resource, resource_id, access_level?} dicts describing resource grants the invitee should receive on acceptance. A non-empty list marks the invite as a guest invite.'
+        ),
+    bypass_sso: zod
+        .boolean()
+        .optional()
+        .describe(
+            'If true, the membership created on acceptance can authenticate with password even when the organization enforces SSO. Meaningful for guest invites where the invitee is external and may not be in the SSO directory.'
+        ),
     send_email: zod.boolean().default(invitesCreateBodySendEmailDefault),
     combine_pending_invites: zod.boolean().default(invitesCreateBodyCombinePendingInvitesDefault),
 })
@@ -144,6 +156,18 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .nullish()
         .describe('List of team IDs and corresponding access levels to private projects.'),
+    guest_resources: zod
+        .unknown()
+        .optional()
+        .describe(
+            'List of {team_id, resource, resource_id, access_level?} dicts describing resource grants the invitee should receive on acceptance. A non-empty list marks the invite as a guest invite.'
+        ),
+    bypass_sso: zod
+        .boolean()
+        .optional()
+        .describe(
+            'If true, the membership created on acceptance can authenticate with password even when the organization enforces SSO. Meaningful for guest invites where the invitee is external and may not be in the SSO directory.'
+        ),
     send_email: zod.boolean().default(invitesBulkCreateBodySendEmailDefault),
     combine_pending_invites: zod.boolean().default(invitesBulkCreateBodyCombinePendingInvitesDefault),
 })
