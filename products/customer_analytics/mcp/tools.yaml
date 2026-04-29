@@ -54,8 +54,8 @@ tools:
             math_property:
                 description: >
                     Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an
-                    event property name. For data warehouse metrics this is the column name (or HogQL expression) to
-                    sum on the DW table.
+                    event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum
+                    on the DW table.
     usage-metrics-destroy:
         operation: groups_types_metrics_destroy
         enabled: true
@@ -124,8 +124,8 @@ tools:
             math_property:
                 description: >
                     Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an
-                    event property name. For data warehouse metrics this is the column name (or HogQL expression) to
-                    sum on the DW table.
+                    event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum
+                    on the DW table.
     usage-metrics-retrieve:
         operation: groups_types_metrics_retrieve
         enabled: true
