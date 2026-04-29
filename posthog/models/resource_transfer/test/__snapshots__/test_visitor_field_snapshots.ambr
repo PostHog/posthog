@@ -191,6 +191,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Experiment
   list([
+    'config_updated_at',
     'description',
     'exposure_criteria',
     'filters',
@@ -609,6 +610,7 @@
     '__str__',
     '_meta',
     'archived',
+    'bump_config_updated_at',
     'computed_status',
     'conclusion',
     'conclusion_comment',
