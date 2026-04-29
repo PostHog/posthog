@@ -5,6 +5,17 @@ from posthog.rbac.decorators import field_access_control
 
 
 class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
+    """
+    A usage metric rendered on a Customer Analytics profile.
+
+    Despite the name and the `group_type_index` field, these metrics are NOT group-specific.
+    They were originally built for group profiles, but are now applied to both groups and
+    persons — every metric defined for a team surfaces on both kinds of profile.
+    `group_type_index` is retained for backward compatibility but is effectively unused:
+    the query runner ignores it and evaluates every team-owned metric against the current
+    entity (group or person).
+    """
+
     class Format(models.TextChoices):
         NUMERIC = "numeric", "numeric"
         CURRENCY = "currency", "currency"

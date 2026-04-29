@@ -283,11 +283,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ),
             model: zod.string().describe('LLM model identifier to run in the Claude runtime.'),
             reasoning_effort: zod
-                .enum(['low', 'medium', 'high', 'max'])
-                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+                .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max')
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max'
                 ),
             github_user_token: zod
                 .string()
@@ -360,11 +360,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ),
             model: zod.string().describe('LLM model identifier to run in the Codex runtime.'),
             reasoning_effort: zod
-                .enum(['low', 'medium', 'high', 'max'])
-                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+                .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max')
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max'
                 ),
             github_user_token: zod
                 .string()
@@ -587,11 +587,11 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ),
         model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'max'])
-            .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+            .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max')
             .optional()
             .describe(
-                'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max'
             ),
         github_user_token: zod
             .string()

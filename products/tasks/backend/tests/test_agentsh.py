@@ -1,3 +1,4 @@
+import shlex
 from typing import Any
 
 from unittest.mock import Mock
@@ -93,15 +94,29 @@ class TestGeneratePolicyYaml(TestCase):
     def test_allowed_domains_before_deny_rules(self, domains):
         policy = yaml.safe_load(generate_policy_yaml(domains))
         rules = policy["network_rules"]
-        first_deny_idx = next(i for i, rule in enumerate(rules) if rule["decision"] == "deny")
+        default_deny_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "default-deny-network")
         for i, rule in enumerate(rules):
             if rule.get("decision") == "allow" and rule.get("domains"):
-                self.assertLess(i, first_deny_idx)
+                self.assertLess(i, default_deny_idx)
 
     def test_localhost_always_allowed(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
         localhost_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-localhost")
         self.assertIn("127.0.0.0/8", localhost_rule["cidrs"])
+
+    def test_restricted_policy_denies_cloud_metadata(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        metadata_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "deny-cloud-metadata")
+        self.assertEqual(metadata_rule["decision"], "deny")
+        self.assertIn("169.254.169.254/32", metadata_rule["cidrs"])
+        self.assertIn("fd00:ec2::254/128", metadata_rule["cidrs"])
+
+    def test_cloud_metadata_deny_precedes_allowed_domains(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        rules = policy["network_rules"]
+        metadata_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "deny-cloud-metadata")
+        allow_domains_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "allow-domains")
+        self.assertLess(metadata_idx, allow_domains_idx)
 
     def test_file_rules_allow_all(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
@@ -130,6 +145,11 @@ class TestGeneratePolicyYaml(TestCase):
         policy = yaml.safe_load(generate_policy_yaml(None))
         deny_rules = [r for r in policy["network_rules"] if r["decision"] == "deny"]
         self.assertEqual(len(deny_rules), 0)
+
+    def test_allow_all_policy_has_no_metadata_deny_rule(self):
+        policy = yaml.safe_load(generate_policy_yaml(None))
+        rule_names = [r["name"] for r in policy["network_rules"]]
+        self.assertNotIn("deny-cloud-metadata", rule_names)
 
 
 class TestEnvWrapper(TestCase):
@@ -160,6 +180,12 @@ class TestBuildAuditQueryCommand(TestCase):
     def test_respects_limit(self):
         cmd = build_audit_query_command(limit=10)
         self.assertIn("LIMIT 10", cmd)
+
+    def test_command_is_shell_parseable(self):
+        cmd = build_audit_query_command(limit=10)
+        parts = shlex.split(cmd)
+        self.assertEqual(parts[0], "sqlite3")
+        self.assertTrue(any(part.startswith("SELECT ts_unix_ns") for part in parts))
 
 
 class TestBuildExecPrefix(TestCase):

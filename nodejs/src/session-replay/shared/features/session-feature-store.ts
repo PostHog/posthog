@@ -1,8 +1,35 @@
-import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { FeatureEndResult } from '../../../session-recording/sessions/session-feature-recorder'
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { SESSION_FEATURES_OUTPUT, SessionFeaturesOutput } from '../outputs'
+import { SessionFeatureStoreMetrics } from './metrics'
+
+interface KafkaMessage {
+    key: string
+    value: string
+}
+
+/** Ad-hoc sanity check. Should never be exceeded. Messages should stay < 50KB */
+const filterOversizedMessages = (messages: KafkaMessage[]): KafkaMessage[] => {
+    const MAX_MESSAGE_SIZE_BYTES = 256 * 1024
+    const kept: KafkaMessage[] = []
+    for (const message of messages) {
+        const size = Buffer.byteLength(message.value, 'utf8')
+        if (size > MAX_MESSAGE_SIZE_BYTES) {
+            SessionFeatureStoreMetrics.incrementOversizedMessagesDropped()
+            logger.warn('🧠', 'session_feature_store_message_dropped_oversized', {
+                sessionId: message.key,
+                size,
+                limit: MAX_MESSAGE_SIZE_BYTES,
+            })
+            continue
+        }
+        kept.push(message)
+    }
+    return kept
+}
 
 export interface SessionFeatureBlock {
     sessionId: string
@@ -20,8 +47,7 @@ export interface DeletionFeatureBlock {
 
 export class SessionFeatureStore {
     constructor(
-        private producer: KafkaProducerWrapper,
-        private kafkaTopic: string,
+        private outputs: IngestionOutputs<SessionFeaturesOutput>,
         private enabled: boolean = false
     ) {
         logger.debug('🧠', 'session_feature_store_created', { enabled })
@@ -81,17 +107,28 @@ export class SessionFeatureStore {
             is_deleted: block.isDeleted ? 1 : 0,
         }))
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages: events.map((event) => ({
+        const messages = filterOversizedMessages(
+            events.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),
-            })),
-        })
+            }))
+        )
 
-        await this.producer.flush()
+        if (messages.length === 0) {
+            return
+        }
 
-        logger.info('🧠', 'session_feature_store_stored', { count: events.length })
+        // queueMessages awaits delivery acks for every message, so no separate flush is needed
+        // to guarantee messages are on Kafka before the batch offset is committed.
+        await this.outputs.queueMessages(
+            SESSION_FEATURES_OUTPUT,
+            messages.map((message) => ({
+                key: message.key,
+                value: Buffer.from(message.value),
+            }))
+        )
+
+        logger.info('🧠', 'session_feature_store_stored', { count: messages.length })
     }
 
     public async storeDeletionMarkers(blocks: DeletionFeatureBlock[]): Promise<void> {
@@ -101,16 +138,25 @@ export class SessionFeatureStore {
             is_deleted: 1,
         }))
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages: events.map((event) => ({
+        const messages = filterOversizedMessages(
+            events.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),
-            })),
-        })
+            }))
+        )
 
-        await this.producer.flush()
+        if (messages.length === 0) {
+            return
+        }
 
-        logger.info('🧠', 'session_feature_store_deletion_markers_stored', { count: events.length })
+        await this.outputs.queueMessages(
+            SESSION_FEATURES_OUTPUT,
+            messages.map((message) => ({
+                key: message.key,
+                value: Buffer.from(message.value),
+            }))
+        )
+
+        logger.info('🧠', 'session_feature_store_deletion_markers_stored', { count: messages.length })
     }
 }

@@ -14,6 +14,7 @@ import {
     isFeatureFlagEnabled,
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
+import { hasScope } from '@/lib/api'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -29,7 +30,7 @@ import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -39,7 +40,7 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import SINGLE_EXEC_INSTRUCTIONS from '@/templates/single-exec-instructions.md'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
@@ -59,6 +60,7 @@ export type RequestProperties = {
     mcpClientVersion?: string
     mcpProtocolVersion?: string
     readOnly?: boolean
+    mode?: McpMode
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
 }
@@ -463,7 +465,15 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+        const {
+            features,
+            tools,
+            version: clientVersion,
+            organizationId,
+            projectId,
+            readOnly,
+            mode,
+        } = this.requestProperties
 
         // Resolve MCP client info before any code reads it — most importantly
         // the `useSingleExec` decision below. During init() this resolves from
@@ -522,16 +532,27 @@ export class MCP extends McpAgent<Env> {
         // decision sees the real value on first-connect. PostHog's agent wrapper
         // self-identifies via the `x-posthog-mcp-consumer` header and forces
         // single-exec regardless of the wrapped client's reported name.
+        // An explicit `mode` from the caller (header `x-posthog-mcp-mode` or query
+        // param `mode`) wins over the flag + client-profile heuristic.
         const useSingleExec =
-            singleExecFlagOn && (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer())
+            mode === 'cli' ||
+            (mode !== 'tools' &&
+                singleExecFlagOn &&
+                (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer()))
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
         const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId
-                ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                : Promise.resolve(undefined),
+            (async () => {
+                if (!resolvedProjectId) {
+                    return undefined
+                }
+                const apiKey = await context.stateManager.getApiKey()
+                return hasScope(apiKey.scopes, 'group:read')
+                    ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
+                    : undefined
+            })(),
             context.stateManager.getEnvironmentPrompt(),
         ])
         // When project ID is provided, both switch tools are removed (project implies org).
@@ -645,12 +666,26 @@ export class MCP extends McpAgent<Env> {
                 supportsInstructions ? undefined : queryToolInfos
             )
 
+            const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+                this.ctx.waitUntil(
+                    (async () => {
+                        const freshContext = await this.getAnalyticsContextSafe(await this.getContext())
+                        await this.trackEvent(
+                            AnalyticsEvent.MCP_TOOL_CALLED,
+                            { tool_name: toolName, ...properties },
+                            freshContext ? { context: freshContext } : undefined
+                        )
+                    })()
+                )
+            }
+
             const execTool = createExecTool(
                 allTools,
                 context,
                 CLI_PROXY_TOOL,
                 commandReference,
-                this.requestProperties.mcpConsumer
+                this.requestProperties.mcpConsumer,
+                trackInnerCall
             )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))
@@ -697,9 +732,11 @@ export class MCP extends McpAgent<Env> {
                 {
                     tool_count: allTools.length,
                     mcp_version: version,
+                    mcp_mode: useSingleExec ? 'cli' : 'tools',
                     has_organization_id: !!organizationId,
                     has_project_id: !!projectId,
                     read_only: !!readOnly,
+                    ...(mode ? { mcp_mode_explicit: mode } : {}),
                     ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
                 },
                 analyticsContext ? { context: analyticsContext } : undefined

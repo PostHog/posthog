@@ -15,34 +15,27 @@ ui_apps:
         type: list
         detail_tool: cohorts-retrieve
 tools:
-    cohorts-list:
-        operation: cohorts_list
+    cohorts-activity-retrieve:
+        operation: cohorts_activity_retrieve
+        enabled: false
+    cohorts-add-persons-to-static-cohort-partial-update:
+        operation: cohorts_add_persons_to_static_cohort_partial_update
         enabled: true
         scopes:
-            - cohort:read
+            - cohort:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        list: true
-        title: List all cohorts
-        description: >
-
-            List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count
-            (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID
-            to get full details including filters, calculation status,
-
-            and query definition.
-        ui_app: cohort-list
-        response:
-            include:
-                - id
-                - name
-                - description
-                - count
-                - is_static
-                - created_at
+            idempotent: false
+        title: Add persons to static cohort
+        description: |
+            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
+        enabled: false
+    cohorts-calculation-history-retrieve:
+        operation: cohorts_calculation_history_retrieve
+        enabled: false
     cohorts-create:
         operation: cohorts_create
         enabled: true
@@ -72,8 +65,11 @@ tools:
             - count
             - experiment_set
         ui_app: cohort
-    cohorts-retrieve:
-        operation: cohorts_retrieve
+    cohorts-destroy:
+        operation: cohorts_destroy
+        enabled: false
+    cohorts-list:
+        operation: cohorts_list
         enabled: true
         scopes:
             - cohort:read
@@ -82,14 +78,24 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-        title: Get cohort
+        list: true
+        title: List all cohorts
         description: >
-            Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of
-            matching users, and calculation status.
-        ui_app: cohort
-    cohorts-update:
-        operation: cohorts_update
-        enabled: false
+
+            List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count
+            (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID
+            to get full details including filters, calculation status,
+
+            and query definition.
+        ui_app: cohort-list
+        response:
+            include:
+                - id
+                - name
+                - description
+                - count
+                - is_static
+                - created_at
     cohorts-partial-update:
         operation: cohorts_partial_update
         enabled: true
@@ -117,30 +123,24 @@ tools:
             - count
             - experiment_set
         ui_app: cohort
-    cohorts-destroy:
-        operation: cohorts_destroy
-        enabled: false
-    cohorts-activity-retrieve:
-        operation: cohorts_activity_retrieve
-        enabled: false
-    cohorts-add-persons-to-static-cohort-partial-update:
-        operation: cohorts_add_persons_to_static_cohort_partial_update
-        enabled: true
-        scopes:
-            - cohort:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Add persons to static cohort
-        description: |
-            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
-    cohorts-calculation-history-retrieve:
-        operation: cohorts_calculation_history_retrieve
-        enabled: false
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
         enabled: false
+    cohorts-retrieve:
+        operation: cohorts_retrieve
+        enabled: true
+        scopes:
+            - cohort:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get cohort
+        description: >
+            Get a specific cohort by ID. Returns the cohort name, description, filters (for dynamic cohorts), count of
+            matching users, and calculation status.
+        ui_app: cohort
     cohorts-rm-person-from-static-cohort-partial-update:
         operation: cohorts_remove_person_from_static_cohort_partial_update
         enabled: true
@@ -155,9 +155,9 @@ tools:
             Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The
             person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort
             succeeds silently.
+    cohorts-update:
+        operation: cohorts_update
+        enabled: false
     persons-cohorts-retrieve:
         operation: persons_cohorts_retrieve
-        enabled: false
-    cohorts-all-activity-retrieve:
-        operation: cohorts_all_activity_retrieve
         enabled: false
