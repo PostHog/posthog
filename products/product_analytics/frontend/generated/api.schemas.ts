@@ -4881,12 +4881,16 @@ export interface LLMTracePersonApi {
 export interface LLMTraceApi {
     /** @nullable */
     aiSessionId?: string | null
+    /** @nullable */
+    audioCost?: number | null
     createdAt: string
     distinctId: string
     /** @nullable */
     errorCount?: number | null
     events: LLMTraceEventApi[]
     id: string
+    /** @nullable */
+    imageCost?: number | null
     /** @nullable */
     inputCost?: number | null
     inputState?: unknown | null
