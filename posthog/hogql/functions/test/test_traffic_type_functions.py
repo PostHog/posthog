@@ -30,18 +30,18 @@ class TestTrafficTypeFunctions:
         # Third arg: array access
         assert isinstance(result.args[2], ast.ArrayAccess)
 
-    def test_get_traffic_type_uses_multiMatchAnyIndex(self):
+    def test_get_traffic_type_uses_multiMatchAnyIndexCaseInsensitive(self):
         node = ast.Call(name="__preview_getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
         assert isinstance(result, ast.Call)
 
-        # Check the comparison contains multiMatchAnyIndex
+        # Check the comparison contains multiMatchAnyIndexCaseInsensitive
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.left, ast.Call)
-        assert comparison.left.name == "multiMatchAnyIndex"
+        assert comparison.left.name == "multiMatchAnyIndexCaseInsensitive"
 
     def test_get_traffic_type_has_correct_patterns_and_labels(self):
         node = ast.Call(name="__preview_getTrafficType", args=[])
@@ -121,7 +121,7 @@ class TestIsBotFunction:
         assert isinstance(result, ast.CompareOperation)
         assert result.op == ast.CompareOperationOp.NotEq
 
-    def test_is_bot_uses_multiMatchAnyIndex(self):
+    def test_is_bot_uses_multiMatchAnyIndexCaseInsensitive(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 

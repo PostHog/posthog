@@ -77,11 +77,11 @@ class TestIsBotField:
         assert isinstance(field.expr, ast.CompareOperation)
         assert field.expr.op == ast.CompareOperationOp.NotEq
 
-    def test_uses_multiMatchAnyIndex(self):
+    def test_uses_multiMatchAnyIndexCaseInsensitive(self):
         field = create_is_bot_field(name="$virt_is_bot")
         assert isinstance(field.expr, ast.CompareOperation)
         assert isinstance(field.expr.left, ast.Call)
-        assert field.expr.left.name == "multiMatchAnyIndex"
+        assert field.expr.left.name == "multiMatchAnyIndexCaseInsensitive"
 
     def test_compares_against_zero(self):
         field = create_is_bot_field(name="$virt_is_bot")
@@ -132,13 +132,13 @@ class TestTrafficTypeField:
         assert "Bot" in labels
         assert "Automation" in labels
 
-    def test_uses_multiMatchAnyIndex(self):
+    def test_uses_multiMatchAnyIndexCaseInsensitive(self):
         field = create_traffic_type_field(name="$virt_traffic_type")
         assert isinstance(field.expr, ast.Call)
         comparison = field.expr.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.left, ast.Call)
-        assert comparison.left.name == "multiMatchAnyIndex"
+        assert comparison.left.name == "multiMatchAnyIndexCaseInsensitive"
 
 
 class TestTrafficCategoryField:

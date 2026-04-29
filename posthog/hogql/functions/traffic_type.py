@@ -28,13 +28,12 @@ def _build_bot_array_lookup(
     default: str = "",
     empty_ua_value: str = "",
 ) -> ast.Expr:
-    """Build a multiMatchAnyIndex + array lookup expression for efficient bot detection.
+    """Build a multiMatchAnyIndexCaseInsensitive + array lookup expression for efficient bot detection.
 
-    Uses multiMatchAnyIndex which evaluates the user_agent expression once and checks
-    all patterns, then uses array indexing to get the corresponding label.
-
-    NULL user agents are coalesced to empty string so they match the ^$ pattern
-    and get classified as empty_ua_value instead of falling through to default.
+    Uses multiMatchAnyIndexCaseInsensitive so a single canonical pattern (e.g. "Meta-ExternalFetcher")
+    catches every UA-case variant ("meta-externalfetcher", "META-EXTERNALFETCHER"). NULL user agents
+    are coalesced to empty string so they match the ^$ pattern and get classified as empty_ua_value
+    instead of falling through to default.
     """
     # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
@@ -48,8 +47,10 @@ def _build_bot_array_lookup(
     labels.append(empty_ua_value)
     labels_array = ast.Array(exprs=[ast.Constant(value=label) for label in labels])
 
-    # multiMatchAnyIndex(user_agent, patterns) -> returns 0 if no match, else 1-based index
-    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
+    # multiMatchAnyIndexCaseInsensitive(user_agent, patterns) -> 0 if no match, else 1-based index.
+    # Case-insensitive so a single pattern catches every UA-case variant (e.g. "meta-externalfetcher"
+    # matches "Meta-ExternalFetcher").
+    index_call = ast.Call(name="multiMatchAnyIndexCaseInsensitive", args=[safe_user_agent, patterns_array])
 
     # labels[index] - array access (1-based in ClickHouse)
     label_lookup = ast.ArrayAccess(array=labels_array, property=index_call, nullish=False)
@@ -119,7 +120,8 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Returns true if the user agent matches bot/automation patterns, false otherwise.
     NULL user agents are treated as bots (empty UA is considered automation).
 
-    Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.).
+    Uses multiMatchAnyIndexCaseInsensitive for efficient single-pass matching
+    (same as get_traffic_type etc.).
     """
     user_agent_expr = args[0]
 
@@ -128,7 +130,7 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     patterns = [*BOT_DEFINITIONS.keys(), "^$"]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
-    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
+    index_call = ast.Call(name="multiMatchAnyIndexCaseInsensitive", args=[safe_user_agent, patterns_array])
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotEq,

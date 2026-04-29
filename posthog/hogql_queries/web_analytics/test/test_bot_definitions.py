@@ -85,10 +85,13 @@ class TestBotDefinitionsDataStructure:
         assert bot_def.traffic_type == expected_type
 
     def test_longer_patterns_come_before_shorter_substrings(self):
+        # multiMatchAnyIndexCaseInsensitive returns the lowest matching pattern index, so when
+        # one pattern is a (case-insensitive) substring of another, the longer one must appear
+        # first or it will never match.
         patterns = list(BOT_DEFINITIONS.keys())
         for i, p1 in enumerate(patterns):
             for j, p2 in enumerate(patterns):
-                if i != j and p1 in p2 and len(p1) < len(p2):
+                if i != j and p1.lower() in p2.lower() and len(p1) < len(p2):
                     assert patterns.index(p2) < patterns.index(p1), (
-                        f"{p2} must come before {p1} for correct multiMatchAnyIndex matching"
+                        f"{p2} must come before {p1} for correct multiMatchAnyIndexCaseInsensitive matching"
                     )
