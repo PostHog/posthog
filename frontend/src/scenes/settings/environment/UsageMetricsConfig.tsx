@@ -243,7 +243,15 @@ function UsageMetricsForm(): JSX.Element {
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
-                    <LemonField name="filters" label="Match events or data warehouse table">
+                    <LemonField
+                        name="filters"
+                        label="Match events or data warehouse table"
+                        help={
+                            source === 'data_warehouse'
+                                ? 'Data warehouse metrics are limited to a single table and currently only render on group profiles.'
+                                : 'Pick events to match, or switch to a data warehouse table. Only one source can be active per metric.'
+                        }
+                    >
                         {({ value, onChange }) => {
                             const actionFilterValue = savedFiltersToActionFilterValue(value)
                             return (
@@ -259,6 +267,7 @@ function UsageMetricsForm(): JSX.Element {
                                         hideRename
                                         hideDuplicate
                                         showNestedArrow={false}
+                                        entitiesLimit={source === 'data_warehouse' ? 1 : undefined}
                                         actionsTaxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.Events,
                                             TaxonomicFilterGroupType.DataWarehouse,
@@ -274,7 +283,11 @@ function UsageMetricsForm(): JSX.Element {
                                             name: '$pageview',
                                             type: EntityTypes.EVENTS,
                                         }}
-                                        buttonCopy="Add event or data warehouse table"
+                                        buttonCopy={
+                                            source === 'data_warehouse'
+                                                ? 'Add data warehouse table'
+                                                : 'Add event or data warehouse table'
+                                        }
                                     />
                                     {source === 'events' && (
                                         <>
