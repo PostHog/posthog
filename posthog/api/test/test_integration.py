@@ -567,10 +567,11 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["kind"] == "github"
+        results = response.json()["results"]
+        assert len(results) == 2
+        assert {r["kind"] for r in results} == {"github", "twilio"}
 
-    def test_list_integrations_only_shows_github_for_api_keys(self, client: HttpClient):
+    def test_list_integrations_returns_all_kinds_for_api_keys(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -586,9 +587,7 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["kind"] == "github"
-        assert all(integration["kind"] == "github" for integration in results)
+        assert {r["kind"] for r in results} == {"github", "twilio"}
 
     def test_retrieve_github_integration_with_scope_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
@@ -607,7 +606,7 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["kind"] == "github"
 
-    def test_retrieve_non_github_integration_with_api_key_fails(self, client: HttpClient):
+    def test_retrieve_non_github_integration_with_api_key_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -621,7 +620,8 @@ class TestIntegrationAPIKeyAccess:
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["kind"] == "twilio"
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
