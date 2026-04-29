@@ -112,7 +112,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "conversion_values",
             "cost_per_action_type",
             "action_values",
-            "video_30_sec_watched_actions",
+            "video_3_sec_watched_actions",
             "video_p25_watched_actions",
             "video_p50_watched_actions",
             "video_p75_watched_actions",
