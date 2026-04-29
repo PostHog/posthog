@@ -237,19 +237,10 @@ function PlayerWrapper({
                 </div>
             ) : sessionRecordingsResponseLoading ? (
                 <div className="relative flex flex-col h-full p-4">
-                    {/* Player skeleton background */}
                     <div className="flex-1 flex flex-col gap-2">
-                        {/* Video area skeleton */}
                         <LemonSkeleton className="flex-1 w-full rounded" />
-                        {/* Controller bar skeleton */}
-                        <div className="flex gap-2">
-                            <LemonSkeleton className="h-10 w-20" />
-                            <LemonSkeleton className="h-10 flex-1" />
-                            <LemonSkeleton className="h-10 w-32" />
-                        </div>
                     </div>
 
-                    {/* Centered hedgehog overlay */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                         <FilmCameraHog className="w-60 h-60" />
                         <div className="mt-4 flex items-center gap-2">
