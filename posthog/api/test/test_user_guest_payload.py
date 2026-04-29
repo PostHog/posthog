@@ -12,9 +12,11 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
+from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.rbac.guest_grants import create_grant
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 
 
@@ -23,6 +25,8 @@ class TestUserGuestPayload(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        # ACCESS_CONTROL is the gate that flips AC-row resolution on; without it the
+        # default access level path bypasses the guest-aware branches entirely.
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
         ]
@@ -44,6 +48,53 @@ class TestUserGuestPayload(APIBaseTest):
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.content)
         return res.json()
 
+    def test_dashboard_grant_carries_resource_name(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Q4 KPIs")
+        create_grant(
+            membership=self.guest_membership,
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboard.pk),
+            created_by=self.user,
+            access_level="viewer",
+        )
+        grants = self._payload()["guest_grants"]
+        self.assertEqual(len(grants), 1)
+        self.assertEqual(grants[0]["resource"], "dashboard")
+        self.assertEqual(grants[0]["resource_id_url"], str(dashboard.pk))
+        self.assertEqual(grants[0]["resource_name"], "Q4 KPIs")
+
+    def test_insight_grant_carries_name_and_short_id(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Activation funnel", short_id="ACTIV001")
+        create_grant(
+            membership=self.guest_membership,
+            team=self.team,
+            resource="insight",
+            resource_id=insight.short_id,
+            created_by=self.user,
+            access_level="viewer",
+        )
+        grants = self._payload()["guest_grants"]
+        self.assertEqual(len(grants), 1)
+        self.assertEqual(grants[0]["resource"], "insight")
+        self.assertEqual(grants[0]["resource_id_url"], "ACTIV001")
+        self.assertEqual(grants[0]["resource_name"], "Activation funnel")
+
+    def test_insight_grant_falls_back_to_derived_name(self) -> None:
+        # Saved insights without an explicit name surface their `derived_name` (e.g. the auto-
+        # generated "$pageview total volume"). The payload must prefer name → derived_name → null.
+        insight = Insight.objects.create(team=self.team, name="", derived_name="$pageview totals", short_id="DRVD0001")
+        create_grant(
+            membership=self.guest_membership,
+            team=self.team,
+            resource="insight",
+            resource_id=insight.short_id,
+            created_by=self.user,
+            access_level="viewer",
+        )
+        grants = self._payload()["guest_grants"]
+        self.assertEqual(grants[0]["resource_name"], "$pageview totals")
+
     def test_notebook_grant_carries_title_and_short_id(self) -> None:
         notebook = Notebook.objects.create(team=self.team, title="Onboarding playbook", short_id="NBOOK001")
         create_grant(
@@ -60,20 +111,20 @@ class TestUserGuestPayload(APIBaseTest):
         self.assertEqual(grants[0]["resource_id_url"], "NBOOK001")
         self.assertEqual(grants[0]["resource_name"], "Onboarding playbook")
 
-    def test_notebook_with_empty_title_returns_none(self) -> None:
-        # Notebook.title is nullable — payload surfaces None when empty so the FE can fall
-        # back to the resource id on the landing card.
-        notebook = Notebook.objects.create(team=self.team, title="", short_id="NBOOK002")
+    def test_dashboard_with_unnamed_target_returns_empty_string_name(self) -> None:
+        # Dashboard.name is a CharField with default="" — falsy but not None. The serializer
+        # surfaces it as-is so the FE can decide whether to fall back to the resource id.
+        dashboard = Dashboard.objects.create(team=self.team, name="")
         create_grant(
             membership=self.guest_membership,
             team=self.team,
-            resource="notebook",
-            resource_id=notebook.short_id,
+            resource="dashboard",
+            resource_id=str(dashboard.pk),
             created_by=self.user,
             access_level="viewer",
         )
         grants = self._payload()["guest_grants"]
-        self.assertIsNone(grants[0]["resource_name"])
+        self.assertEqual(grants[0]["resource_name"], "")
 
     def test_non_guest_user_returns_empty_grants(self) -> None:
         # Regular members must never get a `guest_grants` array populated, even if AC rows

@@ -74,7 +74,7 @@ class TestOrganizationAPI(APIBaseTest):
         )
         AccessControl.objects.create(
             team=self.team,
-            resource="notebook",
+            resource="dashboard",
             resource_id="1",
             organization_member=guest_membership,
             access_level="viewer",

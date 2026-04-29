@@ -1908,7 +1908,7 @@ When set, the specified dashboard's filters and date range override will be appl
         )
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="CANCEL")
     def cancel(self, request: request.Request, **kwargs):
         if "client_query_id" not in request.data:
@@ -1917,7 +1917,7 @@ When set, the specified dashboard's filters and date range override will be appl
         return Response(status=status.HTTP_201_CREATED)
 
     @extend_schema(exclude=True)  # internal endpoint, not for public use
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
     def timing(self, request: request.Request, **kwargs):
         from posthog.kafka_client.routing import get_producer
         from posthog.models.event.util import format_clickhouse_timestamp

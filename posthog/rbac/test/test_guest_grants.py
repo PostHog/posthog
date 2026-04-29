@@ -4,6 +4,7 @@ from rest_framework import exceptions
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
+from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.rbac.guest_grants import (
     GUEST_VIEWER_ACCESS_LEVEL,
@@ -14,7 +15,8 @@ from posthog.rbac.guest_grants import (
     validate_invite_grants,
 )
 
-from products.notebooks.backend.models import Notebook
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -33,19 +35,19 @@ class TestGuestGrants(BaseTest):
         self.guest_membership = OrganizationMembership.objects.create(
             organization=self.organization, user=self.guest_user, is_guest=True
         )
-        self.notebook = Notebook.objects.create(team=self.team, title="N", short_id="NBK00001")
+        self.dashboard = Dashboard.objects.create(team=self.team, name="Dash")
 
     def test_create_grant_writes_ac_row_at_viewer_by_default(self) -> None:
         ac = create_grant(
             membership=self.guest_membership,
             team=self.team,
-            resource="notebook",
-            resource_id=self.notebook.short_id,
+            resource="dashboard",
+            resource_id=str(self.dashboard.pk),
             created_by=self.user,
         )
 
-        self.assertEqual(ac.resource, "notebook")
-        self.assertEqual(ac.resource_id, str(self.notebook.pk))
+        self.assertEqual(ac.resource, "dashboard")
+        self.assertEqual(ac.resource_id, str(self.dashboard.pk))
         self.assertEqual(ac.access_level, GUEST_VIEWER_ACCESS_LEVEL)
         self.assertEqual(ac.organization_member, self.guest_membership)
 
@@ -53,8 +55,8 @@ class TestGuestGrants(BaseTest):
         ac = create_grant(
             membership=self.guest_membership,
             team=self.team,
-            resource="notebook",
-            resource_id=self.notebook.short_id,
+            resource="dashboard",
+            resource_id=str(self.dashboard.pk),
             created_by=self.user,
             access_level="editor",
         )
@@ -66,36 +68,56 @@ class TestGuestGrants(BaseTest):
             create_grant(
                 membership=self.guest_membership,
                 team=self.team,
-                resource="notebook",
-                resource_id=self.notebook.short_id,
+                resource="dashboard",
+                resource_id=str(self.dashboard.pk),
                 created_by=self.user,
-                access_level="manager",
+                access_level="manager",  # not a guest-allowed level
             )
 
-    def test_create_grant_rejects_unknown_resource(self) -> None:
-        with self.assertRaises(exceptions.ValidationError):
-            create_grant(
-                membership=self.guest_membership,
-                team=self.team,
-                resource="dashboard",
-                resource_id="1",
-                created_by=self.user,
-            )
+    def test_create_dashboard_grant_cascades_tile_insights_at_viewer(self) -> None:
+        # Cascade is always viewer regardless of the parent dashboard's grant level. Editor on
+        # the dashboard means "edit dashboard layout/metadata"; tile insights stay read-only so
+        # an editor guest can't rename or soft-delete each tile insight individually via its own
+        # URL.
+        insight_a = Insight.objects.create(team=self.team, name="A")
+        insight_b = Insight.objects.create(team=self.team, name="B")
+        DashboardTile.objects.create(dashboard=self.dashboard, insight=insight_a)
+        DashboardTile.objects.create(dashboard=self.dashboard, insight=insight_b)
+
+        create_grant(
+            membership=self.guest_membership,
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(self.dashboard.pk),
+            created_by=self.user,
+            access_level="editor",
+        )
+
+        insight_acs = AccessControl.objects.filter(
+            team=self.team,
+            resource="insight",
+            organization_member=self.guest_membership,
+        )
+        levels = set(insight_acs.values_list("access_level", flat=True))
+        ids = set(insight_acs.values_list("resource_id", flat=True))
+        self.assertEqual(levels, {"viewer"})
+        self.assertIn(str(insight_a.pk), ids)
+        self.assertIn(str(insight_b.pk), ids)
 
     def test_revoke_deletes_all_ac_rows_for_membership(self) -> None:
         create_grant(
             membership=self.guest_membership,
             team=self.team,
-            resource="notebook",
-            resource_id=self.notebook.short_id,
+            resource="dashboard",
+            resource_id=str(self.dashboard.pk),
             created_by=self.user,
         )
-        other_notebook = Notebook.objects.create(team=self.team, title="O", short_id="NBK00002")
+        other_dashboard = Dashboard.objects.create(team=self.team, name="Other")
         create_grant(
             membership=self.guest_membership,
             team=self.team,
-            resource="notebook",
-            resource_id=other_notebook.short_id,
+            resource="dashboard",
+            resource_id=str(other_dashboard.pk),
             created_by=self.user,
         )
 
@@ -108,8 +130,8 @@ class TestGuestGrants(BaseTest):
         create_grant(
             membership=self.guest_membership,
             team=self.team,
-            resource="notebook",
-            resource_id=self.notebook.short_id,
+            resource="dashboard",
+            resource_id=str(self.dashboard.pk),
             created_by=self.user,
         )
 
@@ -127,48 +149,40 @@ class TestGuestGrants(BaseTest):
             promote_to_member(regular, by=self.user)
 
     def test_apply_invite_grants_creates_ac_rows_for_each_entry(self) -> None:
-        notebook_short_id = self.notebook.short_id
-        team_pk = self.team.pk
-        invite_user = self.user
-
         class _FakeInvite:
             guest_resources = [
-                {"team_id": team_pk, "resource": "notebook", "resource_id": notebook_short_id},
+                {"team_id": self.team.pk, "resource": "dashboard", "resource_id": str(self.dashboard.pk)},
             ]
-            created_by = invite_user
+            created_by = self.user
 
         created = apply_invite_grants(_FakeInvite(), self.guest_membership)
         self.assertEqual(len(created), 1)
         self.assertTrue(
             AccessControl.objects.filter(
                 organization_member=self.guest_membership,
-                resource="notebook",
-                resource_id=str(self.notebook.pk),
+                resource="dashboard",
+                resource_id=str(self.dashboard.pk),
                 access_level=GUEST_VIEWER_ACCESS_LEVEL,
             ).exists()
         )
 
     def test_apply_invite_grants_respects_per_entry_access_level(self) -> None:
-        notebook_short_id = self.notebook.short_id
-        team_pk = self.team.pk
-        invite_user = self.user
-
         class _FakeInvite:
             guest_resources = [
                 {
-                    "team_id": team_pk,
-                    "resource": "notebook",
-                    "resource_id": notebook_short_id,
+                    "team_id": self.team.pk,
+                    "resource": "dashboard",
+                    "resource_id": str(self.dashboard.pk),
                     "access_level": "editor",
                 },
             ]
-            created_by = invite_user
+            created_by = self.user
 
         apply_invite_grants(_FakeInvite(), self.guest_membership)
         ac = AccessControl.objects.get(
             organization_member=self.guest_membership,
-            resource="notebook",
-            resource_id=str(self.notebook.pk),
+            resource="dashboard",
+            resource_id=str(self.dashboard.pk),
         )
         self.assertEqual(ac.access_level, "editor")
 
@@ -178,30 +192,34 @@ class TestGuestGrants(BaseTest):
         with self.assertRaises(exceptions.ValidationError):
             validate_invite_grants(
                 self.organization,
-                [{"team_id": self.team.pk, "resource": "notebook", "resource_id": self.notebook.short_id}],
+                [{"team_id": self.team.pk, "resource": "dashboard", "resource_id": str(self.dashboard.pk)}],
             )
 
     def test_validate_invite_grants_rejects_unknown_team(self) -> None:
         with self.assertRaises(exceptions.ValidationError):
             validate_invite_grants(
                 self.organization,
-                [{"team_id": 99999, "resource": "notebook", "resource_id": self.notebook.short_id}],
+                [{"team_id": 99999, "resource": "dashboard", "resource_id": str(self.dashboard.pk)}],
             )
 
     def test_validate_invite_grants_rejects_unknown_resource_type(self) -> None:
         with self.assertRaises(exceptions.ValidationError):
             validate_invite_grants(
                 self.organization,
-                [{"team_id": self.team.pk, "resource": "dashboard", "resource_id": "1"}],
+                [{"team_id": self.team.pk, "resource": "experiment", "resource_id": "1"}],
             )
 
     def test_validate_invite_grants_rejects_missing_resource_id(self) -> None:
         with self.assertRaises(exceptions.ValidationError):
             validate_invite_grants(
                 self.organization,
-                [{"team_id": self.team.pk, "resource": "notebook", "resource_id": "ZZZZZZZZ"}],
+                [{"team_id": self.team.pk, "resource": "dashboard", "resource_id": "99999"}],
             )
 
     def test_validate_invite_grants_requires_at_least_one_entry(self) -> None:
         with self.assertRaises(exceptions.ValidationError):
             validate_invite_grants(self.organization, [])
+
+
+# Tests for `filter_and_sanitize_teams_for_guest_access` and the rest of the guest
+# access policy live in `posthog/rbac/test/test_guest_access_policy.py`.

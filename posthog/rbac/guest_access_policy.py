@@ -20,10 +20,8 @@ from posthog.models.user import User
 from posthog.scopes import APIScopeObject
 
 # Resources a guest can be granted explicit access to via an `AccessControl` row.
-# Anything not in this set is implicitly denied for guests. Scope: notebook only —
-# dashboard, insight, and the embedded-resource cascade for notebook nodes land in a
-# follow-up PR.
-GUEST_GRANTABLE_RESOURCES: frozenset[APIScopeObject] = frozenset({"notebook"})
+# Anything not in this set is implicitly denied for guests.
+GUEST_GRANTABLE_RESOURCES: frozenset[APIScopeObject] = frozenset({"dashboard", "insight", "notebook"})
 
 # Frame-level resources without per-row AC entries — guests must still be allowed
 # the project shell so their granted dashboards/insights can render. The

@@ -19,14 +19,14 @@ from posthog.rbac.guest_access_policy import (
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, default_access_level
 from posthog.scopes import APIScopeObject
 
-from products.notebooks.backend.models import Notebook
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.rbac.access_control import AccessControl
 
 
 class TestGuestAccessPolicyConstants(BaseTest):
     def test_grantable_resources_set(self):
-        self.assertEqual(GUEST_GRANTABLE_RESOURCES, frozenset({"notebook"}))
+        self.assertEqual(GUEST_GRANTABLE_RESOURCES, frozenset({"dashboard", "insight", "notebook"}))
 
     def test_frame_level_resources_set_excludes_plugin(self):
         # Plugin is intentionally NOT in this set — guests don't access plugin endpoints today
@@ -41,7 +41,7 @@ class TestGuestAccessPolicyConstants(BaseTest):
 class TestGuestObjectAccessLevel(BaseTest):
     def test_per_object_resource_returns_no_access(self):
         # Resources that have per-object AC rows: deny by default for guests.
-        for resource in ("notebook", "dashboard", "insight", "feature_flag"):
+        for resource in ("dashboard", "insight", "notebook", "feature_flag"):
             self.assertEqual(
                 guest_object_access_level(resource, explicit=False),
                 NO_ACCESS_LEVEL,
@@ -49,7 +49,7 @@ class TestGuestObjectAccessLevel(BaseTest):
             )
 
     def test_per_object_resource_explicit_returns_none(self):
-        self.assertIsNone(guest_object_access_level("notebook", explicit=True))
+        self.assertIsNone(guest_object_access_level("dashboard", explicit=True))
 
     def test_frame_level_resource_falls_through_to_default(self):
         # Project = frame-level → guest gets the regular default (so the project shell renders).
@@ -94,11 +94,11 @@ class TestGuestEffectiveTeamMembershipLevel(BaseTest):
         )
 
     def test_returns_member_when_guest_has_grant_on_team(self):
-        n = Notebook.objects.create(team=self.team, title="N", short_id="POL00001")
+        d = Dashboard.objects.create(team=self.team, name="D")
         AccessControl.objects.create(
             team=self.team,
-            resource="notebook",
-            resource_id=str(n.id),
+            resource="dashboard",
+            resource_id=str(d.id),
             organization_member=self.guest_membership,
             access_level="viewer",
             created_by=self.user,
@@ -116,21 +116,22 @@ class TestGuestEffectiveTeamMembershipLevel(BaseTest):
         from posthog.models.team.team import Team
 
         other_team = Team.objects.create(organization=self.organization, name="other")
-        n = Notebook.objects.create(team=other_team, title="N", short_id="POL00002")
+        d = Dashboard.objects.create(team=other_team, name="D")
         AccessControl.objects.create(
             team=other_team,
-            resource="notebook",
-            resource_id=str(n.id),
+            resource="dashboard",
+            resource_id=str(d.id),
             organization_member=self.guest_membership,
             access_level="viewer",
             created_by=self.user,
         )
         self.assertIsNone(guest_effective_team_membership_level(self.guest_membership, self.team.id))
 
-    def test_notebook_grant_counts_as_membership(self):
+    @parameterized.expand([("dashboard",), ("insight",), ("notebook",)])
+    def test_any_grantable_resource_counts_as_membership(self, resource: str):
         AccessControl.objects.create(
             team=self.team,
-            resource="notebook",
+            resource=resource,
             resource_id="42",
             organization_member=self.guest_membership,
             access_level="viewer",

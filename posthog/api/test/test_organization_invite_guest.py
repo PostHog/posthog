@@ -6,7 +6,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.user import User
 
-from products.notebooks.backend.models import Notebook
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -21,7 +21,7 @@ class TestOrganizationInviteGuest(APIBaseTest):
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
             level=OrganizationMembership.Level.ADMIN
         )
-        self.notebook = Notebook.objects.create(team=self.team, title="Granted notebook", short_id="INVT0001")
+        self.dashboard = Dashboard.objects.create(team=self.team, name="Granted dashboard")
 
     def _base_payload(self, **overrides) -> dict:
         payload = {
@@ -30,8 +30,8 @@ class TestOrganizationInviteGuest(APIBaseTest):
             "guest_resources": [
                 {
                     "team_id": self.team.pk,
-                    "resource": "notebook",
-                    "resource_id": self.notebook.short_id,
+                    "resource": "dashboard",
+                    "resource_id": str(self.dashboard.pk),
                 }
             ],
         }
@@ -64,7 +64,7 @@ class TestOrganizationInviteGuest(APIBaseTest):
         res = self.client.post(
             f"/api/organizations/{self.organization.id}/invites/",
             self._base_payload(
-                guest_resources=[{"team_id": self.team.pk, "resource": "notebook", "resource_id": "ZZZZZZZZ"}]
+                guest_resources=[{"team_id": self.team.pk, "resource": "dashboard", "resource_id": "99999"}]
             ),
             format="json",
         )
@@ -78,8 +78,8 @@ class TestOrganizationInviteGuest(APIBaseTest):
             guest_resources=[
                 {
                     "team_id": self.team.pk,
-                    "resource": "notebook",
-                    "resource_id": self.notebook.short_id,
+                    "resource": "dashboard",
+                    "resource_id": str(self.dashboard.pk),
                     "access_level": "editor",
                 }
             ]
@@ -123,8 +123,8 @@ class TestOrganizationInviteGuest(APIBaseTest):
         self.assertTrue(
             AccessControl.objects.filter(
                 organization_member=membership,
-                resource="notebook",
-                resource_id=str(self.notebook.pk),
+                resource="dashboard",
+                resource_id=str(self.dashboard.pk),
                 access_level="viewer",
             ).exists()
         )

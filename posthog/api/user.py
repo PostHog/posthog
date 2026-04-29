@@ -380,11 +380,16 @@ class UserSerializer(serializers.ModelSerializer):
         """Build the frontend-facing grant list directly from AccessControl rows.
 
         The AC table stores the numeric PK in `resource_id`, but the FE uses URL-style
-        identifiers (notebook short_id). Translate before emitting so the landing scene
-        can build correct links.
+        identifiers (short_id for insight/notebook, PK for dashboard). We translate per
+        resource type here so the landing scene can build correct links.
 
-        Scope: notebook only — dashboard / insight rows land in the follow-up PR.
+        Only dashboard/insight/notebook rows are exposed — these are the resource types
+        guest invites can grant. The insight rows produced by the dashboard-tile cascade are
+        intentionally filtered out so the landing scene doesn't show redundant entries for
+        every tile in a granted dashboard.
         """
+        from posthog.models.insight import Insight
+
         from products.notebooks.backend.models import Notebook
 
         from ee.models.rbac.access_control import AccessControl
@@ -413,27 +418,79 @@ class UserSerializer(serializers.ModelSerializer):
         ac_rows = list(
             AccessControl.objects.filter(
                 organization_member=membership,
-                resource="notebook",
+                resource__in=("dashboard", "insight", "notebook"),
             ).select_related("team")
         )
 
-        notebook_ac_pk_strs = [ac.resource_id for ac in ac_rows if ac.resource_id]
+        # Identify tile-cascade insight rows so we don't surface them as top-level grants on
+        # the landing scene — they're implied by their parent dashboard entry.
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
+        dashboard_pk_strs = {ac.resource_id for ac in ac_rows if ac.resource == "dashboard"}
+        tile_insight_pk_strs: set[str] = set()
+        if dashboard_pk_strs:
+            dashboard_pks = [int(p) for p in dashboard_pk_strs if p and p.isdigit()]
+            if dashboard_pks:
+                tile_insight_pk_strs = {
+                    str(pk)
+                    for pk in DashboardTile.objects.filter(
+                        dashboard_id__in=dashboard_pks, insight__isnull=False
+                    ).values_list("insight_id", flat=True)
+                    if pk is not None
+                }
+
+        # Pre-fetch short_ids and display names for insight/notebook rows (FE links by short_id
+        # and renders the resource's user-facing name on the landing card). Dashboards are
+        # batched separately because they're addressed by numeric PK.
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        # Insight and Dashboard PKs are integers; Notebook's PK is a UUID. The AC table stores
+        # the model's primary key as a string regardless of its underlying type, so we lookup
+        # by the string PK directly to support both shapes.
+        insight_ac_pks = [
+            int(ac.resource_id)
+            for ac in ac_rows
+            if ac.resource == "insight" and ac.resource_id and ac.resource_id.isdigit()
+        ]
+        dashboard_ac_pks = [
+            int(ac.resource_id)
+            for ac in ac_rows
+            if ac.resource == "dashboard" and ac.resource_id and ac.resource_id.isdigit()
+        ]
+        notebook_ac_pk_strs = [ac.resource_id for ac in ac_rows if ac.resource == "notebook" and ac.resource_id]
+        insight_meta = {
+            row[0]: row
+            for row in Insight.objects.filter(id__in=insight_ac_pks).values_list(
+                "id", "short_id", "name", "derived_name"
+            )
+        }
         notebook_meta = {
             str(row[0]): row
             for row in Notebook.objects.filter(id__in=notebook_ac_pk_strs).values_list("id", "short_id", "title")
         }
+        dashboard_names = dict(Dashboard.objects.filter(id__in=dashboard_ac_pks).values_list("id", "name"))
 
         out: list[dict] = []
         for ac in ac_rows:
+            if ac.resource == "insight" and ac.resource_id in tile_insight_pk_strs:
+                continue
             resource_id_pk = ac.resource_id
             url_id = resource_id_pk
             resource_name: str | None = None
-            if resource_id_pk:
+            if ac.resource == "insight" and resource_id_pk and resource_id_pk.isdigit():
+                meta = insight_meta.get(int(resource_id_pk))
+                if meta:
+                    _id, short_id, name, derived_name = meta
+                    url_id = short_id or resource_id_pk
+                    resource_name = name or derived_name or None
+            elif ac.resource == "notebook" and resource_id_pk:
                 meta = notebook_meta.get(resource_id_pk)
                 if meta:
                     _id, short_id, title = meta
                     url_id = short_id or resource_id_pk
                     resource_name = title or None
+            elif ac.resource == "dashboard" and resource_id_pk and resource_id_pk.isdigit():
+                resource_name = dashboard_names.get(int(resource_id_pk))
             out.append(
                 {
                     "team_id": ac.team_id,

@@ -9,6 +9,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.insight import Insight
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -537,25 +538,47 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     def test_member_payload_carries_guest_grant_count_for_guests(self):
         # The Guests tab promote-to-member dialog uses this count to warn the admin how many
-        # grants will be revoked.
-        from products.notebooks.backend.models import Notebook
+        # grants will be revoked. Tile-cascade rows are excluded so the number reflects what
+        # the admin granted, not the underlying AC plumbing.
+        from products.dashboards.backend.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
         from ee.models.rbac.access_control import AccessControl
 
         _user, membership = self._make_guest("countable-guest@posthog.com")
-        notebook_a = Notebook.objects.create(team=self.team, title="A", short_id="NCNT0001")
-        notebook_b = Notebook.objects.create(team=self.team, title="B", short_id="NCNT0002")
+        dashboard = Dashboard.objects.create(team=self.team, name="With tiles")
+        # Two top-level grants.
         AccessControl.objects.create(
             team=self.team,
-            resource="notebook",
-            resource_id=str(notebook_a.pk),
+            resource="dashboard",
+            resource_id=str(dashboard.pk),
+            organization_member=membership,
+            access_level="viewer",
+        )
+        insight_top = Insight.objects.create(team=self.team, name="Top-level insight", short_id="GRANT001")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(insight_top.pk),
+            organization_member=membership,
+            access_level="viewer",
+        )
+        # Two tile-cascade rows that must NOT be counted.
+        tile_insight_a = Insight.objects.create(team=self.team, name="Tile A", short_id="TILEA001")
+        tile_insight_b = Insight.objects.create(team=self.team, name="Tile B", short_id="TILEB001")
+        DashboardTile.objects.create(dashboard=dashboard, insight=tile_insight_a)
+        DashboardTile.objects.create(dashboard=dashboard, insight=tile_insight_b)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(tile_insight_a.pk),
             organization_member=membership,
             access_level="viewer",
         )
         AccessControl.objects.create(
             team=self.team,
-            resource="notebook",
-            resource_id=str(notebook_b.pk),
+            resource="insight",
+            resource_id=str(tile_insight_b.pk),
             organization_member=membership,
             access_level="viewer",
         )
@@ -565,6 +588,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         rows = {row["user"]["email"]: row for row in response.json()["results"]}
         guest_row = rows["countable-guest@posthog.com"]
         self.assertEqual(guest_row["is_guest"], True)
+        # 2 = the dashboard grant + the top-level insight grant. Tile cascade rows excluded.
         self.assertEqual(guest_row["guest_grant_count"], 2)
 
     def test_member_payload_returns_null_grant_count_for_regular_members(self):

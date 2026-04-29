@@ -7,7 +7,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.rbac.guest_grants import create_grant
 
-from products.notebooks.backend.models import Notebook
+from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -24,12 +24,12 @@ class TestPromoteGuest(APIBaseTest):
         self.guest_membership = OrganizationMembership.objects.create(
             organization=self.organization, user=self.guest_user, is_guest=True
         )
-        notebook = Notebook.objects.create(team=self.team, title="Granted", short_id="PRMT0001")
+        dashboard = Dashboard.objects.create(team=self.team, name="Granted")
         create_grant(
             membership=self.guest_membership,
             team=self.team,
-            resource="notebook",
-            resource_id=notebook.short_id,
+            resource="dashboard",
+            resource_id=str(dashboard.pk),
             created_by=self.user,
         )
 
@@ -53,7 +53,7 @@ class TestPromoteGuest(APIBaseTest):
         self.assertFalse(
             AccessControl.objects.filter(
                 organization_member=self.guest_membership,
-                resource="notebook",
+                resource="dashboard",
             ).exists()
         )
 

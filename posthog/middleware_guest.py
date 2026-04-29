@@ -7,12 +7,12 @@ SPA routes (so the FE scene allowlist/landing page can take over).
 
 Since `is_guest=True` now flips the AC layer's default from allow to deny, the per-resource
 rules below are just a thin adapter: they pull `team_id` and `resource_id` out of the URL
-and ask `UserAccessControl.access_level_for_object` whether the guest has any non-`none`
-level on that specific object.
+(or the `X-PostHog-Scene-Resource` header for query endpoints) and ask
+`UserAccessControl.access_level_for_object` whether the guest has any non-`none` level on
+that specific object. All the AC-table + dashboard-tile cascade semantics live in the AC
+layer itself (tile AC rows are written by `guest_grants.create_grant` at grant time).
 
-Scope: notebook only. Dashboard, insight, and the scene-bound `/query/` rule (with the
-embedded-resource AC cascade and query-body rescoper that go with them) land in a
-follow-up PR — see #55468 description for the stack layout.
+Adding support for a new resource type is a single entry in `GUEST_RULES`.
 """
 
 import re
@@ -25,10 +25,12 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 
 from posthog.models import OrganizationMembership
+from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 
 from ee.models.rbac.access_control import AccessControl
@@ -91,6 +93,14 @@ def _resolve_object(resource: str, resource_id: str, team_id: int):
     """Resolve a URL-style resource identifier to a concrete model instance we can pass to
     `UserAccessControl.access_level_for_object`. Returns `None` when the resource doesn't
     exist — the caller treats that as "not allowed" (guests can't enumerate)."""
+    if resource == "dashboard":
+        if not resource_id.isdigit():
+            return None
+        return Dashboard.objects.filter(id=int(resource_id), team_id=team_id).first()
+    if resource == "insight":
+        if resource_id.isdigit():
+            return Insight.objects.filter(id=int(resource_id), team_id=team_id).first()
+        return Insight.objects.filter(short_id=resource_id, team_id=team_id).first()
     if resource == "notebook":
         # Notebook PK is a UUID, so an integer-style resource_id can only be a short_id.
         return Notebook.objects.filter(short_id=resource_id, team_id=team_id).first()
@@ -101,7 +111,9 @@ def _guest_has_access_to(user: User, team_id: int, resource: str, resource_id: s
     """Single decision point reused by every resource-bound rule.
 
     Returns True iff `UserAccessControl.access_level_for_object` resolves to a non-`none`
-    level for the (guest, team, resource, resource_id) tuple.
+    level for the (guest, team, resource, resource_id) tuple. The dashboard-tile cascade is
+    already handled inside the AC layer because `create_grant` writes tile AC rows at grant
+    time; the middleware itself never needs to check parent dashboards.
     """
     membership = _guest_membership_for_team(user, team_id)
     if membership is None:
@@ -129,6 +141,24 @@ class TeamScopedMetadataRead(GuestRule):
 
     def matches(self, request: HttpRequest) -> re.Match | None:
         if request.method != "GET":
+            return None
+        return super().matches(request)
+
+    def allows(self, request: HttpRequest, user: User, match: re.Match) -> bool:
+        team_id = int(match.group("team_id"))
+        return _has_any_team_ac_row(user, team_id)
+
+
+class TeamScopedPostSubAction(GuestRule):
+    """POST-only team-scoped sub-actions a viewer triggers automatically while interacting
+    with a dashboard tile (cancel a running query, record query timing, mark insight as
+    viewed). Same gate as `TeamScopedMetadataRead`: allowed iff the guest has any AC row
+    on this team. The sub-actions don't take a resource id and don't return resource data,
+    so the gate doesn't need to be tighter than "guest has any reason to be in this team."
+    """
+
+    def matches(self, request: HttpRequest) -> re.Match | None:
+        if request.method != "POST":
             return None
         return super().matches(request)
 
@@ -175,6 +205,35 @@ class GrantBoundListFilter(GuestRule):
         return _guest_has_access_to(user, team_id, self._resource, filter_value)
 
 
+class SceneBoundQuery(GuestRule):
+    """`POST|GET /api/.../query[/<kind>]/` — allowed iff the `X-PostHog-Scene-Resource` header
+    identifies a resource the AC layer grants this guest. Header format: `resource:resource_id`.
+
+    The query rescoper (PR #3) applies further team/object-level filters to the query body;
+    this middleware rule only guards the endpoint reachability.
+    """
+
+    _SCENE_HEADER = "X-PostHog-Scene-Resource"
+    _VALID_RESOURCES = ("dashboard", "insight", "notebook")
+
+    def matches(self, request: HttpRequest) -> re.Match | None:
+        if request.method not in {"POST", "GET"}:
+            return None
+        return super().matches(request)
+
+    def allows(self, request: HttpRequest, user: User, match: re.Match) -> bool:
+        header = request.headers.get(self._SCENE_HEADER)
+        if not header or ":" not in header:
+            return False
+        resource, _, resource_id = header.partition(":")
+        resource = resource.strip()
+        resource_id = resource_id.strip()
+        if not resource_id or resource not in self._VALID_RESOURCES:
+            return False
+        team_id = int(match.group("team_id"))
+        return _guest_has_access_to(user, team_id, resource, resource_id)
+
+
 _METADATA_ENDPOINTS = (
     "data_color_themes",
     "insight_variables",
@@ -184,9 +243,24 @@ _METADATA_ENDPOINTS = (
     "tags",
 )
 
+# (resource, sub_action) tuples — POST endpoints that the viewer client fires automatically
+# while a dashboard tile re-renders. None of them return resource data; cancel aborts a running
+# query the guest themselves issued, timing posts FE telemetry, viewed marks an insight as seen.
+# Adding a new endpoint here should be done sparingly and only for non-mutating telemetry-style
+# sub-actions whose abuse surface is empty.
+_TEAM_SCOPED_POST_SUBACTIONS = (
+    ("insights", "cancel"),
+    ("insights", "timing"),
+    ("insights", "viewed"),
+)
+
 
 def _metadata_pattern(endpoint: str) -> str:
     return rf"^/api/(?:environments|projects)/(?P<team_id>\d+)/{endpoint}/?$"
+
+
+def _post_subaction_pattern(resource: str, action: str) -> str:
+    return rf"^/api/(?:environments|projects)/(?P<team_id>\d+)/{resource}/{action}/?$"
 
 
 GUEST_RULES: list[GuestRule] = [
@@ -205,14 +279,35 @@ GUEST_RULES: list[GuestRule] = [
     AlwaysAllowed(r"^/favicon\.ico$"),
     AlwaysAllowed(r"^/guest(/.*)?$"),
     *[TeamScopedMetadataRead(_metadata_pattern(endpoint)) for endpoint in _METADATA_ENDPOINTS],
+    *[
+        TeamScopedPostSubAction(_post_subaction_pattern(resource, action))
+        for resource, action in _TEAM_SCOPED_POST_SUBACTIONS
+    ],
+    # Anchored with `$` so sub-actions (e.g. `/dashboards/4/sharing/`, `/dashboards/4/collaborators/`)
+    # do NOT inherit the grant — they need their own rule if we ever want to expose them.
+    # Viewers don't need sub-actions; without this anchor a dashboard grant would leak the sharing
+    # config and collaborator list for the granted dashboard.
+    GrantBoundResource(
+        "dashboard",
+        r"^/api/(?:environments|projects)/(?P<team_id>\d+)/dashboards/(?P<resource_id>\d+)/?$",
+    ),
+    GrantBoundResource(
+        "insight",
+        r"^/api/(?:environments|projects)/(?P<team_id>\d+)/insights/(?P<resource_id>[A-Za-z0-9]+)/?$",
+    ),
     GrantBoundResource(
         "notebook",
         r"^/api/(?:environments|projects)/(?P<team_id>\d+)/notebooks/(?P<resource_id>[A-Za-z0-9-]+)/?$",
     ),
     GrantBoundListFilter(
+        "insight",
+        r"^/api/(?:environments|projects)/(?P<team_id>\d+)/insights/?$",
+    ),
+    GrantBoundListFilter(
         "notebook",
         r"^/api/(?:environments|projects)/(?P<team_id>\d+)/notebooks/?$",
     ),
+    SceneBoundQuery(r"^/api/(?:environments|projects)/(?P<team_id>\d+)/query(/[A-Z][A-Za-z]*)?/?$"),
 ]
 
 

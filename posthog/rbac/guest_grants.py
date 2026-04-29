@@ -3,9 +3,8 @@
 A guest's access is expressed as `AccessControl` rows scoped to their OrganizationMembership.
 The inversion in `UserAccessControl` flips the default for guests from "allow" to "deny", so
 an AC row is both necessary and sufficient: this module is a thin wrapper around AC writes
-plus the notebook embedded-node cascade (centralized in `notebook_cascade.py`).
-
-Scope: notebook only. Dashboard and insight grants land in a follow-up PR.
+plus the dashboard-tile cascade and the notebook embedded-node cascade (centralized in
+`notebook_cascade.py`).
 
 Adding a new resource type means accepting it in `VALID_RESOURCES` and ensuring the
 `_ac_resource_id` translation matches how the URL-side identifier differs from the AC PK.
@@ -20,28 +19,43 @@ from rest_framework import exceptions
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.notebooks.backend.models import Notebook
 
 from ee.models.rbac.access_control import AccessControl
 
-VALID_RESOURCES: tuple[str, ...] = ("notebook",)
+VALID_RESOURCES: tuple[str, ...] = ("dashboard", "insight", "notebook")
 VALID_GUEST_ACCESS_LEVELS: tuple[str, ...] = ("viewer", "editor")
 GUEST_VIEWER_ACCESS_LEVEL = "viewer"
 
 
 def _resource_exists_in_team(resource: str, resource_id: str, team_id: int) -> bool:
-    """Does the grant target actually exist? Notebook URL identifiers are `short_id`, but
-    legacy numeric PK addressing is also allowed."""
+    """Does the grant target actually exist? URL identifiers differ by resource:
+
+    - dashboard: stringified numeric PK
+    - insight / notebook: `short_id`, but legacy numeric PK addressing is also allowed
+    """
     value = str(resource_id)
-    if resource != "notebook":
+    if resource == "dashboard":
+        if not value.isdigit():
+            return False
+        return Dashboard.objects.filter(id=int(value), team_id=team_id).exists()
+    model: Any
+    if resource == "insight":
+        model = Insight
+    elif resource == "notebook":
+        model = Notebook
+    else:
         return False
-    if value.isdigit() and Notebook.objects.filter(id=int(value), team_id=team_id).exists():
+    if value.isdigit() and model.objects.filter(id=int(value), team_id=team_id).exists():
         return True
-    return Notebook.objects.filter(short_id=value, team_id=team_id).exists()
+    return model.objects.filter(short_id=value, team_id=team_id).exists()
 
 
 def validate_invite_grants(organization: Organization, guest_resources: list[dict[str, Any]]) -> None:
@@ -86,7 +100,12 @@ def create_grant(
     created_by: User,
     access_level: str = GUEST_VIEWER_ACCESS_LEVEL,
 ) -> AccessControl:
-    """Write a single `AccessControl` row for this guest membership."""
+    """Write a single `AccessControl` row for this guest membership.
+
+    For dashboards, also cascade AC rows at the same level to each tile insight so the
+    insight scene resolves correctly on the frontend. Tiles added after the grant is created
+    will NOT auto-propagate — documented v1 limitation.
+    """
     if resource not in VALID_RESOURCES:
         raise exceptions.ValidationError(f"Invalid resource: {resource}")
     if access_level not in VALID_GUEST_ACCESS_LEVELS:
@@ -113,7 +132,21 @@ def create_grant(
         access_control.access_level = access_level
         access_control.save(update_fields=["access_level", "updated_at"])
 
-    if resource == "notebook":
+    if resource == "dashboard":
+        # Tile cascade is always viewer-level, regardless of the dashboard's grant level.
+        # An editor grant on the dashboard means "edit dashboard layout / metadata"; it does
+        # NOT extend the editor capability to the underlying tile insights, which would let
+        # the guest rename/mutate/soft-delete each insight individually via its own URL.
+        # If a guest needs editor access to a specific insight, that's a separate explicit
+        # grant — not an implicit cascade.
+        _cascade_ac_to_dashboard_tiles(
+            team=team,
+            dashboard_id=str(resource_id),
+            membership=membership,
+            created_by=created_by,
+            access_level=GUEST_VIEWER_ACCESS_LEVEL,
+        )
+    elif resource == "notebook":
         # Cascade AC rows to every cascadeable embedded resource referenced in the notebook
         # content (saved insights, recordings, cohorts, feature flags, etc.) at viewer level.
         # The embed map is centralized in `posthog/rbac/notebook_cascade.py`.
@@ -132,14 +165,55 @@ def create_grant(
 
 
 def _ac_resource_id(resource: str, grant_resource_id: str, team_id: int) -> str | None:
-    """Guest grants accept URL identifiers (short_id for notebooks), while the AC table
-    uses the numeric PK. Translate before writing AC rows."""
-    if resource != "notebook":
-        return None
+    """Guest grants accept URL identifiers (numeric PK for dashboards, short_id for
+    insights/notebooks), while the AC table uses the numeric PK for all resources.
+    Translate before writing AC rows."""
+    if resource == "dashboard":
+        return grant_resource_id if grant_resource_id.isdigit() else None
+    model: Any
+    if resource == "insight":
+        model = Insight
+    elif resource == "notebook":
+        model = Notebook
+    else:
+        return grant_resource_id
     if grant_resource_id.isdigit():
         return grant_resource_id
-    pk = Notebook.objects.filter(short_id=grant_resource_id, team_id=team_id).values_list("id", flat=True).first()
+    pk = model.objects.filter(short_id=grant_resource_id, team_id=team_id).values_list("id", flat=True).first()
     return str(pk) if pk is not None else None
+
+
+def _cascade_ac_to_dashboard_tiles(
+    *,
+    team: Team,
+    dashboard_id: str,
+    membership: OrganizationMembership,
+    created_by: User,
+    access_level: str = GUEST_VIEWER_ACCESS_LEVEL,
+) -> None:
+    """Write one viewer-level AC row per tile insight on the dashboard.
+
+    The `access_level` parameter is reserved for future curated-grant flows and defaults
+    to viewer. Today, every caller (the only one being `create_grant` for a dashboard)
+    pins it to viewer regardless of the parent dashboard's grant level — see the
+    comment in `create_grant` for the rationale.
+    """
+    if not dashboard_id.isdigit():
+        return
+    # `insight__isnull=False` already filters out tiles without an insight, so every
+    # `insight_id` we read here is non-null.
+    tile_insight_pks = DashboardTile.objects.filter(dashboard_id=int(dashboard_id), insight__isnull=False).values_list(
+        "insight_id", flat=True
+    )
+    for pk in tile_insight_pks:
+        AccessControl.objects.get_or_create(
+            team=team,
+            resource="insight",
+            resource_id=str(pk),
+            organization_member=membership,
+            role=None,
+            defaults={"access_level": access_level, "created_by": created_by},
+        )
 
 
 @transaction.atomic

@@ -90,12 +90,32 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         # confusing "0 grants" badge on every regular member row.
         if not instance.is_guest:
             return None
+        # Tile-cascade rows are excluded from the count — they're implied by the parent
+        # dashboard grant and surfacing them would inflate the "you're about to revoke N
+        # grants" warning misleadingly.
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
         from ee.models.rbac.access_control import AccessControl
 
-        return AccessControl.objects.filter(
-            organization_member=instance,
-            resource="notebook",
-        ).count()
+        ac_rows = list(
+            AccessControl.objects.filter(
+                organization_member=instance,
+                resource__in=("dashboard", "insight", "notebook"),
+            ).values_list("resource", "resource_id")
+        )
+        dashboard_pks = [int(rid) for r, rid in ac_rows if r == "dashboard" and rid and rid.isdigit()]
+        tile_insight_ids = (
+            {
+                str(pk)
+                for pk in DashboardTile.objects.filter(
+                    dashboard_id__in=dashboard_pks, insight__isnull=False
+                ).values_list("insight_id", flat=True)
+                if pk is not None
+            }
+            if dashboard_pks
+            else set()
+        )
+        return sum(1 for r, rid in ac_rows if not (r == "insight" and rid in tile_insight_ids))
 
     def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
         updated_membership = instance
