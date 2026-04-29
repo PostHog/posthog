@@ -9,6 +9,7 @@ from typing import Any
 from django.utils import timezone
 
 from posthog.models.team.team import Team
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_harness.budgets import BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.prompt import build_run_prompt
@@ -31,12 +32,19 @@ SIGNALS_AGENT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
 @dataclass(frozen=True)
 class RunResult:
-    run_id: str
-    status: SignalAgentRun.Status
+    """Outcome of a run-trigger.
+
+    `run_id` and `status` are None when the trigger was skipped without persisting
+    a row (e.g. another run for the same team/config is still in flight).
+    """
+
+    run_id: str | None
+    status: SignalAgentRun.Status | None
     last_message: str | None
     runtime_s: float
     skill_name: str
     skill_version: int
+    skip_reason: str | None = None
 
 
 def run_signals_agent(
@@ -48,42 +56,72 @@ def run_signals_agent(
     repository: str | None = None,
     verbose: bool = False,
 ) -> RunResult:
-    """Synchronous entrypoint: resolve config, spawn sandbox, persist the run row.
+    """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
-    Hand-trigger surface for the management command and tests. The Temporal scheduler
-    will call into the same orchestration once it lands.
+    Wraps the async core for callers that aren't inside an event loop (management
+    command, direct script). Temporal activities call `arun_signals_agent` directly.
     """
-    team = Team.objects.select_related("organization").get(id=team_id)
-    config = _resolve_config(team)
-    skill = load_skill_for_run(team, skill_name, version=skill_version)
-    budget = _budget_for_run(config, budget_overrides)
-
-    run = SignalAgentRun.objects.create(
-        team=team,
-        agent_config=config,
-        skill_name=skill.name,
-        skill_version=skill.version,
-        status=SignalAgentRun.Status.RUNNING,
-        metadata={"budget": budget.as_dict(), "skill_id": skill.skill_id},
+    return asyncio.run(
+        arun_signals_agent(
+            team_id=team_id,
+            skill_name=skill_name,
+            skill_version=skill_version,
+            budget_overrides=budget_overrides,
+            repository=repository,
+            verbose=verbose,
+        )
     )
 
+
+async def arun_signals_agent(
+    *,
+    team_id: int,
+    skill_name: str,
+    skill_version: int | None = None,
+    budget_overrides: dict[str, Any] | None = None,
+    repository: str | None = None,
+    verbose: bool = False,
+) -> RunResult:
+    """Async core. Safe to call from inside a running event loop (Temporal activity)."""
+    team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
+    config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team)
+    skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
+        team, skill_name, version=skill_version
+    )
+    budget = _budget_for_run(config, budget_overrides)
+
+    # Skip-if-running guard. Best-effort — there is a TOCTOU window between this check
+    # and the row insert below, but the spec accepts that for v1 (no claim/lease primitive).
+    if await database_sync_to_async(_has_running_run, thread_sensitive=False)(team_id, config.id):
+        logger.info(
+            "signals_agent: skipping trigger, prior run still RUNNING",
+            extra={"team_id": team_id, "skill_name": skill.name},
+        )
+        return RunResult(
+            run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skip_reason="prior run still in RUNNING status",
+        )
+
+    run = await database_sync_to_async(_create_run_row, thread_sensitive=False)(
+        team=team, config=config, skill=skill, budget=budget
+    )
     started = time.monotonic()
     try:
-        last_message = asyncio.run(
-            _spawn_and_run(
-                team=team,
-                skill=skill,
-                budget=budget,
-                repository=repository,
-                verbose=verbose,
-            )
+        last_message = await _spawn_and_run(
+            team=team,
+            skill=skill,
+            budget=budget,
+            repository=repository,
+            verbose=verbose,
         )
         runtime_s = time.monotonic() - started
-        SignalAgentRun.objects.filter(id=run.id).update(
-            status=SignalAgentRun.Status.COMPLETED,
-            completed_at=timezone.now(),
-            summary=last_message or "",
-            budget_used={"runtime_s": runtime_s},
+        await database_sync_to_async(_finalize_completed, thread_sensitive=False)(
+            run_id=run.id, summary=last_message or "", runtime_s=runtime_s
         )
         return RunResult(
             run_id=str(run.id),
@@ -100,16 +138,12 @@ def run_signals_agent(
             "signals_agent: run failed",
             extra={"team_id": team_id, "run_id": str(run.id), "skill_name": skill.name},
         )
-        SignalAgentRun.objects.filter(id=run.id).update(
-            status=SignalAgentRun.Status.FAILED,
-            completed_at=timezone.now(),
-            summary=f"Run failed: {exc!s}",
-            budget_used={"runtime_s": runtime_s},
-            metadata={
-                "budget": budget.as_dict(),
-                "skill_id": skill.skill_id,
-                "error_type": type(exc).__name__,
-            },
+        await database_sync_to_async(_finalize_failed, thread_sensitive=False)(
+            run_id=run.id,
+            exc=exc,
+            runtime_s=runtime_s,
+            budget=budget,
+            skill_id=skill.skill_id,
         )
         return RunResult(
             run_id=str(run.id),
@@ -129,9 +163,8 @@ async def _spawn_and_run(
     repository: str | None,
     verbose: bool,
 ) -> str:
-    user_id = await asyncio.to_thread(resolve_user_id_for_team, team.id)
-    sandbox_env_id = await asyncio.to_thread(
-        get_or_create_signals_sandbox_env,
+    user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team.id)
+    sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
         SIGNALS_AGENT_SANDBOX_ENV_NAME,
         SandboxEnvironment.NetworkAccessLevel.TRUSTED,
@@ -161,10 +194,69 @@ async def _spawn_and_run(
     return last_message
 
 
+def _get_team(team_id: int) -> Team:
+    return Team.objects.select_related("organization").get(id=team_id)
+
+
 def _resolve_config(team: Team) -> SignalAgentConfig:
     """Get-or-create the config row. Defaults are safe (enabled=False, shadow_mode=True)."""
     config, _ = SignalAgentConfig.objects.get_or_create(team=team)
     return config
+
+
+def _has_running_run(team_id: int, config_id: str) -> bool:
+    return SignalAgentRun.objects.filter(
+        team_id=team_id,
+        agent_config_id=config_id,
+        status=SignalAgentRun.Status.RUNNING,
+    ).exists()
+
+
+def _create_run_row(
+    *,
+    team: Team,
+    config: SignalAgentConfig,
+    skill: LoadedSkill,
+    budget: BudgetCaps,
+) -> SignalAgentRun:
+    return SignalAgentRun.objects.create(
+        team=team,
+        agent_config=config,
+        skill_name=skill.name,
+        skill_version=skill.version,
+        status=SignalAgentRun.Status.RUNNING,
+        metadata={"budget": budget.as_dict(), "skill_id": skill.skill_id},
+    )
+
+
+def _finalize_completed(*, run_id: str, summary: str, runtime_s: float) -> None:
+    SignalAgentRun.objects.filter(id=run_id).update(
+        status=SignalAgentRun.Status.COMPLETED,
+        completed_at=timezone.now(),
+        summary=summary,
+        budget_used={"runtime_s": runtime_s},
+    )
+
+
+def _finalize_failed(
+    *,
+    run_id: str,
+    exc: BaseException,
+    runtime_s: float,
+    budget: BudgetCaps,
+    skill_id: str,
+) -> None:
+    SignalAgentRun.objects.filter(id=run_id).update(
+        status=SignalAgentRun.Status.FAILED,
+        completed_at=timezone.now(),
+        summary=f"Run failed: {exc!s}",
+        budget_used={"runtime_s": runtime_s},
+        metadata={
+            "budget": budget.as_dict(),
+            "skill_id": skill_id,
+            "error_type": type(exc).__name__,
+        },
+    )
 
 
 def _budget_for_run(config: SignalAgentConfig, overrides: dict[str, Any] | None) -> BudgetCaps:

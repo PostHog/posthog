@@ -1,3 +1,7 @@
+from products.signals.backend.temporal.agentic.agent_scheduler import (
+    RunSignalsAgentWorkflow,
+    run_signals_agent_activity,
+)
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -65,6 +69,7 @@ WORKFLOWS = [
     TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
+    RunSignalsAgentWorkflow,
 ]
 
 ACTIVITIES = [
@@ -97,6 +102,7 @@ ACTIVITIES = [
     restore_grouping_pause_activity,
     run_agentic_report_activity,
     run_signal_semantic_search_activity,
+    run_signals_agent_activity,
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,
