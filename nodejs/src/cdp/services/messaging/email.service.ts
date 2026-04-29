@@ -8,6 +8,7 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -51,6 +52,7 @@ export class EmailService {
     constructor(
         private sesConfig: EmailServiceConfig,
         private integrationManager: IntegrationManagerService,
+        private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
         siteUrl: string
     ) {
@@ -127,7 +129,7 @@ export class EmailService {
         })
 
         const distinctId = invocation.state?.globals?.event?.distinct_id
-        if (distinctId) {
+        if (distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),

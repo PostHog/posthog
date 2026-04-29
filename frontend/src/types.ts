@@ -759,7 +759,16 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
+    workflows_config: WorkflowsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
+}
+
+export interface WorkflowsConfig {
+    /**
+     * When enabled, messaging engagement activity (sends, opens, clicks, bounces, etc.)
+     * is captured as standard PostHog events ($messaging_email_*) in addition to app_metrics2.
+     */
+    capture_engagement_events: boolean
 }
 
 export interface ProductIntentType {

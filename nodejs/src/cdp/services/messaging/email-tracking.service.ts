@@ -11,6 +11,7 @@ import { CapturedEventsService } from '../captured-events/captured-events.servic
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { SesWebhookHandler } from './helpers/ses'
 import {
@@ -85,6 +86,7 @@ export class EmailTrackingService {
         private hogFlowManager: HogFlowManagerService,
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private capturedEventsService: CapturedEventsService,
+        private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private recipientsManager: RecipientsManagerService
     ) {
         this.sesWebhookHandler = new SesWebhookHandler()
@@ -152,7 +154,7 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
-        if (distinctId) {
+        if (distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
             await this.capturedEventsService.queueEvent({
                 team_id: teamId,
                 event: METRIC_NAME_TO_EVENT_NAME[metricName] ?? `$messaging_${metricName}`,

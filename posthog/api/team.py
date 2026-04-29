@@ -73,6 +73,7 @@ from posthog.utils import get_instance_realm, get_instance_region, get_ip_addres
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.signals.backend.models import SignalSourceConfig
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -203,6 +204,7 @@ TEAM_CONFIG_FIELDS = (
     "conversations_enabled",
     "conversations_settings",
     "proactive_tasks_enabled",
+    "workflows_config",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -308,6 +310,21 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         return instance
 
 
+class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    capture_engagement_events = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When enabled, messaging engagement activity (email sends, opens, clicks, bounces, "
+            "spam reports, unsubscribes) is captured as standard PostHog events ($messaging_email_*) "
+            "in addition to the existing app_metrics2 records."
+        ),
+    )
+
+    class Meta:
+        model = TeamWorkflowsConfig
+        fields = ["capture_engagement_events"]
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False)
     signup_pageview_event = serializers.JSONField(required=False)
@@ -382,6 +399,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
+    workflows_config = TeamWorkflowsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -525,6 +543,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return None
 
         serializer = TeamCustomerAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_workflows_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamWorkflowsConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -1056,6 +1084,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("customer_analytics_config", None):
             self._update_customer_analytics_config(instance, config_data)
 
+        if config_data := validated_data.pop("workflows_config", None):
+            self._update_workflows_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -1275,6 +1306,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_workflows_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamWorkflowsConfigSerializer(
+            instance.workflows_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "workflows_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):

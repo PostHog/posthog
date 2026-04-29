@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
@@ -27,8 +29,11 @@ export function HogFlowFunctionConfiguration({
     errors?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const template = hogFunctionTemplatesById[templateId]
+    const isEmailStep = templateId === 'template-email'
+    const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         if (template && Object.keys(inputs ?? {}).length === 0) {
@@ -120,6 +125,16 @@ export function HogFlowFunctionConfiguration({
                 sampleGlobalsWithInputs={sampleGlobals}
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
+            {isEmailStep && !engagementEventsEnabled && (
+                <p className="text-xs text-muted-alt italic px-1">
+                    Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. To also capture
+                    these as PostHog events for use in insights and funnels,{' '}
+                    <Link to={urls.settings('environment-workflows', 'workflows-engagement-events')}>
+                        enable email engagement events
+                    </Link>
+                    .
+                </p>
+            )}
             <HogFlowFunctionMappings
                 useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
                 inputs={inputs}

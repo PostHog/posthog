@@ -28,6 +28,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailService } from './services/messaging/email.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -59,6 +60,7 @@ export interface CdpCoreServices {
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
+    teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     capturedEventsService: CapturedEventsService
@@ -171,6 +173,7 @@ export function createCdpCoreServices(
     )
 
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -179,6 +182,7 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
         },
         deps.integrationManager,
+        teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL
     )
@@ -233,6 +237,7 @@ export function createCdpCoreServices(
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
+        teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
         capturedEventsService,

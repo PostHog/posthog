@@ -48,6 +48,7 @@ import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/fr
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -497,6 +498,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsDashboardEvents />,
                 flag: 'CUSTOMER_ANALYTICS',
                 keywords: ['dashboard', 'customer', 'events'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-workflows',
+        title: 'Workflows',
+        group: 'Products',
+        settings: [
+            {
+                id: 'workflows-engagement-events',
+                title: 'Engagement events',
+                description:
+                    'When enabled, messaging engagement activity (sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events alongside existing app metrics. This lets you build insights, funnels, and dashboards from messaging data.',
+                component: <WorkflowsEngagementEventsSettings />,
+                keywords: ['workflows', 'messaging', 'email', 'engagement', 'events', 'capture', 'tracking'],
             },
         ],
     },
