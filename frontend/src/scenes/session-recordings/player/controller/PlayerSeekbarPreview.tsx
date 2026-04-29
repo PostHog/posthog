@@ -120,10 +120,9 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
             }
         }
 
-        seekBarRef.current.addEventListener('mousemove', handleMouseMove)
-        // fixes react-hooks/exhaustive-deps warning about stale ref elements
-        const { current } = ref
-        return () => current?.removeEventListener('mousemove', handleMouseMove)
+        const seekBar = seekBarRef.current
+        seekBar.addEventListener('mousemove', handleMouseMove)
+        return () => seekBar.removeEventListener('mousemove', handleMouseMove)
     }, [seekBarRef, percentage])
 
     return (
