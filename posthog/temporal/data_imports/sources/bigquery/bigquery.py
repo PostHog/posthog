@@ -262,18 +262,18 @@ def get_leading_indexed_columns_for_schemas(
     if not table_names:
         return {}
 
-    region: str | None = None
-    if (
-        config.use_custom_region
-        and config.use_custom_region.enabled
-        and config.use_custom_region.region is not None
-        and config.use_custom_region.region != ""
-    ):
-        region = config.use_custom_region.region
-
-    result: dict[str, set[str]] = {table: set() for table in table_names}
-
     try:
+        region: str | None = None
+        if (
+            config.use_custom_region
+            and config.use_custom_region.enabled
+            and config.use_custom_region.region is not None
+            and config.use_custom_region.region != ""
+        ):
+            region = config.use_custom_region.region
+
+        result: dict[str, set[str]] = {table: set() for table in table_names}
+
         with bigquery_client(
             config.key_file.project_id,
             region,
