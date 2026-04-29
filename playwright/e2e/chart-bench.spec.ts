@@ -1,5 +1,7 @@
 import { expect } from '@playwright/test'
 
+import type { BenchResult } from '~/scenes/debug/chart-bench/ChartBenchScene'
+
 import { test } from '../utils/playwright-test-base'
 
 /**
@@ -15,25 +17,7 @@ import { test } from '../utils/playwright-test-base'
  * Or set CHART_BENCH=1 in the environment to opt in.
  */
 
-type ChartKind = 'hog' | 'chartjs' | 'adapter-hog' | 'adapter-chartjs'
-
-interface BenchResult {
-    chart: ChartKind
-    series: number
-    points: number
-    seed: number
-    runs: number
-    readyMs: number[]
-    hoverMs: number[]
-    meanReadyMs: number
-    meanHoverMs: number
-}
-
-declare global {
-    interface Window {
-        __chartBench?: BenchResult
-    }
-}
+type ChartKind = BenchResult['chart']
 
 const MATRIX: { series: number; points: number }[] = [
     // Realistic sizes first — these dominate real product usage.

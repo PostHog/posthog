@@ -1,7 +1,7 @@
 import { NodeKind } from '~/queries/schema/schema-general'
-import type { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import type { EventsNode, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import type { QueryBasedInsightModel, TrendResult } from '~/types'
-import { ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType } from '~/types'
 
 import type { BenchData } from './generateBenchData'
 
@@ -37,19 +37,19 @@ export function buildCachedInsight(data: BenchData, options: BuildOptions = {}):
             date_to: data.labels[data.labels.length - 1] ?? null,
         },
         interval: 'day',
-        series: data.series.map((s, idx) => ({
-            kind: NodeKind.EventsNode,
-            event: '$pageview',
-            name: s.label,
-            custom_name: s.label,
-            math: 'total',
-            // Order lives on action.order in TrendResult — duplicated here
-            // because some selectors key off the series index too.
-            properties: [],
-            // @ts-expect-error — `order` isn't part of EventsNode in the
-            // schema but `trendsDataLogic` reads it off series entries.
-            order: idx,
-        })),
+        series: data.series.map(
+            (s, idx) =>
+                // `order` isn't in the EventsNode schema but `trendsDataLogic` reads it off series entries.
+                ({
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: s.label,
+                    custom_name: s.label,
+                    math: BaseMathType.TotalCount,
+                    properties: [],
+                    order: idx,
+                }) as EventsNode
+        ),
         trendsFilter: {
             display,
         },
@@ -71,7 +71,7 @@ export function buildCachedInsight(data: BenchData, options: BuildOptions = {}):
             math: 'total',
             math_property: null,
             math_group_type_index: null,
-            properties: {},
+            properties: [],
         },
         label: s.label,
         count: s.data.reduce((a, b) => a + b, 0),
@@ -96,7 +96,6 @@ export function buildCachedInsight(data: BenchData, options: BuildOptions = {}):
         derived_name: 'chart bench',
         query,
         result: trendResults,
-        filters: {},
         dashboards: [],
     }
 

@@ -42,7 +42,7 @@ import type { ChartKind as SweepChartKind, SweepResult } from './sweepTypes'
 
 type ChartKind = SweepChartKind
 
-interface BenchResult {
+export interface BenchResult {
     chart: ChartKind
     series: number
     points: number
