@@ -487,7 +487,7 @@ jobs:
             # Shared by "Verify canary label was authorized" and "Verify team membership".
             - name: Get app token for team membership check
               id: app-token
-              if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+              if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && steps.pr_info.outputs.should_proceed == 'true'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
