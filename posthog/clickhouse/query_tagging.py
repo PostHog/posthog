@@ -39,6 +39,7 @@ class Product(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
     MAX_AI = "max_ai"
+    MCP = "mcp"
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"

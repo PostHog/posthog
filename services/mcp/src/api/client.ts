@@ -17,6 +17,46 @@ import { isShortId } from '@/tools/insights/utils'
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
+const QUERY_KIND_TO_PRODUCT_KEY: Record<string, string> = {
+    TrendsQuery: 'product_analytics',
+    AssistantTrendsQuery: 'product_analytics',
+    AssistantTrendsActorsQuery: 'product_analytics',
+    FunnelsQuery: 'product_analytics',
+    AssistantFunnelsQuery: 'product_analytics',
+    RetentionQuery: 'product_analytics',
+    AssistantRetentionQuery: 'product_analytics',
+    LifecycleQuery: 'product_analytics',
+    AssistantLifecycleQuery: 'product_analytics',
+    PathsQuery: 'product_analytics',
+    AssistantPathsQuery: 'product_analytics',
+    StickinessQuery: 'product_analytics',
+    AssistantStickinessQuery: 'product_analytics',
+    ErrorTrackingQuery: 'error_tracking',
+    LLMTracesQuery: 'llm_analytics',
+    AssistantTracesQuery: 'llm_analytics',
+    AssistantTraceQuery: 'llm_analytics',
+    RecordingsQuery: 'session_replay',
+    SessionRecordingListQuery: 'session_replay',
+    ExperimentQuery: 'experiments',
+    ExperimentExposureQuery: 'experiments',
+}
+
+function injectProductKey(query: Record<string, unknown>): Record<string, unknown> {
+    const kind = query?.kind as string | undefined
+    if (!kind) {
+        return query
+    }
+    const productKey = QUERY_KIND_TO_PRODUCT_KEY[kind]
+    if (!productKey) {
+        return query
+    }
+    const existingTags = (query.tags as Record<string, unknown> | undefined) ?? {}
+    if (existingTags.productKey) {
+        return query
+    }
+    return { ...query, tags: { ...existingTags, productKey } }
+}
+
 export interface GroupType {
     group_type: string
     group_type_index: number
@@ -574,7 +614,7 @@ export class ApiClient {
 
                 // The API expects a QueryRequest object with the query wrapped
                 const queryRequest: any = {
-                    query: validated,
+                    query: injectProductKey(validated),
                     ...(refresh ? { refresh: 'blocking' } : {}),
                 }
 
@@ -667,11 +707,11 @@ export class ApiClient {
                 const primaryResults = await Promise.all(
                     allPrimaryMetrics.map(async (metric) => {
                         try {
-                            const queryBody = {
+                            const queryBody = injectProductKey({
                                 kind: 'ExperimentQuery',
                                 metric,
                                 experiment_id: experimentId,
-                            }
+                            })
 
                             const queryRequest = {
                                 query: queryBody,
@@ -697,11 +737,11 @@ export class ApiClient {
                 const secondaryResults = await Promise.all(
                     allSecondaryMetrics.map(async (metric) => {
                         try {
-                            const queryBody = {
+                            const queryBody = injectProductKey({
                                 kind: 'ExperimentQuery',
                                 metric,
                                 experiment_id: experimentId,
-                            }
+                            })
 
                             const queryRequest = {
                                 query: queryBody,
@@ -852,7 +892,7 @@ export class ApiClient {
 
                 return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
                     method: 'POST',
-                    body: JSON.stringify({ query }),
+                    body: JSON.stringify({ query: injectProductKey(query) }),
                 })
             },
 
@@ -940,7 +980,7 @@ export class ApiClient {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
                 return this.fetchJson<{ results: unknown[] }>(queryUrl, {
                     method: 'POST',
-                    body: JSON.stringify({ query: queryBody }),
+                    body: JSON.stringify({ query: injectProductKey(queryBody) }),
                 })
             },
 
@@ -952,7 +992,7 @@ export class ApiClient {
                 return this.request<{ results: unknown; formatted_results?: string }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
-                    body: { query: normalizeQuery(query) },
+                    body: { query: injectProductKey(normalizeQuery(query)) },
                 })
             },
 
@@ -968,9 +1008,10 @@ export class ApiClient {
             }> => {
                 const normalized = normalizeQuery(query)
                 const includeRecordings = Boolean(normalized.includeRecordings)
+                const sourceWithProductKey = injectProductKey(normalized)
                 const wrappedQuery = {
                     kind: 'ActorsQuery',
-                    source: normalized,
+                    source: sourceWithProductKey,
                     select: includeRecordings
                         ? ['actor', 'event_count', 'matched_recordings']
                         : ['actor', 'event_count'],

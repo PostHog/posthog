@@ -220,7 +220,14 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             # QueryRunner.run or QueryRunner.calculate before sync_execute fires. Scenes not
             # registered in `_infer_query_tags` stay untagged — they surface as
             # UntaggedQueryError in DEBUG, which is the signal to add them.
-            if inferred_tags := _infer_query_tags(query):
+            inferred_tags = _infer_query_tags(query)
+            if not inferred_tags and request.headers.get("x-posthog-client") == "mcp":
+                # MCP queries without a scene or productKey are MCP-specific (e.g. raw HogQL
+                # via query-run). Product-specific tools inject tags.productKey so that
+                # _infer_query_tags returns a non-empty dict above. source=mcp is already set
+                # by the CHQueries middleware for all MCP requests.
+                inferred_tags = {"product": Product.MCP, "feature": Feature.QUERY}
+            if inferred_tags:
                 tag_queries(**inferred_tags)
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)
