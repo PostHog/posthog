@@ -156,9 +156,6 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             previous_count = schema.partition_count
             schema.update_partition_setting("partition_count", new_count)
             change_label = f"partition_count: {previous_count!r} → {new_count}"
-        else:
-            messages.error(request, f"Unsupported partition_mode: {schema.partition_mode!r}.")
-            return redirect(_change_url(schema_id))
 
         # Bundled non-billable reset+resync. Operator should pause the schedule
         # before running this — the banner on the change form prompts for that.
