@@ -1,8 +1,11 @@
+import { SourceConfig } from '~/queries/schema/schema-general'
+
 import {
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
     getInitialSourceConnectionDetailsValues,
+    seedConnectorDefaults,
 } from '../sourceWizardLogic'
 
 describe('sourceWizardLogic', () => {
@@ -558,6 +561,92 @@ describe('sourceWizardLogic', () => {
                 { allowBlankSensitiveFields: true }
             )
             expect(res.payload.host).toBe('Please enter a host')
+        })
+    })
+
+    describe('seedConnectorDefaults', () => {
+        const mysqlLikeConnector: SourceConfig = {
+            name: 'MySQL',
+            iconPath: '',
+            caption: null,
+            fields: [
+                {
+                    name: 'host',
+                    label: 'Host',
+                    type: 'text',
+                    required: true,
+                    placeholder: 'localhost',
+                    secret: false,
+                },
+                {
+                    name: 'using_ssl',
+                    label: 'Use SSL?',
+                    type: 'select',
+                    required: true,
+                    defaultValue: 'true',
+                    options: [
+                        { label: 'Yes', value: 'true' },
+                        { label: 'No', value: 'false' },
+                    ],
+                },
+            ],
+        }
+
+        it('seeds defaults from the connector schema when payload is empty', () => {
+            const setSourceConnectionDetailsValues = jest.fn()
+            seedConnectorDefaults(
+                { setSourceConnectionDetailsValues },
+                { sourceConnectionDetails: { prefix: '', description: '', payload: {} } } as any,
+                mysqlLikeConnector
+            )
+            expect(setSourceConnectionDetailsValues).toHaveBeenCalledTimes(1)
+            expect(setSourceConnectionDetailsValues).toHaveBeenCalledWith({
+                payload: { host: '', using_ssl: 'true' },
+            })
+        })
+
+        it('does not clobber existing payload values', () => {
+            const setSourceConnectionDetailsValues = jest.fn()
+            seedConnectorDefaults(
+                { setSourceConnectionDetailsValues },
+                {
+                    sourceConnectionDetails: {
+                        prefix: '',
+                        description: '',
+                        payload: { host: 'preset', using_ssl: 'false' },
+                    },
+                } as any,
+                mysqlLikeConnector
+            )
+            expect(setSourceConnectionDetailsValues).not.toHaveBeenCalled()
+        })
+
+        it('only fills in keys that are currently undefined', () => {
+            const setSourceConnectionDetailsValues = jest.fn()
+            seedConnectorDefaults(
+                { setSourceConnectionDetailsValues },
+                {
+                    sourceConnectionDetails: {
+                        prefix: '',
+                        description: '',
+                        payload: { host: 'preset' },
+                    },
+                } as any,
+                mysqlLikeConnector
+            )
+            expect(setSourceConnectionDetailsValues).toHaveBeenCalledWith({
+                payload: { host: 'preset', using_ssl: 'true' },
+            })
+        })
+
+        it('is a no-op when connector is null', () => {
+            const setSourceConnectionDetailsValues = jest.fn()
+            seedConnectorDefaults(
+                { setSourceConnectionDetailsValues },
+                { sourceConnectionDetails: { prefix: '', description: '', payload: {} } } as any,
+                null
+            )
+            expect(setSourceConnectionDetailsValues).not.toHaveBeenCalled()
         })
     })
 })
