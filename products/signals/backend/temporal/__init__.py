@@ -1,3 +1,7 @@
+from products.signals.backend.temporal.agentic.agent_coordinator import (
+    SignalsAgentCoordinatorWorkflow,
+    fetch_enabled_signals_agent_runs_activity,
+)
 from products.signals.backend.temporal.agentic.agent_scheduler import (
     RunSignalsAgentWorkflow,
     run_signals_agent_activity,
@@ -70,11 +74,13 @@ WORKFLOWS = [
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
     RunSignalsAgentWorkflow,
+    SignalsAgentCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
+    fetch_enabled_signals_agent_runs_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,

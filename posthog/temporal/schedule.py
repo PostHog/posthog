@@ -68,6 +68,7 @@ from posthog.temporal.session_replay.summarization_sweep.reconciler import (
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.signals.backend.temporal.agentic.schedule import create_signals_agent_coordinator_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -554,6 +555,7 @@ schedules = [
     create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
+    create_signals_agent_coordinator_schedule,
 ]
 
 if settings.EE_AVAILABLE:
