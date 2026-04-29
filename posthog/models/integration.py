@@ -37,7 +37,11 @@ from stripe import StripeClient
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
+from posthog.models.github_integration_base import (
+    GitHubAppNotConfiguredError,
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+)
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
@@ -2205,14 +2209,21 @@ class GitHubIntegration(GitHubIntegrationBase):
         the same redirect URI (required by GitHub for the token exchange in that flow).
 
         Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
-        user-to-server access/refresh tokens and their expirations, or ``None`` if
-        the exchange fails or the response lacks an id/login.
+        user-to-server access/refresh tokens and their expirations, or ``None`` if the
+        token exchange responds without an access token, the ``/user`` lookup fails, or
+        the response lacks an id/login.
+
+        Raises :class:`GitHubAppNotConfiguredError` if the GitHub App credentials
+        (``GITHUB_APP_CLIENT_ID`` / ``GITHUB_APP_CLIENT_SECRET``) are not configured.
+        Callers can use this distinction to differentiate a config issue from a
+        transient or code-side exchange failure when surfacing user-facing errors.
         """
         client_id = settings.GITHUB_APP_CLIENT_ID
         client_secret = settings.GITHUB_APP_CLIENT_SECRET
-        if not client_id or not client_secret:
-            logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
-            return None
+        if not client_id:
+            raise GitHubAppNotConfiguredError("GITHUB_APP_CLIENT_ID is not configured")
+        if not client_secret:
+            raise GitHubAppNotConfiguredError("GITHUB_APP_CLIENT_SECRET is not configured")
 
         token_body: dict[str, str] = {
             "client_id": client_id,

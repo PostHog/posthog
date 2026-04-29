@@ -1103,7 +1103,37 @@ class TestGitHubIntegrationStateValidation:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Generic exchange failure must not blame GITHUB_APP_CLIENT_SECRET — that text
+        # was previously surfaced to users for any failure mode of github_user_from_code,
+        # which is misleading because the helper returns None for several unrelated reasons
+        # (token endpoint failure, /user 401, missing id/login, network error).
         assert "Failed to exchange the OAuth code" in response.json()["detail"]
+        assert "GITHUB_APP_CLIENT_SECRET" not in response.json()["detail"]
+        mock_from_install.assert_not_called()
+
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_create_github_integration_surfaces_missing_app_credentials(
+        self, mock_from_install, mock_from_code, client: HttpClient
+    ):
+        """If the GitHub App really is unconfigured the user-facing error must say so —
+        but only in that case (we no longer guess at the cause of every failure)."""
+        from posthog.models.github_integration_base import GitHubAppNotConfiguredError
+
+        client.force_login(self.user)
+        state_token = "valid-token"
+        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+
+        mock_from_code.side_effect = GitHubAppNotConfiguredError("GITHUB_APP_CLIENT_SECRET is not configured")
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": self._github_config(state=state_token)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "GITHUB_APP_CLIENT_SECRET is not configured" in response.json()["detail"]
         mock_from_install.assert_not_called()
 
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")

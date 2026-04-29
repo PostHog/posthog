@@ -105,6 +105,10 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
             "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
+            # Surface a clear failure instead of retrying forever when this worker is missing the
+            # GitHub App credentials needed to mint installation tokens.
+            "GITHUB_APP_CLIENT_ID is not configured": "GitHub App is not configured on this PostHog deployment.",
+            "GITHUB_APP_PRIVATE_KEY is not configured": "GitHub App private key is not configured on this PostHog deployment.",
         }
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:

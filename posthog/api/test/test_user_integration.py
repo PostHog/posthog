@@ -327,6 +327,26 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, 302)
         self.assertIn("github_link_error=missing_params", response["Location"])
 
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_callback_redirects_with_distinct_error_when_app_unconfigured(self, mock_user_from_code):
+        """The callback must distinguish a real config gap from a transient exchange
+        failure so support can act on the right thing instead of misattributing every
+        failure to ``GITHUB_APP_CLIENT_SECRET``."""
+        from posthog.models.github_integration_base import GitHubAppNotConfiguredError
+
+        state = "test_state_unconfigured"
+        cache.set(f"github_user_install_state:{state}", {"user_id": self.user.id}, timeout=600)
+
+        mock_user_from_code.side_effect = GitHubAppNotConfiguredError("GITHUB_APP_CLIENT_ID is not configured")
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"installation_id": "12345", "code": "test_code", "state": state},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github_link_error=github_app_not_configured", response["Location"])
+        self.assertNotIn("exchange_failed", response["Location"])
+
 
 class TestGetGithubLoginPrecedence(APIBaseTest):
     """User.get_github_login() precedence: UserIntegration > UserSocialAuth > team Integration."""

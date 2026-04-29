@@ -38,7 +38,12 @@ from posthog.auth import (
     session_auth_required,
 )
 from posthog.models.instance_setting import get_instance_settings
-from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, Integration
+from posthog.models.integration import (
+    GitHubAppNotConfiguredError,
+    GitHubInstallationAccess,
+    GitHubIntegration,
+    Integration,
+)
 from posthog.models.user import User
 from posthog.models.user_integration import (
     UserGitHubIntegration,
@@ -480,10 +485,14 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     installation_id = str(installation_id)
 
     # Exchange code for user-to-server tokens
-    if oauth_flow:
-        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=_github_oauth_redirect_uri())
-    else:
-        authorization = GitHubIntegration.github_user_from_code(code)
+    try:
+        if oauth_flow:
+            authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=_github_oauth_redirect_uri())
+        else:
+            authorization = GitHubIntegration.github_user_from_code(code)
+    except GitHubAppNotConfiguredError:
+        logger.warning("github_link: GitHub App OAuth credentials are not configured", exc_info=True)
+        return _error("github_app_not_configured")
     if authorization is None:
         return _error("exchange_failed")
 

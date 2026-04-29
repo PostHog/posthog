@@ -67,6 +67,17 @@ class GitHubIntegrationError(Exception):
     pass
 
 
+class GitHubAppNotConfiguredError(GitHubIntegrationError):
+    """Raised when the GitHub App credentials needed to authenticate as the App are not configured.
+
+    Distinct from transient API failures so that callers (Temporal activities,
+    DRF views, OAuth callbacks) can surface a config-specific message and mark
+    the failure as non-retryable rather than retrying forever.
+    """
+
+    pass
+
+
 class GitHubIntegrationBase:
     """Installation-token operations shared between team and user GitHub integrations."""
 
@@ -82,15 +93,13 @@ class GitHubIntegrationBase:
     @classmethod
     def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
         """Make a request to the GitHub App API using a JWT."""
-        from rest_framework.exceptions import ValidationError
-
         github_app_client_id = settings.GITHUB_APP_CLIENT_ID
         github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
 
         if not github_app_client_id:
-            raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
+            raise GitHubAppNotConfiguredError("GITHUB_APP_CLIENT_ID is not configured")
         if not github_app_private_key:
-            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
+            raise GitHubAppNotConfiguredError("GITHUB_APP_PRIVATE_KEY is not configured")
 
         github_app_private_key = github_app_private_key.replace("\\n", "\n").strip()
 
@@ -104,11 +113,11 @@ class GitHubIntegrationBase:
                 github_app_private_key,
                 algorithm="RS256",
             )
-        except Exception:
+        except Exception as e:
             logger.error("Failed to encode JWT token", exc_info=True)
-            raise ValidationError(
+            raise GitHubAppNotConfiguredError(
                 "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
-            )
+            ) from e
 
         return requests.request(
             method,

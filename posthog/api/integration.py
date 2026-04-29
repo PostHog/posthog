@@ -38,6 +38,7 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     FirebaseIntegration,
+    GitHubAppNotConfiguredError,
     GitHubInstallationAccess,
     GitHubIntegration,
     GitLabIntegration,
@@ -263,12 +264,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             cache.delete(cache_key)
 
             # Exchange the OAuth code for the user's access token and identity.
-            # This requires GITHUB_APP_CLIENT_SECRET to be configured.
-            authorization = GitHubIntegration.github_user_from_code(code)
+            # This requires GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET to be configured.
+            try:
+                authorization = GitHubIntegration.github_user_from_code(code)
+            except GitHubAppNotConfiguredError as e:
+                # Real config gap — surface the precise message so operators can fix it.
+                raise ValidationError(str(e))
             if authorization is None:
-                raise ValidationError(
-                    "Failed to exchange the OAuth code — ensure GITHUB_APP_CLIENT_SECRET is configured"
-                )
+                # Token endpoint failure, /user lookup failure, missing id/login, etc.
+                # github_user_from_code already logged the underlying GitHub response.
+                raise ValidationError("Failed to exchange the OAuth code, please retry")
 
             # Verify the connecting user actually has access to this installation.
             # Without this, an attacker could supply another tenant's installation_id
@@ -296,7 +301,10 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 )
                 raise ValidationError("You do not have access to this GitHub installation")
 
-            instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+            try:
+                instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+            except GitHubAppNotConfiguredError as e:
+                raise ValidationError(str(e))
 
             # Store the connecting user's GitHub login on the team integration
             # (shown on the integration card) and auto-create a UserIntegration

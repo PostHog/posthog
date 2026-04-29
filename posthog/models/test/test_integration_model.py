@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.utils import timezone
 
 import requests
@@ -1062,6 +1063,44 @@ class TestGitHubIntegrationModel(BaseTest):
             )
 
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+
+    @parameterized.expand(
+        [
+            ("client_id_missing", "", "PRIVATE_KEY", "GITHUB_APP_CLIENT_ID is not configured"),
+            ("private_key_missing", "client_id", "", "GITHUB_APP_PRIVATE_KEY is not configured"),
+        ]
+    )
+    def test_client_request_raises_typed_error_when_app_credentials_missing(
+        self, _name: str, client_id: str, private_key: str, expected_message: str
+    ):
+        """``client_request`` must surface a domain-specific exception (not a DRF
+        ``ValidationError``) when the GitHub App credentials are absent. DRF errors
+        outside a request context can't be reliably classified by Temporal, so they
+        previously caused activities to retry forever — see signal report 2026-04-29.
+        """
+        from posthog.models.github_integration_base import GitHubAppNotConfiguredError, GitHubIntegrationError
+
+        with override_settings(GITHUB_APP_CLIENT_ID=client_id, GITHUB_APP_PRIVATE_KEY=private_key):
+            with pytest.raises(GitHubAppNotConfiguredError, match=expected_message) as exc_info:
+                GitHubIntegration.client_request("installations/123")
+        assert isinstance(exc_info.value, GitHubIntegrationError)
+
+    @parameterized.expand(
+        [
+            ("client_id_missing", "", "client_secret", "GITHUB_APP_CLIENT_ID is not configured"),
+            ("client_secret_missing", "client_id", "", "GITHUB_APP_CLIENT_SECRET is not configured"),
+        ]
+    )
+    def test_github_user_from_code_raises_typed_error_when_oauth_credentials_missing(
+        self, _name: str, client_id: str, client_secret: str, expected_message: str
+    ):
+        """Missing OAuth credentials must raise so callers can distinguish from a
+        transient code-exchange failure (where ``None`` is still returned)."""
+        from posthog.models.github_integration_base import GitHubAppNotConfiguredError
+
+        with override_settings(GITHUB_APP_CLIENT_ID=client_id, GITHUB_APP_CLIENT_SECRET=client_secret):
+            with pytest.raises(GitHubAppNotConfiguredError, match=expected_message):
+                GitHubIntegration.github_user_from_code("any_code")
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
