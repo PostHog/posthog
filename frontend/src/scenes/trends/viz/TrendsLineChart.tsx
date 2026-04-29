@@ -214,7 +214,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         () => ({
             showGrid: true,
             showCrosshair: true,
-            pinnableTooltip: true,
+            tooltip: { pinnable: true, placement: 'top' },
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,

@@ -353,15 +353,32 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     def get_github_login(self) -> str | None:
         """Resolve this user's GitHub login.
 
-        Checks GitHub App integrations created by this user first (populated during
-        GitHub App installation with user authorization), then falls back to social auth.
-
-        When called from a context with prefetched data (e.g. ``_prefetched_github_integrations``
-        or ``social_auth``), the prefetch cache is used. Otherwise, queries are issued.
+        Precedence:
+        1. `UserIntegration` (kind=github) - the user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) - fallback for users who log in with GitHub but haven't set up a `UserIntegration` yet
+        3. Team `Integration` `connecting_user_github_login` - legacy fallback from before the user integration model existed
         """
         from posthog.models.integration import Integration
+        from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
-        # Check GitHub integrations created by this user
+        user_integration = UserIntegration.objects.filter(user=self, kind="github").first()
+        if user_integration:
+            login = UserGitHubIntegration(user_integration).github_login
+            if login:
+                return login
+
+        for sa in self.social_auth.all():
+            if sa.provider != "github":
+                continue
+            login_val = getattr(sa, "_prefetched_github_login", None)
+            if login_val:
+                return str(login_val)
+            if isinstance(sa.extra_data, dict):
+                login = sa.extra_data.get("login")
+                if login:
+                    return str(login)
+
+        # Fall back to team Integration identity captured at install time.
         prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
         if prefetched_integrations is not None:
             for integration in prefetched_integrations:
@@ -378,17 +395,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             if login:
                 return str(login)
 
-        # Fall back to social auth
-        for sa in self.social_auth.all():
-            if sa.provider != "github":
-                continue
-            login_val = getattr(sa, "_prefetched_github_login", None)
-            if login_val:
-                return str(login_val)
-            if isinstance(sa.extra_data, dict):
-                login = sa.extra_data.get("login")
-                if login:
-                    return str(login)
         return None
 
     def join(

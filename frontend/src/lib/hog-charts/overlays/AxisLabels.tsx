@@ -12,7 +12,8 @@ interface AxisLabelsProps {
     axisColor?: string
 }
 
-const LABEL_FONT = '11px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
+export const LABEL_FONT =
+    '12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_PADDING = 20
 
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -21,6 +22,15 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
         measureCtx = document.createElement('canvas').getContext('2d')
     }
     return measureCtx
+}
+
+export function measureLabelWidth(text: string, font: string = LABEL_FONT): number {
+    const ctx = getMeasureCtx()
+    if (!ctx) {
+        return text.length * 7
+    }
+    ctx.font = font
+    return ctx.measureText(text).width
 }
 
 export function computeVisibleXLabels(
@@ -71,7 +81,7 @@ export function computeVisibleXLabels(
 
 const TICK_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
-    fontSize: 11,
+    fontSize: 12,
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
 }
