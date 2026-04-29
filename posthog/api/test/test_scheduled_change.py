@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -485,12 +487,100 @@ class TestScheduledChange(APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
-            data={"payload": {"operation": "update_status", "value": True}},
-        )
+        with patch("posthog.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+                data={"payload": {"operation": "update_status", "value": True}},
+            )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         scheduled_change.refresh_from_db()
         assert scheduled_change.payload == {"operation": "update_status", "value": True}
+
+    @parameterized.expand(
+        [
+            ("denied_without_permission", False, status.HTTP_400_BAD_REQUEST, "You don't have edit permissions", False),
+            ("allowed_with_permission", True, status.HTTP_200_OK, None, True),
+        ]
+    )
+    def test_patch_respects_feature_flag_edit_permission(
+        self, _name, has_permission, expected_status, expected_error_fragment, payload_should_change
+    ):
+        """PATCH must enforce CanEditFeatureFlag, matching the create-time check."""
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key=f"perm-flag-{_name}", name="Perm Flag"
+        )
+
+        original_payload = {"operation": "update_status", "value": False}
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload=original_payload,
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        new_payload = {"operation": "update_status", "value": True}
+        with patch(
+            "posthog.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=has_permission
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+                data={"payload": new_payload},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_error_fragment:
+            assert expected_error_fragment in str(response.json())
+
+        scheduled_change.refresh_from_db()
+        assert scheduled_change.payload == (new_payload if payload_should_change else original_payload)
+
+    @parameterized.expand(
+        [
+            ("reset_executed_at", {"executed_at": None}),
+            ("replace_payload", {"payload": {"operation": "update_status", "value": True}}),
+            ("reschedule", {"scheduled_at": "2030-01-15T09:00:00Z"}),
+        ]
+    )
+    def test_completed_one_time_scheduled_change_is_immutable(self, _name, patch_body):
+        """A one-time schedule that already executed cannot be mutated — blocks replay + privilege escalation."""
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key=f"immutable-{_name}", name="Immutable Flag"
+        )
+
+        original_executed_at = datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
+        original_payload = {"operation": "update_status", "value": False}
+        original_scheduled_at = datetime(2024, 1, 15, 9, 0, 0, tzinfo=UTC)
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload=original_payload,
+            scheduled_at=original_scheduled_at,
+            executed_at=original_executed_at,
+            created_by=self.user,
+        )
+
+        with patch("posthog.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+                data=patch_body,
+            )
+
+        # validate() rejects all mutations of a completed one-time schedule.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "already executed" in str(response.json())
+
+        scheduled_change.refresh_from_db()
+        assert scheduled_change.executed_at == original_executed_at, (
+            f"executed_at changed to {scheduled_change.executed_at} (status={response.status_code})"
+        )
+        assert scheduled_change.payload == original_payload, (
+            f"payload changed to {scheduled_change.payload} (status={response.status_code})"
+        )
+        assert scheduled_change.scheduled_at == original_scheduled_at, (
+            f"scheduled_at changed to {scheduled_change.scheduled_at} (status={response.status_code})"
+        )

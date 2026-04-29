@@ -1421,9 +1421,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2169,9 +2169,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             },
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2572,9 +2572,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -2693,9 +2693,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                         "changes": [
                             {
                                 "type": "FeatureFlag",
-                                "action": "created",
+                                "action": "changed",
                                 "field": "filters",
-                                "before": None,
+                                "before": {"groups": []},
                                 "after": {
                                     "groups": [
                                         {
@@ -3062,6 +3062,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         assert flag.deleted is False
         assert flag.key == "held-flag-2"
+
+    def test_rename_flag_to_key_held_by_soft_deleted_flag(self):
+        # Create a flag, soft-delete it, then create another flag and rename it
+        # to the key held by the soft-deleted flag.
+        first = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag")
+        other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="56397-delete-flag-v2")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{first.id}/",
+            {"deleted": True},
+        )
+        assert response.status_code == 200
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+            {"key": "56397-delete-flag"},
+        )
+        assert response.status_code == 200, response.content
+        other.refresh_from_db()
+        assert other.key == "56397-delete-flag"
+        # The soft-deleted flag should have been hard-deleted to free up the key.
+        assert not FeatureFlag.objects_including_soft_deleted.filter(
+            team=self.team, key="56397-delete-flag", deleted=True
+        ).exists()
 
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
@@ -3907,7 +3931,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(FuzzyInt(12, 17)):
+        with self.assertNumQueries(FuzzyInt(12, 18)):
             # 1-10: Auth, team, project, membership, and access control queries
             # 11. SELECT surveys (for survey exclusion)
             # 12. SELECT all feature flags (with evaluation tags via ArrayAgg)
@@ -5531,6 +5555,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "attr": "filters",
             },
         )
+
+    def test_create_without_filters_persists_groups_invariant(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "No filters flag", "key": "no-filters-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.filters, {"groups": []})
 
     def test_validation_groups_with_empty_properties_allowed(self):
         """Test that creating a flag with groups having empty properties but valid rollout is allowed"""
@@ -8855,6 +8889,75 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 5, "total": 5}.items(), response_json.items())
+
+    def test_user_blast_radius_with_distinct_id_filter(self):
+        # Regression: distinct_id is not stored in person.properties — it lives in the
+        # person_distinct_id2 table and must be joined via pdi. Filtering by distinct_id
+        # in a release condition should match the persons that own that distinct_id.
+        for i in range(5):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "distinct_id",
+                            "type": "person",
+                            "value": ["person1", "person3"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertLessEqual({"affected": 2, "total": 5}.items(), response_json.items())
+
+    def test_user_blast_radius_with_distinct_id_filter_multiple_distinct_ids_per_person(self):
+        # A single person can own multiple distinct_ids; filtering by any one should still
+        # count that person exactly once.
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["alias-a", "alias-b"],
+            properties={"group": "0"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["other"],
+            properties={"group": "1"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "distinct_id",
+                            "type": "person",
+                            "value": ["alias-a", "alias-b"],
+                            "operator": "exact",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertLessEqual({"affected": 1, "total": 2}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):

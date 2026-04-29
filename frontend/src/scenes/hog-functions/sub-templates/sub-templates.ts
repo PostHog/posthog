@@ -25,6 +25,10 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
                     id: SurveyEventName.SENT,
                     type: 'events',
                 },
+                {
+                    id: SurveyEventName.DISMISSED,
+                    type: 'events',
+                },
             ],
         },
     },
@@ -133,16 +137,16 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on survey response',
-            description: 'Send a webhook when a survey response is submitted',
+            description: 'Send a webhook when a survey is completed or dismissed',
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-discord',
             name: 'Post to Discord on survey response',
-            description: 'Posts a message to Discord when a user responds to a survey',
+            description: 'Posts a message to Discord when a survey is completed or dismissed',
             inputs: {
                 content: {
-                    value: '**{person.name}** responded to survey **{event.properties.$survey_name}**',
+                    value: "**{person.name}** {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey **{event.properties.$survey_name}**",
                 },
             },
         },
@@ -150,10 +154,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on survey response',
-            description: 'Posts a message to Microsoft Teams when a user responds to a survey',
+            description: 'Posts a message to Microsoft Teams when a survey is completed or dismissed',
             inputs: {
                 text: {
-                    value: '**{person.name}** responded to survey **{event.properties.$survey_name}**',
+                    value: "**{person.name}** {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey **{event.properties.$survey_name}**",
                 },
             },
         },
@@ -161,13 +165,13 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-slack',
             name: 'Post to Slack on survey response',
-            description: 'Posts a message to Slack when a user responds to a survey',
+            description: 'Posts a message to Slack when a survey is completed or dismissed',
             inputs: {
                 blocks: {
                     value: [
                         {
                             text: {
-                                text: '*{person.name}* responded to survey *{event.properties.$survey_name}*',
+                                text: "*{person.name}* {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey *{event.properties.$survey_name}*",
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -190,7 +194,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: '*{person.name}* responded to survey *{event.properties.$survey_name}*',
+                    value: "*{person.name}* {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey *{event.properties.$survey_name}*",
                 },
             },
         },

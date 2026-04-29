@@ -8,7 +8,7 @@ use crate::{
         flag_request::FlagRequestType,
         flag_service::FlagService,
     },
-    handler::types::Library,
+    handler::{billing::record_billing_increment_timing, types::Library},
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
@@ -30,6 +30,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
@@ -236,15 +237,20 @@ pub async fn flags_definitions(
     // matching Django's /local_evaluation behavior.
     if !*state.config.skip_writes && has_billable_flags(&cached_response) {
         let library = Library::from_headers(&headers);
-        if let Err(e) = increment_request_count(
+        let start = Instant::now();
+        let result = increment_request_count(
             state.redis_client.clone(),
             team.id,
             1,
             FlagRequestType::FlagDefinitions,
             Some(library),
         )
-        .await
-        {
+        .await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+
+        record_billing_increment_timing(&result, elapsed_ms);
+
+        if let Err(e) = result {
             inc(
                 "flag_request_redis_error",
                 &[("error".to_string(), e.to_string())],

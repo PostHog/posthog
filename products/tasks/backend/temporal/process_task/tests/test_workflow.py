@@ -12,6 +12,7 @@ from django.conf import settings
 
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -63,6 +64,31 @@ def _build_context(
         state=state or {},
         _branch="feature-branch",
     )
+
+
+@pytest.mark.django_db
+def test_activity_error_properties_includes_failed_activity_context():
+    error = ActivityError(
+        "Activity task timed out",
+        scheduled_event_id=10,
+        started_event_id=11,
+        identity="worker-1",
+        activity_type="get_pr_context",
+        activity_id="activity-1",
+        retry_state=RetryState.TIMEOUT,
+    )
+    error.__cause__ = TimeoutError("start-to-close timeout")
+
+    assert ProcessTaskWorkflow._activity_error_properties(error) == {
+        "temporal_activity_id": "activity-1",
+        "temporal_activity_type": "get_pr_context",
+        "temporal_activity_identity": "worker-1",
+        "temporal_activity_retry_state": "TIMEOUT",
+        "temporal_activity_scheduled_event_id": 10,
+        "temporal_activity_started_event_id": 11,
+        "cause_error_type": "TimeoutError",
+        "cause_error_message": "start-to-close timeout",
+    }
 
 
 @pytest.mark.django_db(transaction=True)
@@ -302,6 +328,31 @@ class TestProcessTaskWorkflowUnit:
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+
+    async def test_run_marks_failed_when_context_load_fails(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        get_task_processing_context_mock = AsyncMock(side_effect=RuntimeError("database connection closed"))
+        update_task_run_status_mock = AsyncMock()
+        track_workflow_event_mock = AsyncMock()
+        post_slack_update_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is False
+        assert result.error == "database connection closed"
+        assert result.sandbox_id is None
+        update_task_run_status_mock.assert_awaited_once_with(
+            "failed",
+            error_message="database connection closed",
+            run_id="run-id",
+        )
+        track_workflow_event_mock.assert_not_awaited()
+        post_slack_update_mock.assert_not_awaited()
 
     async def test_get_sandbox_for_repository_skips_clone_and_checkout_for_private_repo_without_github_integration(
         self, monkeypatch

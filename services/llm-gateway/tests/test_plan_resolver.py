@@ -16,6 +16,8 @@ class TestIsProPlan:
         [
             ("posthog-code-200-20260301", True),
             ("posthog-code-200-20260501", True),
+            ("posthog-code-pro-200-20260301", True),
+            ("posthog-code-pro-0-20260422", True),
             ("posthog-code-free-20260301", False),
             ("posthog-code-free-20260501", False),
             ("some-other-plan", False),
@@ -57,6 +59,15 @@ class TestGetBillingPeriodNumber:
     def test_just_under_boundary(self) -> None:
         created = (datetime.now(tz=UTC) - timedelta(days=29, hours=23)).isoformat()
         assert get_billing_period_number(created) == 0
+
+    def test_billing_period_start_overrides_seat_created_at(self) -> None:
+        old_seat = (datetime.now(tz=UTC) - timedelta(days=35)).isoformat()
+        recent_period = (datetime.now(tz=UTC) - timedelta(days=5)).isoformat()
+        assert get_billing_period_number(old_seat, billing_period_start=recent_period) == 0
+
+    def test_billing_period_start_none_falls_back_to_seat_created_at(self) -> None:
+        old_seat = (datetime.now(tz=UTC) - timedelta(days=35)).isoformat()
+        assert get_billing_period_number(old_seat, billing_period_start=None) == 1
 
 
 class TestPlanResolver:
@@ -111,7 +122,15 @@ class TestPlanResolver:
         created_at = datetime.now(tz=UTC).isoformat()
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = {"plan_key": "posthog-code-200-20260301", "created_at": created_at}
+        mock_resp.json.return_value = {
+            "plan_key": "posthog-code-pro-200-20260301",
+            "created_at": created_at,
+            "billing_period": {
+                "current_period_start": "2026-04-01T00:00:00+00:00",
+                "current_period_end": "2026-05-01T00:00:00+00:00",
+                "interval": "month",
+            },
+        }
         mock_resp.raise_for_status = MagicMock()
         resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
 
@@ -120,7 +139,10 @@ class TestPlanResolver:
             mock_settings.return_value.plan_cache_ttl = 300
             result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
 
-        assert result.plan_key == "posthog-code-200-20260301"
+        assert result.plan_key == "posthog-code-pro-200-20260301"
+        assert result.billing_period is not None
+        assert result.billing_period.current_period_start == "2026-04-01T00:00:00+00:00"
+        assert result.billing_period.interval == "month"
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.set.assert_called_once()  # type: ignore[attr-defined]
 
@@ -130,6 +152,21 @@ class TestPlanResolver:
             headers={"Authorization": "Bearer phx_test"},
             timeout=2.0,
         )
+
+    async def test_fetches_from_api_without_billing_period(self, resolver_with_redis: PlanResolver) -> None:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"plan_key": "posthog-code-200-20260301", "created_at": None}
+        mock_resp.raise_for_status = MagicMock()
+        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
+
+        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
+            mock_settings.return_value.plan_cache_ttl = 300
+            result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+
+        assert result.plan_key == "posthog-code-200-20260301"
+        assert result.billing_period is None
 
     async def test_forwards_auth_header(self, resolver: PlanResolver) -> None:
         mock_resp = MagicMock()
@@ -173,6 +210,36 @@ class TestPlanResolver:
         result = await resolver.get_plan(user_id=1, auth_header="")
         assert result.plan_key is None
         resolver._http.get.assert_not_called()  # type: ignore[attr-defined]
+
+    async def test_cached_plan_with_billing_period(self, resolver_with_redis: PlanResolver) -> None:
+        import json
+
+        cached = json.dumps(
+            {
+                "plan_key": "posthog-code-pro-200-20260301",
+                "created_at": None,
+                "billing_period": {
+                    "current_period_start": "2026-04-01T00:00:00+00:00",
+                    "current_period_end": "2026-05-01T00:00:00+00:00",
+                    "interval": "month",
+                },
+            }
+        )
+        assert resolver_with_redis._redis is not None
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        assert result.billing_period is not None
+        assert result.billing_period.current_period_start == "2026-04-01T00:00:00+00:00"
+        assert result.billing_period.interval == "month"
+
+    async def test_cached_plan_without_billing_period(self, resolver_with_redis: PlanResolver) -> None:
+        import json
+
+        cached = json.dumps({"plan_key": "posthog-code-200-20260301", "created_at": None})
+        assert resolver_with_redis._redis is not None
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        assert result.billing_period is None
 
     async def test_api_error_not_cached(self, resolver_with_redis: PlanResolver) -> None:
         resolver_with_redis._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]

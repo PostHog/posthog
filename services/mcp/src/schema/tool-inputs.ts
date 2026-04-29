@@ -1,38 +1,6 @@
 import { z } from 'zod'
 
-import { InsightQuerySchema, PropertyFilter } from './query'
-
-export const ExternalDataSchemaSyncTypeSchema = z
-    .enum(['incremental', 'full_refresh', 'append', 'cdc'])
-    .describe(
-        'Sync strategy: incremental (only new/changed rows), full_refresh (re-import all), append (add-only), or cdc (change data capture).'
-    )
-
-export const ExternalDataSchemaSyncFrequencySchema = z
-    .enum(['30min', '1hour', '6hour', '12hour', '24hour'])
-    .describe('How often to sync this table.')
-
-export const ExternalDataSchemaSyncTimeOfDaySchema = z
-    .string()
-    .nullable()
-    .describe('Time of day to sync in HH:MM:SS format (e.g. "02:00:00"). Set to null to clear.')
-
-export const ExternalDataSchemaIncrementalFieldSchema = z
-    .string()
-    .describe('Column name used to track sync progress for incremental syncs (e.g. "updated_at", "id").')
-
-export const ExternalDataSchemaIncrementalFieldTypeSchema = z
-    .enum(['integer', 'datetime', 'timestamp', 'date'])
-    .describe('Data type of the incremental field.')
-
-export const ExternalDataSchemaPrimaryKeyColumnsSchema = z
-    .array(z.string())
-    .nullable()
-    .describe('Column names that form the primary key for deduplication. Set to null to use auto-detected PKs.')
-
-export const ExternalDataSchemaCdcTableModeSchema = z
-    .enum(['consolidated', 'cdc_only', 'both'])
-    .describe('For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both.')
+import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
 
 export const ExternalDataJobsAfterSchema = z
     .string()
@@ -73,12 +41,12 @@ export const DocumentationSearchSchema = z.object({
 })
 
 export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
-})
-
-export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
+    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    refresh: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
 /**
@@ -378,8 +346,31 @@ export const ProjectSetActiveSchema = z.object({
 
 export const SurveyResponseCountsSchema = z.object({})
 
+const QueryRunQuerySchema = z.discriminatedUnion('kind', [
+    InsightVizNodeSchema,
+    DataVisualizationNodeSchema,
+    HogQLQuerySchema,
+])
+
 export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
+    query: QueryRunQuerySchema,
+})
+
+export const HogQLSchemaInputSchema = z.object({})
+
+export const QueryValidateInputSchema = z.object({
+    query: z
+        .string()
+        .min(1)
+        .describe(
+            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
+        ),
+    language: z
+        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
+        .default('hogQL')
+        .describe(
+            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
+        ),
 })
 
 // Entity Search

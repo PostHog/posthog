@@ -88,6 +88,7 @@ export interface RunSummaryApi {
     new: number
     removed: number
     unchanged: number
+    unresolved?: number
     tolerated_matched?: number
 }
 
@@ -199,6 +200,15 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
+export interface RecomputeResultApi {
+    run: RunApi
+    counts_changed: boolean
+    unresolved: number
+    ci_rerun_triggered: boolean
+    /** @nullable */
+    ci_rerun_error?: string | null
+}
+
 export interface SnapshotHistoryEntryApi {
     run_id: string
     result: string
@@ -270,6 +280,8 @@ export interface ToleratedHashEntryApi {
     alternate_hash: string
     baseline_hash: string
     reason: string
+    /** @nullable */
+    diff_percentage: number | null
     created_at: string
     /** @nullable */
     source_run_id: string | null
@@ -319,15 +331,6 @@ export type VisualReviewReposQuarantineListParams = {
      * Filter by run type
      */
     run_type?: string
-}
-
-export type VisualReviewReposQuarantineDestroyParams = {
-    /**
-     * Snapshot identifier to unquarantine
-     * @minLength 1
-     * @maxLength 512
-     */
-    identifier: string
 }
 
 export type VisualReviewRunsListParams = {

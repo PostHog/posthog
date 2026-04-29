@@ -87,6 +87,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                                     )
                                     .nullish(),
                                 explicit_datetime: zod.string().nullish(),
+                                explicit_datetime_to: zod.string().nullish(),
                             }),
                             zod.object({
                                 bytecode: zod.array(zod.unknown()).nullish(),
@@ -216,6 +217,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     )
                                     .nullish(),
                                 explicit_datetime: zod.string().nullish(),
+                                explicit_datetime_to: zod.string().nullish(),
                             }),
                             zod.object({
                                 bytecode: zod.array(zod.unknown()).nullish(),

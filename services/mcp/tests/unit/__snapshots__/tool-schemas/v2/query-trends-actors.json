@@ -27,6 +27,12 @@
             "default": "InsightActorsQuery",
             "type": "string"
         },
+        "output_format": {
+            "default": "optimized",
+            "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "enum": ["optimized", "json"],
+            "type": "string"
+        },
         "series": {
             "description": "Series index (0-based) when the source has multiple series.",
             "maximum": 9007199254740991,
@@ -99,14 +105,15 @@
                                             },
                                             "type": {
                                                 "enum": [
-                                                    "cohort",
                                                     "person",
                                                     "event",
                                                     "event_metadata",
                                                     "session",
                                                     "hogql",
-                                                    "data_warehouse_person_property",
-                                                    "revenue_analytics"
+                                                    "cohort",
+                                                    "revenue_analytics",
+                                                    "data_warehouse",
+                                                    "data_warehouse_person_property"
                                                 ],
                                                 "type": "string"
                                             }

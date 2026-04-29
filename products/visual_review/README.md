@@ -45,11 +45,12 @@ CI captures screenshots, runs `vr submit`
        │
        ▼
 Backend completes the run
-  - fetch baseline YAML from GitHub (source of truth)
+  - fetch baseline YAML from GitHub (branch + merge-base for healing)
   - classify each snapshot against baseline (unchanged/changed/new)
+  - tolerated hash cache: skip diffing for known sub-threshold pairs
   - detect removals: baseline identifiers missing from RunSnapshot rows
   - verify uploads, create artifact records, link to snapshots
-  - queue async diff (Celery) for changed snapshots
+  - two-tier diff (Celery): pixel diff → SSIM for tall-page dilution
   - post GitHub Check (pass/fail)
        │
        ▼
@@ -116,16 +117,19 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
 
+**Tolerated hashes** — when the two-tier diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
+Future runs skip diffing entirely for cached pairs.
+Developers can also manually tolerate a snapshot from the UI.
+
+**Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
+Quarantined snapshots are still captured and diffed but excluded from gating.
+
 **Known gaps:**
 
-- `complete_run` silently skips missing uploads instead of validating they arrived
-- Approval doesn't validate that submitted identifiers belong to the run or that hashes match
 - Frontend error toast swallows structured error codes (`sha_mismatch`, `stale_run`) instead of showing tailored messages
-
-These are correctness gaps, not architecture problems. The core model is sound.
 
 **Not yet built:**
 
-- Multiple viewports or themes per snapshot (can be encoded in identifiers)
 - Retention / cleanup of old runs and artifacts
+- Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

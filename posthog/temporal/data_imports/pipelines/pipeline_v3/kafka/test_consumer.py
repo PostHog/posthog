@@ -487,3 +487,111 @@ class TestProcessBatchPersistentRetry:
         # No per-message commit was issued on any message.
         for call in consumer.commit.call_args_list:
             assert call.kwargs.get("message") is None
+
+
+class TestProcessBatchGracefulShutdown:
+    def _setup_service(self, process_message: Any = None) -> KafkaConsumerService:
+        service = _make_service(process_message=process_message or MagicMock())
+        service._consumer = MagicMock()
+        return service
+
+    @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
+    @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count")
+    @patch(f"{RETRY_TRACKER_PATH}.get_retry_info")
+    def test_shutdown_before_batch_processes_nothing(self, mock_get, mock_inc, mock_clear):
+        """Shutdown flag set before the loop starts: no message touched, retry
+        tracker never queried, single early-return commit on the consumer."""
+        process_fn = MagicMock()
+        service = self._setup_service(process_message=process_fn)
+        service._shutdown_requested = True
+        msgs = [_make_message(batch_index=i) for i in range(3)]
+
+        service._process_batch_with_retry(_wrap(*msgs))
+
+        process_fn.assert_not_called()
+        mock_get.assert_not_called()
+        mock_inc.assert_not_called()
+        mock_clear.assert_not_called()
+        cast(MagicMock, service._consumer).commit.assert_called_once_with()
+
+    @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
+    @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count", return_value=RetryInfo(count=1))
+    @patch(f"{RETRY_TRACKER_PATH}.get_retry_info", return_value=RetryInfo(count=0))
+    def test_shutdown_mid_batch_stops_after_current_message(self, mock_get, mock_inc, mock_clear):
+        """Flipping _shutdown_requested while processing message K should let K
+        finish cleanly, skip K+1..N, commit once for K, and not run the trailing
+        batch commit."""
+        processed: list[int] = []
+        service_holder: dict[str, KafkaConsumerService] = {}
+
+        def process_fn(msg, **kwargs):
+            processed.append(msg["batch_index"])
+            service_holder["svc"]._shutdown_requested = True
+
+        service = self._setup_service(process_message=process_fn)
+        service_holder["svc"] = service
+        msgs = [_make_message(batch_index=i) for i in range(3)]
+
+        service._process_batch_with_retry(_wrap(*msgs))
+
+        # Only message 0 was touched; retry_info cleared for it and nothing else.
+        assert processed == [0]
+        mock_clear.assert_called_once_with(1, "schema-1", "run-1", 0)
+        consumer = cast(MagicMock, service._consumer)
+        # Exactly one commit — the early-return shutdown commit. The trailing
+        # batch commit never runs because we returned early.
+        consumer.commit.assert_called_once_with()
+
+    @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
+    @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count", return_value=RetryInfo(count=1))
+    @patch(f"{RETRY_TRACKER_PATH}.get_retry_info", return_value=RetryInfo(count=0))
+    def test_shutdown_commit_failure_is_swallowed(self, mock_get, mock_inc, mock_clear):
+        """If the shutdown-path commit raises (broker down), we must still return
+        cleanly — shutdown should not depend on broker availability."""
+        service = self._setup_service()
+        cast(MagicMock, service._consumer).commit.side_effect = Exception("broker down")
+        service._shutdown_requested = True
+        msgs = [_make_message(batch_index=i) for i in range(2)]
+
+        # Must not raise.
+        service._process_batch_with_retry(_wrap(*msgs))
+
+    @patch(f"{RETRY_TRACKER_PATH}.clear_retry_info")
+    @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count")
+    @patch(
+        f"{RETRY_TRACKER_PATH}.get_retry_info",
+        return_value=RetryInfo(count=4, error_type="non_transient", last_error="previous error"),
+    )
+    def test_shutdown_after_dlq_still_runs_batch_commit(self, mock_get, mock_inc, mock_clear):
+        """Batch [A already-exhausted, B healthy]. A is DLQ'd with its own
+        per-message commit. Shutdown is flipped before B starts. The early-return
+        commit still fires — which is fine: kafka commit() is idempotent over
+        A's already-committed offset."""
+        process_fn = MagicMock()
+        service = self._setup_service(process_message=process_fn)
+        msg_a = _make_message(batch_index=0)
+        msg_b = _make_message(batch_index=1)
+        wrapped = _wrap(msg_a, msg_b)
+        raw_a = wrapped[0][0]
+
+        with (
+            patch.object(service, "_send_to_dlq") as mock_dlq,
+            patch.object(service, "_mark_job_failed_from_message") as mock_fail,
+        ):
+
+            def dlq_then_shutdown(*args, **kwargs):
+                service._shutdown_requested = True
+
+            mock_dlq.side_effect = dlq_then_shutdown
+            service._process_batch_with_retry(wrapped)
+
+            # A was DLQ'd, B was never processed.
+            mock_dlq.assert_called_once()
+            mock_fail.assert_called_once()
+            process_fn.assert_not_called()
+
+            consumer = cast(MagicMock, service._consumer)
+            # Per-message commit for A + early-return batch commit = 2 calls.
+            assert consumer.commit.call_count == 2
+            consumer.commit.assert_any_call(message=raw_a, asynchronous=False)
+            consumer.commit.assert_any_call()

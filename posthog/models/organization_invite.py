@@ -69,7 +69,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     message = models.TextField(blank=True, null=True)
     level = models.PositiveSmallIntegerField(
-        default=OrganizationMembership.Level.MEMBER, choices=OrganizationMembership.Level.choices
+        default=OrganizationMembership.Level.MEMBER, choices=OrganizationMembership.Level
     )
     private_project_access = models.JSONField(
         default=list,

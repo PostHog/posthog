@@ -164,7 +164,12 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         return "next"
 
     async def _get_group_mapping_prompt(self) -> str:
-        groups = GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+        # nosemgrep: no-direct-persons-db-orm
+        groups = GroupTypeMapping.objects.filter(
+            project_id=self._team.project_id
+        ).order_by(  # nosemgrep: no-direct-persons-db-orm
+            "group_type_index"
+        )  # nosemgrep: no-direct-persons-db-orm
         group_names = [f'name "{group.group_type}", index {group.group_type_index}' async for group in groups]
         if not group_names:
             return "The user has not defined any groups."

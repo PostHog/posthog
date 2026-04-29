@@ -4,6 +4,7 @@ use std::time::Duration;
 use common_hypercache::CacheSource;
 use common_metrics::{gauge, inc};
 use common_types::TeamId;
+use lifecycle::Handle;
 use moka::future::Cache;
 
 use crate::api::errors::FlagError;
@@ -116,8 +117,11 @@ impl FlagDefinitionsCache {
         Ok((prepared, src))
     }
 
-    /// Starts periodic monitoring of cache metrics.
-    pub async fn start_monitoring(&self, interval_secs: u64) {
+    /// Starts periodic monitoring of cache metrics. Honors the lifecycle
+    /// `shutdown` handle so the manager can drain this monitor cleanly during
+    /// graceful shutdown (mirrors `CohortCacheManager::start_monitoring`).
+    pub async fn start_monitoring(&self, interval_secs: u64, shutdown: Handle) {
+        let _scope = shutdown.process_scope();
         let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
 
         tracing::info!(
@@ -126,8 +130,15 @@ impl FlagDefinitionsCache {
         );
 
         loop {
-            ticker.tick().await;
-            self.report_cache_metrics();
+            tokio::select! {
+                _ = shutdown.shutdown_recv() => {
+                    tracing::info!("Flag definitions cache monitor shutting down");
+                    break;
+                }
+                _ = ticker.tick() => {
+                    self.report_cache_metrics();
+                }
+            }
         }
     }
 

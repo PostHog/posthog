@@ -25,7 +25,7 @@ def _fake_reverse(name, args=None, kwargs=None):
     return f"/{name}/"
 
 
-@override_settings(STATICFILES_STORAGE="django.contrib.staticfiles.storage.StaticFilesStorage")
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
     def setUp(self):
         super().setUp()

@@ -8,6 +8,8 @@ schema <tool_name> [field_path]          — drill into a specific field schema 
 call [--json] <tool_name> <json_input>   — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
 ```
 
+**Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
+
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
 The `info` command may return the full schema (for simple tools) or a top-level summary
@@ -30,6 +32,15 @@ For query tools, you will typically need:
 
 **For multiple tools:** Run `info` for ALL tools first, then make your `call` commands.
 
+**Data discovery:** Before any analytical `call` that touches collected data (`query-*`,
+`execute-sql` against `events`/`persons`/`sessions`), confirm the event/property exists via
+`call read-data-schema`. Applies to canonical-looking names like `$pageview` too — they vary
+per team. If the event isn't in the schema, tell the user instead of querying a guessed name.
+
+- Events: `call read-data-schema {"query": {"kind": "events"}}` (paginate with `limit`/`offset` if needed)
+- Properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
+- Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
+
 **CORRECT usage pattern:**
 
 <example>
@@ -39,7 +50,7 @@ Assistant: I need to find the right query tool and data schema tool.
 Assistant: Let me check the tool descriptions and schemas.
 [Runs posthog:exec({ "command": "info query-trends" }) and posthog:exec({ "command": "info read-data-schema" }) in parallel]
 Assistant: I see query-trends needs `series` (array with hint). Let me get the full field schema and discover events.
-[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema {\"kind\": \"events\"}" }) in parallel]
+[Runs posthog:exec({ "command": "schema query-trends series" }) and posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" }) in parallel]
 Assistant: Now I know the exact series structure and available events. Let me construct the query.
 [Runs posthog:exec({ "command": "call query-trends {...}" })]
 </example>
@@ -59,16 +70,16 @@ User: Find events related to onboarding
 Assistant: Let me find the data schema tool.
 [Runs posthog:exec({ "command": "search read-data" })]
 [Runs posthog:exec({ "command": "info read-data-schema" })]
-Assistant: Now I can search for onboarding events.
-[Runs posthog:exec({ "command": "call read-data-schema {\"kind\": \"events\", \"search\": \"onboarding\"}" })]
+Assistant: Now I can list events and pick the onboarding-related ones.
+[Runs posthog:exec({ "command": "call read-data-schema {\"query\": {\"kind\": \"events\"}}" })]
 </example>
 
 **INCORRECT usage patterns — NEVER do this:**
 
 <bad-example>
 User: Show me our feature flags
-Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-list {}" }) with guessed parameters]
-WRONG — You must run `info feature-flag-list` FIRST to check the schema
+Assistant: [Directly calls posthog:exec({ "command": "call feature-flag-get-all {}" }) with guessed parameters]
+WRONG — You must run `info feature-flag-get-all` FIRST to check the schema
 </bad-example>
 
 <bad-example>
@@ -82,6 +93,18 @@ User: Show me a trends chart of signups
 Assistant: [Runs info query-trends, sees summary with hints, then immediately calls query-trends with guessed series structure]
 WRONG — info returned a summary with hint: "Run `schema query-trends series` for full structure".
 You MUST follow the hint and run `schema` before constructing the series field.
+</bad-example>
+
+<bad-example>
+User: query pageviews for the last 7 days
+Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "$pageview"` from the prompt]
+WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Canonical-looking events still need confirmation per team.
+</bad-example>
+
+<bad-example>
+User: show me the file downloads trend for the last 7 days
+Assistant: [Runs `info query-trends`, then `call query-trends` with `event: "downloaded_file"` inferred from the wording]
+WRONG — the real event might be `file_downloaded`, `download_completed`, or not captured. Confirm with `read-data-schema` before querying.
 </bad-example>
 
 **Handling errors:**
@@ -153,24 +176,50 @@ PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
-### Querying data with insight schemas
+### Retrieving data
 
-PostHog provides two ways to query data:
+**Prefer the `query-*` wrappers** (`query-trends`, `query-funnel`, etc.) whenever the user's question maps to a supported insight type. They produce typed, saveable insights that map cleanly to the visual product.
 
-- **Insight query wrappers** (`query-trends`, `query-funnel`, etc.) produce typed, visual insights that can be saved to dashboards. Use these when the user asks to analyze metrics, build charts, investigate trends, or create insights.
-- **Raw SQL** (`execute-sql`) is for ad-hoc exploration, system table queries, complex joins, and data discovery. Use this for questions about existing PostHog entities (e.g., "list my dashboards") or when no query wrapper fits.
+Only reach for `execute-sql` when a wrapper cannot express the question — arbitrary search against PostHog entities (listing insights, dashboards, cohorts, flags…), agentic exploration, or sophisticated queries whose shape doesn't fit a wrapper schema. When you do use `execute-sql`, run `info execute-sql` first to load its full guidance.
 
-Prefer query wrappers when the user's question maps to a supported insight type.
+#### Searching for existing entities
+
+Any "find / which / do we have / what's our X chart" question about PostHog-created entities is a SQL search against `system.*`, **not** a `*-list` walk. The list tools paginate over the entire team; SQL with ILIKE/FTS returns the matches in one call.
+
+Map intent to table:
+
+- "find an insight" / "what's our X chart" / "is this insight saved" → `system.insights`
+- "find a dashboard" → `system.dashboards`
+- "find a cohort" → `system.cohorts`
+- "find a feature flag" → `system.feature_flags`
+- "find an experiment" → `system.experiments`
+- "find a survey" → `system.surveys`
+- "find a notebook" → `system.notebooks`
+
+Search rules:
+
+1. **One query, multiple columns.** Combine `name ILIKE '%term%' OR description ILIKE '%term%'` rather than running separate queries.
+2. **Filter `NOT deleted`** — every `system.*` table has soft-deletes.
+3. **Order by recency** (`last_modified_at DESC` or `created_at DESC`) and `LIMIT 20-50` so the most relevant rows surface first.
+4. **Verify the match with the entity's retrieve tool, not another SELECT.** Once SQL narrows to one or a few candidates, call the per-entity retrieve tool with the candidate's ID — for example `insight-get`, `dashboard-get`, `experiment-get`, `survey-get`, or `cohorts-retrieve` / `error-tracking-issues-retrieve`. Naming is inconsistent across entities; if the bare `<entity>-get` doesn't exist, run `search <entity>` and pick the read-shaped tool. **Do not run a second `execute-sql` to fetch the full row by ID.** The retrieve tool returns the authoritative entity shape (dashboards, query, ownership, last-viewed, etc.) in one call; re-querying via SQL costs an extra round-trip and only sees the columns exposed on the `system.*` table.
+5. **Fallback to list tools.** If the entity has no `system.*` table (e.g. workflows, error-tracking issues, log views), or if SQL returns nothing after broadening the ILIKE pattern, fall back to the entity's `*-list` tool. SQL is the fast path; list tools are the floor.
+
+<example>
+User: Do we have any insights tracking revenue?
+Assistant: [Runs `posthog:exec({ "command": "call execute-sql {\"query\":\"SELECT id, short_id, name, description, last_modified_at FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR description ILIKE '%revenue%') ORDER BY last_modified_at DESC LIMIT 20\"}" })`]
+[Picks the most plausible match by name, then runs `posthog:exec({ "command": "call insight-get {\"id\": <id>}" })` (or pass the `short_id`) to verify the query, dashboards it's on, and last-viewed timestamp before reporting back to the user.]
+<reasoning>SQL surfaces candidates fast; `insight-get` confirms the authoritative shape in one call — re-running `execute-sql ... WHERE id = <id>` would skip the dedicated tool and miss dashboards/ownership joins.</reasoning>
+</example>
+
+<bad-example>
+User: Find me a graph of MAUs.
+Assistant: [Runs `call execute-sql {"query":"SELECT * FROM system.insights WHERE id = 33800 LIMIT 1"}` after a search SELECT already surfaced id 33800]
+WRONG — verify with `call insight-get {"id": 33800}` instead. Re-querying `system.insights` by ID is a SELECT that doesn't surface dashboard membership, last-viewed, or other relational data the retrieve tool joins for you.
+</bad-example>
 
 #### Available insight query tools
 
-`query-trends` | Time series, aggregations, formulas, comparisons | Default: last 30d, supports multiple series
-`query-funnel` | Conversion rates, drop-off analysis, time to convert | Requires at least 2 steps
-`query-retention` | User return patterns over time | Requires target (start) and returning events
-`query-stickiness` | Engagement frequency (how many days users do X) | No breakdowns supported
-`query-paths` | User navigation flows and sequences | Specify includeEventTypes
-`query-lifecycle` | New, returning, resurrecting, dormant user composition | Single event only, no math aggregation
-`query-llm-traces-list` | LLM/AI trace listing and inspection | For AI observability data
+{query_tools}
 
 #### Choosing the right query tool
 
@@ -184,14 +233,16 @@ Prefer query wrappers when the user's question maps to a supported insight type.
 
 #### Schema-first workflow
 
-Before constructing any insight query, always verify the data schema:
+Verify the data schema before constructing any insight query. Canonical-looking events
+(`$pageview`, `$identify`, `$autocapture`, …) still need confirmation — they can be absent,
+renamed, or filtered per team.
 
-1. **Discover events** - Use `read-data-schema` with `kind: events` to find available events matching the user's intent.
-2. **Discover properties** - Use `read-data-schema` with `kind: event_properties` (or `person_properties`, `session_properties`) to find relevant property names.
-3. **Verify property values** - Use `read-data-schema` with `kind: event_property_values` to confirm that property values match expectations (e.g., "US" vs "United States").
-4. **Only then construct the query** - Once you've confirmed the data exists, choose the appropriate query wrapper and build the schema.
+1. **Discover events** - `read-data-schema` with `kind: events` to find events matching the user's intent.
+2. **Discover properties** - `read-data-schema` with `kind: event_properties` (or `person_properties`, `session_properties`).
+3. **Verify property values** - `read-data-schema` with `kind: event_property_values` when the value must match (e.g., "US" vs "United States").
+4. **Then construct the query** using the appropriate wrapper.
 
-If the required events or properties do not exist, inform the user immediately instead of running queries that will return empty results.
+If the required events or properties don't exist, tell the user instead of running an empty query.
 
 #### Insight query workflow
 
@@ -199,15 +250,13 @@ If the required events or properties do not exist, inform the user immediately i
 2. Choose the appropriate query wrapper tool based on the user's question.
 3. Construct the query schema. Each tool's description includes detailed schema documentation with examples. Be minimalist: only include filters, breakdowns, and settings essential to answer the question.
 4. Execute the query and analyze the results.
-5. Optionally save as an insight with `insight-create-from-query` or add to a dashboard.
+5. Optionally save as an insight with `insight-create` or add to a dashboard.
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
-Defined group types: {defined_groups}
+{defined_groups}
 
 {metadata}
-
-{guidelines}
 
 ### URL patterns
 
@@ -222,7 +271,7 @@ Key URL patterns:
 
 ### Examples
 
-Before writing any queries, read the PostHog's skill `query-examples` to see if there are any relevant query examples and follow them.
+Before writing any queries, read the PostHog's skill `querying-posthog-data` to see if there are any relevant query examples and follow them.
 
 #### Creating an insight with segmentation
 
@@ -268,9 +317,9 @@ Assistant: I'll help you analyze the reasons why the metrics have changed. Let m
 <example>
 User: Generate a revenue dashboard.
 Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
-1. List existing dashboards to check if one already covers revenue (the `dashboard-list` tool)
-2. List saved insights related to revenue (`execute_sql(SELECT * FROM system.insights...)`)
-3. Validate promising insights by reading their query schemas (the `insight-retrieve` tool)
+1. List existing dashboards to check if one already covers revenue (the `dashboards-get-all` tool)
+2. Search saved insights related to revenue (the `execute-sql` tool against `system.insights` — run `info execute-sql` for SQL guidance)
+3. Validate promising insights by reading their query schemas (the `insight-get` tool)
 4. Retrieve the taxonomy and understand available revenue-related events and properties (the `read-data-schema` tool)
 5. Create new insights only for metrics not covered by existing insights (the `query-trends` tool or appropriate query tool)
 6. Create a new dashboard with both existing and newly created insights (the `dashboard-create` tool)
@@ -281,23 +330,5 @@ Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 2. Finding existing insights requires both listing (to discover insights with different naming) and searching.
 3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 4. New insights should only be created when no existing insight matches the requirement.
-</reasoning>
-</example>
-
-#### Searching for existing data with SQL
-
-<example>
-User: Do we have any insights tracking revenue or payments?
-Assistant: I'll search for existing insights related to revenue and payments using SQL.
-1. Search insights by name for revenue-related terms (`execute-sql` with `SELECT id, name, short_id, description FROM system.insights WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%') ORDER BY last_modified_at DESC LIMIT 20`)
-2. If results are sparse, broaden the search to dashboards (`execute-sql` with `SELECT id, name, description FROM system.dashboards WHERE NOT deleted AND (name ILIKE '%revenue%' OR name ILIKE '%payment%')`)
-3. Validate promising insights by retrieving their full details (the `insight-retrieve` tool)
-4. Summarize findings with links to relevant insights and dashboards
-*Begins working on the first task*
-<reasoning>
-1. SQL search against system tables is the fastest way to discover existing data across the project.
-2. Using ILIKE with multiple terms catches different naming conventions (e.g., "Monthly Revenue", "Payment Events", "MRR").
-3. Searching both insights and dashboards gives a complete picture of what already exists.
-4. Validating with the retrieve tool confirms the insights are still relevant and shows their query configuration.
 </reasoning>
 </example>
