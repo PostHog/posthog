@@ -1447,7 +1447,7 @@ export type TasksListParams = {
      */
     created_by?: number
     /**
-     * When true, include internal tasks alongside user-facing tasks. Defaults to excluding internal tasks.
+     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
      */
     internal?: boolean
     /**
