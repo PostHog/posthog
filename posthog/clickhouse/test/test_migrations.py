@@ -269,8 +269,9 @@ class TestUniqueMigrationPrefixes(TestCase):
             msg = "Found `ON CLUSTER` in migration source string literals:\n\n"
             for name, line, snippet in violations:
                 msg += f"  {name}:{line}: {snippet}\n"
-            msg += "\nClickHouse migrations must not use `ON CLUSTER` — use ON_CLUSTER_CLAUSE(False) "
-            msg += "or run via NodeRole.DATA per-shard. See posthog/clickhouse/migrations/AGENTS.md.\n"
+            msg += "\nClickHouse migrations must not use `ON CLUSTER` — do not put it in new code, "
+            msg += "for old SQL use ON_CLUSTER_CLAUSE(False) "
+            msg += "and run via node_roles=NodeRole.X per-shard. See posthog/clickhouse/migrations/AGENTS.md.\n"
             self.fail(msg)
 
     @staticmethod
