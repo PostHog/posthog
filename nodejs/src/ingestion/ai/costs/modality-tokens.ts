@@ -10,6 +10,8 @@ const isObject = (value: unknown): value is Record<string, unknown> => {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+type ExtractionSource = 'gemini_output' | 'gemini_cache' | 'openai_cache'
+
 /**
  * Extract modality-specific token counts from raw provider usage metadata.
  * Supports Gemini's candidatesTokensDetails (output modality breakdown) and
@@ -26,7 +28,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
     }
 
     try {
-        let extractedTokens = false
+        const extractedSources = new Set<ExtractionSource>()
 
         // Gemini's candidatesTokensDetails shape (output modality).
         // Array form: [{ modality: "TEXT", tokenCount: 10 }, { modality: "IMAGE", tokenCount: 1290 }]
@@ -49,24 +51,21 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     const modalityLower = modality.toLowerCase()
                     if (modalityLower === 'image' && tokenCount > 0) {
                         event.properties['$ai_image_output_tokens'] = tokenCount
-                        extractedTokens = true
+                        extractedSources.add('gemini_output')
                     }
                     if (modalityLower === 'text') {
                         event.properties['$ai_text_output_tokens'] = tokenCount
-                        extractedTokens = true
+                        extractedSources.add('gemini_output')
                     }
                 }
-                return
-            }
-
-            if (isObject(tokenDetails)) {
+            } else if (isObject(tokenDetails)) {
                 if (typeof tokenDetails['imageTokens'] === 'number' && tokenDetails['imageTokens'] > 0) {
                     event.properties['$ai_image_output_tokens'] = tokenDetails['imageTokens']
-                    extractedTokens = true
+                    extractedSources.add('gemini_output')
                 }
                 if (typeof tokenDetails['textTokens'] === 'number') {
                     event.properties['$ai_text_output_tokens'] = tokenDetails['textTokens']
-                    extractedTokens = true
+                    extractedSources.add('gemini_output')
                 }
             }
         }
@@ -91,19 +90,16 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     }
                     if (modality.toLowerCase() === 'audio' && tokenCount > 0) {
                         event.properties['$ai_cache_read_audio_tokens'] = tokenCount
-                        extractedTokens = true
+                        extractedSources.add('gemini_cache')
                     }
                 }
-                return
-            }
-
-            if (
+            } else if (
                 isObject(tokenDetails) &&
                 typeof tokenDetails['audioTokens'] === 'number' &&
                 tokenDetails['audioTokens'] > 0
             ) {
                 event.properties['$ai_cache_read_audio_tokens'] = tokenDetails['audioTokens']
-                extractedTokens = true
+                extractedSources.add('gemini_cache')
             }
         }
 
@@ -121,7 +117,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             const audioTokens = cachedDetails['audio_tokens']
             if (typeof audioTokens === 'number' && audioTokens > 0) {
                 event.properties['$ai_cache_read_audio_tokens'] = audioTokens
-                extractedTokens = true
+                extractedSources.add('openai_cache')
             }
         }
 
@@ -172,10 +168,16 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             }
         }
 
-        if (extractedTokens) {
-            aiCostModalityExtractionCounter.labels({ status: 'extracted' }).inc()
+        // Emit one counter increment per source that found something. An event
+        // with both Gemini output and Gemini cache extraction increments twice
+        // (once with source=gemini_output, once with source=gemini_cache) — see
+        // the metric help text for the cardinality model.
+        if (extractedSources.size === 0) {
+            aiCostModalityExtractionCounter.labels({ status: 'no_details', source: 'none' }).inc()
         } else {
-            aiCostModalityExtractionCounter.labels({ status: 'no_details' }).inc()
+            for (const source of extractedSources) {
+                aiCostModalityExtractionCounter.labels({ status: 'extracted', source }).inc()
+            }
         }
     } finally {
         // CRITICAL: Always delete $ai_usage to prevent it from being stored in ClickHouse

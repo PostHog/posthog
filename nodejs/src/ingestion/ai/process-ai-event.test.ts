@@ -82,6 +82,16 @@ const costsByModel: Record<string, MockModelRow> = {
             audio_output: 0.00008,
         },
     },
+    'openai/gpt-audio-mini': {
+        model: 'openai/gpt-audio-mini',
+        cost: {
+            prompt_token: 0.00000015,
+            completion_token: 0.0000006,
+            cache_read_token: 0.000000075,
+            audio: 0.000001,
+            input_audio_cache: 0.0000001,
+        },
+    },
     'google/gemini-2.5-flash-image': {
         model: 'google/gemini-2.5-flash-image',
         cost: {
@@ -113,6 +123,7 @@ jest.mock('./costs/providers', () => {
         'perplexity/sonar-pro': 'perplexity',
         'model-with-request-only': 'custom',
         'openai/gpt-4o-audio-preview': 'openai',
+        'openai/gpt-audio-mini': 'openai',
         'google/gemini-2.5-flash-image': 'google-ai-studio',
     }
 
@@ -283,6 +294,28 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00018, 6)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.038725, 6)
             expect(result.properties!.$ai_image_cost_usd).toBeUndefined()
+        })
+
+        it('bills cached audio at the audio-cache rate end-to-end', () => {
+            event.properties!.$ai_model = 'gpt-audio-mini'
+            event.properties!.$ai_input_tokens = 1000 // 500 text uncached + 250 text cached + 50 audio cached + 150 audio uncached
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 300 // 250 text + 50 audio
+            event.properties!.$ai_audio_input_tokens = 200 // 150 uncached + 50 cached
+            event.properties!.$ai_cache_read_audio_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Cached text: 250 × 0.000000075 = 0.00001875
+            // Uncached text: 550 × 0.00000015 = 0.0000825
+            // Uncached audio: 150 × 0.000001 = 0.00015
+            // Cached audio: 50 × 0.0000001 = 0.000005
+            // Input total: 0.00025625
+            // Output: 100 × 0.0000006 = 0.00006
+            // Grand total: 0.00031625
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00025625, 8)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00006, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00031625, 8)
         })
     })
 

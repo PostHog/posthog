@@ -1167,5 +1167,109 @@ describe('calculateInputCost()', () => {
             // Total: 0.000051 + 0.0021 + 0.00035 + 0.000015 = 0.002516
             expectCostToBeCloseTo(result, 0.002516, 6)
         })
+
+        it('clamps negative $ai_cache_read_audio_tokens to zero', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-audio-mini',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 300,
+                    $ai_audio_input_tokens: 200,
+                    $ai_cache_read_audio_tokens: -50, // malformed
+                },
+            })
+
+            const result = calculateInputCost(event, audioCacheModel)
+
+            // Negative clamps to 0; result should match the no-cached-audio case.
+            // Cached text: 300 × 0.000000075 = 0.0000225
+            // Uncached text: 500 × 0.00000015 = 0.000075
+            // Audio: 200 × 0.000001 = 0.0002
+            // Total: 0.0002975
+            expectCostToBeCloseTo(result, 0.0002975, 7)
+        })
+
+        it('handles cached audio together with cache_write tokens (Anthropic-style)', () => {
+            const anthropicAudioCacheModel: ResolvedModelCost = {
+                model: 'claude-with-audio',
+                provider: 'anthropic',
+                cost: {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000015,
+                    cache_read_token: 3e-7,
+                    cache_write_token: 0.00000375,
+                    audio: 0.000005,
+                    input_audio_cache: 5e-7,
+                },
+            }
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'anthropic',
+                    $ai_model: 'claude-with-audio',
+                    $ai_input_tokens: 800,
+                    $ai_cache_read_input_tokens: 200,
+                    $ai_cache_creation_input_tokens: 100, // cache write
+                    $ai_audio_input_tokens: 100,
+                    $ai_cache_read_audio_tokens: 30,
+                },
+            })
+
+            const result = calculateInputCost(event, anthropicAudioCacheModel)
+
+            // Anthropic exclusive: input excludes both cache_read and cache_write.
+            // Cache write: 100 × 0.00000375 = 0.000375
+            // Cached text: (200 - 30) × 3e-7 = 0.000051
+            // Uncached text: (800 - 100) × 0.000003 = 0.0021
+            // Uncached audio: (100 - 30) × 0.000005 = 0.00035
+            // Cached audio: 30 × 5e-7 = 0.000015
+            // Total: 0.000375 + 0.000051 + 0.0021 + 0.00035 + 0.000015 = 0.002891
+            expectCostToBeCloseTo(result, 0.002891, 6)
+        })
+
+        it('handles cached audio with Anthropic-via-Vercel inclusive reporting', () => {
+            // Vercel AI Gateway flips Anthropic to inclusive cache reporting.
+            // Same input pool semantics as OpenAI: input_tokens includes cached.
+            const vercelAnthropicAudioModel: ResolvedModelCost = {
+                model: 'claude-with-audio-vercel',
+                provider: 'anthropic',
+                cost: {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000015,
+                    cache_read_token: 3e-7,
+                    cache_write_token: 0.00000375,
+                    audio: 0.000005,
+                    input_audio_cache: 5e-7,
+                },
+            }
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'gateway',
+                    $ai_framework: 'vercel',
+                    $ai_model: 'anthropic/claude-with-audio',
+                    // Token totals consistent with inclusive reporting:
+                    // input_tokens already includes cache_read + cache_creation.
+                    $ai_input_tokens: 1100, // 800 text + 100 audio + 200 cache_read
+                    $ai_cache_read_input_tokens: 200,
+                    $ai_cache_creation_input_tokens: 0,
+                    $ai_audio_input_tokens: 100,
+                    $ai_cache_read_audio_tokens: 30,
+                },
+            })
+
+            const result = calculateInputCost(event, vercelAnthropicAudioModel)
+
+            // Inclusive: input_tokens INCLUDES cache. So:
+            //   uncached_text = input - cached_text - audio - image
+            //                 = 1100 - (200 - 30) - 100 - 0 = 830
+            // But wait, we also subtract cache_write_tokens=0. So uncached_text = 830.
+            // Cache write: 0
+            // Cached text: 170 × 3e-7 = 0.000051
+            // Uncached text: 830 × 0.000003 = 0.00249
+            // Uncached audio: 70 × 0.000005 = 0.00035
+            // Cached audio: 30 × 5e-7 = 0.000015
+            // Total: 0.000051 + 0.00249 + 0.00035 + 0.000015 = 0.002906
+            expectCostToBeCloseTo(result, 0.002906, 6)
+        })
     })
 })
