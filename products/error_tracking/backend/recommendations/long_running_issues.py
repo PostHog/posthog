@@ -65,6 +65,9 @@ class LongRunningIssuesRecommendation(Recommendation):
             ]
         }
 
+    def is_completed(self, meta: dict[str, Any]) -> bool:
+        return not meta.get("issues")
+
     def enrich(self, team: Team, meta: dict[str, Any]) -> dict[str, Any]:
         issues = meta.get("issues") or []
         if not issues:

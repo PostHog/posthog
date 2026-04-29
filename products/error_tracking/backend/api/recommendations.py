@@ -27,10 +27,21 @@ logger = structlog.get_logger(__name__)
 class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
     next_refresh_at = serializers.SerializerMethodField()
     meta = serializers.SerializerMethodField()
+    completed = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingRecommendation
-        fields = ["id", "type", "meta", "computed_at", "dismissed_at", "next_refresh_at", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "type",
+            "meta",
+            "completed",
+            "computed_at",
+            "dismissed_at",
+            "next_refresh_at",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = fields
 
     def get_next_refresh_at(self, obj: ErrorTrackingRecommendation) -> str | None:
@@ -39,11 +50,23 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
             return None
         return (obj.computed_at + rec.refresh_interval).isoformat()
 
-    def get_meta(self, obj: ErrorTrackingRecommendation) -> dict:
+    def _enriched_meta(self, obj: ErrorTrackingRecommendation) -> dict:
         rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
         if not rec:
             return obj.meta
-        return rec.enrich(obj.team, obj.meta)
+        cached = self.context.setdefault("_enriched_meta", {})
+        if obj.id not in cached:
+            cached[obj.id] = rec.enrich(obj.team, obj.meta)
+        return cached[obj.id]
+
+    def get_meta(self, obj: ErrorTrackingRecommendation) -> dict:
+        return self._enriched_meta(obj)
+
+    def get_completed(self, obj: ErrorTrackingRecommendation) -> bool:
+        rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
+        if not rec:
+            return False
+        return rec.is_completed(self._enriched_meta(obj))
 
 
 def _is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetime) -> bool:

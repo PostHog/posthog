@@ -14,3 +14,6 @@ class Recommendation(ABC):
 
     def enrich(self, team: Team, meta: dict[str, Any]) -> dict[str, Any]:
         return meta
+
+    def is_completed(self, meta: dict[str, Any]) -> bool:
+        return False

@@ -44,6 +44,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
 
     actions({
         toggleDismissedExpanded: true,
+        toggleCompletedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
         suppressIssue: (issueId: string) => ({ issueId }),
         activateIssue: (issueId: string) => ({ issueId }),
@@ -55,6 +56,12 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             false,
             {
                 toggleDismissedExpanded: (state) => !state,
+            },
+        ],
+        completedExpanded: [
+            false,
+            {
+                toggleCompletedExpanded: (state) => !state,
             },
         ],
         openAlertTriggerKey: [
@@ -91,7 +98,13 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         activeRecommendations: [
             (s) => [s.recommendations],
             (recommendations): ErrorTrackingRecommendation[] => {
-                return recommendations.filter((r) => !r.dismissed_at)
+                return recommendations.filter((r) => !r.dismissed_at && !r.completed)
+            },
+        ],
+        completedRecommendations: [
+            (s) => [s.recommendations],
+            (recommendations): ErrorTrackingRecommendation[] => {
+                return recommendations.filter((r) => !r.dismissed_at && r.completed)
             },
         ],
         ignoredRecommendations: [

@@ -22,7 +22,11 @@ export function LongRunningIssuesRecommendationCard({
     const issues = recommendation.meta.issues ?? []
 
     if (issues.length === 0) {
-        return null
+        return (
+            <RecommendationCard recommendationId={recommendation.id} title="Long-running issues" dismissed={dismissed}>
+                <div className="text-sm text-secondary">No long-running issues right now — nice work!</div>
+            </RecommendationCard>
+        )
     }
 
     return (

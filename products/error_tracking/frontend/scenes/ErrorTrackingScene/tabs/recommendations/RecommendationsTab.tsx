@@ -33,10 +33,12 @@ export function RecommendationsTab(): JSX.Element {
         recommendations,
         recommendationsLoading,
         activeRecommendations,
+        completedRecommendations,
         ignoredRecommendations,
         dismissedExpanded,
+        completedExpanded,
     } = useValues(recommendationsTabLogic)
-    const { toggleDismissedExpanded } = useActions(recommendationsTabLogic)
+    const { toggleDismissedExpanded, toggleCompletedExpanded } = useActions(recommendationsTabLogic)
 
     if (recommendationsLoading && recommendations.length === 0) {
         return (
@@ -66,9 +68,33 @@ export function RecommendationsTab(): JSX.Element {
                 </div>
             )}
 
-            {activeRecommendations.length === 0 && ignoredRecommendations.length > 0 && (
-                <div className="border rounded-lg bg-surface-primary p-4 text-secondary text-sm">
-                    No active recommendations — everything's looking good!
+            {activeRecommendations.length === 0 &&
+                (completedRecommendations.length > 0 || ignoredRecommendations.length > 0) && (
+                    <div className="border rounded-lg bg-surface-primary p-4 text-secondary text-sm">
+                        No active recommendations — everything's looking good!
+                    </div>
+                )}
+
+            {completedRecommendations.length > 0 && (
+                <div>
+                    <button
+                        type="button"
+                        className="flex items-center gap-1 text-xs text-muted hover:text-primary cursor-pointer bg-transparent border-0 p-0"
+                        onClick={toggleCompletedExpanded}
+                        aria-expanded={completedExpanded}
+                    >
+                        <IconChevronRight className={`text-sm ${completedExpanded ? 'rotate-90' : ''}`} />
+                        {completedRecommendations.length} completed
+                    </button>
+                    {completedExpanded && (
+                        <div className="columns-1 md:columns-2 xl:columns-3 gap-4 mt-2 opacity-60">
+                            {completedRecommendations.map((recommendation) => (
+                                <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                    <RecommendationCardForType recommendation={recommendation} />
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
