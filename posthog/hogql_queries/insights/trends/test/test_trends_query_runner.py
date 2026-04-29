@@ -1690,6 +1690,31 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 7
         assert response.results[1]["count"] == 3
 
+    def test_trends_breakdowns_boolean_via_multi_breakdown_shape(self):
+        # Regression test for the TypeError introduced by #56520. When a Boolean property is passed
+        # via the modern `breakdowns: [Breakdown(...)]` shape (length 1),
+        # `_is_breakdown_filter_field_boolean` returns True and `_convert_boolean` was called with
+        # a list (`[True]` / `[False]`) which raised `TypeError: unhashable type: 'list'`.
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(breakdowns=[Breakdown(property="bool_field", type=MultipleBreakdownType.EVENT)]),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 2
+        assert sorted(breakdown_labels) == ["false", "true"]
+
+        labels_to_count = {r["breakdown_value"]: r["count"] for r in response.results}
+        assert labels_to_count["true"] == 7
+        assert labels_to_count["false"] == 3
+
     def test_trends_breakdowns_histogram(self):
         self._create_test_events()
 

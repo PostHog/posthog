@@ -623,7 +623,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 remapped_label = None
 
                 if self._is_breakdown_filter_field_boolean():
-                    remapped_label = self._convert_boolean(get_value("breakdown_value", val))
+                    breakdown_value_for_boolean = get_value("breakdown_value", val)
+                    # `_is_breakdown_filter_field_boolean` accepts both legacy single-breakdown (scalar
+                    # value) and length-1 `breakdowns` (list-of-1). Unwrap so `_convert_boolean` always
+                    # receives a hashable scalar.
+                    if isinstance(breakdown_value_for_boolean, list) and len(breakdown_value_for_boolean) == 1:
+                        breakdown_value_for_boolean = breakdown_value_for_boolean[0]
+                    remapped_label = self._convert_boolean(breakdown_value_for_boolean)
 
                     if remapped_label == "" or remapped_label is None:
                         # Skip the "none" series if it doesn't have any data
