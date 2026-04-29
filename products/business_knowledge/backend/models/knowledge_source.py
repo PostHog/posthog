@@ -49,6 +49,14 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
     # re-reads with safe defaults.
     crawl_config = models.JSONField(default=dict, blank=True)
 
+    # --- Stage 3: file-source metadata (all nullable — additive) ---
+    # Sanitized original filename from the upload. Never used as a path.
+    original_filename = models.CharField(max_length=255, blank=True, default="")
+    # Content type detected from magic bytes, not from the upload header.
+    file_content_type = models.CharField(max_length=128, blank=True, default="")
+    # Size of the uploaded file in bytes (compressed, as received).
+    file_size_bytes = models.PositiveIntegerField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_business_knowledge_knowledgesource"
         ordering = ["-created_at"]

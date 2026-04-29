@@ -30,6 +30,10 @@ class KnowledgeSourceDTO:
     # Stage 2b: populated for URL sources, empty for text sources.
     crawl_mode: str = ""
     crawl_config: dict = field(default_factory=dict)
+    # Stage 3: file sources. Empty for text/URL sources.
+    original_filename: str = ""
+    file_content_type: str = ""
+    file_size_bytes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,21 @@ class UpdateTextSourceInput:
     team_id: int
     name: str | None
     text: str | None
+
+
+@dataclass(frozen=True)
+class UpdateUrlSourceInput:
+    """
+    Input for updating a URL-type knowledge source. All fields are optional;
+    changing `url` or `crawl_mode`/`crawl_config` triggers a re-crawl.
+    """
+
+    source_id: UUID
+    team_id: int
+    name: str | None = None
+    url: str | None = None
+    crawl_mode: str | None = None
+    crawl_config: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +118,20 @@ class CreateCrawlSourceInput:
     url: str
     crawl_mode: str
     crawl_config: dict
+
+
+@dataclass(frozen=True)
+class CreateFileSourceInput:
+    """
+    Input for creating a file-type knowledge source. The raw file bytes are
+    passed directly — no object storage indirection in Stage 3.
+    """
+
+    team_id: int
+    created_by_id: int | None
+    name: str
+    file_data: bytes
+    original_filename: str
 
 
 @dataclass(frozen=True)

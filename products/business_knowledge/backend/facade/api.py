@@ -37,6 +37,9 @@ def _to_dto(source: KnowledgeSource) -> contracts.KnowledgeSourceDTO:
         last_refresh_error=source.last_refresh_error or "",
         crawl_mode=source.crawl_mode or "",
         crawl_config=dict(source.crawl_config or {}),
+        original_filename=source.original_filename or "",
+        file_content_type=source.file_content_type or "",
+        file_size_bytes=source.file_size_bytes,
     )
 
 
@@ -65,6 +68,17 @@ def create_url_source(data: contracts.CreateUrlSourceInput) -> contracts.Knowled
         created_by_id=data.created_by_id,
         name=data.name,
         url=data.url,
+    )
+    return _to_dto(source)
+
+
+def create_file_source(data: contracts.CreateFileSourceInput) -> contracts.KnowledgeSourceDTO:
+    source = logic.create_file_source(
+        team_id=data.team_id,
+        created_by_id=data.created_by_id,
+        name=data.name,
+        file_data=data.file_data,
+        original_filename=data.original_filename,
     )
     return _to_dto(source)
 
@@ -100,5 +114,17 @@ def update_text_source(data: contracts.UpdateTextSourceInput) -> contracts.Knowl
         team_id=data.team_id,
         name=data.name,
         text=data.text,
+    )
+    return _to_dto(source) if source is not None else None
+
+
+def update_url_source(data: contracts.UpdateUrlSourceInput) -> contracts.KnowledgeSourceDTO | None:
+    source = logic.update_url_source(
+        source_id=data.source_id,
+        team_id=data.team_id,
+        name=data.name,
+        url=data.url,
+        crawl_mode=data.crawl_mode,
+        crawl_config=data.crawl_config,
     )
     return _to_dto(source) if source is not None else None

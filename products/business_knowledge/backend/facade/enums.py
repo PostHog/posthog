@@ -35,7 +35,7 @@ CHUNK_HARD_MAX_CHARS = 1600
 # zip-bomb attempt cheap to reject.
 URL_MAX_BYTES = 10 * 1024 * 1024
 # Connect + read timeouts (seconds). Short because fetch happens inline on
-# the request thread; Stage 2c moves it to Temporal and can be generous.
+# the request thread; Stage 5 moves it to Temporal and can be generous.
 URL_CONNECT_TIMEOUT = 5
 URL_READ_TIMEOUT = 10
 # Max redirect hops. We handle redirects manually so we can re-validate SSRF
@@ -55,7 +55,7 @@ URL_USER_AGENT = f"{URL_BOT_NAME}/1.0 (+https://posthog.com)"
 HARD_DISCOVER_CAP = 10_000
 # Fetch step default cap. Settable per-source via `crawl_config.max_pages`,
 # but users can never exceed MAX_URLS_PER_SOURCE. Deliberately low because
-# Stage 2b is inline — every fetch blocks a request worker. Stage 2c moves
+# Stage 2b is inline — every fetch blocks a request worker. Stage 5 moves
 # this to Temporal and can raise the cap.
 DEFAULT_MAX_PAGES = 50
 MAX_URLS_PER_SOURCE = 500
@@ -64,5 +64,13 @@ DEFAULT_CRAWL_MAX_DEPTH = 2
 CRAWL_HARD_MAX_DEPTH = 5
 # Per-hostname concurrency during a single crawl — prevents us from
 # hammering an origin. In-process (threading.Semaphore), not cross-worker;
-# cross-worker rate limiting is 2c Temporal work.
+# cross-worker rate limiting is Stage 5 Temporal work.
 PER_HOST_CONCURRENCY = 2
+
+# --- Stage 3: file upload tunables ---
+# Hard cap on uploaded file size (compressed). Above this the serializer
+# rejects immediately — the file never hits the parser.
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
+# Decompressed size cap for ZIP-based formats (DOCX, XLSX, ODT). A 1 MB
+# docx can decompress to 10 GB — we cap at 500 MB and reject as a zip bomb.
+MAX_FILE_DECOMPRESSED_BYTES = 500 * 1024 * 1024

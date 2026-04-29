@@ -18,7 +18,7 @@ import structlog
 
 from posthog.security.url_validation import is_url_allowed
 
-from . import crawl, discover, html_parse, url_fetch
+from . import crawl, discover, file_parse, html_parse, url_fetch
 from .facade.enums import (
     CHUNK_HARD_MAX_CHARS,
     CHUNK_TARGET_CHARS,
@@ -348,10 +348,150 @@ def update_text_source(
     return get_for_team(source.id, team_id) or source
 
 
+def update_url_source(
+    *,
+    source_id: UUID,
+    team_id: int,
+    name: str | None = None,
+    url: str | None = None,
+    crawl_mode: str | None = None,
+    crawl_config: dict | None = None,
+) -> KnowledgeSource | None:
+    """
+    Update a URL source's metadata and optionally re-crawl.
+
+    - name-only: single UPDATE, no network.
+    - url/crawl_mode/crawl_config change: update the fields, then trigger a
+      full refresh so the content matches the new config.
+    """
+    try:
+        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return None
+    if source.source_type != SourceType.URL:
+        raise InvalidUrlError("Can only update URL sources with this endpoint.")
+
+    needs_recrawl = False
+    update_fields: list[str] = ["updated_at"]
+
+    if name is not None and name != source.name:
+        source.name = name
+        update_fields.append("name")
+
+    if url is not None and url != source.source_url:
+        normalized = _validate_url(url)
+        source.source_url = normalized
+        update_fields.append("source_url")
+        needs_recrawl = True
+
+    if crawl_mode is not None and crawl_mode != source.crawl_mode:
+        source.crawl_mode = crawl_mode
+        update_fields.append("crawl_mode")
+        needs_recrawl = True
+
+    if crawl_config is not None:
+        merged = {**(source.crawl_config or {}), **crawl_config}
+        if merged != source.crawl_config:
+            source.crawl_config = merged
+            update_fields.append("crawl_config")
+            needs_recrawl = True
+
+    if len(update_fields) > 1:
+        source.save(update_fields=update_fields)
+
+    if needs_recrawl:
+        return refresh_source(source_id=source.id, team_id=team_id)
+
+    return get_for_team(source.id, team_id) or source
+
+
 @transaction.atomic
 def delete_source(source_id: UUID, team_id: int) -> bool:
     deleted, _ = KnowledgeSource.objects.filter(id=source_id, team_id=team_id).delete()
     return deleted > 0
+
+
+# --- Stage 3: file sources ----------------------------------------------------
+
+
+def create_file_source(
+    *,
+    team_id: int,
+    created_by_id: int | None,
+    name: str,
+    file_data: bytes,
+    original_filename: str,
+) -> KnowledgeSource:
+    """
+    Stage 3 file ingestion: detect type → parse → chunk. Inline, not Temporal.
+
+    The caller (serializer) already enforced the compressed size cap. This
+    function detects the content type from magic bytes, parses the file into
+    plain text, chunks it, and persists source + doc + chunks atomically.
+    """
+
+    if _count_sources(team_id) >= MAX_SOURCES_PER_TEAM:
+        raise QuotaExceededError(f"Team already has {MAX_SOURCES_PER_TEAM} knowledge sources.")
+
+    parsed = file_parse.parse_file(file_data, original_filename)
+    text = parsed.content
+
+    if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
+        raise file_parse.FileTooLargeError(
+            f"Parsed content exceeds the {MAX_TEXT_SIZE_BYTES // (1024 * 1024)} MB text cap. "
+            "Try a shorter document or split it into multiple sources."
+        )
+
+    chunks = chunk_text(text)
+    content_hash = _sha256_of(text)
+
+    with transaction.atomic():
+        source = KnowledgeSource.objects.create(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            name=name,
+            source_type=SourceType.FILE,
+            status=SourceStatus.PROCESSING,
+            original_filename=file_parse.sanitize_filename(original_filename),
+            file_content_type=parsed.content_type,
+            file_size_bytes=len(file_data),
+        )
+
+        if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
+            raise QuotaExceededError("File produces more chunks than the remaining team budget.")
+
+        document_id = uuid.uuid4()
+        document = KnowledgeDocument.objects.create(
+            id=document_id,
+            team_id=team_id,
+            source=source,
+            stable_id=str(document_id),
+            title=parsed.title,
+            content=text,
+            metadata=parsed.metadata,
+            content_hash=content_hash,
+        )
+
+        KnowledgeChunk.objects.bulk_create(
+            [
+                KnowledgeChunk(
+                    id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
+                    team_id=team_id,
+                    source=source,
+                    document=document,
+                    heading_path=c.heading_path,
+                    ordinal=c.ordinal,
+                    content=c.content,
+                    char_count=len(c.content),
+                )
+                for c in chunks
+            ]
+        )
+
+        source.status = SourceStatus.READY
+        source.save(update_fields=["status", "updated_at"])
+
+    return get_for_team(source.id, team_id) or source
 
 
 # --- Stage 2a: URL sources ---------------------------------------------------
@@ -918,7 +1058,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
     - Existing URL with unchanged hash → no DB writes.
     - Existing URL that vanished from discovery → mark tombstoned_at,
       delete chunks (keep the doc row so a later re-appearance can reuse
-      the id). Stage 2c adds a sweep that hard-deletes after 7 days.
+      the id). Stage 5 adds a sweep that hard-deletes after 7 days.
     """
 
     try:
@@ -1019,7 +1159,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             any_changes = True
 
         # Tombstone docs whose URL vanished from discovery. Chunks go away
-        # now; the sweep in Stage 2c hard-deletes the doc row after a grace
+        # now; the sweep in Stage 5 hard-deletes the doc row after a grace
         # period (preserves the id in case the page comes back soon).
         vanished = [d for url, d in existing_by_url.items() if url not in discovered_set]
         if vanished:

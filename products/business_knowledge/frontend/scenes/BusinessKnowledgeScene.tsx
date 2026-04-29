@@ -8,6 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -43,7 +44,7 @@ function CrawlModeHelp(): JSX.Element {
         return (
             <p className="text-xs text-muted">
                 Read sitemap.xml at this URL (or <code>/sitemap.xml</code> at its origin) and index each listed page.
-                Scheduled refresh is Stage 2c.
+                Scheduled refresh is Stage 5.
             </p>
         )
     }
@@ -122,7 +123,10 @@ export function BusinessKnowledgeScene(): JSX.Element {
         totalChunks,
         isTextSourceSubmitting,
         isUrlSourceSubmitting,
+        isFileSourceSubmitting,
         isEditSourceSubmitting,
+        isEditUrlSourceSubmitting,
+        editUrlSource,
         refreshingIds,
     } = useValues(businessKnowledgeLogic)
     const {
@@ -135,7 +139,10 @@ export function BusinessKnowledgeScene(): JSX.Element {
         refreshSource,
         submitTextSource,
         submitUrlSource,
+        submitFileSource,
+        setFileSourceValue,
         submitEditSource,
+        submitEditUrlSource,
     } = useActions(businessKnowledgeLogic)
 
     if (!isEnabled) {
@@ -146,7 +153,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Business knowledge"
-                description="Upload text or public URLs your AI support agent can cite when answering customer tickets."
+                description="Upload text, public URLs, or files your AI support agent can cite when answering customer tickets."
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBook /> }}
                 actions={
                     <LemonButton type="primary" icon={<IconPlusSmall />} onClick={openCreateModal}>
@@ -166,8 +173,8 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 loading={sourcesLoading}
                 rowKey={(row) => row.id}
                 onRow={(row) => ({
-                    onClick: () => (row.source_type === 'text' ? openEditModal(row) : undefined),
-                    style: row.source_type === 'text' ? { cursor: 'pointer' } : undefined,
+                    onClick: () => openEditModal(row),
+                    style: { cursor: 'pointer' },
                 })}
                 columns={[
                     {
@@ -177,9 +184,16 @@ export function BusinessKnowledgeScene(): JSX.Element {
                             <div className="flex flex-col">
                                 <strong>{row.name}</strong>
                                 {row.source_type === 'url' && row.source_url ? (
-                                    <Link to={row.source_url} target="_blank" className="text-xs text-muted truncate">
+                                    <Link
+                                        to={row.source_url}
+                                        target="_blank"
+                                        className="text-xs text-muted truncate"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
                                         {row.source_url}
                                     </Link>
+                                ) : row.source_type === 'file' && row.original_filename ? (
+                                    <span className="text-xs text-muted truncate">{row.original_filename}</span>
                                 ) : null}
                             </div>
                         ),
@@ -219,8 +233,8 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         key: 'actions',
                         width: 0,
                         render: (_, row) => (
-                            <div className="flex gap-1">
-                                {row.source_type === 'url' ? (
+                            <div className="flex gap-1 justify-end">
+                                {row.source_type === 'url' && (
                                     <LemonButton
                                         icon={<IconRefresh />}
                                         size="small"
@@ -231,17 +245,16 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                             refreshSource(row.id)
                                         }}
                                     />
-                                ) : (
-                                    <LemonButton
-                                        icon={<IconPencil />}
-                                        size="small"
-                                        tooltip="Edit"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            openEditModal(row)
-                                        }}
-                                    />
                                 )}
+                                <LemonButton
+                                    icon={<IconPencil />}
+                                    size="small"
+                                    tooltip="Edit"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openEditModal(row)
+                                    }}
+                                />
                                 <LemonButton
                                     icon={<IconTrash />}
                                     status="danger"
@@ -266,21 +279,22 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 onClose={closeCreateModal}
                 title="Add to business knowledge"
                 footer={
-                    createTab === 'text' ? (
-                        <>
-                            <LemonButton onClick={closeCreateModal}>Cancel</LemonButton>
+                    <>
+                        <LemonButton onClick={closeCreateModal}>Cancel</LemonButton>
+                        {createTab === 'text' ? (
                             <LemonButton type="primary" loading={isTextSourceSubmitting} onClick={submitTextSource}>
                                 Add
                             </LemonButton>
-                        </>
-                    ) : (
-                        <>
-                            <LemonButton onClick={closeCreateModal}>Cancel</LemonButton>
+                        ) : createTab === 'url' ? (
                             <LemonButton type="primary" loading={isUrlSourceSubmitting} onClick={submitUrlSource}>
                                 Fetch and index
                             </LemonButton>
-                        </>
-                    )
+                        ) : (
+                            <LemonButton type="primary" loading={isFileSourceSubmitting} onClick={submitFileSource}>
+                                Upload and index
+                            </LemonButton>
+                        )}
+                    </>
                 }
             >
                 <LemonTabs
@@ -354,6 +368,41 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                 </Form>
                             ),
                         },
+                        {
+                            key: 'file',
+                            label: 'File',
+                            content: (
+                                <Form
+                                    logic={businessKnowledgeLogic}
+                                    formKey="fileSource"
+                                    className="flex flex-col gap-2"
+                                >
+                                    <LemonField name="file" label="File">
+                                        <LemonFileInput
+                                            accept=".pdf,.docx,.md,.markdown,.txt,.csv"
+                                            multiple={false}
+                                            callToAction="Drop a file here or click to browse"
+                                            showUploadedFiles
+                                            onChange={(files) => {
+                                                const file = files[0] ?? null
+                                                setFileSourceValue('file', file)
+                                                if (file) {
+                                                    const nameWithoutExt = file.name.replace(/\.[^.]+$/, '')
+                                                    setFileSourceValue('name', nameWithoutExt)
+                                                }
+                                            }}
+                                        />
+                                    </LemonField>
+                                    <LemonField name="name" label="Name">
+                                        <LemonInput placeholder="Auto-filled from filename" />
+                                    </LemonField>
+                                    <p className="text-xs text-muted">
+                                        PDF, DOCX, Markdown, CSV, or plain text. Max 50 MB. The file is parsed into text
+                                        and chunked — the original file is not stored.
+                                    </p>
+                                </Form>
+                            ),
+                        },
                     ]}
                 />
             </LemonModal>
@@ -367,16 +416,61 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         <LemonButton onClick={closeEditModal}>Cancel</LemonButton>
                         <LemonButton
                             type="primary"
-                            loading={isEditSourceSubmitting}
-                            disabled={editingSourceTextLoading}
-                            onClick={submitEditSource}
+                            loading={
+                                editingSource?.source_type === 'url'
+                                    ? isEditUrlSourceSubmitting
+                                    : isEditSourceSubmitting
+                            }
+                            disabled={editingSource?.source_type === 'text' && editingSourceTextLoading}
+                            onClick={editingSource?.source_type === 'url' ? submitEditUrlSource : submitEditSource}
                         >
                             Save
                         </LemonButton>
                     </>
                 }
             >
-                {editingSourceTextLoading ? (
+                {editingSource?.source_type === 'url' ? (
+                    <Form logic={businessKnowledgeLogic} formKey="editUrlSource" className="flex flex-col gap-2">
+                        <LemonField name="name" label="Name">
+                            <LemonInput />
+                        </LemonField>
+                        <LemonField name="url" label="URL">
+                            <LemonInput placeholder="https://docs.example.com" />
+                        </LemonField>
+                        <LemonField name="crawl_mode" label="Crawl mode">
+                            <LemonSelect
+                                options={[
+                                    { value: 'single', label: 'Single page' },
+                                    { value: 'sitemap', label: 'Sitemap' },
+                                    { value: 'same_origin', label: 'Crawl same origin' },
+                                ]}
+                            />
+                        </LemonField>
+                        {editUrlSource.crawl_mode !== 'single' && (
+                            <>
+                                <LemonField name="include_globs" label="Include globs">
+                                    <LemonTextArea minRows={2} placeholder={'/docs/*\n/blog/*'} />
+                                </LemonField>
+                                <LemonField name="exclude_globs" label="Exclude globs">
+                                    <LemonTextArea minRows={2} placeholder="/docs/private/*" />
+                                </LemonField>
+                                <div className="flex gap-4">
+                                    <LemonField name="max_pages" label="Max pages" className="flex-1">
+                                        <LemonInput type="number" min={1} max={500} />
+                                    </LemonField>
+                                    {editUrlSource.crawl_mode === 'same_origin' && (
+                                        <LemonField name="max_depth" label="Max depth" className="flex-1">
+                                            <LemonInput type="number" min={0} max={5} />
+                                        </LemonField>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        <p className="text-xs text-muted">
+                            Changing the URL or crawl settings will trigger a re-crawl.
+                        </p>
+                    </Form>
+                ) : editingSource?.source_type === 'text' && editingSourceTextLoading ? (
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton className="h-10" />
                         <LemonSkeleton className="h-60" />
@@ -386,13 +480,23 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         <LemonField name="name" label="Name">
                             <LemonInput />
                         </LemonField>
-                        <LemonField name="text" label="Content">
-                            <LemonTextArea minRows={12} />
-                        </LemonField>
-                        <p className="text-xs text-muted">
-                            Saving rewrites the chunks for this source. Agents won't see the change mid-conversation
-                            until they refresh their prompt.
-                        </p>
+                        {editingSource?.source_type === 'text' && (
+                            <LemonField name="text" label="Content">
+                                <LemonTextArea minRows={12} />
+                            </LemonField>
+                        )}
+                        {editingSource?.source_type === 'file' && editingSource.original_filename && (
+                            <p className="text-xs text-muted">
+                                Uploaded file: {editingSource.original_filename}. To replace the content, delete this
+                                source and upload a new file.
+                            </p>
+                        )}
+                        {editingSource?.source_type === 'text' && (
+                            <p className="text-xs text-muted">
+                                Saving rewrites the chunks for this source. Agents won't see the change mid-conversation
+                                until they refresh their prompt.
+                            </p>
+                        )}
                     </Form>
                 )}
             </LemonModal>

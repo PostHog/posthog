@@ -35,6 +35,9 @@ export interface KnowledgeSource {
         max_pages?: number
         max_depth?: number
     }
+    original_filename: string
+    file_content_type: string
+    file_size_bytes: number | null
 }
 
 export interface TextSourceFormValues {
@@ -54,7 +57,12 @@ export interface UrlSourceFormValues {
     max_depth: number
 }
 
-export type CreateTab = 'text' | 'url'
+export interface FileSourceFormValues {
+    name: string
+    file: File | null
+}
+
+export type CreateTab = 'text' | 'url' | 'file'
 
 const MAX_TEXT_BYTES = 1_000_000
 
@@ -244,17 +252,72 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 }
             },
         },
+        fileSource: {
+            defaults: { name: '', file: null } as FileSourceFormValues,
+            errors: ({ name, file }: FileSourceFormValues) => ({
+                name: !name.trim() ? 'Give the source a short name' : undefined,
+                file: !file
+                    ? 'Select a file to upload'
+                    : file.size > 50 * 1024 * 1024
+                      ? 'File exceeds the 50 MB cap'
+                      : undefined,
+            }),
+            submit: async ({ name, file }: FileSourceFormValues) => {
+                if (!file) {
+                    return
+                }
+                const formData = new FormData()
+                formData.append('name', name)
+                formData.append('file', file)
+                formData.append('source_type', 'file')
+                try {
+                    const created = await api.create<KnowledgeSource>(apiUrl(), formData)
+                    lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
+                    actions.closeCreateModal()
+                    actions.resetFileSource()
+                    actions.loadSources()
+                } catch (error: any) {
+                    lemonToast.error(
+                        error?.detail ||
+                            error?.data?.file?.[0] ||
+                            error?.data?.detail ||
+                            'Could not parse the file. Check format and try again.'
+                    )
+                    throw error
+                }
+            },
+        },
         editSource: {
             defaults: { name: '', text: '' } as TextSourceFormValues,
-            errors: validateText,
+            errors: ({ name, text }: TextSourceFormValues) => {
+                const isText = values.editingSource?.source_type === 'text'
+                return {
+                    name: !name.trim() ? 'Give the source a short name' : undefined,
+                    text: isText
+                        ? !text.trim()
+                            ? 'Paste some content'
+                            : new Blob([text]).size > MAX_TEXT_BYTES
+                              ? 'Text exceeds the 1 MB cap — split it into smaller sources'
+                              : undefined
+                        : undefined,
+                }
+            },
             submit: async ({ name, text }: TextSourceFormValues) => {
                 const current = values.editingSource
                 if (!current) {
                     return
                 }
+                const isText = current.source_type === 'text'
+                const payload: Record<string, string> = { name }
+                if (isText) {
+                    payload.text = text
+                }
                 try {
-                    const updated = await api.update<KnowledgeSource>(`${apiUrl()}/${current.id}`, { name, text })
-                    lemonToast.success(`"${updated.name}" re-indexed into ${updated.chunk_count} chunks`)
+                    const updated = await api.update<KnowledgeSource>(`${apiUrl()}/${current.id}`, payload)
+                    const msg = isText
+                        ? `"${updated.name}" re-indexed into ${updated.chunk_count} chunks`
+                        : `"${updated.name}" renamed`
+                    lemonToast.success(msg)
                     actions.replaceSourceInList({ source: updated })
                     actions.closeEditModal()
                     actions.resetEditSource()
@@ -262,6 +325,50 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 } catch (error: any) {
                     lemonToast.error(
                         error?.detail ||
+                            error?.data?.detail ||
+                            'Could not save the changes. Check the error and try again.'
+                    )
+                    throw error
+                }
+            },
+        },
+        editUrlSource: {
+            defaults: {
+                name: '',
+                url: '',
+                crawl_mode: 'single' as CrawlMode,
+                include_globs: '',
+                exclude_globs: '',
+                max_pages: 50,
+                max_depth: 2,
+            } as UrlSourceFormValues,
+            errors: validateUrl,
+            submit: async (vals: UrlSourceFormValues) => {
+                const current = values.editingSource
+                if (!current) {
+                    return
+                }
+                const payload: Record<string, unknown> = {
+                    name: vals.name,
+                    url: vals.url,
+                    crawl_mode: vals.crawl_mode,
+                }
+                if (vals.crawl_mode !== 'single') {
+                    payload.include_globs = splitGlobs(vals.include_globs)
+                    payload.exclude_globs = splitGlobs(vals.exclude_globs)
+                    payload.max_pages = vals.max_pages
+                    payload.max_depth = vals.max_depth
+                }
+                try {
+                    const updated = await api.update<KnowledgeSource>(`${apiUrl()}/${current.id}`, payload)
+                    lemonToast.success(`"${updated.name}" updated`)
+                    actions.replaceSourceInList({ source: updated })
+                    actions.closeEditModal()
+                    actions.resetEditUrlSource()
+                } catch (error: any) {
+                    lemonToast.error(
+                        error?.detail ||
+                            error?.data?.url?.[0] ||
                             error?.data?.detail ||
                             'Could not save the changes. Check the error and try again.'
                     )
@@ -298,8 +405,23 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             }
         },
         openEditModal: ({ source }) => {
-            actions.setEditSourceValues({ name: source.name, text: '' })
-            actions.loadEditingSourceText({ id: source.id })
+            if (source.source_type === 'url') {
+                const cfg = source.crawl_config || {}
+                actions.setEditUrlSourceValues({
+                    name: source.name,
+                    url: source.source_url,
+                    crawl_mode: (source.crawl_mode || 'single') as CrawlMode,
+                    include_globs: (cfg.include_globs || []).join('\n'),
+                    exclude_globs: (cfg.exclude_globs || []).join('\n'),
+                    max_pages: cfg.max_pages ?? 50,
+                    max_depth: cfg.max_depth ?? 2,
+                })
+            } else {
+                actions.setEditSourceValues({ name: source.name, text: '' })
+                if (source.source_type === 'text') {
+                    actions.loadEditingSourceText({ id: source.id })
+                }
+            }
         },
         loadEditingSourceTextSuccess: ({ editingSourceText }) => {
             if (values.editingSource && values.editingSource.id === editingSourceText.id) {
@@ -308,6 +430,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
         closeEditModal: () => {
             actions.resetEditSource()
+            actions.resetEditUrlSource()
             actions.resetEditingSourceText()
         },
     })),

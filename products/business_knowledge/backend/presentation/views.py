@@ -15,6 +15,7 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -24,6 +25,7 @@ from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
 from ..facade import api, contracts
+from ..file_parse import FileParseError
 from ..logic import (
     EmptyContentError,
     InvalidUrlError,
@@ -35,10 +37,12 @@ from ..logic import (
 from ..models import KnowledgeSource
 from .serializers import (
     CreateCrawlSourceSerializer,
+    CreateFileSourceSerializer,
     CreateTextSourceSerializer,
     CreateUrlSourceSerializer,
     KnowledgeSourceSerializer,
     UpdateTextSourceSerializer,
+    UpdateUrlSourceSerializer,
 )
 
 
@@ -57,6 +61,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     queryset = KnowledgeSource.objects.all()
     serializer_class = KnowledgeSourceSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # TeamAndOrgViewSetMixin already filters via _filter_queryset_by_parents_lookups
@@ -81,6 +86,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # simple for the SDK / MCP. Defaulting to "text" preserves the Stage 1
         # contract when the client omits the field.
         source_type = request.data.get("source_type", "text")
+        if source_type == "file":
+            return self._create_file_source(request)
         if source_type == "url":
             # Stage 2b: if a crawl_mode other than "single" is requested,
             # take the crawl path instead of the single-page path.
@@ -157,6 +164,34 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
         return Response(KnowledgeSourceSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        request=CreateFileSourceSerializer,
+        responses={201: KnowledgeSourceSerializer},
+    )
+    def _create_file_source(self, request: Request) -> Response:
+        serializer = CreateFileSourceSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+
+        uploaded = serializer.validated_data["file"]
+        file_data = uploaded.read()
+
+        try:
+            dto = api.create_file_source(
+                contracts.CreateFileSourceInput(
+                    team_id=self.team_id,
+                    created_by_id=getattr(user, "id", None),
+                    name=serializer.validated_data["name"],
+                    file_data=file_data,
+                    original_filename=uploaded.name or "unnamed",
+                )
+            )
+        except FileParseError as exc:
+            raise exceptions.ValidationError({"file": str(exc)})
+        except QuotaExceededError:
+            raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
+        return Response(KnowledgeSourceSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
+
     @extend_schema(responses={200: KnowledgeSourceSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         try:
@@ -169,6 +204,9 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(KnowledgeSourceSerializer(instance=dto).data)
 
     @extend_schema(
+        # Schema shows text/file shape; URL sources accept UpdateUrlSourceSerializer
+        # fields instead. drf-spectacular doesn't support per-source-type polymorphism
+        # on a single method, so the generated types are an approximation.
         request=UpdateTextSourceSerializer,
         responses={200: KnowledgeSourceSerializer},
     )
@@ -177,12 +215,23 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source_id = UUID(pk)
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
+
+        try:
+            source = KnowledgeSource.objects.get(id=source_id, team_id=self.team_id)
+        except KnowledgeSource.DoesNotExist:
+            raise exceptions.NotFound()
+
+        if source.source_type == "url":
+            return self._update_url_source(source, request)
+        return self._update_text_or_file_source(source, request)
+
+    def _update_text_or_file_source(self, source: KnowledgeSource, request: Request) -> Response:
         serializer = UpdateTextSourceSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         try:
             dto = api.update_text_source(
                 contracts.UpdateTextSourceInput(
-                    source_id=source_id,
+                    source_id=source.id,
                     team_id=self.team_id,
                     name=serializer.validated_data.get("name"),
                     text=serializer.validated_data.get("text"),
@@ -190,6 +239,32 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
+        except QuotaExceededError:
+            raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
+        if dto is None:
+            raise exceptions.NotFound()
+        return Response(KnowledgeSourceSerializer(instance=dto).data)
+
+    def _update_url_source(self, source: KnowledgeSource, request: Request) -> Response:
+        serializer = UpdateUrlSourceSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        try:
+            dto = api.update_url_source(
+                contracts.UpdateUrlSourceInput(
+                    source_id=source.id,
+                    team_id=self.team_id,
+                    name=serializer.validated_data.get("name"),
+                    url=serializer.validated_data.get("url"),
+                    crawl_mode=serializer.validated_data.get("crawl_mode"),
+                    crawl_config=serializer.validated_data.get("crawl_config"),
+                )
+            )
+        except InvalidUrlError:
+            raise exceptions.ValidationError({"url": "URL is not reachable."})
+        except (UrlFetchFailedError, EmptyContentError):
+            raise exceptions.ValidationError({"url": "Could not fetch the URL."})
+        except SourceBusyError:
+            raise _ConflictError("A refresh is already in progress for this source.")
         except QuotaExceededError:
             raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
         if dto is None:
