@@ -435,25 +435,27 @@ def _get_mutation_ids_for_part(client: Client, source_table: str, partition_id: 
 
 
 def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
-    """Create the non-replicated staging table if it doesn't exist.
+    """Drop any stale staging table and recreate from the current source schema.
 
-    Uses CREATE TABLE ... AS to copy the source table's full schema (columns,
-    partition key, order key, indices, projections, settings) with a
-    non-replicated engine override.
-
-    The non-replicated engine is derived from the source's engine_full:
-      ReplicatedReplacingMergeTree('/path', '{replica}', ver) → ReplacingMergeTree(ver)
-      ReplicatedMergeTree('/path', '{replica}')               → MergeTree()
+    Always recreates so source-side ALTER TABLE additions don't cause
+    "Tables have different structure" on ATTACH PARTITION FROM. Refuses to
+    drop if the existing staging table is non-empty (likely leftover from a
+    failed run that needs operator review).
     """
     database = _get_database()
 
-    # Check if staging table already exists
     rows = client.execute(
-        "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        "SELECT total_bytes FROM system.tables WHERE database = %(db)s AND name = %(table)s",
         {"db": database, "table": staging_table},
     )
-    if rows[0][0] > 0:
-        return
+    if rows:
+        existing_bytes = rows[0][0] or 0
+        if existing_bytes > 0:
+            raise dagster.Failure(
+                description=f"Staging table {database}.{staging_table} is non-empty "
+                f"({existing_bytes:,} bytes). Truncate manually after confirming nothing needs recovery."
+            )
+        client.execute(f"DROP TABLE {database}.{staging_table} SYNC")
 
     # Get the source engine definition to derive the non-replicated equivalent
     rows = client.execute(
@@ -488,9 +490,7 @@ def _ensure_staging_table(client: Client, source_table: str, staging_table: str)
         )
 
     # CREATE TABLE ... AS copies schema; ENGINE = overrides the engine only
-    client.execute(
-        f"CREATE TABLE IF NOT EXISTS {database}.{staging_table} AS {database}.{source_table} ENGINE = {engine_clause}"
-    )
+    client.execute(f"CREATE TABLE {database}.{staging_table} AS {database}.{source_table} ENGINE = {engine_clause}")
 
 
 def _get_disk_paths(client: Client) -> dict[str, str]:
