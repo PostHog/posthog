@@ -16426,17 +16426,13 @@ export namespace Schemas {
      */
     export type _ExperimentApiMetricsList = ExperimentApiMetric[];
 
-    /**
-     * * `draft` - Draft
-    * `running` - Running
-    * `stopped` - Stopped
-     */
     export type ExperimentStatusEnum = typeof ExperimentStatusEnum[keyof typeof ExperimentStatusEnum];
 
 
     export const ExperimentStatusEnum = {
       Draft: 'draft',
       Running: 'running',
+      Paused: 'paused',
       Stopped: 'stopped',
     } as const;
 
@@ -16521,7 +16517,8 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
-      readonly status: ExperimentStatusEnum | NullEnum | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status: ExperimentStatusEnum;
       /**
        * The effective access level the user has for this object
        * @nullable
@@ -27049,7 +27046,8 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
-      readonly status?: ExperimentStatusEnum | NullEnum | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status?: ExperimentStatusEnum;
       /**
        * The effective access level the user has for this object
        * @nullable
