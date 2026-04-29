@@ -56,20 +56,28 @@ function bar(overrides: Partial<BarRect> & { dataIndex: number }): BarRect {
 
 describe('hog-charts canvas-renderer (bars)', () => {
     describe('traceRoundedBarPath', () => {
-        it('emits a closed rectangular path with no rounding when no corners are flagged', () => {
+        it.each([
+            { desc: 'no corners', corners: {}, expectedCurves: 0 },
+            { desc: 'two top corners', corners: { topLeft: true, topRight: true }, expectedCurves: 2 },
+            {
+                desc: 'all four corners',
+                corners: { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true },
+                expectedCurves: 4,
+            },
+            { desc: 'only one corner', corners: { topRight: true }, expectedCurves: 1 },
+        ])('emits one quadraticCurveTo per rounded corner ($desc)', ({ corners, expectedCurves }) => {
             const ctx = mockCanvasContext()
-            traceRoundedBarPath(ctx, 0, 0, 100, 50, 8, {})
-            expect(ctx.quadraticCurveTo).not.toHaveBeenCalled()
+            traceRoundedBarPath(ctx, 0, 0, 100, 50, 8, corners)
+            expect(ctx.quadraticCurveTo).toHaveBeenCalledTimes(expectedCurves)
+        })
+
+        it('always closes the path, even when no corners are rounded or the rectangle is degenerate', () => {
+            const ctx = mockCanvasContext()
+            traceRoundedBarPath(ctx, 0, 0, 100, 0, 8, { topLeft: true })
             expect(ctx.closePath).toHaveBeenCalledTimes(1)
         })
 
-        it('emits a quadraticCurveTo for each rounded corner', () => {
-            const ctx = mockCanvasContext()
-            traceRoundedBarPath(ctx, 0, 0, 100, 50, 8, { topLeft: true, topRight: true })
-            expect(ctx.quadraticCurveTo).toHaveBeenCalledTimes(2)
-        })
-
-        it('clamps the radius to half the smaller dimension', () => {
+        it('clamps the radius to half the smaller dimension without throwing', () => {
             // With width 4 and a requested radius of 20, each rounded corner consumes radius 2
             // — we just verify it doesn't throw and still emits the curves.
             const ctx = mockCanvasContext()
@@ -81,12 +89,6 @@ describe('hog-charts canvas-renderer (bars)', () => {
             })
             expect(ctx.quadraticCurveTo).toHaveBeenCalledTimes(4)
         })
-
-        it('still closes the path on a zero-height rectangle', () => {
-            const ctx = mockCanvasContext()
-            traceRoundedBarPath(ctx, 0, 0, 100, 0, 8, { topLeft: true })
-            expect(ctx.closePath).toHaveBeenCalledTimes(1)
-        })
     })
 
     describe('drawBars', () => {
@@ -97,13 +99,16 @@ describe('hog-charts canvas-renderer (bars)', () => {
             expect(ctx.fill).not.toHaveBeenCalled()
         })
 
-        it('skips bars with zero or negative dimensions', () => {
+        it.each([
+            { desc: 'zero width', width: 0, height: 50 },
+            { desc: 'negative width', width: -5, height: 50 },
+            { desc: 'zero height', width: 50, height: 0 },
+            { desc: 'negative height', width: 50, height: -5 },
+        ])('skips a bar with $desc', ({ width, height }) => {
             const ctx = mockCanvasContext()
-            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
-            drawBars(drawCtx, makeSeries({ key: 's', data: [1, 2] }), [
-                { x: 0, y: 0, width: 0, height: 50, corners: {}, dataIndex: 0 },
-                { x: 0, y: 0, width: -5, height: 50, corners: {}, dataIndex: 1 },
-                { x: 0, y: 0, width: 50, height: 0, corners: {}, dataIndex: 2 },
+            const drawCtx = makeDrawContext(ctx, ['a'])
+            drawBars(drawCtx, makeSeries({ key: 's', data: [1] }), [
+                { x: 0, y: 0, width, height, corners: {}, dataIndex: 0 },
             ])
             expect(ctx.fill).not.toHaveBeenCalled()
         })
@@ -226,9 +231,14 @@ describe('hog-charts canvas-renderer (bars)', () => {
             expect(ctx.stroke).toHaveBeenCalledTimes(1)
         })
 
-        it('does nothing on a zero-width bar', () => {
+        it.each([
+            { desc: 'zero width', width: 0, height: 80 },
+            { desc: 'negative width', width: -5, height: 80 },
+            { desc: 'zero height', width: 50, height: 0 },
+            { desc: 'negative height', width: 50, height: -5 },
+        ])('does nothing on a bar with $desc', ({ width, height }) => {
             const ctx = mockCanvasContext()
-            drawBarHighlight(ctx, { ...SQUARE, width: 0 }, '#000')
+            drawBarHighlight(ctx, { ...SQUARE, width, height }, '#000')
             expect(ctx.stroke).not.toHaveBeenCalled()
         })
 

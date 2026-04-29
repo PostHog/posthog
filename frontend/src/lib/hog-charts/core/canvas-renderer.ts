@@ -447,7 +447,7 @@ export function drawBars(
     const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
 
     for (const bar of bars) {
-        if (bar.width <= 0 || bar.height === 0) {
+        if (bar.width <= 0 || bar.height <= 0) {
             continue
         }
         const useHatch =
@@ -467,7 +467,7 @@ export function drawBarHighlight(
     color: string,
     cornerRadius: number = 4
 ): void {
-    if (bar.width <= 0 || bar.height === 0) {
+    if (bar.width <= 0 || bar.height <= 0) {
         return
     }
     ctx.strokeStyle = color
