@@ -950,7 +950,7 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         self.user.save()
         ensure_baseline_global_dashboard_templates()
         self.organization.available_product_features = [
-            {"name": AvailableFeature.ADVANCED_PERMISSIONS, "key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
@@ -1322,7 +1322,7 @@ class TestCustomerDashboardTemplateCopyBetweenProjects(APIBaseTest):
         self.user.save()
         ensure_baseline_global_dashboard_templates()
         self.organization.available_product_features = [
-            {"name": AvailableFeature.ADVANCED_PERMISSIONS, "key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
         self.team_b = Team.objects.create(organization=self.organization, name="Customer copy target")
