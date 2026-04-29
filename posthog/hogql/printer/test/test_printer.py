@@ -1720,6 +1720,21 @@ class TestPrinter(BaseTest):
             "QUALIFY is not supported in the 'clickhouse' dialect",
         )
 
+    def test_select_qualify_round_trip_in_hogql_dialect(self):
+        printed = self._print(
+            "SELECT row_number() OVER () AS rn FROM events QUALIFY rn = 1",
+            dialect="hogql",
+        )
+        self.assertIn("QUALIFY", printed)
+        self.assertIn("rn", printed)
+
+    def test_select_qualify_in_cte_round_trip_in_hogql_dialect(self):
+        printed = self._print(
+            "WITH x AS (SELECT row_number() OVER () AS rn FROM events QUALIFY rn = 1) SELECT * FROM x",
+            dialect="hogql",
+        )
+        self.assertIn("QUALIFY", printed)
+
     def test_select_prewhere(self):
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),

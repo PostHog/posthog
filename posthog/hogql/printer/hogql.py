@@ -54,6 +54,9 @@ class HogQLPrinter(BasePrinter):
     def _expands_placeholder_macros(self) -> bool:
         return False
 
+    def _assert_qualify_supported(self) -> None:
+        return
+
     def _render_connection_supported_function(self, node: ast.Call) -> str | None:
         if node.name.lower() in self._get_connection_supported_functions():
             return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
