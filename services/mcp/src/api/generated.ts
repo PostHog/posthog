@@ -15172,6 +15172,49 @@ export namespace Schemas {
       error: string;
     }
 
+    export interface ErrorTrackingVolumeBucket {
+      /** Bucket timestamp label. */
+      label: string;
+      /**
+       * Occurrence count for the bucket.
+       * @nullable
+       */
+      value?: number | null;
+    }
+
+    export interface ErrorTrackingAggregations {
+      /** Exception occurrence count. */
+      occurrences?: number;
+      /** Unique user count. */
+      users?: number;
+      /** Unique session count. */
+      sessions?: number;
+      /** Occurrence counts per volume bucket. */
+      volumeRange?: number[];
+      /** Labeled volume buckets. */
+      volume_buckets?: ErrorTrackingVolumeBucket[];
+    }
+
+    export interface ErrorTrackingAssignee {
+      /** User ID or role UUID to filter by. */
+      id: string | number;
+      /** Assignee target type: user or role.
+
+    * `user` - user
+    * `role` - role */
+      type: AssigneeTypeEnum;
+    }
+
+    export interface ErrorTrackingAssigneeResponse {
+      /** Assignee user ID or role UUID. */
+      id?: string | number | null;
+      /**
+       * Assignee type.
+       * @nullable
+       */
+      type?: string | null;
+    }
+
     /**
      * @nullable
      */
@@ -15278,6 +15321,32 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingDateRange {
+      /** Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d. */
+      date_from?: string;
+      /**
+       * End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.
+       * @nullable
+       */
+      date_to?: string | null;
+    }
+
+    /**
+     * Normalized sampled exception event properties.
+     */
+    export type ErrorTrackingEventProperties = { [key: string]: unknown };
+
+    export interface ErrorTrackingEvent {
+      /** Event UUID. */
+      uuid?: string;
+      /** Event distinct ID. */
+      distinct_id?: string;
+      /** Event timestamp. */
+      timestamp?: string;
+      /** Normalized sampled exception event properties. */
+      properties?: ErrorTrackingEventProperties;
+    }
+
     export interface ErrorTrackingExternalReferenceIntegrationResult {
       readonly id: number;
       readonly kind: string;
@@ -15362,9 +15431,230 @@ export namespace Schemas {
       results: ErrorTrackingGroupingRule[];
     }
 
+    export interface ErrorTrackingImpact {
+      /** Exception occurrence count. */
+      occurrences?: number;
+      /** Unique user count. */
+      users?: number;
+      /** Unique session count. */
+      sessions?: number;
+    }
+
     export interface ErrorTrackingIssueAssignment {
       readonly id: number | string | null;
       readonly type: string;
+    }
+
+    export interface ErrorTrackingTopFrame {
+      /** Frame function name. */
+      function?: string;
+      /** Frame source, filename, or module. */
+      source?: string;
+      /** Line number. */
+      line?: number;
+      /** Column number. */
+      column?: number;
+      /** Whether the frame is an application frame. */
+      in_app?: boolean;
+    }
+
+    export interface ErrorTrackingLatestRelease {
+      /** Release version. */
+      version?: string;
+      /** Release project/library. */
+      project?: string;
+      /** Release timestamp. */
+      timestamp?: string;
+      /** Git commit ID. */
+      commit_id?: string;
+      /** Git branch. */
+      branch?: string;
+      /** Git repository name. */
+      repo_name?: string;
+    }
+
+    export interface ErrorTrackingIssueDetail {
+      /** Error tracking issue ID. */
+      id: string;
+      /**
+       * Issue name.
+       * @nullable
+       */
+      name?: string | null;
+      /**
+       * Issue description.
+       * @nullable
+       */
+      description?: string | null;
+      /** Issue status. */
+      status?: string;
+      /**
+       * First seen timestamp.
+       * @nullable
+       */
+      first_seen?: string | null;
+      /**
+       * Last seen timestamp.
+       * @nullable
+       */
+      last_seen?: string | null;
+      /**
+       * SDK/library associated with the issue.
+       * @nullable
+       */
+      library?: string | null;
+      /**
+       * Top source/file associated with the issue.
+       * @nullable
+       */
+      source?: string | null;
+      /** Issue assignee. */
+      assignee?: ErrorTrackingAssigneeResponse | null;
+      /** Aggregate counts. */
+      aggregations?: ErrorTrackingAggregations | null;
+      /**
+       * Top function associated with the issue.
+       * @nullable
+       */
+      function?: string | null;
+      /** Top in_app application frame. */
+      top_in_app_frame?: ErrorTrackingTopFrame;
+      /** Latest release metadata. */
+      latest_release?: ErrorTrackingLatestRelease;
+      /** Compact impact counts. */
+      impact?: ErrorTrackingImpact;
+      /** Optional compact occurrence sparkline. */
+      sparkline?: number[];
+    }
+
+    /**
+     * * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `gte` - gte
+    * `lte` - lte
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set
+    * `is_date_exact` - is_date_exact
+    * `is_date_after` - is_date_after
+    * `is_date_before` - is_date_before
+    * `in` - in
+    * `not_in` - not_in
+     */
+    export type PropertyItemOperatorEnum = typeof PropertyItemOperatorEnum[keyof typeof PropertyItemOperatorEnum];
+
+
+    export const PropertyItemOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Lt: 'lt',
+      Gte: 'gte',
+      Lte: 'lte',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      IsDateExact: 'is_date_exact',
+      IsDateAfter: 'is_date_after',
+      IsDateBefore: 'is_date_before',
+      In: 'in',
+      NotIn: 'not_in',
+    } as const;
+
+    export interface PropertyItem {
+      /** Key of the property you're filtering on. For example `email` or `$current_url` */
+      key: string;
+      /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
+      value: string | number | boolean | (string | number)[];
+      operator?: PropertyItemOperatorEnum | BlankEnum | NullEnum | null;
+      type?: PropertyFilterTypeEnum | BlankEnum;
+    }
+
+    /**
+     * * `ASC` - ASC
+    * `DESC` - DESC
+     */
+    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
+
+
+    export const OrderDirectionEnum = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * * `summary` - summary
+    * `stack` - stack
+    * `raw` - raw
+     */
+    export type VerbosityEnum = typeof VerbosityEnum[keyof typeof VerbosityEnum];
+
+
+    export const VerbosityEnum = {
+      Summary: 'summary',
+      Stack: 'stack',
+      Raw: 'raw',
+    } as const;
+
+    export interface ErrorTrackingIssueEventsQueryRequest {
+      /** Error tracking issue ID. */
+      issueId: string;
+      /** Date range for sampled exception events. Defaults to the last 7 days. */
+      dateRange?: ErrorTrackingDateRange;
+      /** When true, exclude internal/test account data from results. Defaults to true. */
+      filterTestAccounts?: boolean;
+      /** Advanced flat AND property filters applied to sampled events. */
+      filterGroup?: PropertyItem[];
+      /**
+       * Search exception types, exception values, and current URL among sampled events.
+       * @maxLength 500
+       */
+      searchQuery?: string;
+      /** Timestamp sort direction. Defaults to DESC.
+
+    * `ASC` - ASC
+    * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /**
+       * Page size.
+       * @minimum 1
+       * @maximum 20
+       */
+      limit?: number;
+      /**
+       * Pagination offset.
+       * @minimum 0
+       */
+      offset?: number;
+      /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
+
+    * `summary` - summary
+    * `stack` - stack
+    * `raw` - raw */
+      verbosity?: VerbosityEnum;
+      /** When true, include only stack frames marked in_app. Defaults to true. */
+      onlyAppFrames?: boolean;
+    }
+
+    export interface ErrorTrackingIssueEventsResponse {
+      /** Sampled exception events. */
+      results: ErrorTrackingEvent[];
+      /** Whether more results are available. */
+      hasMore: boolean;
+      /** Page size. */
+      limit: number;
+      /** Current offset. */
+      offset: number;
+      /** Offset to fetch the next page when hasMore is true. */
+      nextOffset?: number;
     }
 
     /**
@@ -15407,6 +15697,47 @@ export namespace Schemas {
       readonly cohort: ErrorTrackingIssueFullCohort;
     }
 
+    export interface ErrorTrackingIssueListItem {
+      /** Error tracking issue ID. */
+      id: string;
+      /**
+       * Issue name.
+       * @nullable
+       */
+      name?: string | null;
+      /**
+       * Issue description.
+       * @nullable
+       */
+      description?: string | null;
+      /** Issue status. */
+      status?: string;
+      /**
+       * First seen timestamp.
+       * @nullable
+       */
+      first_seen?: string | null;
+      /**
+       * Last seen timestamp.
+       * @nullable
+       */
+      last_seen?: string | null;
+      /**
+       * SDK/library associated with the issue.
+       * @nullable
+       */
+      library?: string | null;
+      /**
+       * Top source/file associated with the issue.
+       * @nullable
+       */
+      source?: string | null;
+      /** Issue assignee. */
+      assignee?: ErrorTrackingAssigneeResponse | null;
+      /** Aggregate counts. */
+      aggregations?: ErrorTrackingAggregations | null;
+    }
+
     export interface ErrorTrackingIssueMergeRequest {
       /** IDs of the issues to merge into the current issue. */
       ids: string[];
@@ -15415,6 +15746,22 @@ export namespace Schemas {
     export interface ErrorTrackingIssueMergeResponse {
       /** Whether the merge completed successfully. */
       success: boolean;
+    }
+
+    export interface ErrorTrackingIssueQueryRequest {
+      /** Error tracking issue ID. */
+      issueId: string;
+      /** Date range for issue impact and latest-event metadata. Defaults to the last 7 days. */
+      dateRange?: ErrorTrackingDateRange;
+      /** When true, exclude internal/test account data from results. Defaults to true. */
+      filterTestAccounts?: boolean;
+      /**
+       * Volume buckets.
+       * @minimum 0
+       */
+      volumeResolution?: number;
+      /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
+      includeSparkline?: boolean;
     }
 
     export interface ErrorTrackingIssueSplitFingerprint {
@@ -15436,6 +15783,140 @@ export namespace Schemas {
       success: boolean;
       /** IDs of the new issues created by the split. */
       new_issue_ids: string[];
+    }
+
+    /**
+     * * `archived` - archived
+    * `active` - active
+    * `resolved` - resolved
+    * `pending_release` - pending_release
+    * `suppressed` - suppressed
+    * `all` - all
+     */
+    export type ErrorTrackingIssuesListQueryRequestStatusEnum = typeof ErrorTrackingIssuesListQueryRequestStatusEnum[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnum];
+
+
+    export const ErrorTrackingIssuesListQueryRequestStatusEnum = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `last_seen` - last_seen
+    * `first_seen` - first_seen
+    * `occurrences` - occurrences
+    * `users` - users
+    * `sessions` - sessions
+     */
+    export type ErrorTrackingIssuesListQueryRequestOrderByEnum = typeof ErrorTrackingIssuesListQueryRequestOrderByEnum[keyof typeof ErrorTrackingIssuesListQueryRequestOrderByEnum];
+
+
+    export const ErrorTrackingIssuesListQueryRequestOrderByEnum = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+    } as const;
+
+    export interface ErrorTrackingIssuesListQueryRequest {
+      /** Date range for issue aggregates. Defaults to the last 7 days. */
+      dateRange?: ErrorTrackingDateRange;
+      /** Filter by issue status. Defaults to active.
+
+    * `archived` - archived
+    * `active` - active
+    * `resolved` - resolved
+    * `pending_release` - pending_release
+    * `suppressed` - suppressed
+    * `all` - all */
+      status?: ErrorTrackingIssuesListQueryRequestStatusEnum;
+      /** Filter by issue assignee. Omit to include all assignees. */
+      assignee?: ErrorTrackingAssignee | null;
+      /** When true, exclude internal/test account data from results. Defaults to true. */
+      filterTestAccounts?: boolean;
+      /**
+       * Free-text search across exception types, values, stack frames, and email fields.
+       * @maxLength 500
+       */
+      searchQuery?: string;
+      /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. */
+      filterGroup?: PropertyItem[];
+      /** Field used to sort issues. Defaults to occurrences.
+
+    * `last_seen` - last_seen
+    * `first_seen` - first_seen
+    * `occurrences` - occurrences
+    * `users` - users
+    * `sessions` - sessions */
+      orderBy?: ErrorTrackingIssuesListQueryRequestOrderByEnum;
+      /** Sort direction. Defaults to DESC.
+
+    * `ASC` - ASC
+    * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /**
+       * Page size.
+       * @minimum 1
+       * @maximum 100
+       */
+      limit?: number;
+      /**
+       * Pagination offset.
+       * @minimum 0
+       */
+      offset?: number;
+      /**
+       * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+       * @minimum 0
+       */
+      volumeResolution?: number;
+      /** Filter by SDK/library value from event $lib, for example posthog-js. */
+      library?: string | string[];
+      /**
+       * Filter by exact release ID, version, or git commit ID captured in $exception_releases.
+       * @maxLength 500
+       */
+      release?: string;
+      /** Filter by exact exception fingerprint hash, not fuzzy search. */
+      fingerprint?: string | string[];
+      /**
+       * Search user/email text.
+       * @maxLength 500
+       */
+      user?: string;
+      /**
+       * Filter by exact PostHog person UUID.
+       * @maxLength 100
+       */
+      personId?: string;
+      /**
+       * Filter by current URL substring.
+       * @maxLength 1000
+       */
+      url?: string;
+      /**
+       * Search stack-frame source/file path text.
+       * @maxLength 1000
+       */
+      filePath?: string;
+    }
+
+    export interface ErrorTrackingIssuesListResponse {
+      /** Issue rows. */
+      results: ErrorTrackingIssueListItem[];
+      /** Whether more results are available. */
+      hasMore: boolean;
+      /** Page size. */
+      limit: number;
+      /** Current offset. */
+      offset: number;
+      /** Offset to fetch the next page when hasMore is true. */
+      nextOffset?: number;
     }
 
     export interface ErrorTrackingRecommendation {
@@ -22099,18 +22580,6 @@ export namespace Schemas {
       /** @nullable */
       event_definition_id?: string | null;
     }
-
-    /**
-     * * `latest` - latest
-    * `earliest` - earliest
-     */
-    export type OrderByEnum = typeof OrderByEnum[keyof typeof OrderByEnum];
-
-
-    export const OrderByEnum = {
-      Latest: 'latest',
-      Earliest: 'earliest',
-    } as const;
 
     export type OrganizationTeamsItem = { [key: string]: unknown };
 
@@ -31791,57 +32260,6 @@ export namespace Schemas {
       promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
-    /**
-     * * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `gt` - gt
-    * `lt` - lt
-    * `gte` - gte
-    * `lte` - lte
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set
-    * `is_date_exact` - is_date_exact
-    * `is_date_after` - is_date_after
-    * `is_date_before` - is_date_before
-    * `in` - in
-    * `not_in` - not_in
-     */
-    export type PropertyItemOperatorEnum = typeof PropertyItemOperatorEnum[keyof typeof PropertyItemOperatorEnum];
-
-
-    export const PropertyItemOperatorEnum = {
-      Exact: 'exact',
-      IsNot: 'is_not',
-      Icontains: 'icontains',
-      NotIcontains: 'not_icontains',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-      Gt: 'gt',
-      Lt: 'lt',
-      Gte: 'gte',
-      Lte: 'lte',
-      IsSet: 'is_set',
-      IsNotSet: 'is_not_set',
-      IsDateExact: 'is_date_exact',
-      IsDateAfter: 'is_date_after',
-      IsDateBefore: 'is_date_before',
-      In: 'in',
-      NotIn: 'not_in',
-    } as const;
-
-    export interface PropertyItem {
-      /** Key of the property you're filtering on. For example `email` or `$current_url` */
-      key: string;
-      /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-      value: string | number | boolean | (string | number)[];
-      operator?: PropertyItemOperatorEnum | BlankEnum | NullEnum | null;
-      type?: PropertyFilterTypeEnum | BlankEnum;
-    }
-
     export interface Property {
       /** 
      You can use a simplified version:
@@ -37123,6 +37541,18 @@ export namespace Schemas {
       count: number;
     }
 
+    /**
+     * * `latest` - latest
+    * `earliest` - earliest
+     */
+    export type _LogsQueryBodyOrderByEnum = typeof _LogsQueryBodyOrderByEnum[keyof typeof _LogsQueryBodyOrderByEnum];
+
+
+    export const _LogsQueryBodyOrderByEnum = {
+      Latest: 'latest',
+      Earliest: 'earliest',
+    } as const;
+
     export interface _LogsQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -37134,7 +37564,7 @@ export namespace Schemas {
 
     * `latest` - latest
     * `earliest` - earliest */
-      orderBy?: OrderByEnum;
+      orderBy?: _LogsQueryBodyOrderByEnum;
       /** Full-text search term to filter log bodies. */
       searchTerm?: string;
       /** Property filters for the query. */

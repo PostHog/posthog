@@ -727,9 +727,10 @@ export interface _LogsCountRangesResponseApi {
  * * `latest` - latest
  * `earliest` - earliest
  */
-export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
+export type _LogsQueryBodyOrderByEnumApi =
+    (typeof _LogsQueryBodyOrderByEnumApi)[keyof typeof _LogsQueryBodyOrderByEnumApi]
 
-export const OrderByEnumApi = {
+export const _LogsQueryBodyOrderByEnumApi = {
     Latest: 'latest',
     Earliest: 'earliest',
 } as const
@@ -745,7 +746,7 @@ export interface _LogsQueryBodyApi {
 
 * `latest` - latest
 * `earliest` - earliest */
-    orderBy?: OrderByEnumApi
+    orderBy?: _LogsQueryBodyOrderByEnumApi
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
     /** Property filters for the query. */
