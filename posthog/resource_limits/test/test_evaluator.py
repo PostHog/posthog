@@ -1,5 +1,8 @@
-from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from parameterized import parameterized
+
+from posthog.test.base import BaseTest
 
 from posthog.resource_limits import check_count_limit, get_limit
 from posthog.resource_limits.registry import REGISTRY, LimitDefinition
@@ -19,14 +22,26 @@ class TestCheckCountLimit(BaseTest):
         super().setUp()
         self.key = "analytics.max_dashboards_per_team"
 
-    def test_below_threshold_emits_nothing(self) -> None:
+    @parameterized.expand(
+        [
+            ("below_threshold", 10, False, None),
+            ("one_below_threshold", 499, True, True),
+            ("at_threshold", 500, True, False),
+            ("far_above_threshold", 10_000, True, False),
+        ]
+    )
+    def test_emit_at_boundary(
+        self,
+        _name: str,
+        current_count: int,
+        expect_emit: bool,
+        expect_crossing: bool | None,
+    ) -> None:
         with patch("posthog.event_usage.report_user_action") as report:
-            check_count_limit(team=self.team, key=self.key, current_count=10, user=self.user)
-        report.assert_not_called()
-
-    def test_one_below_threshold_emits_with_crossing_true(self) -> None:
-        with patch("posthog.event_usage.report_user_action") as report:
-            check_count_limit(team=self.team, key=self.key, current_count=499, user=self.user)
+            check_count_limit(team=self.team, key=self.key, current_count=current_count, user=self.user)
+        if not expect_emit:
+            report.assert_not_called()
+            return
         report.assert_called_once()
         args, _ = report.call_args
         assert args[0] == self.user
@@ -34,22 +49,10 @@ class TestCheckCountLimit(BaseTest):
         properties = args[2]
         assert properties["limit_key"] == self.key
         assert properties["limit"] == 500
-        assert properties["current_count"] == 499
-        assert properties["crossing_threshold"] is True
+        assert properties["current_count"] == current_count
+        assert properties["crossing_threshold"] is expect_crossing
         assert properties["team_id"] == self.team.id
         assert properties["organization_id"] == str(self.team.organization_id)
-
-    def test_at_threshold_emits_with_crossing_false(self) -> None:
-        with patch("posthog.event_usage.report_user_action") as report:
-            check_count_limit(team=self.team, key=self.key, current_count=500, user=self.user)
-        report.assert_called_once()
-        properties = report.call_args[0][2]
-        assert properties["crossing_threshold"] is False
-
-    def test_far_above_threshold_still_emits(self) -> None:
-        with patch("posthog.event_usage.report_user_action") as report:
-            check_count_limit(team=self.team, key=self.key, current_count=10_000, user=self.user)
-        report.assert_called_once()
 
     def test_no_user_no_emit(self) -> None:
         with patch("posthog.event_usage.report_user_action") as report:
