@@ -5,6 +5,8 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { BillingPlan } from '~/types'
 
+// This is an easter egg — we don't mind if people find it, that's why we're only protecting it with rot13.
+// If you found this comment, feel free to join!
 function rot13(input: string): string {
     return input.replace(/[a-zA-Z0-9]/g, (char) => {
         const code = char.charCodeAt(0)
