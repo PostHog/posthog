@@ -48,7 +48,7 @@ class SourceBatch(models.Model):
     __repr__ = sane_repr("id", "team_id", "schema_id", "batch_index")
 
     class Meta:
-        db_table = "warehouse_sources_sourcebatch"
+        db_table = "sourcebatch"
         indexes = [
             models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
             models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
@@ -75,7 +75,7 @@ class SourceBatchStatus(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "warehouse_sources_sourcebatchstatus"
+        db_table = "sourcebatchstatus"
         indexes = [
             models.Index(
                 fields=["batch_id", "-id", "job_state"],

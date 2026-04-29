@@ -16,8 +16,8 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-BATCH_TABLE = "warehouse_sources_sourcebatch"
-STATUS_TABLE = "warehouse_sources_sourcebatchstatus"
+BATCH_TABLE = "sourcebatch"
+STATUS_TABLE = "sourcebatchstatus"
 STATUS_VIEW = "v_latest_source_batch_status"
 
 # Namespace for advisory locks to avoid collisions with other PostHog subsystems.

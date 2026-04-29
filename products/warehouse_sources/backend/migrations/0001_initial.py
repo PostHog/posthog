@@ -8,7 +8,7 @@ def _create_latest_status_view(apps, schema_editor):
     schema_editor.execute("""
         CREATE VIEW v_latest_source_batch_status AS
         SELECT DISTINCT ON (batch_id) *
-        FROM warehouse_sources_sourcebatchstatus
+        FROM sourcebatchstatus
         ORDER BY batch_id ASC, id DESC
     """)
 
@@ -80,7 +80,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                "db_table": "warehouse_sources_sourcebatch",
+                "db_table": "sourcebatch",
                 "indexes": [
                     models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
                     models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
@@ -126,7 +126,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "db_table": "warehouse_sources_sourcebatchstatus",
+                "db_table": "sourcebatchstatus",
                 "indexes": [
                     models.Index(
                         fields=["batch_id", "-id", "job_state"],
