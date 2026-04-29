@@ -50,8 +50,8 @@ export function parseSnowflakeConnectionString(str: string): ParseResult {
     if (password) {
         fields.push(
             { path: ['auth_type', 'selection'], value: 'password' },
-            { path: ['auth_type', 'password', 'user'], value: user },
-            { path: ['auth_type', 'password', 'password'], value: password }
+            { path: ['auth_type', 'user'], value: user },
+            { path: ['auth_type', 'password'], value: password }
         )
     }
 

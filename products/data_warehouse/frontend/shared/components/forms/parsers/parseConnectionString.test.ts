@@ -214,8 +214,8 @@ describe('parseSnowflakeConnectionString', () => {
         const result = parseSnowflakeConnectionString('snowflake://alice:hunter2@xy12345/MY_DB')
         const map = fieldMap(result.fields)
         expect(map['auth_type.selection']).toBe('password')
-        expect(map['auth_type.password.user']).toBe('alice')
-        expect(map['auth_type.password.password']).toBe('hunter2')
+        expect(map['auth_type.user']).toBe('alice')
+        expect(map['auth_type.password']).toBe('hunter2')
     })
 
     it('omits role/schema/warehouse when not provided', () => {
@@ -231,8 +231,8 @@ describe('parseSnowflakeConnectionString', () => {
         expect(result.isValid).toBe(true)
         const paths = result.fields.map((f) => f.path.join('.'))
         expect(paths).not.toContain('auth_type.selection')
-        expect(paths).not.toContain('auth_type.password.user')
-        expect(paths).not.toContain('auth_type.password.password')
+        expect(paths).not.toContain('auth_type.user')
+        expect(paths).not.toContain('auth_type.password')
         // non-auth fields still get populated
         expect(fieldMap(result.fields).account_id).toBe('xy12345')
         expect(fieldMap(result.fields).warehouse).toBe('COMPUTE_WH')
