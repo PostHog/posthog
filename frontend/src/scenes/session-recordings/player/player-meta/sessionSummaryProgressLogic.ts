@@ -34,7 +34,9 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
         setLoading: (sessionId: string, loading: boolean) => ({ sessionId, loading }),
         setProgress: (sessionId: string, progress: SummarizationProgress | null) => ({ sessionId, progress }),
         setSummary: (sessionId: string, summary: SessionSummaryContent | null) => ({ sessionId, summary }),
+        setError: (sessionId: string, error: string | null) => ({ sessionId, error }),
         markFeedbackGiven: (sessionId: string) => ({ sessionId }),
+        setSummaryOpen: (sessionId: string, open: boolean) => ({ sessionId, open }),
     }),
     reducers({
         loadingBySessionId: [
@@ -43,6 +45,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: true }),
                 setLoading: (state, { sessionId, loading }) => ({ ...state, [sessionId]: loading }),
                 setSummary: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
+                setError: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
             },
         ],
         progressBySessionId: [
@@ -59,10 +62,52 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 setSummary: (state, { sessionId, summary }) => ({ ...state, [sessionId]: summary }),
             },
         ],
+        errorBySessionId: [
+            {} as Record<string, string | null>,
+            {
+                startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
+                setError: (state, { sessionId, error }) => ({ ...state, [sessionId]: error }),
+                setSummary: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
+            },
+        ],
+        retryStateBySessionId: [
+            {} as Record<string, { maxStep: number; hasRetried: boolean }>,
+            {
+                startSummarization: (state, { sessionId }) => ({
+                    ...state,
+                    [sessionId]: { maxStep: 0, hasRetried: false },
+                }),
+                setSummary: (state, { sessionId }) => ({
+                    ...state,
+                    [sessionId]: { maxStep: 0, hasRetried: false },
+                }),
+                setProgress: (state, { sessionId, progress }) => {
+                    if (!progress) {
+                        return state
+                    }
+                    const existing = state[sessionId] ?? { maxStep: 0, hasRetried: false }
+                    return {
+                        ...state,
+                        [sessionId]: {
+                            maxStep: Math.max(existing.maxStep, progress.step),
+                            hasRetried: existing.hasRetried || progress.step < existing.maxStep,
+                        },
+                    }
+                },
+            },
+        ],
         feedbackBySessionId: [
             {} as Record<string, boolean>,
             {
                 markFeedbackGiven: (state, { sessionId }) => ({ ...state, [sessionId]: true }),
+            },
+        ],
+        openBySessionId: [
+            {} as Record<string, boolean>,
+            {
+                setSummaryOpen: (state, { sessionId, open }) => ({ ...state, [sessionId]: open }),
+                startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: true }),
+                setSummary: (state, { sessionId, summary }) => (summary ? { ...state, [sessionId]: true } : state),
             },
         ],
     }),
@@ -89,7 +134,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                         try {
                             if (event === 'session-summary-error') {
                                 lemonToast.error(data)
-                                actions.setLoading(sessionId, false)
+                                actions.setError(sessionId, data)
                                 return
                             }
                             if (event === 'session-summary-progress') {

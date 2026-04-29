@@ -1,0 +1,55 @@
+rules:
+    # Ban string-literal comparisons against HogQL AST field chains for table identity.
+    #
+    # A chain like `["events"]` matches only the unqualified form `FROM events`, silently missing:
+    #   - qualified forms: `FROM posthog.events`
+    #   - Persons-on-Events virtual subtables (`EventsPersonSubTable`, `EventsGroupSubTable`)
+    #   - Lazy / aliased resolutions where the chain is something else entirely.
+    #
+    # Resolve the chain via `context.database.get_table(...)` and isinstance-check against the
+    # real table class instead. For the common "is this any events-domain table" question, use
+    # the `EVENTS_TABLE_TYPES` tuple from `posthog.hogql.database.schema.events`, which groups
+    # `EventsTable | EventsPersonSubTable | EventsGroupSubTable` together.
+    - id: hogql-no-string-table-chain
+      languages: [python]
+      severity: WARNING
+      message: |
+          Don't compare a HogQL AST field chain to a table-name string (e.g. `chain == ["events"]`).
+          Resolve via `context.database.get_table([...])` and isinstance-check against the table
+          class (EventsTable, PersonsTable, SessionsTableV3, etc.). For events-domain checks that
+          must include Persons-on-Events virtual subtables, use `EVENTS_TABLE_TYPES` from
+          `posthog.hogql.database.schema.events`. This keeps qualified forms like `posthog.events`
+          and POE virtual-table paths working.
+      paths:
+          include:
+              - 'posthog/hogql/**/*.py'
+              - 'posthog/hogql_queries/**/*.py'
+              - 'products/**/*.py'
+              - 'ee/**/*.py'
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/.semgrep/**'
+      pattern-either:
+          - pattern: '$X.chain == ["events"]'
+          - pattern: '$X.chain == ["persons"]'
+          - pattern: '$X.chain == ["raw_persons"]'
+          - pattern: '$X.chain == ["groups"]'
+          - pattern: '$X.chain == ["sessions"]'
+          - pattern: '$X.chain == ["session_replay_events"]'
+          - pattern: '$X.chain == ["logs"]'
+          - pattern: '$X.chain == ["log_attributes"]'
+          - pattern: '["events"] == $X.chain'
+          - pattern: '["persons"] == $X.chain'
+          - pattern: '["raw_persons"] == $X.chain'
+          - pattern: '["groups"] == $X.chain'
+          - pattern: '["sessions"] == $X.chain'
+          - pattern: '["session_replay_events"] == $X.chain'
+          - pattern: '["logs"] == $X.chain'
+          - pattern: '["log_attributes"] == $X.chain'
+          - pattern: '$X.chain == ["posthog", "events"]'
+          - pattern: '$X.chain == ["posthog", "ai_events"]'
+          - pattern: '$X.chain == ["posthog", "trace_spans"]'
+      metadata:
+          category: best-practice
+          confidence: HIGH

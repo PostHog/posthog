@@ -33,6 +33,9 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
 )
+from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
@@ -57,12 +60,17 @@ MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
 
-def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
     metadata = context.direct_postgres_connection_metadata
     if metadata is None and context.database is not None:
         metadata = getattr(context.database, "_direct_connection_metadata", None)
 
-    if not isinstance(metadata, dict):
+    return metadata if isinstance(metadata, dict) else None
+
+
+def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
         return []
 
     available_functions = metadata.get("available_functions")
@@ -77,6 +85,18 @@ def get_available_functions(language: str, context: HogQLContext) -> list[str]:
         return sorted(set(ALL_EXPOSED_FUNCTION_NAMES) | set(get_connection_supported_functions(context)))
 
     return ALL_HOG_FUNCTIONS
+
+
+def get_direct_table_function_names(context: HogQLContext) -> list[str]:
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
+        return []
+
+    available_table_functions = metadata.get("available_table_functions")
+    if not isinstance(available_table_functions, list):
+        return []
+
+    return sorted({name for name in available_table_functions if isinstance(name, str)})
 
 
 def append_function_suggestions(
@@ -545,7 +565,8 @@ def get_hogql_autocomplete(
             if query.filters:
                 try:
                     select_ast = cast(
-                        ast.SelectQuery, replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team)
+                        ast.SelectQuery,
+                        replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team, database=database),
                     )
                 except Exception:
                     pass
@@ -627,14 +648,18 @@ def get_hogql_autocomplete(
                             field = last_table.fields[str(chain_part)]
 
                             if isinstance(field, StringJSONDatabaseField):
-                                if last_table.to_printed_hogql() == "events":
+                                if isinstance(last_table, EventsPersonSubTable):
+                                    property_type = PropertyDefinition.Type.PERSON
+                                elif isinstance(last_table, EventsGroupSubTable):
+                                    property_type = PropertyDefinition.Type.GROUP
+                                elif isinstance(last_table, EventsTable):
                                     if field.name == "person_properties":
                                         property_type = PropertyDefinition.Type.PERSON
                                     else:
                                         property_type = PropertyDefinition.Type.EVENT
-                                elif last_table.to_printed_hogql() == "persons":
+                                elif isinstance(last_table, PersonsTable):
                                     property_type = PropertyDefinition.Type.PERSON
-                                elif last_table.to_printed_hogql() == "groups":
+                                elif isinstance(last_table, GroupsTable):
                                     property_type = PropertyDefinition.Type.GROUP
                                 else:
                                     property_type = None
@@ -717,6 +742,15 @@ def get_hogql_autocomplete(
                             kind=AutocompleteCompletionItemKind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
+                        table_function_names = get_direct_table_function_names(context)
+                        if table_function_names:
+                            extend_responses(
+                                keys=table_function_names,
+                                suggestions=response.suggestions,
+                                kind=AutocompleteCompletionItemKind.FUNCTION,
+                                insert_text=lambda key: f"{key}()",
+                                details=["Table function"] * len(table_function_names),
+                            )
                     elif node.chain[0] in posthog_table_names:
                         pass
                     else:

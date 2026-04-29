@@ -6,25 +6,24 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 import searchDocs from './documentation/searchDocs'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
+import experimentListDeprecated from './experiments/listDeprecated'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
 // LLM Analytics
-import evaluationCreate from './llmAnalytics/evaluations/create'
-import evaluationDelete from './llmAnalytics/evaluations/delete'
-import evaluationGet from './llmAnalytics/evaluations/get'
-import evaluationsGet from './llmAnalytics/evaluations/getAll'
-import evaluationRun from './llmAnalytics/evaluations/run'
-import evaluationTestHog from './llmAnalytics/evaluations/testHog'
-import evaluationUpdate from './llmAnalytics/evaluations/update'
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Organizations
-import getOrganizationDetails from './organizations/getDetails'
-import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
-import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
+import {
+    executeSql,
+    externalDataSourcesDbSchema,
+    externalDataSourcesJobs,
+    externalDataSyncLogs,
+    readDataSchema,
+    readDataWarehouseSchema,
+} from './posthogAiTools'
 // Projects
 import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
@@ -34,6 +33,8 @@ import updateEventDefinition from './projects/updateEventDefinition'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
+import hogqlSchema from './query/schema'
+import queryValidate from './query/validate'
 // Search
 import entitySearch from './search/entitySearch'
 // Misc
@@ -47,9 +48,7 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
-    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
-    'organization-details-get': getOrganizationDetails,
 
     // Projects
     'projects-get': getProjects,
@@ -63,6 +62,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
+    // Deprecated alias for experiment-list — forwards and annotates the response.
+    'experiment-get-all': experimentListDeprecated,
 
     // Insights
     'insight-query': queryInsight,
@@ -70,16 +71,11 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,
     'query-run': queryRun,
+    'query-validate': queryValidate,
+    'hogql-schema': hogqlSchema,
 
     // LLM Analytics
     'get-llm-total-costs-for-project': getLLMCosts,
-    'evaluations-get': evaluationsGet,
-    'evaluation-get': evaluationGet,
-    'evaluation-create': evaluationCreate,
-    'evaluation-update': evaluationUpdate,
-    'evaluation-delete': evaluationDelete,
-    'evaluation-run': evaluationRun,
-    'evaluation-test-hog': evaluationTestHog,
 
     // Search
     'entity-search': entitySearch,
@@ -91,6 +87,11 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Data warehouse (custom handlers for non-standard request shapes)
+    'external-data-sources-db-schema': externalDataSourcesDbSchema,
+    'external-data-sources-jobs': externalDataSourcesJobs,
+    'external-data-sync-logs': externalDataSyncLogs,
 }
 
 export const getToolsFromContext = async (

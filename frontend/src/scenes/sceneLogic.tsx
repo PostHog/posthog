@@ -74,8 +74,25 @@ const getStorageKey = (key: string): string => {
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
+/**
+ * Snapshot for JSON / structuredClone. Strips only `sceneParams` (deep/cyclic routing state); everything
+ * else on `SceneTab` is kept so new fields are not forgotten. If a future field holds non-plain data,
+ * omit it here explicitly.
+ */
+const tabToPersistableSnapshot = (tab: SceneTab, overrides: Partial<SceneTab> = {}): SceneTab => {
+    const { sceneParams: _omitSceneParams, ...rest } = tab
+    return {
+        ...rest,
+        id: tab.id || generateTabId(),
+        ...overrides,
+    }
+}
+
+/** Plain tab snapshots for browser history (`structuredClone` in initKea); excludes `sceneParams`. */
+export const getTabsSnapshotForHistory = (tabs: SceneTab[]): SceneTab[] => tabs.map((t) => tabToPersistableSnapshot(t))
+
 const persistSessionTabs = (tabs: SceneTab[]): void => {
-    sessionStorage.setItem(getStorageKey(TAB_STATE_KEY), JSON.stringify(tabs))
+    sessionStorage.setItem(getStorageKey(TAB_STATE_KEY), JSON.stringify(tabs.map((t) => tabToPersistableSnapshot(t))))
 }
 
 const getPersistedSessionTabs = (): SceneTab[] | null => {
@@ -91,13 +108,7 @@ const getPersistedSessionTabs = (): SceneTab[] | null => {
 }
 
 const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
-    const { active, ...rest } = tab
-    return {
-        ...rest,
-        id: tab.id || generateTabId(),
-        pinned: true,
-        active: false,
-    }
+    return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
 
 const persistPinnedTabs = (tabs: SceneTab[], homepage: SceneTab | null): void => {
@@ -231,29 +242,31 @@ const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
     return tabs
 }
 
-const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
+export const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
     if (!storedPinned) {
         return fallbackPinned.map((tab) => ({ ...tab, pinned: true }))
     }
 
     const storedTabs = storedPinned.tabs ?? []
 
-    const activeById = new Map<string, boolean>()
+    // sceneParams is stripped during persistence (see tabToPersistableSnapshot) because it can be
+    // deep/cyclic. Restore it from in-memory tabs so `paramsToProps` doesn't run against an empty bag.
+    const fallbackById = new Map<string, SceneTab>()
     for (const tab of fallbackPinned) {
-        activeById.set(tab.id, tab.active)
+        fallbackById.set(tab.id, tab)
     }
 
-    const normalized = storedTabs.map((tab) => {
+    return storedTabs.map((tab) => {
         const id = tab.id || generateTabId()
+        const fallback = fallbackById.get(id)
         return {
             ...tab,
             id,
             pinned: true,
-            active: activeById.get(id) ?? false,
+            active: fallback?.active ?? false,
+            sceneParams: fallback?.sceneParams ?? tab.sceneParams,
         }
     })
-
-    return normalized
 }
 
 const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseTabs: SceneTab[]): SceneTab[] => {
@@ -1120,13 +1133,26 @@ export const sceneLogic = kea<sceneLogicType>([
 
             const unmount = cache.mountedTabLogic[tabId]
             if (unmount) {
-                window.setTimeout(unmount, 50)
+                try {
+                    unmount()
+                } catch (error) {
+                    console.error('Error unmounting previous tab logic:', error)
+                }
                 delete cache.mountedTabLogic[tabId]
             }
             if (exportedScene?.logic) {
-                const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
-                const builtLogic = exportedScene?.logic(builtLogicProps)
-                cache.mountedTabLogic[tabId] = builtLogic.mount()
+                try {
+                    const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
+                    const builtLogic = exportedScene?.logic(builtLogicProps)
+                    cache.mountedTabLogic[tabId] = builtLogic.mount()
+                } catch (error) {
+                    // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
+                    // route params like `/dashboard/abc`. Capture so regressions surface, then
+                    // route to Error404 so the user sees a proper 404 instead of a blank crash.
+                    posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
+                    actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
+                    return
+                }
             }
 
             const trackingKey = tabId || '__default__'
@@ -1307,19 +1333,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
                 actions.setExportedScene(exportedScene, sceneId, sceneKey, tabId, params)
-
-                if (exportedScene.logic) {
-                    // initialize the logic and give it 50ms to load before opening the scene
-                    const props = { ...exportedScene.paramsToProps?.(params), tabId }
-                    const unmount = exportedScene.logic.build(props).mount()
-                    try {
-                        await breakpoint(50)
-                    } catch (e) {
-                        // if we change the scene while waiting these 50ms, unmount
-                        unmount()
-                        throw e
-                    }
-                }
             }
             actions.setScene(sceneId, sceneKey, tabId, params, clickedLink || wasNotLoaded, exportedScene)
         },
@@ -1429,8 +1442,18 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (targetPathname === '/') {
                     targetPathname = urls.projectHomepage()
                 }
-                router.actions.replace(targetPathname, homepage.search || '', homepage.hash || '')
-                return
+                const targetSearch = homepage.search || ''
+                const targetHash = homepage.hash || ''
+                const loc = router.values.currentLocation
+                // Already at homepage: skip replace or replaceState loops (e.g. homepage === project root).
+                const alreadyAtHomepage =
+                    addProjectIdIfMissing(loc.pathname) === addProjectIdIfMissing(targetPathname) &&
+                    (loc.search || '') === targetSearch &&
+                    (loc.hash || '') === targetHash
+                if (!alreadyAtHomepage) {
+                    router.actions.replace(targetPathname, targetSearch, targetHash)
+                    return
+                }
             }
 
             const isAIFirst = posthog.isFeatureEnabled(FEATURE_FLAGS.AI_FIRST)
@@ -1607,46 +1630,51 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
 
     afterMount(({ actions, cache, values }) => {
-        cache.disposables.add(() => {
-            const syncPinnedTabsFromStorage = (): void => {
-                const storedPinned = getPersistedPinnedState()
-                const currentTabs = values.tabs
-                const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
+        cache.disposables.add(
+            () => {
+                const syncPinnedTabsFromStorage = (): void => {
+                    const storedPinned = getPersistedPinnedState()
+                    const currentTabs = values.tabs
+                    const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
 
-                const previousActiveTab = currentTabs.find((tab) => tab.active)
-                const nextActiveTab = updatedTabs.find((tab) => tab.active)
+                    const previousActiveTab = currentTabs.find((tab) => tab.active)
+                    const nextActiveTab = updatedTabs.find((tab) => tab.active)
 
-                cache.skipNextPinnedSync = true
-                actions.setTabs(updatedTabs)
-                actions.setHomepage(storedPinned?.homepage ?? null)
+                    cache.skipNextPinnedSync = true
+                    actions.setTabs(updatedTabs)
+                    actions.setHomepage(storedPinned?.homepage ?? null)
 
-                if (!nextActiveTab?.pinned) {
-                    return
+                    if (!nextActiveTab?.pinned) {
+                        return
+                    }
+
+                    const location = router.values.currentLocation
+                    const pathnameChanged = nextActiveTab.pathname !== location?.pathname
+                    const searchChanged = (nextActiveTab.search ?? '') !== (location?.search ?? '')
+                    const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
+
+                    // When the active pinned tab changes remotely, make sure the local window navigates too.
+                    // Use replace instead of push to avoid growing the history stack in idle
+                    // tabs that receive cross-tab sync events (history state is non-heap memory).
+                    if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
+                        router.actions.replace(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                    }
                 }
 
-                const location = router.values.currentLocation
-                const pathnameChanged = nextActiveTab.pathname !== location?.pathname
-                const searchChanged = (nextActiveTab.search ?? '') !== (location?.search ?? '')
-                const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
-
-                // When the active pinned tab changes remotely, make sure the local window navigates too.
-                // Use replace instead of push to avoid growing the history stack in idle
-                // tabs that receive cross-tab sync events (history state is non-heap memory).
-                if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
-                    router.actions.replace(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                const onStorage = (event: StorageEvent): void => {
+                    if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
+                        return
+                    }
+                    syncPinnedTabsFromStorage()
                 }
-            }
 
-            const onStorage = (event: StorageEvent): void => {
-                if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
-                    return
-                }
                 syncPinnedTabsFromStorage()
-            }
-
-            syncPinnedTabsFromStorage()
-            window.addEventListener('storage', onStorage)
-            return () => window.removeEventListener('storage', onStorage)
-        }, 'pinnedTabsStorageListener')
+                window.addEventListener('storage', onStorage)
+                return () => window.removeEventListener('storage', onStorage)
+            },
+            'pinnedTabsStorageListener',
+            // Passive storage listener — no need to tear down/re-setup on visibility change.
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -36,6 +37,7 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
     def _clean_preaggregation_data(self):
         """Clean precomputation data from ClickHouse and PostgreSQL"""
         sync_execute(TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL())
+        sync_execute(TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
 
     def _setup_precomputation_test(self, use_precomputation: bool):

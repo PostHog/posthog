@@ -6,6 +6,10 @@ on:
             - master
     pull_request:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
     pull-requests: read
@@ -32,6 +36,22 @@ env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
+    # Verify the path filter below stays in sync with what dagster files
+    # actually import — prevents silent drift where a new import slips in
+    # without a matching filter entry.
+    validate-paths:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Validate dagster path filter coverage
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+            - run: uv run .github/scripts/check-dagster-paths.py
+
     # Job to decide if we should run dagster ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -42,6 +62,7 @@ jobs:
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
+            matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -49,20 +70,59 @@ jobs:
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       dagster:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
-                        # Dagster depends on Python, so ensure we run on any possible changes to it
-                        - 'posthog/**/*.py'
-                        - 'ee/**/*.py'
-                        - 'common/**/*.py'
-                        - 'products/*/backend/**/*.py'
+                        # --- posthog submodules that DAGs actually import ---
+                        # (verified by tracing imports of all 148 dagster Python files)
+                        - 'posthog/clickhouse/**'
+                        - 'posthog/models/**'
+                        - 'posthog/hogql/**'
+                        - 'posthog/hogql_queries/**'
+                        - 'posthog/settings/**'
+                        - 'posthog/kafka_client/**'
+                        - 'posthog/schema.py'
+                        - 'posthog/utils.py'
+                        - 'posthog/errors.py'
+                        - 'posthog/exceptions_capture.py'
+                        - 'posthog/metrics.py'
+                        - 'posthog/git.py'
+                        - 'posthog/llm/**'
+                        - 'posthog/person_db_router.py'
+                        - 'posthog/redis.py'
+                        - 'posthog/event_usage.py'
+                        - 'posthog/products.py'
+                        - 'posthog/cloud_utils.py'
+                        - 'posthog/ducklake/**'
+                        # Test infrastructure used by dagster tests
+                        - 'posthog/conftest.py'
+                        - 'posthog/test/**'
+                        # --- ee modules that DAGs import ---
+                        - 'ee/billing/**'
+                        - 'ee/clickhouse/**'
+                        - 'ee/hogai/**'
+                        # --- Only the 8 products that DAGs actually import from ---
+                        - 'products/data_warehouse/backend/**/*.py'
+                        - 'products/error_tracking/backend/**/*.py'
+                        - 'products/event_definitions/backend/**/*.py'
+                        - 'products/growth/backend/**/*.py'
+                        - 'products/llm_analytics/backend/**/*.py'
+                        - 'products/posthog_ai/backend/**/*.py'
+                        - 'products/revenue_analytics/backend/**/*.py'
+                        - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json
@@ -98,14 +158,36 @@ jobs:
                   fi
                   echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
 
+            - name: Build sharded test matrix
+              id: build-matrix
+              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              env:
+                  OLDEST_SUPPORTED: ${{ steps.read-versions.outputs.oldest_supported }}
+              run: |
+                  # :NOTE: Keep shard count in sync with observed run times.
+                  # Target: ~15 min per shard. Current: 3 shards for ~30 min total.
+                  # Consult #team-devex before changing.
+                  shards=3
+                  # Parse the oldest_supported from the JSON array format
+                  image=$(echo "$OLDEST_SUPPORTED" | jq -r '.[0]')
+                  include=$(jq -cn --arg image "$image" --argjson shards "$shards" '
+                    [range(1; $shards + 1) | {
+                      "clickhouse-server-image": $image,
+                      concurrency: $shards,
+                      group: .
+                    }]
+                  ')
+                  echo "include=$include" >> "$GITHUB_OUTPUT"
+                  echo "Dagster matrix: $shards shards"
+
     dagster:
-        name: Dagster tests
+        name: Dagster tests (${{ matrix.group }}/${{ matrix.concurrency }})
         needs: [changes]
-        timeout-minutes: 30
+        timeout-minutes: 40
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.changes.outputs.oldest_supported) }}
+                include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -165,7 +247,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -204,18 +286,29 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest posthog/dags --junitxml=junit-dagster.xml
-
-            - name: Run products Dagster tests
-              run: |
-                  pytest products/**/dags --junitxml=junit-products.xml
+                  pytest posthog/dags products/**/dags \
+                      --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                      --durations=100 --durations-min=1.0 --store-durations \
+                      --splitting-algorithm=duration_based_chunks \
+                      --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
+                      --junitxml=junit-dagster-${{ matrix.group }}.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
-                  name: junit-results-dagster
+                  name: junit-results-dagster-${{ matrix.group }}
                   path: junit-*.xml
+
+            - name: Upload updated timing data as artifacts
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ github.ref == 'refs/heads/master' && always() }}
+              with:
+                  name: timing_data-Dagster-${{ matrix.group }}
+                  path: .test_durations
+                  include-hidden-files: true
+                  retention-days: 2
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:

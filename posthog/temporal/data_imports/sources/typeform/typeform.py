@@ -3,12 +3,12 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 import requests
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
+from requests import Request, Response
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
@@ -237,7 +237,6 @@ def get_resource(
     return {
         "name": config.name,
         "table_name": config.name,
-        "primary_key": config.primary_key,
         "write_disposition": {
             "disposition": "merge",
             "strategy": "upsert",
@@ -309,7 +308,6 @@ def typeform_source(
     config: RESTAPIConfig = {
         "client": _rest_api_client_config(base_api_url, auth_token),
         "resource_defaults": {
-            "primary_key": endpoint_config.primary_key,
             "write_disposition": "replace",
             "endpoint": {"params": {"page_size": endpoint_config.page_size, "page": 1}},
         },
@@ -322,7 +320,5 @@ def typeform_source(
         ],
     }
 
-    resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    if len(resources) != 1:
-        raise ValueError(f"Expected 1 resource for endpoint '{endpoint}', got {len(resources)}")
-    return _make_source_response(endpoint_config, lambda: resources[0])
+    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    return _make_source_response(endpoint_config, lambda: resource)

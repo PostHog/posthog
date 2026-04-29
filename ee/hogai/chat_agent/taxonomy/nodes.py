@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import cached_property
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -57,7 +57,7 @@ class TaxonomyAgentNode(
     def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
         return list(
-            GroupTypeMapping.objects.filter(project_id=self._team.project.id)
+            GroupTypeMapping.objects.filter(project_id=self._team.project.id)  # nosemgrep: no-direct-persons-db-orm
             .order_by("group_type_index")
             .values_list("group_type", flat=True)
         )
@@ -269,4 +269,4 @@ class TaxonomyAgentToolsNode(
         ]
         reset_state.output = output
         reset_state.billable = state.billable
-        return reset_state  # type: ignore[return-value]
+        return cast("TaxonomyPartialStateType", reset_state)

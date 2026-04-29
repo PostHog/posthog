@@ -55,7 +55,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com', 'http://127.0.0.1:*'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
-    slack_incoming_webhook: '',
     created_at: '2020-06-30T09:53:35.932534Z',
     updated_at: '2022-03-17T16:09:21.566253Z',
     anonymize_ips: false,
@@ -246,6 +245,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     is_active: true,
     is_not_active_reason: null,
     is_pending_deletion: false,
+    is_ai_data_processing_approved: true,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -429,7 +429,6 @@ export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
     order: 1,
     config: {},
     team_id: MOCK_TEAM_ID,
-    delivery_rate_24h: 0.999,
     created_at: '2020-12-01T14:00:00.000Z',
     plugin_info: MOCK_DEFAULT_PLUGIN,
 }

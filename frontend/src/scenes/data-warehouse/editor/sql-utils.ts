@@ -10,7 +10,7 @@ const escapeQualifiedIdentifier = (name: string): string => {
 }
 
 export const normalizeIdentifier = (identifier: string): string => {
-    return identifier.replace(/^[`"']|[`"']$/g, '').toLowerCase()
+    return identifier.replace(/[`"']/g, '').toLowerCase()
 }
 
 /** Try to parse a SELECT query, returning the AST node or null on failure. */
@@ -114,7 +114,7 @@ export const buildQueryForColumnClick = async (
         columns = ['*']
     }
 
-    return `SELECT ${columns.map(escapeQualifiedIdentifier).join(', ')} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
+    return `SELECT ${columns.map((column) => (column === '*' ? column : escapeQualifiedIdentifier(column))).join(', ')} FROM ${escapeQualifiedIdentifier(tableName)} ${limitOffsetClause ?? 'LIMIT 100'}`
 }
 
 export const parseQueryTablesAndColumns = async (

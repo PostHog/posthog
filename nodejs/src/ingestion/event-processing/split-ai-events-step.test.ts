@@ -26,8 +26,12 @@ function createProcessedEvent(
     }
 }
 
-const ENABLED_FOR_ALL: SplitAiEventsStepConfig = { enabled: true, enabledTeams: '*', stripHeavyProperties: true }
-const ENABLED_NO_STRIP: SplitAiEventsStepConfig = { enabled: true, enabledTeams: '*', stripHeavyProperties: false }
+const ENABLED_FOR_ALL: SplitAiEventsStepConfig = { enabled: true, enabledTeams: '*', stripHeavyTeams: '*' }
+const ENABLED_NO_STRIP: SplitAiEventsStepConfig = {
+    enabled: true,
+    enabledTeams: '*',
+    stripHeavyTeams: [],
+}
 
 describe('split-ai-events-step', () => {
     describe('parseSplitAiEventsConfig', () => {
@@ -35,42 +39,45 @@ describe('split-ai-events-step', () => {
             {
                 enabled: true,
                 teams: '*',
-                strip: false,
-                expected: { enabled: true, enabledTeams: '*', stripHeavyProperties: false },
+                stripTeams: '',
+                expected: { enabled: true, enabledTeams: '*', stripHeavyTeams: [] },
             },
             {
                 enabled: false,
                 teams: '*',
-                strip: false,
-                expected: { enabled: false, enabledTeams: '*', stripHeavyProperties: false },
+                stripTeams: '',
+                expected: { enabled: false, enabledTeams: '*', stripHeavyTeams: [] },
             },
             {
                 enabled: true,
                 teams: '1,2,3',
-                strip: true,
-                expected: { enabled: true, enabledTeams: new Set([1, 2, 3]), stripHeavyProperties: true },
+                stripTeams: '*',
+                expected: { enabled: true, enabledTeams: [1, 2, 3], stripHeavyTeams: '*' },
             },
             {
                 enabled: true,
                 teams: ' 1 , 2 ',
-                strip: false,
-                expected: { enabled: true, enabledTeams: new Set([1, 2]), stripHeavyProperties: false },
+                stripTeams: '2',
+                expected: { enabled: true, enabledTeams: [1, 2], stripHeavyTeams: [2] },
             },
             {
                 enabled: true,
                 teams: '',
-                strip: false,
-                expected: { enabled: true, enabledTeams: new Set(), stripHeavyProperties: false },
+                stripTeams: '',
+                expected: { enabled: true, enabledTeams: [], stripHeavyTeams: [] },
             },
             {
                 enabled: true,
                 teams: 'abc,1',
-                strip: false,
-                expected: { enabled: true, enabledTeams: new Set([1]), stripHeavyProperties: false },
+                stripTeams: 'abc,2',
+                expected: { enabled: true, enabledTeams: [1], stripHeavyTeams: [2] },
             },
-        ])('should parse enabled=$enabled teams=$teams strip=$strip', ({ enabled, teams, strip, expected }) => {
-            expect(parseSplitAiEventsConfig(enabled, teams, strip)).toEqual(expected)
-        })
+        ])(
+            'should parse enabled=$enabled teams=$teams stripTeams=$stripTeams',
+            ({ enabled, teams, stripTeams, expected }) => {
+                expect(parseSplitAiEventsConfig(enabled, teams, stripTeams)).toEqual(expected)
+            }
+        )
     })
 
     describe('feature flag behavior', () => {
@@ -78,7 +85,7 @@ describe('split-ai-events-step', () => {
             const step = createSplitAiEventsStep({
                 enabled: false,
                 enabledTeams: '*',
-                stripHeavyProperties: false,
+                stripHeavyTeams: '*',
             })
             const event = createProcessedEvent({ $ai_input: 'large input', $ai_model: 'gpt-4' })
 
@@ -92,11 +99,11 @@ describe('split-ai-events-step', () => {
             expect(result.value.eventsToEmit[0].event.properties).toHaveProperty('$ai_input')
         })
 
-        it('should pass through unchanged when team is not in the enabled set', async () => {
+        it('should pass through unchanged when team is not in the enabled list', async () => {
             const step = createSplitAiEventsStep({
                 enabled: true,
-                enabledTeams: new Set([99, 100]),
-                stripHeavyProperties: false,
+                enabledTeams: [99, 100],
+                stripHeavyTeams: '*',
             })
             const event = createProcessedEvent({ $ai_input: 'large input' })
 
@@ -109,11 +116,11 @@ describe('split-ai-events-step', () => {
             expect(result.value.eventsToEmit).toHaveLength(1)
         })
 
-        it('should split when team is in the enabled set', async () => {
+        it('should split when team is in the enabled list', async () => {
             const step = createSplitAiEventsStep({
                 enabled: true,
-                enabledTeams: new Set([1, 2]),
-                stripHeavyProperties: true,
+                enabledTeams: [1, 2],
+                stripHeavyTeams: '*',
             })
             const event = createProcessedEvent({ $ai_input: 'large input', $ai_model: 'gpt-4' })
 
@@ -130,7 +137,7 @@ describe('split-ai-events-step', () => {
             const step = createSplitAiEventsStep({
                 enabled: true,
                 enabledTeams: '*',
-                stripHeavyProperties: true,
+                stripHeavyTeams: '*',
             })
             const event = createProcessedEvent({ $ai_input: 'large input', $ai_model: 'gpt-4' })
 
@@ -351,7 +358,7 @@ describe('split-ai-events-step', () => {
         })
     })
 
-    describe('non-stripping mode (stripHeavyProperties=false)', () => {
+    describe('non-stripping mode (stripHeavyTeams empty array)', () => {
         const step = createSplitAiEventsStep(ENABLED_NO_STRIP)
 
         it('should send AI event with heavy properties unchanged to both outputs', async () => {
@@ -406,6 +413,48 @@ describe('split-ai-events-step', () => {
             expect(eventsToEmit).toHaveLength(2)
             expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
             expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
+        })
+    })
+
+    describe('per-team strip allowlist', () => {
+        const step = createSplitAiEventsStep({
+            enabled: true,
+            enabledTeams: '*',
+            stripHeavyTeams: [2],
+        })
+
+        it('should strip heavy props for a team in stripHeavyTeams', async () => {
+            const event = createProcessedEvent({ $ai_input: 'large input', $ai_model: 'gpt-4' })
+
+            const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }], teamId: 2 })
+            expect(isOkResult(result)).toBe(true)
+            if (!isOkResult(result)) {
+                return
+            }
+
+            const { eventsToEmit } = result.value
+            expect(eventsToEmit).toHaveLength(2)
+            expect(eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
+            expect(eventsToEmit[0].event.properties).not.toHaveProperty('$ai_input')
+            expect(eventsToEmit[1].output).toBe(AI_EVENTS_OUTPUT)
+            expect(eventsToEmit[1].event.properties).toHaveProperty('$ai_input', 'large input')
+        })
+
+        it('should double-write unchanged for teams not in stripHeavyTeams', async () => {
+            const event = createProcessedEvent({ $ai_input: 'large input', $ai_model: 'gpt-4' })
+
+            const result = await step({ eventsToEmit: [{ event, output: EVENTS_OUTPUT }], teamId: 1 })
+            expect(isOkResult(result)).toBe(true)
+            if (!isOkResult(result)) {
+                return
+            }
+
+            const { eventsToEmit } = result.value
+            expect(eventsToEmit).toHaveLength(2)
+            expect(eventsToEmit[0].event).toBe(event)
+            expect(eventsToEmit[0].event.properties).toHaveProperty('$ai_input', 'large input')
+            expect(eventsToEmit[1].event).toBe(event)
+            expect(eventsToEmit[1].event.properties).toHaveProperty('$ai_input', 'large input')
         })
     })
 })

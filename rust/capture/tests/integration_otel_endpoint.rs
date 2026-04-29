@@ -14,10 +14,11 @@ use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
-use capture::v0_request::{DataType, ProcessedEvent};
+use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
+use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -27,6 +28,7 @@ use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans, Span};
 use prost::Message;
 use serde_json::json;
 use std::collections::HashSet;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -122,6 +124,10 @@ struct TestClientOptions {
     redis: Option<Arc<MockRedisClient>>,
     event_restriction_service: Option<EventRestrictionService>,
     quota_limiter: Option<CaptureQuotaLimiter>,
+    // Opt-in OverflowLimiter wiring. `None` (default) matches production
+    // configs without `OVERFLOW_ENABLED=true` and exercises the no-op branch
+    // of `stamp_overflow_reason`.
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
 }
 
 fn make_test_client(sink: &CapturingSink) -> TestClient {
@@ -175,6 +181,8 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         Some(10),         // request_timeout_seconds
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
+        options.overflow_limiter, // overflow_limiter
+        None,             // replay_overflow_limiter
     );
 
     TestClient::new(app)
@@ -1044,4 +1052,181 @@ async fn test_filtered_drop_restriction_rejects_otel_batch() {
     // entire batch is rejected (all-or-nothing semantics).
     let events = sink.get_events().await;
     assert!(events.is_empty());
+}
+
+// ============================================================================
+// OverflowLimiter coverage for the OTEL endpoint
+// ============================================================================
+//
+// `otel_handler` bypasses `events::analytics::process_events` and produces
+// `DataType::AnalyticsMain` spans directly, so the shared
+// `stamp_overflow_reason` helper is what preserves OverflowLimiter parity for
+// `capture-ai-prod-us`. These tests exercise the helper end-to-end across the
+// OTEL batch path.
+//
+// Note on OTEL batching semantics: `otel::identity::extract_distinct_id`
+// returns a single distinct_id for the entire request (derived from
+// ResourceSpan attributes), so all spans in one request share the same
+// `token:distinct_id` key. The helper still evaluates per-event — the tests
+// below reflect the realistic per-request shape.
+
+fn make_three_span_request() -> ExportTraceServiceRequest {
+    ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: Some(Resource {
+                attributes: vec![make_kv(
+                    "posthog.distinct_id",
+                    any_value::Value::StringValue("user-1".to_string()),
+                )],
+                dropped_attributes_count: 0,
+            }),
+            scope_spans: vec![ScopeSpans {
+                scope: None,
+                spans: vec![
+                    make_span(
+                        vec![1; 16],
+                        vec![1; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    ),
+                    make_span(
+                        vec![1; 16],
+                        vec![2; 8],
+                        vec![1; 8],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    ),
+                    make_span(
+                        vec![1; 16],
+                        vec![3; 8],
+                        vec![1; 8],
+                        1_704_067_200_000_000_000,
+                        vec![make_kv(
+                            "gen_ai.operation.name",
+                            any_value::Value::StringValue("chat".to_string()),
+                        )],
+                    ),
+                ],
+                schema_url: String::new(),
+            }],
+            schema_url: String::new(),
+        }],
+    }
+}
+
+#[tokio::test]
+async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
+    // Hot-list the request's `token:distinct_id`. Because OTEL derives one
+    // distinct_id per request (see identity::extract_distinct_id), every span
+    // in the batch shares the key, so every span is stamped ForceLimited.
+    let hot_key = format!("{TOKEN}:user-1");
+    let overflow_limiter = Arc::new(OverflowLimiter::new(
+        NonZeroU32::new(1_000).unwrap(),
+        NonZeroU32::new(1_000).unwrap(),
+        Some(hot_key),
+        true, // preserve_locality
+    ));
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            overflow_limiter: Some(overflow_limiter),
+            ..Default::default()
+        },
+    );
+
+    let request = make_three_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 3);
+
+    for (i, event) in events.iter().enumerate() {
+        assert_eq!(
+            event.metadata.overflow_reason,
+            Some(OverflowReason::ForceLimited),
+            "span[{i}] must be stamped ForceLimited"
+        );
+        assert!(
+            event.metadata.skip_person_processing,
+            "span[{i}] ForceLimited implies skip_person_processing"
+        );
+        assert_eq!(event.metadata.data_type, DataType::AnalyticsMain);
+    }
+}
+
+#[tokio::test]
+async fn test_otel_batch_rate_limited_key_stamps_overbudget_spans() {
+    // burst=1, per_second=1: the first span in the batch fits, subsequent
+    // spans exhaust the budget and get RateLimited. This proves the helper
+    // runs per-event within the OTEL Vec (not once-per-request) and that the
+    // `preserve_locality` flag is mirrored faithfully onto the reason.
+    let overflow_limiter = Arc::new(OverflowLimiter::new(
+        NonZeroU32::new(1).unwrap(),
+        NonZeroU32::new(1).unwrap(),
+        None,
+        true, // preserve_locality
+    ));
+
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            overflow_limiter: Some(overflow_limiter),
+            ..Default::default()
+        },
+    );
+
+    let request = make_three_span_request();
+    let status = send_request_with_client(&client, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 3);
+
+    assert_eq!(
+        events[0].metadata.overflow_reason, None,
+        "first span fits within the burst"
+    );
+    for (i, event) in events.iter().enumerate().skip(1) {
+        assert_eq!(
+            event.metadata.overflow_reason,
+            Some(OverflowReason::RateLimited {
+                preserve_locality: true
+            }),
+            "span[{i}] must be stamped RateLimited{{preserve_locality: true}}"
+        );
+        assert!(
+            !event.metadata.skip_person_processing,
+            "span[{i}] RateLimited does NOT imply skip_person_processing"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_otel_batch_without_overflow_limiter_leaves_reason_none() {
+    // Baseline: no limiter wired (deploy without `OVERFLOW_ENABLED=true`) —
+    // overflow_reason must stay None across the batch, matching pre-refactor
+    // behavior.
+    let sink = CapturingSink::new();
+    let request = make_three_span_request();
+
+    let status = send_request(&sink, &request).await;
+    assert_eq!(status, 200);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 3);
+    for event in &events {
+        assert_eq!(event.metadata.overflow_reason, None);
+        assert!(!event.metadata.skip_person_processing);
+    }
 }

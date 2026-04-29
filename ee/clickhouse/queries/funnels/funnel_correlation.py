@@ -697,7 +697,7 @@ class FunnelCorrelation:
                 cache_invalidation_key=cache_invalidation_key,
             )
 
-        return None
+        raise ValueError(f"Unsupported correlation type: {self._filter.correlation_type}")
 
     def construct_event_correlation_people_url(
         self,

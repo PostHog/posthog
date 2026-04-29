@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -8,6 +9,8 @@ from ee.billing.salesforce_enrichment.redis_cache import (
     get_cached_org_mappings_count,
     get_org_mappings_from_redis,
     get_org_mappings_page_from_redis,
+    get_stripe_enrichment_watermark,
+    set_stripe_enrichment_watermark,
     store_org_mappings_in_redis,
 )
 
@@ -273,3 +276,120 @@ class TestStoreAndRetrieveRoundTrip:
 
             count = await get_cached_org_mappings_count()
             assert count == 100
+
+
+class TestStripeEnrichmentWatermark:
+    """The watermark helpers guard against a specific data-loss bug:
+
+    Swallowing Redis / parse failures into ``None`` would make a transient
+    read error look like "first run", kick off a full rescan, and then
+    overwrite the real watermark on commit. ``None`` must mean "key absent"
+    exclusively; every other failure has to propagate so the activity's
+    retry policy handles transients and permanent corruption fails loudly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_key_absent(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = None
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            assert await get_stripe_enrichment_watermark() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_parsed_keyset_tuple(self):
+        payload = json.dumps(
+            {
+                "last_changed_at": "2026-04-12T10:00:00+00:00",
+                "posthog_organization_id": "org-42",
+            }
+        ).encode("utf-8")
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = payload
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            result = await get_stripe_enrichment_watermark()
+
+        assert result == (dt.datetime(2026, 4, 12, 10, 0, tzinfo=dt.UTC), "org-42")
+
+    @pytest.mark.asyncio
+    async def test_redis_read_error_propagates(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.side_effect = ConnectionError("redis unreachable")
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(ConnectionError, match="redis unreachable"):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_corrupt_json_propagates(self):
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = b"not-json-at-all"
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(json.JSONDecodeError):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_missing_field_propagates(self):
+        payload = json.dumps({"last_changed_at": "2026-04-12T10:00:00+00:00"}).encode("utf-8")
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = payload
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(KeyError):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_unparseable_timestamp_propagates(self):
+        payload = json.dumps({"last_changed_at": "not-a-timestamp", "posthog_organization_id": "org-1"}).encode("utf-8")
+        mock_redis = AsyncMock()
+        mock_redis.get.return_value = payload
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(ValueError):
+                await get_stripe_enrichment_watermark()
+
+    @pytest.mark.asyncio
+    async def test_set_watermark_round_trip(self):
+        stored: dict[str, bytes | str] = {}
+
+        async def fake_set(key, value):
+            stored[key] = value
+
+        async def fake_get(key):
+            return stored.get(key)
+
+        mock_redis = AsyncMock()
+        mock_redis.set.side_effect = fake_set
+        mock_redis.get.side_effect = fake_get
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            await set_stripe_enrichment_watermark(
+                dt.datetime(2026, 4, 20, 15, 30, tzinfo=dt.UTC),
+                "org-zzz",
+            )
+            result = await get_stripe_enrichment_watermark()
+
+        assert result == (dt.datetime(2026, 4, 20, 15, 30, tzinfo=dt.UTC), "org-zzz")

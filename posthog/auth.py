@@ -1,7 +1,10 @@
 import re
 import hmac
+import time
+import hashlib
 import logging
 import functools
+from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlparse
@@ -25,6 +28,7 @@ from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
@@ -454,6 +458,18 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+def _organization_disallows_public_sharing(sharing_configuration: SharingConfiguration) -> bool:
+    """Returns True when the organization has disabled public sharing under the
+    ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
+    even though individual `SharingConfiguration` rows remain `enabled=True`.
+    """
+    organization = sharing_configuration.team.organization
+    return (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    )
+
+
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
@@ -478,6 +494,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
+                if _organization_disallows_public_sharing(sharing_configuration):
+                    raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
@@ -536,6 +555,9 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             if sharing_configuration.access_token != payload.get("access_token"):
                 return None
 
+            if _organization_disallows_public_sharing(sharing_configuration):
+                raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
             return (AnonymousUser(), None)
@@ -544,6 +566,10 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             # Expected: JWT decode failed (likely a personal API key was passed)
             # Let the next authenticator (PersonalAPIKeyAuthentication) handle it
             return None
+        except AuthenticationFailed:
+            # Intentional auth failures (e.g. organization kill switch) must propagate,
+            # not be swallowed by the generic Exception handler below.
+            raise
         except Exception as e:
             # Unexpected: Database issues, programming errors, etc.
             # Log for debugging but still fail gracefully
@@ -874,3 +900,94 @@ class WebauthnBackend(BaseBackend):
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
+
+
+class WebhookSignatureAuthentication(authentication.BaseAuthentication):
+    """
+    Base HMAC-SHA256 webhook signature authentication.
+
+    Subclass and implement the abstract methods to support a specific provider.
+    On success, sets request.auth to whatever `get_auth_context` returns.
+
+    Typical provider differences:
+      - Customer.io: signature header "X-Cio-Signature", input format "v0:{ts}:{body}"
+      - Stripe:      signature header "Stripe-Signature",  input format "{ts}.{body}"
+    """
+
+    timestamp_tolerance: int = 300  # seconds
+
+    @abstractmethod
+    def get_signature_header(self) -> str:
+        """Return the HTTP header name containing the HMAC signature."""
+        ...
+
+    @abstractmethod
+    def get_timestamp_header(self) -> str:
+        """Return the HTTP header name containing the request timestamp."""
+        ...
+
+    @abstractmethod
+    def build_hmac_input(self, timestamp: str, body: str) -> str:
+        """Build the string that was signed. Provider-specific format."""
+        ...
+
+    @abstractmethod
+    def get_signing_secret(self, request: Request) -> str | None:
+        """
+        Look up the signing secret for this request.
+        Return None if the webhook integration doesn't exist or is disabled.
+        """
+        ...
+
+    def get_auth_context(self, request: Request) -> Any:
+        """
+        Return the object to set as ``request.auth`` after successful verification.
+        Override to return an Integration, team, or other context.
+        Defaults to the team_id from URL kwargs.
+        """
+        return self._get_team_id(request)
+
+    def _get_team_id(self, request: Request) -> int | None:
+        """Extract team_id from URL kwargs (works for both DRF and Django requests)."""
+        django_request = getattr(request, "_request", request)
+        resolver_match = getattr(django_request, "resolver_match", None)
+        if resolver_match and resolver_match.kwargs:
+            tid = resolver_match.kwargs.get("team_id")
+            if tid is not None:
+                return int(tid)
+        return None
+
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, Any] | None:
+        signature = request.headers.get(self.get_signature_header())
+        timestamp = request.headers.get(self.get_timestamp_header())
+        if not signature or not timestamp:
+            raise AuthenticationFailed("Missing webhook signature headers.")
+
+        signing_secret = self.get_signing_secret(request)
+        if not signing_secret:
+            raise AuthenticationFailed("Webhook integration not found or disabled.")
+
+        django_request = getattr(request, "_request", request)
+        raw_body = django_request.body.decode()
+
+        hmac_input = self.build_hmac_input(timestamp, raw_body)
+        expected = hmac.new(
+            signing_secret.encode(),
+            hmac_input.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise AuthenticationFailed("Invalid webhook signature.")
+
+        try:
+            ts = int(timestamp)
+        except (ValueError, TypeError):
+            raise AuthenticationFailed("Invalid webhook timestamp.")
+        if abs(time.time() - ts) > self.timestamp_tolerance:
+            raise AuthenticationFailed("Webhook timestamp too old.")
+
+        # Return AnonymousUser (not None) so DRF throttles can safely access request.user.is_authenticated.
+        return (AnonymousUser(), self.get_auth_context(request))
+
+    def authenticate_header(self, request: Request) -> str:
+        return "WebhookSignature"

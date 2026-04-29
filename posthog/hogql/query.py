@@ -25,6 +25,11 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    GenerateSeriesTable,
+    OpaqueFunctionCallTable,
+    RangeTable,
+)
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
@@ -135,16 +140,27 @@ def postgres_error_to_message(error: Exception) -> str:
 
 
 def direct_postgres_session_setup_sql(
-    schema: str,
+    schema: str | None,
     connection_metadata: dict[str, object] | None = None,
     host: str | None = None,
-) -> str:
-    quoted_schema = escape_postgres_identifier(schema)
+) -> str | None:
     engine = connection_metadata.get("engine") if isinstance(connection_metadata, dict) else None
+    database = connection_metadata.get("database") if isinstance(connection_metadata, dict) else None
+    normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
 
     if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
-        return f"USE {quoted_schema}"
+        if normalized_schema:
+            quoted_schema = escape_postgres_identifier(normalized_schema)
+            return f"USE {quoted_schema}"
+        if isinstance(database, str) and database.strip():
+            quoted_database = escape_postgres_identifier(database.strip())
+            return f"USE {quoted_database}"
+        return None
 
+    if not normalized_schema:
+        return None
+
+    quoted_schema = escape_postgres_identifier(normalized_schema)
     return f"SET search_path TO {quoted_schema}"
 
 
@@ -181,9 +197,44 @@ class LenientDirectPostgresDateLoader(DateLoader):
                 raise exc from None
 
 
+def get_runtime_direct_postgres_connection_metadata(
+    connection: psycopg.Connection,
+    connection_metadata: dict[str, object] | None = None,
+) -> dict[str, object] | None:
+    runtime_connection_metadata = dict(connection_metadata) if isinstance(connection_metadata, dict) else {}
+    engine = runtime_connection_metadata.get("engine")
+    database = runtime_connection_metadata.get("database")
+
+    if engine is not None and isinstance(database, str) and database.strip():
+        return runtime_connection_metadata
+
+    metadata_cursor = connection.execute("SELECT current_database(), version()")
+    row = metadata_cursor.fetchone()
+    current_database = str(row[0]).strip() if row and row[0] is not None else None
+    version = str(row[1]) if row and len(row) > 1 and row[1] is not None else ""
+
+    if current_database and "database" not in runtime_connection_metadata:
+        runtime_connection_metadata["database"] = current_database
+
+    if "engine" not in runtime_connection_metadata:
+        runtime_connection_metadata["engine"] = (
+            "duckdb" if "duckdb" in version.lower() or "duckgres" in version.lower() else "postgres"
+        )
+
+    return runtime_connection_metadata or None
+
+
+def should_hydrate_runtime_direct_postgres_connection_metadata(
+    schema: str | None,
+    connection_metadata: dict[str, object] | None = None,
+) -> bool:
+    normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
+    return normalized_schema is None
+
+
 @dataclasses.dataclass
 class HogQLQueryExecutor:
-    query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
+    query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     team: Team
     _: dataclasses.KW_ONLY
     query_type: str = "hogql_query"
@@ -262,7 +313,19 @@ class HogQLQueryExecutor:
             if finder.has_filters:
                 if "filters" in self.placeholders and self.filters is not None:
                     raise ValueError("Query contains 'filters' both as placeholder and as a query parameter.")
-                self.select_query = replace_filters(self.select_query, self.filters, self.team)
+                # Build the database once with the executor's modifiers and cache it on the context
+                # so that _generate_hogql reuses it instead of building a second Database.
+                # Skip for direct-connection queries, whose database needs a connection_id resolved later.
+                if self.context.database is None and self.connection_id is None:
+                    self.context.database = Database.create_for(
+                        team=self.team,
+                        user=self.user,
+                        modifiers=self.query_modifiers,
+                        timings=self.timings,
+                    )
+                self.select_query = replace_filters(
+                    self.select_query, self.filters, self.team, database=self.context.database
+                )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
                 self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
@@ -340,7 +403,7 @@ class HogQLQueryExecutor:
 
         with self.timings.measure("prepare_ast_for_printing"):
             select_query_hogql = cast(
-                ast.SelectQuery,
+                ast.SelectQuery | ast.SelectSetQuery,
                 prepare_ast_for_printing(node=cloned_query, context=self.hogql_context, dialect="hogql"),
             )
 
@@ -361,12 +424,13 @@ class HogQLQueryExecutor:
                 if isinstance(node, ast.Alias):
                     self.print_columns.append(node.alias)
                 else:
+                    stack = [select_query_hogql] if isinstance(select_query_hogql, ast.SelectQuery) else None
                     self.print_columns.append(
                         print_prepared_ast(
                             node=node,
                             context=self.hogql_context,
                             dialect="hogql",
-                            stack=[select_query_hogql],
+                            stack=stack,
                         )
                     )
 
@@ -399,7 +463,14 @@ class HogQLQueryExecutor:
         if query_type is None:
             return None
 
-        base_table_types = extract_base_table_types(query_type)
+        # Dialect-level table functions (range, generate_series, introspected opaque calls)
+        # aren't bound to any source — they're standalone SQL any direct connection can run,
+        # so they shouldn't influence source dispatching or block table-less execution.
+        base_table_types = [
+            table_type
+            for table_type in extract_base_table_types(query_type)
+            if not isinstance(table_type.table, (RangeTable, GenerateSeriesTable, OpaqueFunctionCallTable))
+        ]
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
@@ -498,7 +569,8 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Connection not found or has been deleted") from e
 
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
-        require_ssl = source_requires_ssl(source)
+        source_schema = source_config.schema
+        require_ssl = source_requires_ssl(source, source_config)
         settings = self._effective_direct_postgres_settings()
         statement_timeout_ms = (
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
@@ -533,13 +605,22 @@ class HogQLQueryExecutor:
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:
-                        connection.execute(
-                            direct_postgres_session_setup_sql(
-                                source_config.schema,
-                                source.connection_metadata,
-                                host,
+                        runtime_connection_metadata = source.connection_metadata
+                        if should_hydrate_runtime_direct_postgres_connection_metadata(
+                            source_schema,
+                            runtime_connection_metadata,
+                        ):
+                            runtime_connection_metadata = get_runtime_direct_postgres_connection_metadata(
+                                connection,
+                                runtime_connection_metadata,
                             )
+                        session_setup_sql = direct_postgres_session_setup_sql(
+                            source_schema,
+                            runtime_connection_metadata,
+                            host,
                         )
+                        if session_setup_sql:
+                            connection.execute(session_setup_sql)
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)

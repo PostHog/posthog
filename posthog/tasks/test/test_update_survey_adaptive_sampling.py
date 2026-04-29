@@ -53,6 +53,7 @@ class TestUpdateSurveyAdaptiveSampling(BaseTest):
         self.assertEqual(internal_response_sampling_flag.filters["groups"][0]["rollout_percentage"], 100)
         mock_get_count.assert_called_once_with(self.survey.id)
         survey = Survey.objects.get(id=self.survey.id)
+        assert survey.response_sampling_daily_limits is not None
         response_sampling_daily_limits = json.loads(survey.response_sampling_daily_limits)
         self.assertEqual(response_sampling_daily_limits[0].get("date"), "2024-12-22")
 

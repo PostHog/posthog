@@ -1,4 +1,5 @@
 import threading
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
 from math import ceil
@@ -61,8 +62,10 @@ from posthog.hogql_queries.insights.trends.breakdown import (
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
+from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -70,6 +73,8 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -121,6 +126,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
+
+    def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
+        return (
+            RequireAtLeastOneSeries(),
+            DisallowUnsupportedDataWarehouseSettings(),
+            ValidateDataWarehouseBreakdown(),
+        )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -251,10 +263,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             ]
 
         # Breakdowns
-        if self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        ):
+        if has_breakdown_filter(self.query.breakdownFilter):
+            assert self.query.breakdownFilter is not None  # type checking
             if self.query.breakdownFilter.breakdown_type == "cohort":
                 assert isinstance(self.query.breakdownFilter.breakdown, list)
 
@@ -621,11 +631,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                             continue
                         remapped_label = "none"
 
+                    # Multi-breakdowns return a list — mirror the frontend's "::"-join when rendering the label,
+                    # but keep `breakdown_value` as the raw list for consistency with the non-boolean path.
+                    label_value = (
+                        "::".join(str(item) for item in remapped_label)
+                        if isinstance(remapped_label, list)
+                        else remapped_label
+                    )
+
                     # if count of series == 1, then we don't need to include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                        series_object["label"] = "{} - {}".format(series_object["label"], label_value)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = label_value
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
@@ -1049,34 +1067,49 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return base_result
 
     def _is_breakdown_filter_field_boolean(self):
-        if (
-            not self.query.breakdownFilter
-            or not self.query.breakdownFilter.breakdown_type
-            or not self.query.breakdownFilter.breakdown
-        ):
+        if not self.query.breakdownFilter:
             return False
 
-        if (
-            isinstance(self.query.series[0], DataWarehouseNode)
-            and self.query.breakdownFilter.breakdown_type == "data_warehouse"
-        ):
+        breakdown_filter = self.query.breakdownFilter
+        breakdown_value: str | int | list[str | int] | None
+        breakdown_type: BreakdownType | MultipleBreakdownType | None
+        breakdown_group_type_index: int | None
+
+        # `breakdowns` of length 1 is treated as the equivalent single-breakdown.
+        if breakdown_filter.breakdowns is not None and len(breakdown_filter.breakdowns) == 1:
+            single = breakdown_filter.breakdowns[0]
+            breakdown_value = single.property
+            breakdown_type = single.type
+            breakdown_group_type_index = single.group_type_index
+        elif breakdown_filter.breakdown_type and breakdown_filter.breakdown:
+            breakdown_value = breakdown_filter.breakdown
+            breakdown_type = breakdown_filter.breakdown_type
+            breakdown_group_type_index = breakdown_filter.breakdown_group_type_index
+        else:
+            return False
+
+        if isinstance(self.query.series[0], DataWarehouseNode) and breakdown_type == "data_warehouse":
             series = self.query.series[0]  # only one series when data warehouse is active
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
 
             if not table_or_view:
                 raise ValueError(f"Table {series.table_name} not found")
-
-            breakdown_key = (
-                self.query.breakdownFilter.breakdown[0]
-                if isinstance(self.query.breakdownFilter.breakdown, list)
-                else self.query.breakdownFilter.breakdown
-            )
-
-            if breakdown_key not in dict(table_or_view.columns):
+            if table_or_view.columns is None:
                 return False
 
-            field_type = dict(table_or_view.columns)[breakdown_key]["clickhouse"]
+            breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value
+
+            columns = table_or_view.columns
+            if not isinstance(columns, dict):
+                return False
+
+            if breakdown_key not in columns:
+                return False
+
+            field_type = self._data_warehouse_column_clickhouse_type(columns[breakdown_key])
+            if field_type is None:
+                return False
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
@@ -1085,10 +1118,21 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 return True
 
         return self._is_breakdown_field_boolean(
-            self.query.breakdownFilter.breakdown,
-            self.query.breakdownFilter.breakdown_type,
-            self.query.breakdownFilter.breakdown_group_type_index,
+            breakdown_value,
+            breakdown_type,
+            breakdown_group_type_index,
         )
+
+    def _data_warehouse_column_clickhouse_type(self, column: object) -> str | None:
+        if isinstance(column, str):
+            return column
+
+        if isinstance(column, dict):
+            clickhouse_type = column.get("clickhouse")
+            if isinstance(clickhouse_type, str):
+                return clickhouse_type
+
+        return None
 
     def _is_breakdown_field_boolean(
         self,
@@ -1115,6 +1159,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
+        if isinstance(value, list):
+            return [self._convert_boolean(item) for item in value]
         bool_map = {1: "true", 0: "false", "": "", "1": "true", "0": "false"}
         return bool_map.get(value) or value
 
@@ -1199,10 +1245,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @cached_property
     def breakdown_enabled(self):
-        return self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        )
+        return has_breakdown_filter(self.query.breakdownFilter)
 
     def _get_breakdown_items(
         self,

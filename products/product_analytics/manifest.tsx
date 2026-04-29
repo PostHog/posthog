@@ -10,6 +10,7 @@ import {
     HogQLVariable,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
@@ -163,7 +164,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Product analytics',
             intents: [ProductKey.PRODUCT_ANALYTICS],
-            category: 'Analytics',
+            category: ProductItemCategory.ANALYTICS,
             type: 'insight',
             href: urls.insights(),
             iconType: 'product_analytics',
@@ -174,7 +175,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Notebooks',
             intents: [ProductKey.NOTEBOOKS],
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             type: 'notebook',
             iconType: 'notebook',
             href: urls.notebooks(),

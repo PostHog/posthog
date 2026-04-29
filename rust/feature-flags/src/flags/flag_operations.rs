@@ -1125,25 +1125,27 @@ mod tests {
         }
 
         // Fetch flags from both sources
-        let mut redis_flags = get_flags_from_redis(redis_client, team.id)
+        let redis_flags = get_flags_from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
         let mut pg_flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
-        // Sort flags by key to ensure consistent order
-        redis_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+        // `redis_flags.flags` is `Arc<[FeatureFlag]>` (immutable), so sort into a
+        // local Vec for the comparison below.
+        let mut redis_flag_list: Vec<_> = redis_flags.flags.iter().cloned().collect();
+        redis_flag_list.sort_by(|a, b| a.key.cmp(&b.key));
         pg_flags.sort_by(|a, b| a.key.cmp(&b.key));
 
         // Compare results
         assert_eq!(
-            redis_flags.flags.len(),
+            redis_flag_list.len(),
             pg_flags.len(),
             "Number of flags mismatch"
         );
 
-        for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.iter()) {
+        for (redis_flag, pg_flag) in redis_flag_list.iter().zip(pg_flags.iter()) {
             assert_eq!(redis_flag.key, pg_flag.key, "Flag key mismatch");
             assert_eq!(
                 redis_flag.name, pg_flag.name,
@@ -1251,7 +1253,7 @@ mod tests {
         for flags in &[
             redis_flags,
             FeatureFlagList {
-                flags: pg_flags,
+                flags: pg_flags.into(),
                 ..Default::default()
             },
         ] {

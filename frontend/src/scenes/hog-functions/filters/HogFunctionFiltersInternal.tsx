@@ -49,6 +49,10 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     label: 'Log alert resolved',
                     value: '$logs_alert_resolved',
                 },
+                {
+                    label: 'Log alert auto-disabled',
+                    value: '$logs_alert_auto_disabled',
+                },
             ]
         case 'discussion-mention':
             return [
