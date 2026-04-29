@@ -42,6 +42,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Meta-ExternalFetcher/1.0 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
         "Mozilla/5.0 (compatible; DuckAssistBot/1.0; +https://duckduckgo.com/duckassistbot)",
         "Mozilla/5.0 (compatible; MistralAI-User/1.0; +https://mistral.ai/mistralai-user)",
+        "Mozilla/5.0 (compatible; Manus-User/1.0; +https://manus.im/bot)",
+        "Mozilla/5.0 (compatible; Google-NotebookLM/1.0; +https://notebooklm.google)",
     ],
     "search_crawler": [
         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
@@ -61,6 +63,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)",
         "Mozilla/5.0 (compatible; MJ12bot/v1.4.8; http://mj12bot.com/)",
         "Mozilla/5.0 (compatible; DotBot/1.2; +https://opensiteexplorer.org/dotbot)",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Chrome-Lighthouse",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -69,6 +72,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "LinkedInBot/1.0 (compatible; Mozilla/5.0; Apache-HttpClient +http://www.linkedin.com)",
         "Pinterest/0.2 (+http://www.pinterest.com/)",
         "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+        "Slack-ImgProxy (+https://api.slack.com/robots)",
         "TelegramBot (like TwitterBot)",
         "WhatsApp/2.23.2.79 A",
     ],
