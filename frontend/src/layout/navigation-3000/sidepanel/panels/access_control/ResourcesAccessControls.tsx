@@ -234,7 +234,7 @@ export function ResourcesAccessControls(): JSX.Element {
                 flags, etc.) for individuals and roles.
             </p>
 
-            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+            <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>
                 <div className="space-y-6">
                     {/* Default permissions table */}
                     <div className="space-y-2">

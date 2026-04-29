@@ -24,7 +24,7 @@ class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()

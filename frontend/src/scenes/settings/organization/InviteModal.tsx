@@ -201,7 +201,7 @@ export function InviteRow({
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
@@ -298,7 +298,7 @@ export function InviteRow({
                 )}
             </div>
 
-            {hasAdvancedPermissions && !hideProjectAccessSelector && <ProjectAccessSelector inviteIndex={index} />}
+            {hasAccessControl && !hideProjectAccessSelector && <ProjectAccessSelector inviteIndex={index} />}
         </div>
     )
 }

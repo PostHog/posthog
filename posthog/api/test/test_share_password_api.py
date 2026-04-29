@@ -15,11 +15,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 class TestSharePasswordAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # Enable advanced permissions feature for the organization
+        # Enable access control feature for the organization
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             }
         ]
         self.organization.save()
@@ -83,8 +83,8 @@ class TestSharePasswordAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("Password protection must be enabled", response.json()["error"])
 
-    def test_create_password_without_advanced_permissions(self):
-        # Mock organization without advanced permissions
+    def test_create_password_without_access_control(self):
+        # Mock organization without access control
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -95,7 +95,7 @@ class TestSharePasswordAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("Advanced Permissions feature", response.json()["error"])
+        self.assertIn("Access Control feature", response.json()["error"])
 
     def test_create_password_validation_too_short(self):
         response = self.client.post(
@@ -134,12 +134,12 @@ class TestSharePasswordAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertIn("Password not found", response.json()["detail"])
 
-    def test_delete_password_without_advanced_permissions(self):
+    def test_delete_password_without_access_control(self):
         share_password, _ = SharePassword.create_password(
             sharing_configuration=self.sharing_config, created_by=self.user, raw_password="test-password"
         )
 
-        # Mock organization without advanced permissions
+        # Mock organization without access control
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -148,7 +148,7 @@ class TestSharePasswordAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("Advanced Permissions feature", response.json()["error"])
+        self.assertIn("Access Control feature", response.json()["error"])
 
     def test_password_validation_in_sharing_viewer(self):
         """Test that password validation works correctly in the sharing viewer."""
@@ -299,7 +299,7 @@ class TestSharePasswordAPI(APIBaseTest):
         """
         # Enable white labelling feature for the organization
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.WHITE_LABELLING, "name": AvailableFeature.WHITE_LABELLING},
         ]
         self.organization.save()

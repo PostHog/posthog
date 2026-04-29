@@ -146,9 +146,9 @@ export const sharingLogic = kea<sharingLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
-        advancedPermissionsAvailable: [
+        accessControlAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS),
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ACCESS_CONTROL),
         ],
 
         sharingAllowed: [

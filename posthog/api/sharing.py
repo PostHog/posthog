@@ -360,9 +360,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         check_can_edit_sharing_configuration(self, request, instance)
 
         if request.data.get("password_required", False):
-            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 return response.Response(
-                    {"error": "Sharing with password requires the Advanced Permissions feature"}, status=403
+                    {"error": "Sharing with password requires the Access Control feature"}, status=403
                 )
 
         if context.get("recording"):
@@ -451,9 +451,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
-                {"error": "Password management requires the Advanced Permissions feature"},
+                {"error": "Password management requires the Access Control feature"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -491,9 +491,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, sharing_config)
 
-        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
-                {"error": "Password management requires the Advanced Permissions feature"},
+                {"error": "Password management requires the Access Control feature"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 

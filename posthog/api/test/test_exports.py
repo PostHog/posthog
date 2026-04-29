@@ -657,7 +657,7 @@ class TestExports(APIBaseTest):
             created_by=other_user,
         )
 
-        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
         self.organization.save()
 
         AccessControl.objects.create(
@@ -690,7 +690,7 @@ class TestExports(APIBaseTest):
             created_by=other_user,
         )
 
-        self.organization.available_product_features = [{"key": "advanced_permissions", "name": "Advanced permissions"}]
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
         self.organization.save()
 
         AccessControl.objects.create(

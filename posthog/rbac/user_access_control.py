@@ -350,7 +350,7 @@ class UserAccessControl:
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
 
     # ------------------------------------------------------------
     # Access control helpers

@@ -20,7 +20,7 @@ from ee.models.rbac.access_control import AccessControl
 def team_enterprise_api_test_factory():
     class TestTeamEnterpriseAPI(APILicensedTest):
         CLASS_DATA_LEVEL_SETUP = False
-        CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP = True
+        CONFIG_FORCE_ACCESS_CONTROL_ON_SETUP = True
 
         def _set_project_default_member_access(self, team: Team) -> None:
             AccessControl.objects.create(
@@ -58,7 +58,7 @@ def team_enterprise_api_test_factory():
 
             self._set_project_default_member_access(self.team)
 
-            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 self.skipTest("Requires advanced permissions")
 
             response = self.client.delete(f"/api/environments/{self.team.id}")
@@ -80,7 +80,7 @@ def team_enterprise_api_test_factory():
 
             self._set_project_default_member_access(team)
 
-            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 self.skipTest("Requires advanced permissions")
 
             response = self.client.delete(f"/api/environments/{team.id}")
@@ -145,7 +145,7 @@ def team_enterprise_api_test_factory():
 
             expected_effective_level = (
                 OrganizationMembership.Level.ADMIN
-                if self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+                if self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
                 else OrganizationMembership.Level.MEMBER
             )
 

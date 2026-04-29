@@ -73,7 +73,7 @@ class License(models.Model):
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = [
         *SCALE_FEATURES,
-        AvailableFeature.ADVANCED_PERMISSIONS,
+        AvailableFeature.ACCESS_CONTROL,
         AvailableFeature.SAML,
         AvailableFeature.SCIM,
         AvailableFeature.SSO_ENFORCEMENT,

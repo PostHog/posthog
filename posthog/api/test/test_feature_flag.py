@@ -8218,7 +8218,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()

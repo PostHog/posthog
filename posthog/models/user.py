@@ -254,7 +254,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         )
         if org_available_product_features and len(org_available_product_features) > 0:
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
+            if AvailableFeature.ACCESS_CONTROL in org_available_product_feature_keys:
                 try:
                     from ee.models.rbac.access_control import AccessControl
                 except ImportError:
@@ -407,7 +407,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
 
             self.current_organization = organization
-            if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("id").first()
             else:

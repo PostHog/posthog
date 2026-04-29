@@ -52,8 +52,8 @@ class BaseUserAccessControlTest(BaseTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
             {
                 "key": AvailableFeature.ROLE_BASED_ACCESS,
@@ -369,9 +369,9 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
 
-        # Enable advanced permissions & role-based access for tests
+        # Enable access control & role-based access for tests
         self.organization.available_product_features = [
-            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "access_control", "name": "access_control"},
             {"key": "role_based_access", "name": "sso_enforcement"},
         ]
         self.organization.save()
