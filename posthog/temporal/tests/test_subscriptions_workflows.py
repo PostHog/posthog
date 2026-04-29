@@ -309,12 +309,18 @@ async def test_handle_subscription_value_change_email(
 
     # SLO events emitted exactly once (child only, not parent)
     started_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_started"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(started_calls) == 1
 
     completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
@@ -990,12 +996,18 @@ async def test_deliver_subscription_workflow_end_to_end(
 
     # Both started and completed events flow through posthog.slo.events
     started_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_started"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(started_calls) == 1
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
@@ -1270,7 +1282,10 @@ async def test_export_error_slo_outcome(
     assert state["calls"] == expected_calls
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == expected_outcome
@@ -1369,7 +1384,10 @@ async def test_partial_export_failure_delivers_successful_assets(
         assert len(delivered_assets) == 3
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     props = completed_calls[0].kwargs["properties"]
