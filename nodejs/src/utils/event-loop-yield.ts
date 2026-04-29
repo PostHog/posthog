@@ -42,10 +42,10 @@ async function yieldIfNeeded(caller: string): Promise<void> {
         state = {
             startedAt: performance.now(),
             promise: new Promise((resolve) => {
-                setImmediate(() => {
+                setTimeout(() => {
                     state = null
                     resolve()
-                })
+                }, 0)
             }),
         }
     }
