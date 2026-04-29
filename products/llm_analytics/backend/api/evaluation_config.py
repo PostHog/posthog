@@ -73,6 +73,11 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level evaluation configuration"""
 
     scope_object = "evaluation"
+    # `set_active_key` is a custom @action and `list` lives on a plain ViewSet, so neither maps to
+    # ScopeBasePermission's default action lists. Spell them out explicitly — without this, every
+    # personal-API-key request 403s with "This action does not support Personal API Key access".
+    scope_object_read_actions = ["list"]
+    scope_object_write_actions = ["set_active_key"]
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
