@@ -487,6 +487,29 @@ describe('hog-charts canvas-renderer', () => {
             drawGrid(drawCtx, { gridColor: 'rgb(1, 2, 3)' })
             expect(ctx.strokeStyle).toBe('rgb(1, 2, 3)')
         })
+
+        it('draws vertical grid lines and a top baseline in horizontal orientation', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+            drawGrid(drawCtx, { orientation: 'horizontal' })
+            const tickCount = ctx.moveTo.mock.calls.length - 1
+            expect(tickCount).toBeGreaterThan(0)
+            // All tick lines run vertically — moveX === lineX, with moveY/lineY spanning the plot height.
+            for (let i = 0; i < tickCount; i++) {
+                const [moveX, moveY] = ctx.moveTo.mock.calls[i] as [number, number]
+                const [lineX, lineY] = ctx.lineTo.mock.calls[i] as [number, number]
+                expect(moveX).toBe(lineX)
+                expect(moveY).toBe(dimensions.plotTop)
+                expect(lineY).toBe(dimensions.plotTop + dimensions.plotHeight)
+            }
+            // The final stroke is the horizontal categorical-axis baseline at the top of the plot.
+            const lastMoveTo = ctx.moveTo.mock.calls[ctx.moveTo.mock.calls.length - 1] as [number, number]
+            const lastLineTo = ctx.lineTo.mock.calls[ctx.lineTo.mock.calls.length - 1] as [number, number]
+            expect(lastMoveTo[1]).toBe(dimensions.plotTop + 0.5)
+            expect(lastLineTo[1]).toBe(dimensions.plotTop + 0.5)
+            expect(lastMoveTo[0]).toBe(dimensions.plotLeft)
+            expect(lastLineTo[0]).toBe(dimensions.plotLeft + dimensions.plotWidth)
+        })
     })
 
     describe('composeDrawHoverWithCrosshair', () => {

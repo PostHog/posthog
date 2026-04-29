@@ -78,6 +78,41 @@ describe('hog-charts bar scales', () => {
         })
     })
 
+    describe('createBarScales — pixel positioning', () => {
+        it('places a positive value above zero in vertical mode (smaller y pixel than value(0))', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50] })]
+            const { value } = createBarScales(series, ['a', 'b'], dimensions)
+            // The bar's top (value=50) should be above the baseline (value=0) — i.e. smaller y pixel.
+            expect(value(50)).toBeLessThan(value(0))
+        })
+
+        it('places a positive value to the right of zero in horizontal mode (larger x pixel than value(0))', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50] })]
+            const { value } = createBarScales(series, ['a', 'b'], dimensions, { axisOrientation: 'horizontal' })
+            expect(value(50)).toBeGreaterThan(value(0))
+        })
+
+        it('makes consecutive band starts equally spaced', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 2, 3, 4] })]
+            const { band } = createBarScales(series, ['a', 'b', 'c', 'd'], dimensions)
+            const a = band('a')!
+            const b = band('b')!
+            const c = band('c')!
+            expect(b - a).toBeCloseTo(c - b, 5)
+        })
+
+        it('group bandwidth times series count plus padding does not exceed band bandwidth', () => {
+            const seriesArr = [
+                makeSeries({ key: 's1', data: [1] }),
+                makeSeries({ key: 's2', data: [2] }),
+                makeSeries({ key: 's3', data: [3] }),
+            ]
+            const grouped = createBarScales(seriesArr, ['a'], dimensions, { barLayout: 'grouped' })
+            const totalGroupSpan = grouped.group!.bandwidth() * 3
+            expect(totalGroupSpan).toBeLessThanOrEqual(grouped.band.bandwidth())
+        })
+    })
+
     describe('createBarScales — empty / edge inputs', () => {
         it('returns a [0, 1] value domain when no series are provided', () => {
             const { value } = createBarScales([], ['a', 'b'], dimensions)

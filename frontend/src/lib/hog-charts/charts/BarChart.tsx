@@ -94,6 +94,7 @@ function computeSeriesBars(
                             ? { topRight: true, bottomRight: true }
                             : { topLeft: true, bottomLeft: true }
                         : {},
+                    dataIndex: i,
                 })
             } else {
                 const y = Math.min(valueAtZero, valuePixel)
@@ -108,6 +109,7 @@ function computeSeriesBars(
                             ? { topLeft: true, topRight: true }
                             : { bottomLeft: true, bottomRight: true }
                         : {},
+                    dataIndex: i,
                 })
             }
             continue
@@ -132,6 +134,7 @@ function computeSeriesBars(
                 width,
                 height: bandWidth,
                 corners: shouldRoundCap ? { topRight: true, bottomRight: true } : {},
+                dataIndex: i,
             })
         } else {
             const y = Math.min(topPixel, bottomPixel)
@@ -142,6 +145,7 @@ function computeSeriesBars(
                 width: bandWidth,
                 height,
                 corners: shouldRoundCap ? { topLeft: true, topRight: true } : {},
+                dataIndex: i,
             })
         }
     }
@@ -179,7 +183,11 @@ export function BarChart<Meta = unknown>({
         return undefined
     }, [barLayout, series, labels])
 
-    // Identify the topmost (last visible, non-excluded) series in stacked layout for cap rounding.
+    // Pick which series should round its cap in stacked/percent layouts.
+    // d3.stack uses the order passed to `stack.keys()` (here: visible series in their array order),
+    // so the topmost visual layer at every x is the last visible series. That key gets cap rounding.
+    // If the consumer reorders or hides series, this recomputes — `series` and `excluded` flags
+    // are both in the dep array.
     const topStackedKey = useMemo<string | null>(() => {
         if (barLayout === 'grouped') {
             return null
@@ -264,7 +272,10 @@ export function BarChart<Meta = unknown>({
             }
 
             if (showGrid) {
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    orientation: isHorizontal ? 'horizontal' : 'vertical',
+                })
             }
 
             for (const s of coloredSeries) {
@@ -309,12 +320,18 @@ export function BarChart<Meta = unknown>({
     )
 
     const resolveValue = useMemo(() => {
-        // For percent layout, tooltips show raw values, but the value scale is normalized.
-        // For stacked, tooltips also show raw values (the stacked top is for highlight positioning, not display).
         if (!stackedData) {
             return undefined
         }
+        // Return the stacked top so the tooltip anchor lands at the visual top of each bar segment,
+        // not at the raw series value. This matches LineChart's behavior for stacked area charts —
+        // consumers wanting raw per-series values in the tooltip should override the tooltip render
+        // and look up `series.data[dataIndex]` themselves.
         return (s: Series, dataIndex: number): number => {
+            const stacked = stackedData.get(s.key)?.top[dataIndex]
+            if (stacked != null && Number.isFinite(stacked)) {
+                return stacked
+            }
             const raw = s.data[dataIndex]
             return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
         }

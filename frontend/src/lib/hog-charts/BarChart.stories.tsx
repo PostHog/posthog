@@ -217,6 +217,36 @@ export const NegativeValues: Story = {
     },
 }
 
+export const StackedWithNegatives: Story = {
+    // Stacked layout uses d3.stack with the default offset, which clamps negative values to 0
+    // (see buildStackData in scales.ts) — so this story documents that negative values disappear
+    // from the stack rather than being charted below the baseline. Use grouped layout for
+    // signed-value comparisons.
+    render: () => {
+        const theme = buildTheme()
+        const config: BarChartConfig = { barLayout: 'stacked', showGrid: true }
+        const series: Series[] = [
+            {
+                key: 'inflow',
+                label: 'Inflow',
+                color: 'var(--brand-blue)',
+                data: [40, 50, 30, 60, 45, 55, 50],
+            },
+            {
+                key: 'outflow',
+                label: 'Outflow (negative — clamped to 0 in stacked layout)',
+                color: 'var(--brand-red)',
+                data: [-20, -25, -10, -35, 15, -15, -20],
+            },
+        ]
+        return (
+            <Stage>
+                <BarChart series={series} labels={LABELS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const LargeDataset: Story = {
     render: () => {
         const theme = buildTheme()

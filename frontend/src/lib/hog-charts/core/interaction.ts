@@ -67,20 +67,24 @@ export function buildTooltipContext<Meta = unknown>(
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
     resolveValue: ResolveValueFn,
-    yAxes?: Record<string, YAxisScale>
+    yAxes?: Record<string, YAxisScale>,
+    /** Which axis the categorical labels live on. `'x'` (default) = labels on x, values on y (vertical chart).
+     *  `'y'` = labels on y, values on x (horizontal chart). The returned `position.{x,y}` are always
+     *  canvas-pixel coordinates regardless of orientation. */
+    interactionAxis: 'x' | 'y' = 'x'
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }
 
     const label = labels[dataIndex]
-    const x = xScale(label)
-    if (x == null) {
+    const bandPixel = xScale(label)
+    if (bandPixel == null) {
         return null
     }
 
     const seriesData: TooltipContext<Meta>['seriesData'] = []
-    const yPixels: number[] = []
+    const valuePixels: number[] = []
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -89,20 +93,26 @@ export function buildTooltipContext<Meta = unknown>(
         if (!s.visibility?.fromTooltip) {
             seriesData.push({ series: s, value, color: s.color })
         }
-        const seriesYScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
-        const yVal = seriesYScale(value)
-        if (isFinite(yVal)) {
-            yPixels.push(yVal)
+        const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const px = seriesValueScale(value)
+        if (isFinite(px)) {
+            valuePixels.push(px)
         }
     }
 
-    const y = yPixels.length > 0 ? Math.min(...yPixels) : 0
+    // Vertical: anchor at the topmost (smallest y-pixel) value across visible series.
+    // Horizontal: anchor at the rightmost (largest x-pixel) value across visible series.
+    // In both, this picks the visual "tip" of the data column at this hover index.
+    const valueAnchor =
+        valuePixels.length === 0 ? 0 : interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
+
+    const position = interactionAxis === 'y' ? { x: valueAnchor, y: bandPixel } : { x: bandPixel, y: valueAnchor }
 
     return {
         dataIndex,
         label,
         seriesData,
-        position: { x, y },
+        position,
         canvasBounds,
         isPinned: false,
     }

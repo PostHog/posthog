@@ -48,7 +48,11 @@ function makeDrawContext(ctx: CanvasRenderingContext2D, labels: string[]): DrawC
     return { ctx, dimensions, xScale, yScale, labels }
 }
 
-const SQUARE: BarRect = { x: 100, y: 100, width: 50, height: 80, corners: {} }
+const SQUARE: BarRect = { x: 100, y: 100, width: 50, height: 80, corners: {}, dataIndex: 0 }
+
+function bar(overrides: Partial<BarRect> & { dataIndex: number }): BarRect {
+    return { ...SQUARE, ...overrides }
+}
 
 describe('hog-charts canvas-renderer (bars)', () => {
     describe('traceRoundedBarPath', () => {
@@ -97,9 +101,9 @@ describe('hog-charts canvas-renderer (bars)', () => {
             const ctx = mockCanvasContext()
             const drawCtx = makeDrawContext(ctx, ['a', 'b'])
             drawBars(drawCtx, makeSeries({ key: 's', data: [1, 2] }), [
-                { x: 0, y: 0, width: 0, height: 50, corners: {} },
-                { x: 0, y: 0, width: -5, height: 50, corners: {} },
-                { x: 0, y: 0, width: 50, height: 0, corners: {} },
+                { x: 0, y: 0, width: 0, height: 50, corners: {}, dataIndex: 0 },
+                { x: 0, y: 0, width: -5, height: 50, corners: {}, dataIndex: 1 },
+                { x: 0, y: 0, width: 50, height: 0, corners: {}, dataIndex: 2 },
             ])
             expect(ctx.fill).not.toHaveBeenCalled()
         })
@@ -109,9 +113,9 @@ describe('hog-charts canvas-renderer (bars)', () => {
             const drawCtx = makeDrawContext(ctx, ['a', 'b', 'c'])
             const series = makeSeries({ key: 's', data: [1, 2, 3] })
             const bars: BarRect[] = [
-                { ...SQUARE, x: 0 },
-                { ...SQUARE, x: 60 },
-                { ...SQUARE, x: 120 },
+                bar({ x: 0, dataIndex: 0 }),
+                bar({ x: 60, dataIndex: 1 }),
+                bar({ x: 120, dataIndex: 2 }),
             ]
             drawBars(drawCtx, series, bars)
             expect(ctx.fill).toHaveBeenCalledTimes(3)
@@ -137,9 +141,9 @@ describe('hog-charts canvas-renderer (bars)', () => {
                 stroke: { partial: { fromIndex: 1 } },
             })
             drawBars(drawCtx, series, [
-                { ...SQUARE, x: 0 },
-                { ...SQUARE, x: 60 },
-                { ...SQUARE, x: 120 },
+                bar({ x: 0, dataIndex: 0 }),
+                bar({ x: 60, dataIndex: 1 }),
+                bar({ x: 120, dataIndex: 2 }),
             ])
             expect(ctx.fill).toHaveBeenCalledTimes(3)
         })
@@ -154,11 +158,48 @@ describe('hog-charts canvas-renderer (bars)', () => {
                 stroke: { partial: { toIndex: 0 } },
             })
             drawBars(drawCtx, series, [
-                { ...SQUARE, x: 0 },
-                { ...SQUARE, x: 60 },
-                { ...SQUARE, x: 120 },
+                bar({ x: 0, dataIndex: 0 }),
+                bar({ x: 60, dataIndex: 1 }),
+                bar({ x: 120, dataIndex: 2 }),
             ])
             expect(ctx.fill).toHaveBeenCalledTimes(3)
+        })
+
+        it('hatches bars by their dataIndex, not their array position (filtered bars stay correct)', () => {
+            // Series has 5 data points; bars 0 and 2 are absent (filtered out).
+            // partial.fromIndex=3 should hatch bars with dataIndex >= 3, regardless of where they sit in the array.
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e'])
+            const series = makeSeries({
+                key: 's',
+                data: [1, 2, 3, 4, 5],
+                color: '#11223344',
+                stroke: { partial: { fromIndex: 3 } },
+            })
+            const bars = [
+                bar({ x: 0, dataIndex: 1 }), // solid
+                bar({ x: 60, dataIndex: 3 }), // hatched (>= fromIndex)
+                bar({ x: 120, dataIndex: 4 }), // hatched
+            ]
+            const fillStyleSeen: (string | CanvasPattern)[] = []
+            const original = Object.getOwnPropertyDescriptor(ctx, 'fillStyle')
+            Object.defineProperty(ctx, 'fillStyle', {
+                set(v) {
+                    fillStyleSeen.push(v)
+                },
+                get() {
+                    return ''
+                },
+            })
+            drawBars(drawCtx, series, bars)
+            if (original) {
+                Object.defineProperty(ctx, 'fillStyle', original)
+            }
+            // Bar 0 (dataIndex=1) → solid color string
+            // Bars 1,2 (dataIndex=3,4) → hatch pattern (object, not the color string)
+            expect(fillStyleSeen[0]).toBe('#11223344')
+            expect(typeof fillStyleSeen[1]).not.toBe('string')
+            expect(typeof fillStyleSeen[2]).not.toBe('string')
         })
 
         it('respects the cornerRadius option', () => {

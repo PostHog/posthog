@@ -292,17 +292,49 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
-export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } = {}): void {
+/** Draws the grid lines and the categorical-axis baseline.
+ *
+ * `orientation`:
+ *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baseline on the left.
+ *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baseline on the top.
+ *
+ * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
+ * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
+ */
+export function drawGrid(
+    drawCtx: DrawContext,
+    options: { gridColor?: string; orientation?: 'vertical' | 'horizontal' } = {}
+): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
+    const orientation = options.orientation ?? 'vertical'
+    const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
 
-    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(dimensions.plotHeight)) ?? []
+    const valueTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
-    for (const tick of yTicks) {
+    if (orientation === 'horizontal') {
+        // Value axis runs horizontally — grid lines are vertical at each value tick.
+        for (const tick of valueTicks) {
+            const x = Math.round(yScale(tick)) + 0.5
+            ctx.beginPath()
+            ctx.moveTo(x, dimensions.plotTop)
+            ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
+            ctx.stroke()
+        }
+        // Categorical-axis baseline runs along the top of the plot area.
+        const axisY = Math.round(dimensions.plotTop) + 0.5
+        ctx.beginPath()
+        ctx.moveTo(dimensions.plotLeft, axisY)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
+        ctx.stroke()
+        return
+    }
+
+    for (const tick of valueTicks) {
         const y = Math.round(yScale(tick)) + 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)
@@ -387,11 +419,16 @@ export interface BarRect {
     height: number
     /** Which corners should be rounded (e.g. only the cap end). */
     corners: BarRoundedCorners
+    /** Index into the original `series.data` array. Used to resolve partial-dash hatch ranges
+     *  against the source data, not the (possibly filtered) bars array. */
+    dataIndex: number
 }
 
 /** Draws a list of bars for a series with corner rounding and hatched dashed-pattern support.
- *  When `series.stroke?.partial` is set, bars whose data index falls inside the partial range
- *  are filled with a diagonal hatch pattern (mirrors the line/area dashed-region convention). */
+ *  When `series.stroke?.partial` is set, bars whose `dataIndex` falls inside the partial range
+ *  are filled with a diagonal hatch pattern (mirrors the line/area dashed-region convention).
+ *  The partial-range indices are clamped against `series.data.length`, so callers may pre-filter
+ *  out non-drawable bars without distorting the hatch boundary. */
 export function drawBars(
     drawCtx: DrawContext,
     series: Series,
@@ -404,17 +441,18 @@ export function drawBars(
     }
 
     const cornerRadius = options.cornerRadius ?? 4
-    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, bars.length)
-    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, bars.length)
+    const dataLength = series.data.length
+    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, dataLength)
+    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
     const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
 
-    for (let i = 0; i < bars.length; i++) {
-        const bar = bars[i]
+    for (const bar of bars) {
         if (bar.width <= 0 || bar.height === 0) {
             continue
         }
         const useHatch =
-            hatch !== null && ((dashedFrom !== null && i >= dashedFrom) || (dashedTo !== null && i <= dashedTo))
+            hatch !== null &&
+            ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
         ctx.fillStyle = useHatch && hatch ? hatch : series.color
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)

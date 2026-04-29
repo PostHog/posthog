@@ -136,11 +136,12 @@ export function useChartInteraction<Meta = unknown>({
                 prev.dataIndex,
                 series,
                 labels,
-                scales.x,
+                labelToCoord ?? scales.x,
                 scales.y,
                 canvasBounds,
                 resolveValueRef.current,
-                scales.yAxes
+                scales.yAxes,
+                interactionAxis
             )
             if (!fresh) {
                 return null
@@ -249,11 +250,12 @@ export function useChartInteraction<Meta = unknown>({
                         index,
                         series,
                         labels,
-                        scales.x,
+                        labelToCoord ?? scales.x,
                         scales.y,
                         canvasBounds,
                         resolveValue,
-                        scales.yAxes
+                        scales.yAxes,
+                        interactionAxis
                     )
                 )
             }
@@ -269,6 +271,7 @@ export function useChartInteraction<Meta = unknown>({
             isPinned,
             clearTooltip,
             labelPositions,
+            labelToCoord,
             interactionAxis,
         ]
     )
