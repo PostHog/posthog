@@ -262,7 +262,7 @@ export function Settings({
 
             <AuthenticationAreaComponent>
                 <div className="flex-1 w-full min-w-0 min-h-screen space-y-2 self-start">
-                    {!hideSections && selectedLevel === 'project' && !selectedSection?.hideProjectBanner && (
+                    {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
                             {currentTeam?.name ? (

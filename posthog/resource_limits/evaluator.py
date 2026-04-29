@@ -1,35 +1,14 @@
 from typing import TYPE_CHECKING
 
-from posthog.resource_limits.exceptions import LimitExceeded
 from posthog.resource_limits.registry import get_definition
-from posthog.resource_limits.request_upsert import upsert_limit_increase_request
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
-    from posthog.models.team_limit_override import TeamLimitOverride
     from posthog.models.user import User
 
 
-def _get_active_override(team: "Team", key: str) -> "TeamLimitOverride | None":
-    from posthog.models.team_limit_override import TeamLimitOverride
-
-    return TeamLimitOverride.objects.filter(team_id=team.id, limit_key=key).first()
-
-
 def get_limit(*, team: "Team", key: str) -> int | None:
-    """Resolve the effective resource limit for a team/key.
-
-    The override acts as a floor: the effective cap is the larger of the
-    catalog default and the override value. ``None`` on either side means
-    unlimited and wins over any finite value.
-    """
-    default = get_definition(key).default
-    override = _get_active_override(team, key)
-    if override is None:
-        return default
-    if override.value is None or default is None:
-        return None
-    return max(override.value, default)
+    return get_definition(key).default
 
 
 def check_count_limit(
@@ -39,29 +18,24 @@ def check_count_limit(
     current_count: int,
     user: "User | None" = None,
 ) -> None:
-    """Raise :class:`LimitExceeded` when the team is at-or-above the limit.
+    """Emit a ``resource limit hit`` PostHog event when a team's next create
+    would put them at or above the catalog threshold for ``key``.
 
-    On raise, upserts a pending :class:`~posthog.models.limit_increase_request.LimitIncreaseRequest`
-    and emits a ``resource limit hit`` PostHog event tagged with the team/org
-    groups and the rich context staff need to triage the request.
+    The caller passes ``current_count`` as the count of existing rows just
+    before creating the next one, so the create would land the team at
+    ``current_count + 1``. The event is emitted whenever that value reaches
+    or exceeds the threshold; ``crossing_threshold`` flags the exact moment
+    the team crosses for the first time so a downstream PostHog Action can
+    pick stream vs one-shot semantics via property filter.
 
-    The check is ``>=`` (not ``>``) because the caller runs this immediately
-    before creating a new entity — at ``current_count == limit`` the next
-    create would push them over.
+    Notification-only: this never raises and never blocks the caller. The
+    surrounding viewset proceeds with the create as usual.
     """
     from posthog.event_usage import report_user_action
 
     limit = get_limit(team=team, key=key)
-    if limit is None or current_count < limit:
+    if limit is None or current_count + 1 < limit:
         return
-
-    request = upsert_limit_increase_request(
-        team=team,
-        limit_key=key,
-        limit=limit,
-        current_count=current_count,
-        user=user,
-    )
 
     if user is not None:
         report_user_action(
@@ -71,18 +45,10 @@ def check_count_limit(
                 "limit_key": key,
                 "limit": limit,
                 "current_count": current_count,
+                "crossing_threshold": current_count + 1 == limit,
                 "team_id": team.id,
                 "organization_id": str(team.organization_id),
-                "limit_increase_request_id": str(request.id),
-                "hit_count": request.hit_count,
             },
             team=team,
             organization=team.organization,
         )
-
-    raise LimitExceeded(
-        limit_key=key,
-        limit=limit,
-        current=current_count,
-        request_id=str(request.id),
-    )

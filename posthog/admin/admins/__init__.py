@@ -22,7 +22,6 @@ from .hog_function_admin import HogFunctionAdmin
 from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
 from .integration_admin import IntegrationAdmin, OrganizationIntegrationAdmin
-from .limit_increase_request_admin import LimitIncreaseRequestAdmin
 from .oauth_admin import OAuthApplicationAdmin
 from .organization_admin import OrganizationAdmin
 from .organization_domain_admin import OrganizationDomainAdmin
@@ -34,7 +33,6 @@ from .product_tour_admin import ProductTourAdmin
 from .project_admin import ProjectAdmin
 from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
-from .team_limit_override_admin import TeamLimitOverrideAdmin
 from .text_admin import TextAdmin
 from .user_admin import UserAdmin
 from .user_product_list_admin import UserProductListAdmin
@@ -62,13 +60,11 @@ __all__ = [
     "InsightAdmin",
     "InstanceSettingAdmin",
     "IntegrationAdmin",
-    "LimitIncreaseRequestAdmin",
     "OrganizationIntegrationAdmin",
     "LinkAdmin",
     "OAuthApplicationAdmin",
     "OrganizationAdmin",
     "OrganizationDomainAdmin",
-    "TeamLimitOverrideAdmin",
     "PersonalAPIKeyAdmin",
     "PersonDistinctIdAdmin",
     "PluginAdmin",

@@ -4,7 +4,6 @@ import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemS
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
 import { HedgehogMode } from 'lib/components/HedgehogMode/HedgehogMode'
-import { LimitExceededModal } from 'lib/components/LimitExceededModal/LimitExceededModal'
 import { SuperpowersModal } from 'lib/components/Superpowers/Superpowers'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
@@ -73,7 +72,6 @@ export function GlobalModals(): JSX.Element {
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
             <UpgradeModal />
-            <LimitExceededModal />
             <TimeSensitiveAuthenticationModal />
             <SessionPlayerModal />
             <LogsViewerModal />

@@ -494,9 +494,6 @@ class InsightSerializer(InsightBasicSerializer):
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
 
-        # Enforce max-insights-per-dashboard here (outside the @transaction.atomic
-        # on update) so the auto-submitted LimitIncreaseRequest survives the 402
-        # rollback. Per-dashboard check runs for each newly-attached dashboard.
         new_dashboards = attrs.get("dashboards")
         if new_dashboards is not None:
             from posthog.resource_limits import check_count_limit

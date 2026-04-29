@@ -1,8 +1,7 @@
-import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
-from posthog.models import LimitIncreaseRequest, LimitIncreaseRequestStatus, TeamLimitOverride
-from posthog.resource_limits import LimitExceeded, check_count_limit, get_limit
+from posthog.resource_limits import check_count_limit, get_limit
 from posthog.resource_limits.registry import REGISTRY, LimitDefinition
 
 
@@ -11,35 +10,8 @@ class TestGetLimit(BaseTest):
         super().setUp()
         self.key = "analytics.max_dashboards_per_team"
 
-    def test_returns_default_when_no_override(self) -> None:
+    def test_returns_catalog_default(self) -> None:
         assert get_limit(team=self.team, key=self.key) == 500
-
-    def test_override_above_default_raises_the_limit(self) -> None:
-        TeamLimitOverride.objects.create(
-            team=self.team,
-            limit_key=self.key,
-            value=1000,
-            reason="test",
-        )
-        assert get_limit(team=self.team, key=self.key) == 1000
-
-    def test_override_below_default_does_not_lower_the_limit(self) -> None:
-        TeamLimitOverride.objects.create(
-            team=self.team,
-            limit_key=self.key,
-            value=300,
-            reason="stale override below default",
-        )
-        assert get_limit(team=self.team, key=self.key) == 500
-
-    def test_null_value_override_is_unlimited(self) -> None:
-        TeamLimitOverride.objects.create(
-            team=self.team,
-            limit_key=self.key,
-            value=None,
-            reason="unlimited grant",
-        )
-        assert get_limit(team=self.team, key=self.key) is None
 
 
 class TestCheckCountLimit(BaseTest):
@@ -47,63 +19,45 @@ class TestCheckCountLimit(BaseTest):
         super().setUp()
         self.key = "analytics.max_dashboards_per_team"
 
-    def test_below_limit_is_noop(self) -> None:
-        check_count_limit(team=self.team, key=self.key, current_count=10, user=self.user)
-        assert LimitIncreaseRequest.objects.count() == 0
+    def test_below_threshold_emits_nothing(self) -> None:
+        with patch("posthog.event_usage.report_user_action") as report:
+            check_count_limit(team=self.team, key=self.key, current_count=10, user=self.user)
+        report.assert_not_called()
 
-    def test_at_limit_raises_and_creates_request(self) -> None:
-        with pytest.raises(LimitExceeded) as exc_info:
+    def test_one_below_threshold_emits_with_crossing_true(self) -> None:
+        with patch("posthog.event_usage.report_user_action") as report:
+            check_count_limit(team=self.team, key=self.key, current_count=499, user=self.user)
+        report.assert_called_once()
+        args, _ = report.call_args
+        assert args[0] == self.user
+        assert args[1] == "resource limit hit"
+        properties = args[2]
+        assert properties["limit_key"] == self.key
+        assert properties["limit"] == 500
+        assert properties["current_count"] == 499
+        assert properties["crossing_threshold"] is True
+        assert properties["team_id"] == self.team.id
+        assert properties["organization_id"] == str(self.team.organization_id)
+
+    def test_at_threshold_emits_with_crossing_false(self) -> None:
+        with patch("posthog.event_usage.report_user_action") as report:
             check_count_limit(team=self.team, key=self.key, current_count=500, user=self.user)
-        assert exc_info.value.limit_key == self.key
-        assert exc_info.value.limit == 500
-        assert exc_info.value.current == 500
-        assert exc_info.value.request_id is not None
-        assert exc_info.value.extra["request"]["id"] == exc_info.value.request_id
+        report.assert_called_once()
+        properties = report.call_args[0][2]
+        assert properties["crossing_threshold"] is False
 
-        request = LimitIncreaseRequest.objects.get(id=exc_info.value.request_id)
-        assert request.team_id == self.team.id
-        assert request.limit_key == self.key
-        assert request.limit_at_first_hit == 500
-        assert request.count_at_first_hit == 500
-        assert request.status == LimitIncreaseRequestStatus.PENDING
-        assert request.requested_by_id == self.user.id
-        assert request.hit_count == 1
-        assert request.justification == ""
+    def test_far_above_threshold_still_emits(self) -> None:
+        with patch("posthog.event_usage.report_user_action") as report:
+            check_count_limit(team=self.team, key=self.key, current_count=10_000, user=self.user)
+        report.assert_called_once()
 
-    def test_repeat_hits_bump_the_same_row(self) -> None:
-        for _ in range(3):
-            with pytest.raises(LimitExceeded):
-                check_count_limit(team=self.team, key=self.key, current_count=500, user=self.user)
-        assert LimitIncreaseRequest.objects.count() == 1
-        request = LimitIncreaseRequest.objects.get()
-        assert request.hit_count == 3
+    def test_no_user_no_emit(self) -> None:
+        with patch("posthog.event_usage.report_user_action") as report:
+            check_count_limit(team=self.team, key=self.key, current_count=499, user=None)
+        report.assert_not_called()
 
-    def test_customer_justification_is_preserved_on_re_hit(self) -> None:
-        with pytest.raises(LimitExceeded) as exc_info:
-            check_count_limit(team=self.team, key=self.key, current_count=500, user=self.user)
-        assert exc_info.value.request_id is not None
-        request = LimitIncreaseRequest.objects.get(id=exc_info.value.request_id)
-        request.justification = "We run a hosting platform and each tenant gets its own dashboard."
-        request.save(update_fields=["justification"])
-
-        with pytest.raises(LimitExceeded):
-            check_count_limit(team=self.team, key=self.key, current_count=500, user=self.user)
-
-        request.refresh_from_db()
-        assert request.justification == "We run a hosting platform and each tenant gets its own dashboard."
-        assert request.hit_count == 2
-
-    def test_override_raises_the_effective_limit(self) -> None:
-        TeamLimitOverride.objects.create(
-            team=self.team,
-            limit_key=self.key,
-            value=1000,
-            reason="bump",
-        )
-        check_count_limit(team=self.team, key=self.key, current_count=500, user=self.user)
-        with pytest.raises(LimitExceeded) as exc_info:
-            check_count_limit(team=self.team, key=self.key, current_count=1000, user=self.user)
-        assert exc_info.value.limit == 1000
+    def test_never_raises(self) -> None:
+        check_count_limit(team=self.team, key=self.key, current_count=10_000, user=self.user)
 
 
 class TestRegistryShape:

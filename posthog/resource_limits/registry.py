@@ -6,11 +6,13 @@ from typing import Literal
 class LimitDefinition:
     """A single entry in the resource limit catalog.
 
-    Resource limits cap the count of durable, stored entities per team. They
-    are distinct from billing usage quotas (which meter flow over a billing
-    period and live under ``ee/billing/``). Resource limits have no plan
-    linkage and no auto-approve ladder — when a customer hits one, staff
-    manually grants an override via Django admin.
+    Each entry names a per-team resource we watch. When a team is about to
+    create a resource that would put them at or above ``default``, the
+    evaluator emits a ``resource limit hit`` PostHog event so ops can route
+    via Action and Slack destination. The create itself is not blocked.
+    Hard enforcement and per-team overrides are not part of this catalog
+    today; if they come back, ``default`` becomes the cap and an override
+    table layers on top.
     """
 
     key: str
@@ -19,33 +21,30 @@ class LimitDefinition:
     unit: Literal["count", "bytes", "seconds"] = "count"
 
 
-# The single source of truth for every resource limit. All limits are scoped
-# to a team (environment); if staff want to apply the same bump across every
-# team in an org, they grant a per-team override to each one.
 REGISTRY: dict[str, LimitDefinition] = {
     "analytics.max_dashboards_per_team": LimitDefinition(
         key="analytics.max_dashboards_per_team",
-        description="Maximum saved dashboards in a project",
+        description="Saved dashboards in a project",
         default=500,
     ),
     "analytics.max_insights_per_dashboard": LimitDefinition(
         key="analytics.max_insights_per_dashboard",
-        description="Maximum insight tiles attached to a single dashboard",
+        description="Insight tiles attached to a single dashboard",
         default=100,
     ),
     "analytics.max_alerts_per_team": LimitDefinition(
         key="analytics.max_alerts_per_team",
-        description="Maximum alert configurations in a project",
+        description="Alert configurations in a project",
         default=200,
     ),
     "analytics.max_subscriptions_per_team": LimitDefinition(
         key="analytics.max_subscriptions_per_team",
-        description="Maximum scheduled subscriptions in a project",
+        description="Scheduled subscriptions in a project",
         default=200,
     ),
     "analytics.max_actions_per_team": LimitDefinition(
         key="analytics.max_actions_per_team",
-        description="Maximum saved actions in a project",
+        description="Saved actions in a project",
         default=500,
     ),
 }
