@@ -162,8 +162,7 @@ describe('LLMMessageDisplay', () => {
                     id: 'call_xyz',
                     function: {
                         name: 'no_args_tool',
-                        // OpenAI tool calls without parameters can emit null here.
-                        arguments: null as unknown as Record<string, unknown>,
+                        arguments: null,
                     },
                 },
             ],
@@ -175,9 +174,7 @@ describe('LLMMessageDisplay', () => {
         )
         expect(container.textContent).toContain('no_args_tool')
         expect(container.textContent).toContain('call_xyz')
-        // No JSON viewer body for the empty-args case — no { or } from a viewer.
-        expect(container.textContent).not.toContain('{')
-        expect(container.textContent).not.toContain('}')
+        expect(container.querySelector('.react-json-view')).toBeNull()
     })
 
     it('renders empty-args function as header only (no JSON viewer body)', () => {
@@ -199,9 +196,7 @@ describe('LLMMessageDisplay', () => {
             </Provider>
         )
         expect(container.textContent).toContain('empty_args_tool')
-        // Header-only: no `{` or `}` braces from the JSON viewer.
-        expect(container.textContent).not.toContain('{')
-        expect(container.textContent).not.toContain('}')
+        expect(container.querySelector('.react-json-view')).toBeNull()
     })
 
     it('preserves order across mixed text and function items in a single assistant message', async () => {

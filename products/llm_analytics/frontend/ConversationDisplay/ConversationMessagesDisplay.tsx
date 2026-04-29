@@ -488,7 +488,6 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
 
     if (
         item.type === 'function' &&
-        'function' in item &&
         item.function &&
         typeof item.function === 'object' &&
         typeof item.function.name === 'string'
