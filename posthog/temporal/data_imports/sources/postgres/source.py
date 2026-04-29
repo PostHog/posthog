@@ -1,7 +1,11 @@
-from typing import Optional, cast
+import logging
+from typing import TYPE_CHECKING, Optional, cast
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
+
+if TYPE_CHECKING:
+    from products.data_warehouse.backend.models import ExternalDataSource
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -18,6 +22,8 @@ from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, 
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSLRequiredError,
     filter_postgres_incremental_fields,
@@ -32,6 +38,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+
+log = logging.getLogger(__name__)
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -160,6 +168,39 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
+
+    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
+        """Drop the Temporal schedule + PostHog-managed slot/publication.
+
+        Schedule lives on our side, slot lives on the customer's DB. No-op for
+        postgres sources without CDC enabled.
+        """
+        cdc_config = PostgresCDCConfig.from_source(source)
+        if not cdc_config.enabled:
+            return
+
+        # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
+        from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+        # Schedule key = source id. NotFound is a no-op.
+        try:
+            delete_cdc_extraction_schedule(str(source.id))
+        except Exception:
+            log.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(source.id)})
+
+        if cdc_config.management_mode != "posthog":
+            return
+        if not cdc_config.slot_name or not cdc_config.publication_name:
+            return
+
+        try:
+            with cdc_pg_connection(source, connect_timeout=10) as conn:
+                drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
+        except Exception:
+            log.exception(
+                "Failed to drop CDC slot/publication on source DB (best-effort)",
+                extra={"source_id": str(source.id), "slot_name": cdc_config.slot_name},
+            )
 
     def get_schemas(
         self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
@@ -407,7 +448,9 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             password=config.password,
             database=config.database,
             sslmode="prefer",
-            schema=source_schema or config.schema or "public",
+            # config.schema wins so warehouse-mode renames flow through without rewriting
+            # schema_metadata. Falls back to source_schema for direct mode (browse-all).
+            schema=config.schema or source_schema or "public",
             table_names=[source_table_name or inputs.schema_name],
             should_use_incremental_field=inputs.should_use_incremental_field,
             logger=inputs.logger,
