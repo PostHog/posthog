@@ -235,13 +235,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
         )
-        # When a CI follow-up is scheduled, ensure the inactivity timer can't
-        # race ahead of it — otherwise the short inactivity window would always
-        # fire first and CI fixes would be silently skipped. A short
-        # TASKS_INACTIVITY_TIMEOUT_SECONDS override (used for local testing of
-        # the shutdown/resume flow) is allowed to bypass this floor; the
-        # default (no override set) and any sufficiently large override still
-        # respect it, so a misconfigured env var can't fire before CI.
+        # When CI follow-up is scheduled, the inactivity timer must outlive
+        # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
+        # env var bypasses the floor, but only when explicitly set AND short —
+        # so a misconfigured large value still respects the CI floor.
         ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
         testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
             INACTIVITY_TIMEOUT < ci_follow_up_floor
@@ -559,12 +556,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         finally:
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
-                # Create a resume snapshot for interactive sandboxes before cleanup.
-                # Skipped when TASKS_USE_MODAL_RESUME_SNAPSHOTS is off — resume then
-                # relies on the agent server's git-checkpoint mechanism instead.
-                # The flag is read from the context (captured at workflow start)
-                # rather than from settings directly so a mid-run flip doesn't
-                # cause replay nondeterminism.
+                # When `use_modal_resume_snapshots` is off, resume relies on the
+                # agent server's git-checkpoint mechanism instead. Read from
+                # context (captured at workflow start) so replay is deterministic
+                # against env-var flips.
                 if (
                     self._context
                     and self._context.mode == "interactive"

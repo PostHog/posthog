@@ -682,7 +682,11 @@ class TaskRun(models.Model):
         if max_depth <= 0:
             return chain
 
-        siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in self.task.runs.all()}
+        # Walking the chain only needs id/state/artifacts and the bits that
+        # `log_url` derives from (team_id, task_id). Fetching the full row would
+        # pull every column for every historical run on the task.
+        siblings_qs = self.task.runs.only("id", "team_id", "task_id", "state", "artifacts")
+        siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in siblings_qs}
         seen: set[str] = {str(self.id)}
         current: TaskRun | None = self
         depth = 0
