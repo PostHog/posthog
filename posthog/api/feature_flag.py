@@ -3537,10 +3537,11 @@ class FeatureFlagViewSet(
                     )
             except ValueError as e:
                 # Our own validation (invalid timestamp shape, naive datetime, etc.) —
-                # safe to surface verbatim so the caller can fix the request.
+                # Validation failures should be logged server-side, but return a generic
+                # message to avoid exposing internal exception details to API callers.
                 logger.warning("Invalid timestamp input for flag %s: %s", feature_flag.key, e)
                 return Response(
-                    {"error": f"Invalid timestamp: {e}"},
+                    {"error": "Invalid timestamp format."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             except Exception:
@@ -3583,7 +3584,7 @@ class FeatureFlagViewSet(
                 # e.g. "timestamp must be timezone-aware" from version_history.
                 logger.warning("Invalid timestamp for flag reconstruction (flag %s): %s", feature_flag.key, e)
                 return Response(
-                    {"error": f"Invalid timestamp: {e}"},
+                    {"error": "Invalid timestamp."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             except Exception:
