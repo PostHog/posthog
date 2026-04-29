@@ -136,9 +136,9 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-react-native': '4.43.13',
         },
         unsupportedSdks: [
-            { sdk: 'posthog-ios', issue: false },
-            { sdk: 'posthog-android', issue: false },
-            { sdk: 'posthog_flutter', issue: false },
+            { sdk: 'posthog-ios', issue: 'https://github.com/PostHog/posthog-ios/issues/581' },
+            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/502' },
+            { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/379' },
         ],
         // True when a non-default popover position is set. NextToTrigger is excluded
         // here because it is covered by the "Feedback button surveys" entry above.
