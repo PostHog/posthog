@@ -83,19 +83,21 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
-# Mirrors SerializedPerson in posthog/queries/actor_base_query.py
+# Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
+# Nullability mirrors the TypedDict: only Optional[...] fields are nullable; matched_recordings
+# and value_at_data_point are always present in the response (always-set keys), even if empty/None.
 class CohortPersonResultSerializer(serializers.Serializer):
     id = serializers.CharField()
     uuid = serializers.UUIDField()
     type = serializers.ChoiceField(choices=["person"])
-    name = serializers.CharField(allow_null=True)
+    name = serializers.CharField()
     distinct_ids = serializers.ListField(child=serializers.CharField())
     properties = serializers.DictField()
     created_at = serializers.DateTimeField(allow_null=True)
     last_seen_at = serializers.DateTimeField(allow_null=True)
     is_identified = serializers.BooleanField(allow_null=True)
-    matched_recordings = serializers.ListField(child=serializers.DictField(), required=False)
-    value_at_data_point = serializers.FloatField(allow_null=True, required=False)
+    matched_recordings = serializers.ListField(child=serializers.DictField())
+    value_at_data_point = serializers.FloatField(allow_null=True)
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):

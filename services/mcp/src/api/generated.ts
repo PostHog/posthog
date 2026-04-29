@@ -8255,8 +8255,7 @@ export namespace Schemas {
       id: string;
       uuid: string;
       type: CohortPersonResultTypeEnum;
-      /** @nullable */
-      name: string | null;
+      name: string;
       distinct_ids: string[];
       properties: CohortPersonResultProperties;
       /** @nullable */
@@ -8265,9 +8264,9 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** @nullable */
       is_identified: boolean | null;
-      matched_recordings?: CohortPersonResultMatchedRecordingsItem[];
+      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
       /** @nullable */
-      value_at_data_point?: number | null;
+      value_at_data_point: number | null;
     }
 
     export interface CohortPersonsResponse {

@@ -338,8 +338,7 @@ export interface CohortPersonResultApi {
     id: string
     uuid: string
     type: CohortPersonResultTypeEnumApi
-    /** @nullable */
-    name: string | null
+    name: string
     distinct_ids: string[]
     properties: CohortPersonResultApiProperties
     /** @nullable */
@@ -348,9 +347,9 @@ export interface CohortPersonResultApi {
     last_seen_at: string | null
     /** @nullable */
     is_identified: boolean | null
-    matched_recordings?: CohortPersonResultApiMatchedRecordingsItem[]
+    matched_recordings: CohortPersonResultApiMatchedRecordingsItem[]
     /** @nullable */
-    value_at_data_point?: number | null
+    value_at_data_point: number | null
 }
 
 export interface CohortPersonsResponseApi {
