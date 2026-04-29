@@ -8,8 +8,8 @@
             "type": "number"
         },
         "daily_run_cap": {
-            "description": "Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.",
-            "maximum": 2147483647,
+            "description": "Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.",
+            "maximum": 24,
             "minimum": 1,
             "type": "number"
         },

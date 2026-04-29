@@ -594,9 +594,9 @@ export interface EvaluationReportApi {
      */
     cooldown_minutes?: number
     /**
-     * Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.
+     * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
      * @minimum 1
-     * @maximum 2147483647
+     * @maximum 24
      */
     daily_run_cap?: number
     /** @nullable */
@@ -666,9 +666,9 @@ export interface PatchedEvaluationReportApi {
      */
     cooldown_minutes?: number
     /**
-     * Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.
+     * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
      * @minimum 1
-     * @maximum 2147483647
+     * @maximum 24
      */
     daily_run_cap?: number
     /** @nullable */

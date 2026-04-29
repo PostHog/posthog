@@ -46,7 +46,7 @@ export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax = 10000
 export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin = 60
 export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax = 1440
 
-export const llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMax = 2147483647
+export const llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.object({
     evaluation: zod.string().describe('UUID of the evaluation this report config belongs to.'),
@@ -117,7 +117,9 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .min(1)
         .max(llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMax)
         .optional()
-        .describe('Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.'),
+        .describe(
+            'Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.'
+        ),
 })
 
 /**
@@ -155,7 +157,7 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax =
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin = 60
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 1440
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 2147483647
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
     evaluation: zod.string().optional().describe('UUID of the evaluation this report config belongs to.'),
@@ -226,7 +228,9 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .min(1)
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax)
         .optional()
-        .describe('Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.'),
+        .describe(
+            'Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.'
+        ),
 })
 
 /**

@@ -115,10 +115,12 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 ),
             },
             "daily_run_cap": {
-                "min_value": 1,
+                "min_value": EvaluationReport.DAILY_RUN_CAP_MIN,
+                "max_value": EvaluationReport.DAILY_RUN_CAP_MAX,
                 "help_text": (
-                    f"Maximum count-triggered report runs per calendar day (UTC). Min 1. "
-                    f"Defaults to {EvaluationReport.DAILY_RUN_CAP_DEFAULT}."
+                    f"Maximum count-triggered report runs per calendar day (UTC). "
+                    f"Min {EvaluationReport.DAILY_RUN_CAP_MIN}, max {EvaluationReport.DAILY_RUN_CAP_MAX} "
+                    f"(one per cooldown window). Defaults to {EvaluationReport.DAILY_RUN_CAP_DEFAULT}."
                 ),
             },
         }
