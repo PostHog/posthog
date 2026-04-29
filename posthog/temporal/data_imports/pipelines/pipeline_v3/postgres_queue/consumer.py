@@ -33,6 +33,8 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics 
     RUNS_FAILED_TOTAL,
 )
 
+from products.warehouse_sources_queue.backend.models import SourceBatchStatus
+
 logger = structlog.get_logger(__name__)
 
 MAX_ATTEMPTS = 3
@@ -178,7 +180,7 @@ class BatchConsumer:
 
         # Check before we even try — if already at max, fail the whole run.
         if attempt > self._config.max_attempts:
-            logger.exception(
+            logger.error(
                 "batch_max_retries_exceeded",
                 batch_id=batch.id,
                 run_uuid=batch.run_uuid,
@@ -192,7 +194,7 @@ class BatchConsumer:
         await BatchQueue.update_status(
             self._conn,
             batch_id=batch.id,
-            job_state="executing",
+            job_state=SourceBatchStatus.State.EXECUTING,
             attempt=attempt,
         )
 
@@ -206,7 +208,7 @@ class BatchConsumer:
             await BatchQueue.update_status(
                 self._conn,
                 batch_id=batch.id,
-                job_state="succeeded",
+                job_state=SourceBatchStatus.State.SUCCEEDED,
                 attempt=attempt,
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
@@ -232,7 +234,7 @@ class BatchConsumer:
                 await BatchQueue.update_status(
                     self._conn,
                     batch_id=batch.id,
-                    job_state="waiting_retry",
+                    job_state=SourceBatchStatus.State.WAITING_RETRY,
                     attempt=attempt,
                     error_response={"error": str(e)[:1000]},
                 )
@@ -297,7 +299,7 @@ class BatchConsumer:
                 await BatchQueue.update_status(
                     conn,
                     batch_id=batch.id,
-                    job_state="waiting_retry",
+                    job_state=SourceBatchStatus.State.WAITING_RETRY,
                     attempt=batch.latest_attempt,
                 )
 

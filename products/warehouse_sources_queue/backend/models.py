@@ -4,13 +4,6 @@ from posthog.models.utils import sane_repr
 
 
 class SourceBatch(models.Model):
-    class Status(models.TextChoices):
-        WAITING = "waiting", "waiting"
-        EXECUTING = "executing", "executing"
-        SUCCEEDED = "succeeded", "succeeded"
-        WAITING_RETRY = "waiting_retry", "waiting_retry"
-        FAILED = "failed", "failed"
-
     class SyncType(models.TextChoices):
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
