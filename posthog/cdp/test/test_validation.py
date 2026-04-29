@@ -371,37 +371,20 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("transpiled") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
 
-    def test_validate_transformation_inputs_rejects_unavailable_globals(self):
-        # Transformations only have access to project, event, and inputs at runtime
-        # (HogTransformerService.createInvocationGlobals). Referencing other globals
-        # like person, groups, or source must be caught at validation time so we
-        # don't crash the realtime ingestion worker with a "Global variable not found"
-        # error from the Hog VM.
-        inputs_schema = [
-            {"key": "person_id", "type": "string", "required": True},
-        ]
-        inputs = {
-            "person_id": {"value": "{person?.id}"},
-        }
-
-        with self.assertRaises(ValidationError) as ctx:
-            validate_inputs(inputs_schema, inputs, function_type="transformation")
-
-        message = str(ctx.exception)
-        assert "person" in message
-        assert "transformation" in message.lower()
-
     @parameterized.expand(
         [
+            ("person", "{person?.id}"),
             ("groups", "{groups.organization.id}"),
             ("source", "{source.name}"),
             ("multiple", "{person?.id} {groups.organization.id}"),
         ]
     )
     def test_validate_transformation_inputs_rejects_unavailable_global(self, _name: str, value: str):
-        inputs_schema = [
-            {"key": "payload", "type": "string", "required": True},
-        ]
+        # Transformations only have access to project, event, and inputs at runtime
+        # (HogTransformerService.createInvocationGlobals). Referencing other globals
+        # must be caught at validation time so we don't crash the realtime ingestion
+        # worker with a "Global variable not found" error from the Hog VM.
+        inputs_schema = [{"key": "payload", "type": "string", "required": True}]
         inputs = {"payload": {"value": value}}
 
         with self.assertRaises(ValidationError) as ctx:

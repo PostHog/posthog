@@ -42,12 +42,12 @@ TRANSFORMATION_AVAILABLE_GLOBALS = {"project", "event", "inputs"}
 # Helper functions that the transformer exposes via getTransformationFunctions
 # (nodejs/src/cdp/hog-transformations/transformation-functions.ts). These resolve
 # via GET_GLOBAL when referenced as a closure rather than called inline.
+# postHogCapture is intentionally omitted — it lives in CORE_SUPPORTED_FUNCTIONS.
 TRANSFORMATION_RUNTIME_FUNCTIONS = {
     "geoipLookup",
     "cleanNullValues",
     "isKnownBotUserAgent",
     "isKnownBotIp",
-    "postHogCapture",
 }
 
 
