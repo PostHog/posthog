@@ -1,12 +1,11 @@
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
-    KafkaProducerEnvConfig,
+    KafkaIngestionProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { DEFAULT_PRODUCER } from '../ingestion/common/outputs'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
@@ -17,6 +16,10 @@ import {
 import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
 import { createProducerRegistry } from '../session-recording/outputs/producer-registry'
 import { createOutputsRegistry } from '../session-recording/outputs/registry'
+import {
+    KafkaDefaultProducerEnvConfig,
+    getDefaultKafkaDefaultProducerEnvConfig,
+} from '../session-replay/shared/outputs/producer-config'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -39,8 +42,9 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionRecordingIngesterConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
+    KafkaDefaultProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
+    KafkaIngestionProducerEnvConfig &
     SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
@@ -61,8 +65,9 @@ export class IngestionSessionReplayServer implements NodeServer {
     constructor(config: Partial<IngestionSessionReplayServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
             ...config,
         }
@@ -87,7 +92,6 @@ export class IngestionSessionReplayServer implements NodeServer {
         logger.info('🤔', 'Connecting to Kafka...')
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
-        const metadataProducer = this.producerRegistry.getProducer(DEFAULT_PRODUCER)
         logger.info('👍', 'Kafka ready')
 
         // Session recording uses its own Redis instance with fallback to default
@@ -126,7 +130,6 @@ export class IngestionSessionReplayServer implements NodeServer {
             this.config,
             this.postgres!,
             outputs,
-            metadataProducer,
             this.redisPool,
             this.restrictionRedisPool
         )

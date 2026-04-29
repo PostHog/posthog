@@ -3,6 +3,35 @@ import { bisector } from 'd3'
 import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
+export interface LabelPosition {
+    x: number
+    index: number
+}
+
+const positionBisector = bisector<LabelPosition, number>((d) => d.x).center
+
+/** Builds the (x, index) lookup table for hit-testing. O(N) — call once per (labels, xScale) change
+ *  and feed the result into {@link findNearestIndexFromPositions} on each mousemove. */
+export function buildLabelPositions(labels: string[], xScale: (label: string) => number | undefined): LabelPosition[] {
+    const positions: LabelPosition[] = []
+    for (let i = 0; i < labels.length; i++) {
+        const x = xScale(labels[i])
+        if (x != null && isFinite(x)) {
+            positions.push({ x, index: i })
+        }
+    }
+    return positions
+}
+
+/** Binary search over precomputed positions. O(log N) per call. */
+export function findNearestIndexFromPositions(mouseX: number, positions: LabelPosition[]): number {
+    if (positions.length === 0) {
+        return -1
+    }
+    const nearestIdx = positionBisector(positions, mouseX)
+    return positions[Math.max(0, Math.min(nearestIdx, positions.length - 1))].index
+}
+
 export function findNearestIndex(
     mouseX: number,
     labels: string[],
@@ -11,23 +40,7 @@ export function findNearestIndex(
     if (labels.length === 0) {
         return -1
     }
-
-    const positions: { x: number; index: number }[] = []
-    for (let i = 0; i < labels.length; i++) {
-        const x = xScale(labels[i])
-
-        if (x != null && isFinite(x)) {
-            positions.push({ x, index: i })
-        }
-    }
-
-    if (positions.length === 0) {
-        return -1
-    }
-
-    const bisect = bisector<{ x: number; index: number }, number>((d) => d.x).center
-    const nearestIdx = bisect(positions, mouseX)
-    return positions[Math.max(0, Math.min(nearestIdx, positions.length - 1))].index
+    return findNearestIndexFromPositions(mouseX, buildLabelPositions(labels, xScale))
 }
 
 export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDimensions): boolean {

@@ -110,18 +110,18 @@ function renderTrendsLineChart(insightFixture: any): JSX.Element {
 /* eslint-disable @typescript-eslint/no-var-requires */
 export const Default: Story = {
     render: () =>
-        renderTrendsLineChart(require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')),
+        renderTrendsLineChart(require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')),
 }
 
 export const SingleSeries: Story = {
     render: () =>
-        renderTrendsLineChart(require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')),
+        renderTrendsLineChart(require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')),
 }
 
 export const Breakdown: Story = {
     render: () =>
         renderTrendsLineChart(
-            require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+            require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
         ),
 }
 /* eslint-enable @typescript-eslint/no-var-requires */

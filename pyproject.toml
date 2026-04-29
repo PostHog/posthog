@@ -195,6 +195,7 @@ dev = [
     "aioresponses==0.7.6",
     "autoevals==0.0.129",
     "boto3-stubs[s3]~=1.38.30",
+    "browser-cookie3~=0.20",
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli~=1.10.18",

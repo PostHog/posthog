@@ -9,6 +9,62 @@ feature: llm_analytics
 url_prefix: /llm-analytics/evaluation-reports
 ui_apps: {}
 tools:
+    evaluation-report-create:
+        operation: llm_analytics_evaluation_reports_create
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create evaluation report config
+        description: |
+            Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)
+            and are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults
+            to 'every_n' if omitted:
+
+            - 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have
+            accumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per
+            UTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)
+            and `daily_run_cap` are optional.
+            - 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.
+            'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock
+            times survive DST transitions. `rrule` and `starts_at` are required in this mode;
+            `timezone_name` defaults to 'UTC'.
+
+            `delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',
+            integration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the
+            same team. Use `report_prompt_guidance` to steer the AI report's focus.
+        include_params:
+            - evaluation
+            - frequency
+            - delivery_targets
+            - enabled
+            - trigger_threshold
+            - cooldown_minutes
+            - daily_run_cap
+            - rrule
+            - starts_at
+            - timezone_name
+            - max_sample_size
+            - report_prompt_guidance
+    evaluation-report-delete:
+        operation: llm_analytics_evaluation_reports_destroy
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete evaluation report config
+        description: >
+            Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views;
+            historical report runs are preserved. Equivalent to calling evaluation-report-update with deleted=true —
+            that update path is the canonical way to soft-delete and is the only option when you also want to change
+            other fields in the same call.
+        soft_delete: true
     evaluation-report-generate:
         operation: llm_analytics_evaluation_reports_generate_create
         enabled: true
@@ -63,9 +119,9 @@ tools:
         title: Update evaluation report config
         description: >
             Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email
-            or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes (min 60,
-            max 1440) for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the
-            config.
+            or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold
+            (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set
+            deleted=true to soft-delete the config.
     evaluation-reports-list:
         operation: llm_analytics_evaluation_reports_list
         enabled: true
