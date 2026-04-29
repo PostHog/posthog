@@ -142,12 +142,21 @@ export interface ChartConfig {
 
     /** Show horizontal grid lines at y-axis tick positions. */
     showGrid?: boolean
-    /** Show a tooltip on hover. Defaults to true. Use the `tooltip` prop to customize content. */
-    showTooltip?: boolean
-    /** When true, clicking a data point with multiple series pins the tooltip in place. */
-    pinnableTooltip?: boolean
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+}
+
+export interface TooltipConfig {
+    /** Show a tooltip on hover. Defaults to true. Use the `tooltip` render prop on Chart to customize content. */
+    enabled?: boolean
+    /** When true, clicking a data point with multiple series pins the tooltip in place. */
+    pinnable?: boolean
+    /** Where the tooltip anchors vertically. `follow-data` (default) tracks the highest data point
+     *  at the hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump
+     *  vertically as the cursor moves between data points. */
+    placement?: 'follow-data' | 'top'
 }
 
 export interface LineChartConfig extends ChartConfig {

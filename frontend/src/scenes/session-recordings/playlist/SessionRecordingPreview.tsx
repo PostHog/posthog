@@ -277,19 +277,23 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
     if (isSummarizing) {
         return (
             <Tooltip title="Generating summary…">
-                <Spinner className="shrink-0 text-lg mb-1" />
+                <span className="flex items-center">
+                    <Spinner className="shrink-0 text-lg mb-1" />
+                </span>
             </Tooltip>
         )
     }
     if (hasSummary && summaryOutcome) {
         return (
             <Tooltip title={summaryOutcome.description}>
-                <IconAIText
-                    className={clsx(
-                        'shrink-0 text-lg mb-1',
-                        summaryOutcome.success === false ? 'text-danger' : 'text-success'
-                    )}
-                />
+                <span className="flex items-center">
+                    <IconAIText
+                        className={clsx(
+                            'shrink-0 text-lg mb-1',
+                            summaryOutcome.success === false ? 'text-danger' : 'text-success'
+                        )}
+                    />
+                </span>
             </Tooltip>
         )
     }
