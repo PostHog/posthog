@@ -16,10 +16,13 @@ export type FacetSelection = {
     stability: Set<string>
 }
 
+// Stability first — it's the most actionable facet for the page's primary use
+// case ("which snapshots am I tolerating drift on?"). Type and Area are
+// context refinements after that.
 const GROUP_LABELS: Array<{ key: keyof FacetGroups; label: string }> = [
+    { key: 'stability', label: 'Stability' },
     { key: 'type', label: 'Type' },
     { key: 'area', label: 'Area' },
-    { key: 'stability', label: 'Stability' },
 ]
 
 export function SnapshotFacetSidebar({

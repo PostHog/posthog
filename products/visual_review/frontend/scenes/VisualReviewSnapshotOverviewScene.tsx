@@ -57,8 +57,11 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
             return { columnCount: 1, columnWidth: CARD_MIN_WIDTH }
         }
         const cols = Math.max(1, Math.floor((gridWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)))
-        const totalGap = CARD_GAP * (cols - 1)
-        const cw = Math.floor((gridWidth - totalGap) / cols)
+        // Gaps live inside each cell's padding (not as separate spacers between
+        // cells), so columnWidth must consume the full container width — no
+        // gap subtraction. Subtracting it leaves a ~(cols-1) × gap dead band
+        // on the right edge.
+        const cw = Math.floor(gridWidth / cols)
         return { columnCount: cols, columnWidth: cw }
     }, [gridWidth])
 
@@ -103,17 +106,19 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                         { value: 'dark', label: 'Dark' },
                     ]}
                 />
-                {isFiltered && (
-                    <button
-                        type="button"
-                        className="text-xs text-muted hover:text-default"
-                        onClick={() => clearAllFilters()}
-                    >
-                        Clear all
-                    </button>
-                )}
-                <div className="text-xs text-muted ml-auto">
-                    Sorted by <span className="text-default">{sortLabel.label}</span>
+                <div className="ml-auto flex items-center gap-3">
+                    {isFiltered && (
+                        <button
+                            type="button"
+                            className="text-xs text-muted hover:text-default"
+                            onClick={() => clearAllFilters()}
+                        >
+                            Clear all
+                        </button>
+                    )}
+                    <div className="text-xs text-muted">
+                        Sorted by <span className="text-default">{sortLabel.label}</span>
+                    </div>
                 </div>
             </div>
 
