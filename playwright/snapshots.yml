@@ -5,8 +5,8 @@ config:
     repo: 3d760a0a-0763-477d-89ee-f1e4e92cdd78
 snapshots:
     tabs-after-close-frozen-chromium-linux:
-        hash: v1.k794b7964.2fca90256612fb00cd9acfae8212369d7d5c55c79934d67bf585fcde88544dba.ACLl0M4x2-BDmhIal2C0rYq943n8Iw0K2RurdONJC3U
+        hash: v1.k794b7964.a4235ebca87ac6b4d3ef48f2d3be576f690dfcca3e759a58d8dcb22b6477d213.zgf35hUXzpTDKnL_SV2E1t8pZPnDfgBOgZfbz-R6HPA
     tabs-after-mouse-leave-chromium-linux:
-        hash: v1.k794b7964.2d65fc8d2ae1d11dbe893408f84286d6b055981a98c2cf8fae6730615c5db543.OrtKPeft24KO45UT-N9tVWWSBpeW8_aV3tcb_zK6SgM
+        hash: v1.k794b7964.a18bc04e9b41cce53b9227fee591653de9617134e9d78e38c03900172d93cfdb.Vxzh8ZrBqjHYMX2J8PrxdsN1e45WeM6V6o4yrxE_C8Y
     tabs-before-close-chromium-linux:
         hash: v1.k794b7964.584060413355ddfa5dc857ec9a4c91c8cb3c60996ca79c122791f73221d2c8b0.VEMozasRJQn9nJ1-VQ81_P_pmkTAVLDd-Q4J-YvkPRc
