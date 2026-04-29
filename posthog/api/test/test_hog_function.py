@@ -1762,10 +1762,15 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        body = response.json()
-        # Error is nested under inputs.pid by run_child_validation
-        assert "person" in json.dumps(body)
-        assert "transformation" in json.dumps(body).lower()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "attr": "inputs__pid",
+            "detail": (
+                "Invalid template: Variable not available in transformations: person. "
+                "Transformations only have access to project, event, and inputs."
+            ),
+        }
 
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
