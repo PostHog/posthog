@@ -59,6 +59,18 @@ export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltL
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
 }
 
+/**
+ * Inverse of `initModel` — drops the `codeEditorLogic` back-reference set on the
+ * Monaco text model. A disposed model can outlive its dispose call in the JS
+ * heap; while the back-reference is set the captured `codeEditorLogic`
+ * BuiltLogic (and through its `props.onError` closure, the surrounding kea
+ * graph) stays reachable. Call this immediately before `model.dispose()` from
+ * any owner of a model that attached a logic via `initModel`.
+ */
+export function clearLogicReference(model: editor.ITextModel): void {
+    ;(model as any).codeEditorLogic = undefined
+}
+
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -241,7 +253,13 @@ export function CodeEditor({
             // dispose. Doing it for shared models would break consumers
             // (e.g. hogQLAutocompleteProvider, hogQLMetadataProvider) that
             // read `model.codeEditorLogic` to look up logic state.
-            ;(model as any).codeEditorLogic = undefined
+            //
+            // Note: this only catches models that are not already disposed.
+            // Owners that dispose their own models (e.g. sqlEditorLogic via
+            // `cache.createdModels`) must call `clearLogicReference(model)`
+            // themselves before disposing — otherwise this loop hits the
+            // `model.isDisposed()` skip above and the back-reference leaks.
+            clearLogicReference(model)
             try {
                 model.dispose()
             } catch {

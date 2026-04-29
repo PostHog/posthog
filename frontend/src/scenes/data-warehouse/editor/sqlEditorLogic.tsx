@@ -29,7 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { initModel } from 'lib/monaco/CodeEditor'
+import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -2935,16 +2935,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.decorationGeneration = (cache.decorationGeneration ?? 0) + 1
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
-            // Null the back-reference BEFORE disposing. A disposed Monaco
-            // model still lives in the JS heap until GC reclaims it; if
-            // `(model as any).codeEditorLogic` is still set, the captured
-            // codeEditorLogic BuiltLogic — and through its `props.onError`
-            // closure, the entire `sqlEditorLogic` connection graph —
-            // stays reachable. `CodeEditor.tsx#disposeTrackedModels` only
-            // clears the back-reference on models that aren't already
-            // disposed, so unless we null it here first, every per-tab
-            // model leaks a full graph each cycle.
-            ;(m as any).codeEditorLogic = undefined
+            // Clear before dispose: `CodeEditor.tsx#disposeTrackedModels`
+            // can't catch us — it skips already-disposed models — so the
+            // captured codeEditorLogic (and the `sqlEditorLogic` graph it
+            // pins via `props.onError`) leaks until we null the
+            // back-reference ourselves.
+            clearLogicReference(m)
             try {
                 m.dispose()
             } catch {}
