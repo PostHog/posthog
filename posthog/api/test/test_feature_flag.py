@@ -12571,20 +12571,64 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(data["reason"], "condition_match")
         self.assertEqual(data["condition_index"], 0)
         self.assertIsInstance(data["person_properties"], dict)
+        # Caller-provided distinct_id resolves to the person → it must drive bucketing.
+        self.assertEqual(data["evaluation_distinct_id"], "test-user")
+        self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "test-user")
+
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    def test_test_evaluation_with_person_id_uses_smallest_distinct_id(self, mock_get_person, mock_get_flags):
+        """When the caller passes person_id (no distinct_id), bucketing must
+        pick the lexicographically smallest distinct_id so two calls with the
+        same person_id are deterministic — proto_person_to_model / the ORM
+        don't guarantee a stable order. The response must NOT echo the chosen
+        distinct_id back, otherwise feature_flag:read tokens could enumerate
+        distinct_ids for any person UUID."""
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        person = Person.objects.create(team=self.team, distinct_ids=["zzz", "aaa", "mmm"])
+
+        # Hand the resolver back distinct_ids in deliberately non-sorted order
+        # to prove the sort happens in feature_flag.py, not upstream.
+        mock_get_person.return_value = (person, ["zzz", "aaa", "mmm"])
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": False,
+                    "variant": None,
+                    "reason": {"code": "no_condition_match"},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"person_id": str(person.uuid)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Bucketing still uses the resolved smallest distinct_id...
+        self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "aaa")
+        # ...but the response must NOT leak it back to the caller.
+        self.assertIsNone(response.json()["evaluation_distinct_id"])
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_with_timestamp(self, mock_get_flags):
-        """Test historical evaluation with timestamp."""
+        """Historical evaluation must drive the Rust call with reconstructed
+        person properties + override definitions, not the live flag's data."""
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
-            filters={"groups": [{"properties": []}]},
+            filters={"groups": [{"properties": [{"key": "email", "type": "person", "value": "x"}]}]},
         )
 
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        # Mock successful flag evaluation response
         mock_get_flags.return_value = {
             "flags": {
                 "test-flag": {
@@ -12613,6 +12657,28 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_build_props.assert_called_once()
+
+        # Build was given the requested timestamp and the resolved distinct_ids,
+        # so the historical props lookup actually targeted the right window/person.
+        _, build_kwargs = mock_build_props.call_args
+        self.assertEqual(build_kwargs["distinct_ids"], ["test-user"])
+        self.assertTrue(build_kwargs["include_set_once"])
+        self.assertEqual(build_kwargs["timestamp"].isoformat(), recent_timestamp)
+
+        # The whole point of the timestamp branch: the Rust call must use
+        # the reconstructed person_properties, not the live person row, and
+        # must include the historical override definition keyed by flag key.
+        _, get_flags_kwargs = mock_get_flags.call_args
+        self.assertTrue(get_flags_kwargs["only_use_override_person_properties"])
+        self.assertEqual(get_flags_kwargs["person_properties"], {"email": "historical@example.com"})
+        self.assertIn("test-flag", get_flags_kwargs["override_flags_definitions"])
+        self.assertEqual(get_flags_kwargs["override_flags_definitions"]["test-flag"]["id"], flag.id)
+        self.assertEqual(get_flags_kwargs["override_flags_definitions"]["test-flag"]["team_id"], self.team.pk)
+        self.assertEqual(get_flags_kwargs["override_flags_definitions"]["test-flag"]["key"], "test-flag")
+
+        # Filtered person_properties in the response only carry keys referenced
+        # by the (reconstructed) flag's conditions.
+        self.assertEqual(response.json()["person_properties"], {"email": "historical@example.com"})
 
     def test_test_evaluation_distinct_id_person_id_conflict(self):
         """Test validation error when both distinct_id and person_id are provided."""

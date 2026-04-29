@@ -3,7 +3,7 @@ Tests for point-in-time person properties building functionality.
 """
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -21,19 +21,17 @@ from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 
-def _prop_row(set_dict: dict | None = None, set_once_dict: dict | None = None, event: str = "$set") -> tuple:
-    """Helper to build a property-update row matching the combined UNION ALL query shape."""
+def _prop_row(
+    set_dict: dict | None = None,
+    set_once_dict: dict | None = None,
+    event: str = "$set",
+) -> tuple:
+    """Helper to build a property-update row matching the SELECT shape."""
     return (
-        1,
         json.dumps(set_dict) if set_dict is not None else "",
         json.dumps(set_once_dict) if set_once_dict is not None else "",
         event,
     )
-
-
-def _existence_row() -> tuple:
-    """Helper to build the existence probe row."""
-    return (0, "", "", "")
 
 
 class TestPointInTimeProperties(SimpleTestCase):
@@ -74,14 +72,9 @@ class TestPointInTimeProperties(SimpleTestCase):
             build_person_properties_at_time(1, timestamp, ["user123"], row_limit=0)
         self.assertIn("row_limit must be a positive integer", str(cm.exception))
 
-        # lower_bound after timestamp
-        with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(1, timestamp, ["user123"], lower_bound=timestamp + timedelta(days=1))
-        self.assertIn("lower_bound must not be after timestamp", str(cm.exception))
-
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_empty_result(self, mock_sync_execute):
-        """Zero rows means the person had no activity at all."""
+        """Zero rows means the person had no property activity at or before timestamp."""
         mock_sync_execute.return_value = []
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -92,21 +85,9 @@ class TestPointInTimeProperties(SimpleTestCase):
         mock_sync_execute.assert_called_once()
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_build_person_properties_existence_only(self, mock_sync_execute):
-        """Existence row but no property rows -> person existed with empty properties."""
-        mock_sync_execute.return_value = [_existence_row()]
-
-        timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, existed = build_person_properties_at_time(1, timestamp, ["user123"])
-
-        self.assertEqual(properties, {})
-        self.assertTrue(existed)
-
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_single_set(self, mock_sync_execute):
         mock_sync_execute.return_value = [
             _prop_row(set_dict={"name": "John Doe", "email": "john@example.com"}, event="$set"),
-            _existence_row(),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -121,7 +102,6 @@ class TestPointInTimeProperties(SimpleTestCase):
             _prop_row(set_dict={"name": "John", "age": 25}, event="$set"),
             _prop_row(set_dict={"name": "John Doe", "location": "SF"}, event="$pageview"),
             _prop_row(set_dict={"age": 26}, event="$set"),
-            _existence_row(),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -132,10 +112,9 @@ class TestPointInTimeProperties(SimpleTestCase):
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_malformed_json(self, mock_sync_execute):
         mock_sync_execute.return_value = [
-            (1, "invalid json", "", "$set"),
+            ("invalid json", "", "$set"),
             _prop_row(set_dict={"name": "John"}, event="$set"),
-            (1, "", "", "$pageview"),
-            _existence_row(),
+            ("", "", "$pageview"),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -155,26 +134,18 @@ class TestPointInTimeProperties(SimpleTestCase):
         self.assertIn("Failed to query ClickHouse events", str(cm.exception))
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_lower_bound_and_row_limit_are_passed_to_query(self, mock_sync_execute):
-        mock_sync_execute.return_value = [_existence_row()]
+    def test_row_limit_is_passed_to_query(self, mock_sync_execute):
+        mock_sync_execute.return_value = []
 
         timestamp = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-        lower_bound = timestamp - timedelta(days=90)
 
-        build_person_properties_at_time(
-            1,
-            timestamp,
-            ["user123"],
-            lower_bound=lower_bound,
-            row_limit=500,
-        )
+        build_person_properties_at_time(1, timestamp, ["user123"], row_limit=500)
 
         mock_sync_execute.assert_called_once()
-        args, kwargs = mock_sync_execute.call_args
+        args, _ = mock_sync_execute.call_args
         query, params = args[0], args[1]
 
         self.assertIn("LIMIT 500", query)
-        self.assertEqual(params["lower_bound"], lower_bound.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"))
         self.assertEqual(params["upper_bound"], timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"))
 
 
@@ -185,7 +156,6 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         mock_sync_execute.return_value = [
             _prop_row(set_dict={"name": "John"}, event="$set"),
             _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
-            _existence_row(),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -199,7 +169,6 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         mock_sync_execute.return_value = [
             _prop_row(set_once_dict={"name": "Jane", "email": "jane@example.com"}, event="$set_once"),
             _prop_row(set_dict={"name": "John"}, event="$set"),
-            _existence_row(),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -213,7 +182,6 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
         mock_sync_execute.return_value = [
             _prop_row(set_once_dict={"name": "First", "email": "first@example.com"}, event="$set_once"),
             _prop_row(set_once_dict={"name": "Second", "location": "SF"}, event="$set_once"),
-            _existence_row(),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -228,7 +196,6 @@ class TestPointInTimePropertiesWithSetOnce(SimpleTestCase):
     def test_build_person_properties_at_time_with_distinct_ids_direct(self, mock_sync_execute):
         mock_sync_execute.return_value = [
             _prop_row(set_dict={"name": "Jane Doe", "email": "jane@example.com"}, event="$set"),
-            _existence_row(),
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)

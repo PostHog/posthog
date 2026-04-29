@@ -1,159 +1,245 @@
 """
-Integration tests for point-in-time person properties building functionality.
+Real-ClickHouse integration tests for point-in-time person properties.
 
-These tests demonstrate the functionality but require ClickHouse to be available
-and may need actual event data to run properly.
+This file used to mock ``sync_execute``, which made the file's name a lie and
+let SQL typos / column-order mistakes / UNION-ALL ordering bugs sail through
+green. Each test now seeds events into ClickHouse and exercises the real query.
 """
 
-import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from unittest.mock import patch
-
-from django.test import SimpleTestCase
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.models.person.point_in_time_properties import build_person_properties_at_time
 
 
-def _prop_row(set_dict: dict | None = None, set_once_dict: dict | None = None, event: str = "$set") -> tuple:
-    return (
-        1,
-        json.dumps(set_dict) if set_dict is not None else "",
-        json.dumps(set_once_dict) if set_once_dict is not None else "",
-        event,
-    )
+class TestPointInTimePropertiesClickhouse(ClickhouseTestMixin, BaseTest):
+    """Hits the real ClickHouse query — guards against SQL typos and the
+    column-order / ORDER-BY-through-UNION-ALL pitfalls."""
 
+    def test_chronological_set_resolution(self):
+        distinct_id = "user-clickhouse-chrono"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
-def _existence_row() -> tuple:
-    return (0, "", "", "")
+        # Two $set events on the same key, written non-chronologically (later
+        # event inserted first) — the production query must sort to give the
+        # later value precedence.
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"name": "Final"}},
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"name": "Initial", "email": "user@example.com"}},
+            timestamp=upper_bound - timedelta(hours=5),
+        )
+        flush_persons_and_events()
 
+        properties, existed = build_person_properties_at_time(
+            self.team.pk,
+            upper_bound,
+            [distinct_id],
+        )
 
-class TestPointInTimePropertiesIntegration(SimpleTestCase):
-    """
-    Integration test examples showing how the point-in-time person properties
-    building functionality would work in practice.
+        self.assertTrue(existed)
+        self.assertEqual(properties, {"name": "Final", "email": "user@example.com"})
 
-    Note: These tests use mocked ClickHouse responses to demonstrate the functionality
-    without requiring a live ClickHouse instance.
-    """
+    def test_set_once_first_write_wins(self):
+        distinct_id = "user-clickhouse-set-once"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_realistic_person_properties_timeline(self, mock_sync_execute):
-        # Simulate a timeline of events for user "alice123" on team 1:
-        # Day 1: User signs up with basic info
-        # Day 2: User completes profile with more details
-        # Day 3: User's location changes
-        # Day 4: User updates their preferences
-        timeline = [
-            (
-                _prop_row(set_dict={"email": "alice@example.com", "name": "Alice", "signup_source": "google"}),
-                datetime(2023, 1, 1, 10, 0, 0),
-            ),
-            (
-                _prop_row(
-                    set_dict={
-                        "name": "Alice Johnson",
-                        "age": 28,
-                        "occupation": "Software Engineer",
-                        "profile_complete": True,
-                    }
-                ),
-                datetime(2023, 1, 2, 14, 30, 0),
-            ),
-            (
-                _prop_row(set_dict={"city": "San Francisco", "state": "CA", "timezone": "America/Los_Angeles"}),
-                datetime(2023, 1, 3, 9, 15, 0),
-            ),
-            (
-                _prop_row(set_dict={"newsletter_subscribed": True, "preferred_language": "en", "theme": "dark"}),
-                datetime(2023, 1, 4, 16, 45, 0),
-            ),
-        ]
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set_once": {"first_seen": "2024-05-01"}},
+            timestamp=upper_bound - timedelta(hours=2),
+        )
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set_once": {"first_seen": "2024-05-15"}},
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        flush_persons_and_events()
 
-        def mock_query_with_timestamp_filter(query, params, settings=None):
-            query_timestamp = datetime.strptime(params["upper_bound"], "%Y-%m-%d %H:%M:%S")
-            filtered_rows = [row for row, ts in timeline if ts <= query_timestamp]
-            if filtered_rows:
-                filtered_rows.append(_existence_row())
-            return filtered_rows
+        properties, existed = build_person_properties_at_time(
+            self.team.pk,
+            upper_bound,
+            [distinct_id],
+            include_set_once=True,
+        )
 
-        mock_sync_execute.side_effect = mock_query_with_timestamp_filter
+        self.assertTrue(existed)
+        self.assertEqual(properties, {"first_seen": "2024-05-01"})
 
-        day_2_end = datetime(2023, 1, 2, 23, 59, 59, tzinfo=UTC)
-        properties_day_2, existed_day_2 = build_person_properties_at_time(1, day_2_end, ["alice123"])
+    def test_set_then_set_once_interleaving(self):
+        """Mixed $set and $set_once events: $set always wins on its key, while
+        $set_once only sticks for keys never set by anything else."""
+        distinct_id = "user-clickhouse-interleave"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
-        expected_day_2 = {
-            "email": "alice@example.com",
-            "name": "Alice Johnson",
-            "signup_source": "google",
-            "age": 28,
-            "occupation": "Software Engineer",
-            "profile_complete": True,
-        }
-        self.assertEqual(properties_day_2, expected_day_2)
-        self.assertTrue(existed_day_2)
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={
+                "$set_once": {
+                    "first_seen": "2024-05-01",
+                    "signup_source": "organic",
+                }
+            },
+            timestamp=upper_bound - timedelta(hours=4),
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"name": "Bob"}},
+            timestamp=upper_bound - timedelta(hours=3),
+        )
+        # Later $set overrides signup_source set by the earlier $set_once.
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"signup_source": "facebook"}},
+            timestamp=upper_bound - timedelta(hours=2),
+        )
+        # Later $set_once attempts to overwrite signup_source — must NOT win.
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={
+                "$set_once": {
+                    "signup_source": "twitter",
+                    "utm_campaign": "winter",
+                }
+            },
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        flush_persons_and_events()
 
-        day_3_end = datetime(2023, 1, 3, 23, 59, 59, tzinfo=UTC)
-        properties_day_3, _ = build_person_properties_at_time(1, day_3_end, ["alice123"])
+        properties, existed = build_person_properties_at_time(
+            self.team.pk,
+            upper_bound,
+            [distinct_id],
+            include_set_once=True,
+        )
 
-        expected_day_3 = {
-            **expected_day_2,
-            "city": "San Francisco",
-            "state": "CA",
-            "timezone": "America/Los_Angeles",
-        }
-        self.assertEqual(properties_day_3, expected_day_3)
+        self.assertTrue(existed)
+        self.assertEqual(
+            properties,
+            {
+                "first_seen": "2024-05-01",
+                "signup_source": "facebook",
+                "name": "Bob",
+                "utm_campaign": "winter",
+            },
+        )
 
-    @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def test_set_once_behavior_demonstration(self, mock_sync_execute):
-        timeline = [
-            (
-                _prop_row(
-                    set_once_dict={
-                        "first_seen": "2023-01-01",
-                        "signup_source": "organic",
-                        "initial_referrer": "https://google.com",
-                    },
-                    event="$set_once",
-                ),
-                datetime(2023, 1, 1, 10, 0, 0),
-            ),
-            (
-                _prop_row(set_dict={"name": "Bob Smith", "email": "bob@example.com"}, event="$set"),
-                datetime(2023, 1, 1, 10, 5, 0),
-            ),
-            (
-                _prop_row(
-                    set_once_dict={
-                        "signup_source": "facebook",  # should NOT overwrite the earlier $set_once value
-                        "utm_campaign": "winter_2023",
-                    },
-                    event="$set_once",
-                ),
-                datetime(2023, 1, 1, 10, 10, 0),
-            ),
-            (_prop_row(set_dict={"signup_source": "facebook"}, event="$set"), datetime(2023, 1, 1, 10, 15, 0)),
-        ]
+    def test_only_non_property_events_returns_not_existed(self):
+        # ``existed`` semantics: had any property-update event at or before timestamp.
+        # A $pageview that doesn't carry a $set blob is not a property event by this
+        # definition, so ``existed`` is False even though the person had activity.
+        # Upstream existence (Postgres row) is established by the caller, not here.
+        distinct_id = "user-clickhouse-pageview-only"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
-        def mock_query_with_timestamp_filter_set_once(query, params, settings=None):
-            query_timestamp = datetime.strptime(params["upper_bound"], "%Y-%m-%d %H:%M:%S")
-            filtered_rows = [row for row, ts in timeline if ts <= query_timestamp]
-            if filtered_rows:
-                filtered_rows.append(_existence_row())
-            return filtered_rows
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"url": "https://example.com"},
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        flush_persons_and_events()
 
-        mock_sync_execute.side_effect = mock_query_with_timestamp_filter_set_once
+        properties, existed = build_person_properties_at_time(
+            self.team.pk,
+            upper_bound,
+            [distinct_id],
+        )
 
-        final_timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties, _ = build_person_properties_at_time(1, final_timestamp, ["bob123"], include_set_once=True)
+        self.assertFalse(existed)
+        self.assertEqual(properties, {})
 
-        expected = {
-            "first_seen": "2023-01-01",
-            "signup_source": "facebook",  # $set overrode earlier $set_once
-            "initial_referrer": "https://google.com",
-            "name": "Bob Smith",
-            "email": "bob@example.com",
-            "utm_campaign": "winter_2023",  # set by later $set_once since it was new
-        }
+    def test_no_events_returns_not_existed(self):
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
-        self.assertEqual(properties, expected)
+        properties, existed = build_person_properties_at_time(
+            self.team.pk,
+            upper_bound,
+            ["user-clickhouse-nonexistent"],
+        )
+
+        self.assertFalse(existed)
+        self.assertEqual(properties, {})
+
+    def test_row_limit_truncates_oldest_first(self):
+        """When the property row count exceeds row_limit, the inner ORDER BY ASC + LIMIT
+        keeps the earliest rows. We assert that a property only present in the tail
+        beyond the limit does NOT make it into the result."""
+        distinct_id = "user-clickhouse-rowlimit"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        row_limit = 5
+
+        # Insert row_limit + 1 chronologically-ordered events. The newest one
+        # sets a unique key that should be dropped because the LIMIT cuts it off.
+        for i in range(row_limit):
+            _create_event(
+                event="$set",
+                team=self.team,
+                distinct_id=distinct_id,
+                properties={"$set": {f"key_{i}": f"value_{i}"}},
+                timestamp=upper_bound - timedelta(hours=row_limit - i + 1),
+            )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"truncated_key": "should_be_missing"}},
+            timestamp=upper_bound - timedelta(minutes=1),
+        )
+        flush_persons_and_events()
+
+        properties, _ = build_person_properties_at_time(
+            self.team.pk,
+            upper_bound,
+            [distinct_id],
+            row_limit=row_limit,
+        )
+
+        for i in range(row_limit):
+            self.assertEqual(properties.get(f"key_{i}"), f"value_{i}")
+        self.assertNotIn("truncated_key", properties)
+
+    def test_happy_path_with_default_row_limit(self):
+        # Happy path with no explicit row_limit — confirms the default flows through.
+        distinct_id = "user-clickhouse-default-limit"
+        upper_bound = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id=distinct_id,
+            properties={"$set": {"hello": "world"}},
+            timestamp=upper_bound - timedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        properties, existed = build_person_properties_at_time(
+            self.team.pk,
+            upper_bound,
+            [distinct_id],
+        )
+
+        self.assertTrue(existed)
+        self.assertEqual(properties, {"hello": "world"})

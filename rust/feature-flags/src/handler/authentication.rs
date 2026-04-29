@@ -54,10 +54,13 @@ fn is_internal_request_inner(internal_token: Option<&str>, headers: &HeaderMap) 
     }
 
     match crate::api::auth::extract_bearer_token(headers) {
-        // Ensure auth token is not empty either; use a constant-time compare to
-        // avoid leaking the configured token via response-time differences.
+        // Trim the wire token symmetrically with the configured one, otherwise
+        // a stray newline on either side breaks comparison silently. Use a
+        // constant-time compare to avoid leaking the configured token via
+        // response-time differences.
         Some(auth_token) => {
-            !auth_token.trim().is_empty()
+            let auth_token = auth_token.trim();
+            !auth_token.is_empty()
                 && auth_token
                     .as_bytes()
                     .ct_eq(internal_token.as_bytes())

@@ -17,7 +17,12 @@ if TYPE_CHECKING:
 
 
 DEFAULT_PROPERTY_ROW_LIMIT = 100_000
-DEFAULT_LOWER_BOUND_WINDOW = timedelta(days=365 * 2)
+
+# Hard floor on how far back the property scan walks. Anything older is almost
+# certainly past retention anyway; bounding here saves ClickHouse from walking
+# dead partitions when ``timestamp`` is the only bound (worst case: a brand-new
+# distinct_id with no matching events on a team with multi-year retention).
+_HISTORY_SCAN_FLOOR = timedelta(days=365 * 2)
 
 
 def get_person_and_distinct_ids_for_identifier(
@@ -64,9 +69,9 @@ def get_person_and_distinct_ids_for_identifier(
     if person is None:
         return None, []
 
-    # Person.distinct_ids is an @property that returns the personhog-hydrated
-    # cache when present and otherwise falls back to a DB query, so we can rely
-    # on it directly.
+    # Person.distinct_ids returns the in-memory cache when populated (e.g. by
+    # the personhog client wrapper around posthog/personhog_client/) and
+    # otherwise falls back to a DB query, so we can rely on it directly.
     return person, person.distinct_ids
 
 
@@ -91,7 +96,6 @@ def build_person_properties_at_time(
     distinct_ids: list[str],
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
-    lower_bound: Optional[datetime] = None,
     row_limit: int = DEFAULT_PROPERTY_ROW_LIMIT,
 ) -> tuple[dict[str, Any], bool]:
     """
@@ -104,9 +108,6 @@ def build_person_properties_at_time(
         distinct_ids: List of distinct_ids to query for person properties
         include_set_once: If True, also handles $set_once operations (default: False)
         timeout: Query timeout in seconds (default: 30)
-        lower_bound: Oldest timestamp to scan. Defaults to ``timestamp - 2 years``.
-            Callers with tighter knowledge (e.g. flag creation time) should pass a
-            stricter bound to keep the ClickHouse scan small.
         row_limit: Maximum property update rows to ship back from ClickHouse (default 100_000).
 
     Returns:
@@ -133,54 +134,36 @@ def build_person_properties_at_time(
     if not isinstance(row_limit, int) or row_limit <= 0:
         raise ValueError("row_limit must be a positive integer")
 
-    effective_lower_bound = lower_bound if lower_bound is not None else timestamp - DEFAULT_LOWER_BOUND_WINDOW
-
-    if effective_lower_bound > timestamp:
-        raise ValueError("lower_bound must not be after timestamp")
-
     if include_set_once:
         event_filter = "event IN ('$set', '$set_once') OR JSONHas(properties, '$set')"
     else:
         event_filter = "event = '$set' OR JSONHas(properties, '$set')"
 
-    # UNION ALL folds the property query and a LIMIT 1 existence probe into a
-    # single ClickHouse round trip. Columns must line up across both sub-selects.
-    # kind=1 -> property update row; kind=0 -> existence probe row.
+    # Pulls every property-update event in the window. Existence is established
+    # upstream by get_person_and_distinct_ids_for_identifier (Postgres row);
+    # ``existed`` here means "had property activity in the scan window", which
+    # the property row count answers directly. We extract $set / $set_once raw
+    # JSON instead of shipping the full properties blob, and the timestamp
+    # window + LIMIT keeps ClickHouse from walking dead partitions.
     query = f"""
-    SELECT kind, set_json, set_once_json, event_name FROM (
-        SELECT
-            1 AS kind,
-            JSONExtractRaw(properties, '$set') AS set_json,
-            JSONExtractRaw(properties, '$set_once') AS set_once_json,
-            event AS event_name
-        FROM events
-        WHERE team_id = %(team_id)s
-            AND distinct_id IN %(distinct_ids)s
-            AND timestamp >= %(lower_bound)s
-            AND timestamp <= %(upper_bound)s
-            AND ({event_filter})
-        ORDER BY timestamp ASC
-        LIMIT {int(row_limit)}
-    )
-    UNION ALL
-    SELECT kind, set_json, set_once_json, event_name FROM (
-        SELECT
-            0 AS kind,
-            '' AS set_json,
-            '' AS set_once_json,
-            '' AS event_name
-        FROM events
-        WHERE team_id = %(team_id)s
-            AND distinct_id IN %(distinct_ids)s
-            AND timestamp <= %(upper_bound)s
-        LIMIT 1
-    )
+    SELECT
+        JSONExtractRaw(properties, '$set') AS set_json,
+        JSONExtractRaw(properties, '$set_once') AS set_once_json,
+        event AS event_name
+    FROM events
+    WHERE team_id = %(team_id)s
+        AND distinct_id IN %(distinct_ids)s
+        AND timestamp >= %(lower_bound)s
+        AND timestamp <= %(upper_bound)s
+        AND ({event_filter})
+    ORDER BY timestamp ASC
+    LIMIT {int(row_limit)}
     """
 
     params = {
         "team_id": team_id,
         "distinct_ids": distinct_ids,
-        "lower_bound": effective_lower_bound.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        "lower_bound": (timestamp - _HISTORY_SCAN_FLOOR).astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
         "upper_bound": timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -190,17 +173,9 @@ def build_person_properties_at_time(
         raise Exception(f"Failed to query ClickHouse events: {str(e)}") from e
 
     person_properties: dict[str, Any] = {}
-    existed = False
 
     for row in rows:
-        kind, set_json, set_once_json, event_name = row
-
-        # Both property rows and the existence probe row signal that the person
-        # had activity at or before the timestamp.
-        existed = True
-
-        if kind == 0:
-            continue
+        set_json, set_once_json, event_name = row
 
         if set_json:
             try:
@@ -223,4 +198,4 @@ def build_person_properties_at_time(
                     if key not in person_properties:
                         person_properties[key] = value
 
-    return person_properties, existed
+    return person_properties, bool(rows)

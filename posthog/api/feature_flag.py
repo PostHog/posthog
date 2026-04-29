@@ -45,6 +45,7 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
 )
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -86,7 +87,6 @@ from posthog.models.feature_flag.version_history import (
 )
 from posthog.models.group.group import Group
 from posthog.models.person.point_in_time_properties import (
-    DEFAULT_LOWER_BOUND_WINDOW,
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
@@ -367,23 +367,34 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
     return len(filter_json.encode("utf-8"))
 
 
-def _filter_person_properties_for_flag(flag: FeatureFlag, person_properties: dict[str, Any]) -> dict[str, Any]:
+def _filter_person_properties_for_flag(filters: dict[str, Any], person_properties: dict[str, Any]) -> dict[str, Any]:
     """
-    Filter person_properties to only include keys referenced by the flag's conditions.
-    This addresses the scope concern where feature_flag:read tokens can access all person properties.
+    Filter person_properties to only include keys referenced by the given flag filters.
+
+    For historical (timestamp-based) evaluations the caller must pass the
+    *reconstructed* filters, not the live record's filters — otherwise the
+    response can leak property values that weren't relevant at the requested
+    point in time.
+
+    Walks ``groups`` (regular release conditions), ``super_groups`` (early-access
+    gating), and ``multivariate.override_property_values`` (per-variant property
+    overrides). Cohort-typed conditions reference person properties indirectly
+    via the cohort definition; this helper does not resolve cohorts, so a flag
+    whose only conditions are cohort lookups returns an empty person_properties
+    block.
     """
-    # Extract person property keys from flag conditions
-    referenced_keys = set()
+    referenced_keys: set[str] = set()
 
-    groups = flag.filters.get("groups", [])
-    for group in groups:
-        properties = group.get("properties", [])
-        for prop in properties:
-            # Only include person-type properties
-            if prop.get("type") == "person" and prop.get("key"):
-                referenced_keys.add(prop["key"])
+    for section in ("groups", "super_groups"):
+        for group in filters.get(section, []) or []:
+            for prop in group.get("properties", []) or []:
+                if prop.get("type") == "person" and prop.get("key"):
+                    referenced_keys.add(prop["key"])
 
-    # Only return properties that are referenced in the flag
+    for override in (filters.get("multivariate", {}) or {}).get("override_property_values", []) or []:
+        if override.get("type") == "person" and override.get("key"):
+            referenced_keys.add(override["key"])
+
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
 
 
@@ -1878,7 +1889,7 @@ class GroupsJSONField(serializers.CharField):
 
     def __init__(self, **kwargs):
         kwargs.setdefault("required", False)
-        kwargs.setdefault("default", "{}")
+        kwargs.setdefault("default", {})
         kwargs.setdefault("allow_blank", True)
         kwargs.setdefault("help_text", "Groups for feature flag evaluation (JSON object string)")
         super().__init__(**kwargs)
@@ -1977,7 +1988,12 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(
         required=False,
         allow_null=True,
-        help_text="Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)",
+        help_text=(
+            "Optional point-in-time to evaluate the flag against — both flag conditions "
+            "and person properties are reconstructed as they existed at that timestamp. "
+            "ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. "
+            "Naive timestamps (no timezone) are interpreted as UTC."
+        ),
     )
     groups = GroupsJSONField(required=False)
 
@@ -2006,7 +2022,19 @@ class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
 
 class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
     index = serializers.IntegerField(help_text="Index of this condition in the feature flag")
-    matched = serializers.BooleanField(help_text="Whether this condition was the one that matched")
+    matched = serializers.BooleanField(
+        help_text=(
+            "True when this condition was the one that determined the flag's outcome. "
+            "Use this to find the winning condition — at most one condition per flag is True."
+        )
+    )
+    properties_matched = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "True when every property in this condition evaluated to true, regardless of "
+            "whether this condition was the eventual winner."
+        ),
+    )
     explanation = serializers.CharField(
         help_text="Human-readable explanation of why this condition matched/didn't match"
     )
@@ -2032,14 +2060,20 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
         help_text="Person properties at the time of evaluation (for historical evaluations)"
     )
     evaluation_distinct_id = serializers.CharField(
+        allow_null=True,
         help_text=(
-            "The distinct_id used for rollout/variant bucketing. Matches the caller-provided "
-            "distinct_id when given; otherwise the lexicographically smallest distinct_id of the person."
-        )
+            "The distinct_id used for rollout/variant bucketing. Echoes the caller-provided "
+            "distinct_id when one was sent; null on the person_id path so the endpoint doesn't "
+            "leak the person's other distinct_ids to a feature_flag:read-only token."
+        ),
     )
     conditions = FeatureFlagConditionAnalysisSerializer(
         many=True, help_text="Detailed analysis of each condition in the feature flag"
     )
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Error message describing what went wrong")
 
 
 class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
@@ -3432,9 +3466,10 @@ class FeatureFlagViewSet(
         request_serializer=FeatureFlagTestEvaluationRequestSerializer,
         responses={
             200: OpenApiResponse(response=FeatureFlagTestEvaluationResponseSerializer),
-            400: OpenApiResponse(description="Invalid parameters"),
-            404: OpenApiResponse(description="Person not found"),
-            500: OpenApiResponse(description="Server error"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid parameters"),
+            404: OpenApiResponse(response=ErrorResponseSerializer, description="Person not found"),
+            500: OpenApiResponse(response=ErrorResponseSerializer, description="Server error"),
+            502: OpenApiResponse(response=ErrorResponseSerializer, description="Flag evaluation service error"),
         },
     )
     @action(
@@ -3489,24 +3524,13 @@ class FeatureFlagViewSet(
         # Build person properties at timestamp if provided
         if timestamp:
             try:
-                # Bound the ClickHouse scan: don't look further back than the flag's
-                # own creation time (or 2 years, whichever is more recent).
-                default_window_start = timestamp - DEFAULT_LOWER_BOUND_WINDOW
-                lower_bound = (
-                    max(default_window_start, feature_flag.created_at)
-                    if feature_flag.created_at is not None
-                    else default_window_start
-                )
-                # Clamp in case the flag was created after the requested timestamp —
-                # flag reconstruction will surface that as VersionNotFound later.
-                lower_bound = min(lower_bound, timestamp)
-
+                # Tag the ClickHouse call so query_log attribution stays correct.
+                tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, team_id=self.team_id)
                 person_properties, person_existed = build_person_properties_at_time(
                     team_id=self.team_id,
                     timestamp=timestamp,
                     distinct_ids=distinct_ids,
                     include_set_once=True,
-                    lower_bound=lower_bound,
                 )
 
                 if not person_existed:
@@ -3514,18 +3538,30 @@ class FeatureFlagViewSet(
                         {"error": "Person did not exist at the specified timestamp"},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
-            except Exception:
+            except ValueError as e:
+                # Our own validation (invalid timestamp shape, naive datetime, etc.) —
+                # safe to surface verbatim so the caller can fix the request.
+                logger.warning("Invalid timestamp input for flag %s: %s", feature_flag.key, e)
+                return Response(
+                    {"error": f"Invalid timestamp: {e}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception as e:
+                # ClickHouse / infra failures keep the generic 500 but log the real cause.
                 logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
                 return Response(
-                    {"error": "Failed to build person properties at specified timestamp."},
+                    {"error": "Failed to build person properties at specified timestamp.", "detail": str(e)},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
         else:
             # Use current person properties
             person_properties = person.properties or {}
 
-        # If timestamp is provided, reconstruct the flag at that point in time
-        evaluation_flag = feature_flag
+        # If timestamp is provided, reconstruct the flag at that point in time.
+        # ``evaluation_filters`` is what we hand to _filter_person_properties_for_flag
+        # and what the Rust override payload's "filters" entry comes from.
+        evaluation_filters: dict[str, Any] = feature_flag.filters or {}
+        reconstructed_flag_data: Optional[dict[str, Any]] = None
         if timestamp:
             try:
                 # Reconstruct the flag at the timestamp using the efficient single-pass method
@@ -3534,21 +3570,7 @@ class FeatureFlagViewSet(
                     timestamp=timestamp,
                     team_id=self.team_id,
                 )
-
-                # Create a temporary flag-like object with the reconstructed data for evaluation
-                evaluation_flag = FeatureFlag(
-                    id=feature_flag.id,
-                    key=feature_flag.key,
-                    name=reconstructed_flag_data.get("name", feature_flag.name),
-                    active=reconstructed_flag_data.get("active", feature_flag.active),
-                    team=feature_flag.team,
-                    created_at=feature_flag.created_at,
-                    created_by=feature_flag.created_by,
-                    deleted=reconstructed_flag_data.get("deleted", False),
-                    version=reconstructed_flag_data.get("version", 1),
-                )
-                # Set the reconstructed filters
-                evaluation_flag.filters = reconstructed_flag_data.get("filters", {})
+                evaluation_filters = reconstructed_flag_data.get("filters") or {}
 
             except VersionNotFound:
                 return Response(
@@ -3560,10 +3582,17 @@ class FeatureFlagViewSet(
                     {"error": "Could not reconstruct flag at timestamp due to incomplete history."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except Exception:
+            except ValueError as e:
+                # e.g. "timestamp must be timezone-aware" from version_history.
+                logger.warning("Invalid timestamp for flag reconstruction (flag %s): %s", feature_flag.key, e)
+                return Response(
+                    {"error": f"Invalid timestamp: {e}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except Exception as e:
                 logger.exception("Failed to reconstruct flag at timestamp for flag %s", feature_flag.key)
                 return Response(
-                    {"error": "Failed to reconstruct flag at specified timestamp."},
+                    {"error": "Failed to reconstruct flag at specified timestamp.", "detail": str(e)},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
@@ -3572,24 +3601,30 @@ class FeatureFlagViewSet(
             # Get team API token for Rust service
             team_token = self.team.api_token
 
-            # If we have a reconstructed flag, pass it as override definition
+            # If we reconstructed a historical version, ship the reconstructed
+            # field set as the override payload. Building straight from
+            # reconstructed_flag_data avoids round-tripping through an in-memory
+            # FeatureFlag(...), which would silently substitute model defaults
+            # for any field we forgot to copy (bucketing_identifier,
+            # evaluation_runtime, ensure_experience_continuity, evaluation_tags,
+            # …) and ship those defaults as the historical value.
             override_definitions = None
-            if timestamp:
-                # Convert the reconstructed flag to the format expected by Rust service
+            if timestamp and reconstructed_flag_data is not None:
                 try:
-                    from django.forms.models import model_to_dict
-
-                    flag_dict = model_to_dict(
-                        evaluation_flag, exclude=["created_by", "last_modified_by", "team", "usage_dashboard"]
-                    )
-                    # Convert datetime fields to strings for JSON serialization
-                    if flag_dict.get("created_at"):
+                    flag_dict: dict[str, Any] = {
+                        **reconstructed_flag_data,
+                        "id": feature_flag.id,
+                        "key": feature_flag.key,
+                        "team_id": feature_flag.team_id,
+                    }
+                    # Stringify datetime fields for JSON serialization.
+                    if flag_dict.get("created_at") and hasattr(flag_dict["created_at"], "isoformat"):
                         flag_dict["created_at"] = flag_dict["created_at"].isoformat()
-                    if flag_dict.get("updated_at"):
-                        flag_dict["updated_at"] = flag_dict["updated_at"].isoformat()
-
-                    # Add team_id since Rust FeatureFlag struct requires it
-                    flag_dict["team_id"] = evaluation_flag.team_id
+                    if flag_dict.get("version_timestamp") and hasattr(flag_dict["version_timestamp"], "isoformat"):
+                        flag_dict["version_timestamp"] = flag_dict["version_timestamp"].isoformat()
+                    # Drop reconstruction metadata Rust doesn't read.
+                    for k in ("is_historical", "version_timestamp", "modified_by"):
+                        flag_dict.pop(k, None)
 
                     override_definitions = {feature_flag.key: flag_dict}
                 except Exception as e:
@@ -3649,9 +3684,24 @@ class FeatureFlagViewSet(
                     reason = reason_data.get("code", "unknown") if reason_data else "unknown"
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
-                    # Extract conditions from flag result (only valid path per Rust FlagDetails contract)
+                    # Extract conditions from flag result (only valid path per Rust FlagDetails contract).
+                    # When ``timestamp`` is set, missing conditions almost certainly means Rust
+                    # rejected the internal token and silently fell back to current-state
+                    # evaluation: returning a 200 with current-state values would silently corrupt
+                    # the historical contract this endpoint promises, so fail loudly instead.
                     if "conditions" not in flag_result:
-                        # Log warning when expected conditions key is missing
+                        if timestamp:
+                            logger.error(
+                                "Historical evaluation returned no conditions; INTERNAL_REQUEST_TOKEN may be misconfigured",
+                                extra={
+                                    "flag_key": feature_flag.key,
+                                    "response_keys": list(flag_result.keys()),
+                                },
+                            )
+                            return Response(
+                                {"error": "Historical evaluation unavailable. Check service configuration."},
+                                status=status.HTTP_502_BAD_GATEWAY,
+                            )
                         logger.warning(
                             "Missing 'conditions' key in flag evaluation response",
                             extra={"flag_key": feature_flag.key, "response_keys": list(flag_result.keys())},
@@ -3676,14 +3726,22 @@ class FeatureFlagViewSet(
                         status=status.HTTP_502_BAD_GATEWAY,
                     )
 
+            # Only echo back the bucketing distinct_id when the caller already
+            # had it (they sent it in the request). On the person_id path we
+            # picked one for them out of the person's set, and surfacing it
+            # would let a ``feature_flag:read``-only token enumerate distinct
+            # IDs for any UUID — which normally requires ``person:read``.
+            response_evaluation_distinct_id = (
+                evaluation_distinct_id if distinct_id and distinct_id in distinct_ids else None
+            )
             response_data = {
                 "flag_key": feature_flag.key,
                 "result": result,
                 "reason": reason,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(evaluation_flag, person_properties),
-                "evaluation_distinct_id": evaluation_distinct_id,
+                "person_properties": _filter_person_properties_for_flag(evaluation_filters, person_properties),
+                "evaluation_distinct_id": response_evaluation_distinct_id,
                 "conditions": detailed_conditions,
             }
 
@@ -3692,7 +3750,22 @@ class FeatureFlagViewSet(
             return Response(response_serializer.data)
 
         except Exception as e:
-            logger.exception("Error evaluating flag: %s", e)
+            logger.exception(
+                "Error evaluating flag '%s' for distinct_id='%s' person_id='%s' timestamp='%s': %s",
+                feature_flag.key,
+                distinct_id,
+                person_id,
+                timestamp,
+                e,
+                extra={
+                    "flag_key": feature_flag.key,
+                    "distinct_id": distinct_id,
+                    "person_id": person_id,
+                    "timestamp": timestamp,
+                    "groups": groups,
+                },
+            )
+            capture_exception(e)
             return Response({"error": "Failed to evaluate flag"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(

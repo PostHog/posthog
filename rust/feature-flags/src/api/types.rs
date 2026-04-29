@@ -387,7 +387,15 @@ pub struct ConditionAnalysis {
     pub properties: Vec<PropertyAnalysis>,
     pub rollout_percentage: f64,
     pub variant: Option<String>,
+    /// True when this condition was the one that won (i.e. determined the
+    /// flag's enabled/variant outcome). Use this to find the winning condition
+    /// in a list — it is guaranteed to be set on at most one condition per flag.
     pub matched: bool,
+    /// True when every property in this condition evaluated to true,
+    /// regardless of whether this condition was the eventual winner. A later
+    /// condition may have won, an earlier one may have short-circuited the
+    /// evaluation, or rollout may have excluded this condition entirely.
+    pub properties_matched: bool,
     pub rollout_excluded: bool,
     pub explanation: String,
 }
@@ -710,7 +718,8 @@ impl FlagDetails {
                 properties: property_analyses,
                 rollout_percentage,
                 variant: group.variant.clone(),
-                matched: all_properties_matched,
+                matched: condition_matched,
+                properties_matched: all_properties_matched,
                 rollout_excluded: this_condition_rollout_excluded,
                 explanation,
             };
