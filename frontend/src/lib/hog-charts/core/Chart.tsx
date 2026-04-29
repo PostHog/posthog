@@ -209,7 +209,7 @@ export function Chart<Meta = unknown>({
     // content size. Crosshair drawn first so highlight rings render on top.
     const composedDrawHover = useCallback(
         (args: ChartDrawArgs) => {
-            if (showCrosshair && args.hoverIndex >= 0) {
+            if (showCrosshair && theme.crosshairColor && args.hoverIndex >= 0) {
                 const x = args.scales.x(args.labels[args.hoverIndex])
                 if (x != null && isFinite(x)) {
                     drawCrosshair(args.ctx, args.dimensions, x, theme.crosshairColor)
