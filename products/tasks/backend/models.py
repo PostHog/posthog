@@ -568,8 +568,7 @@ class TaskRun(models.Model):
             use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
             prior_snapshot_external_id=prior_snapshot_external_id,
             stripped_snapshot_external_id=(
-                prior_snapshot_external_id is not None
-                and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
+                prior_snapshot_external_id is not None and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
             ),
         )
 

@@ -569,7 +569,12 @@ class TestProcessTaskWorkflowUnit:
         ],
     )
     async def test_get_sandbox_respects_modal_resume_flag(
-        self, monkeypatch, use_modal_resume_snapshots, prior_snapshot_external_id, expect_used_snapshot, expect_inject_tokens
+        self,
+        monkeypatch,
+        use_modal_resume_snapshots,
+        prior_snapshot_external_id,
+        expect_used_snapshot,
+        expect_inject_tokens,
     ):
         """`_get_sandbox_for_repository` honors TASKS_USE_MODAL_RESUME_SNAPSHOTS.
 

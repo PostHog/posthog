@@ -554,11 +554,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # agent server's git-checkpoint mechanism instead. Read from
                 # context (captured at workflow start) so replay is deterministic
                 # against env-var flips.
-                if (
-                    self._context
-                    and self._context.mode == "interactive"
-                    and self._context.use_modal_resume_snapshots
-                ):
+                if self._context and self._context.mode == "interactive" and self._context.use_modal_resume_snapshots:
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
                 await self._read_sandbox_logs(cleanup_sandbox_id)
