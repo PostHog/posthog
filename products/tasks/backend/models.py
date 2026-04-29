@@ -4,6 +4,7 @@ import json
 import uuid
 import string
 import secrets
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -34,6 +35,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +69,7 @@ class Task(DeletedMetaFields, models.Model):
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
+    origin_product = models.CharField(max_length=20, choices=OriginProduct)
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -210,7 +212,9 @@ class Task(DeletedMetaFields, models.Model):
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
         is_resume = bool((extra_state or {}).get("resume_from_run_id"))
-        has_pending = bool((extra_state or {}).get("pending_message"))
+        has_pending = bool(
+            (extra_state or {}).get("pending_user_message") or (extra_state or {}).get("pending_user_artifact_ids")
+        )
         task_run = TaskRun.objects.create(
             task=self,
             team=self.team,
@@ -220,6 +224,7 @@ class Task(DeletedMetaFields, models.Model):
             branch=branch,
         )
         task_run.publish_stream_state_event()
+        observe_task_run_created(task_run)
         self.capture_event(
             "task_run_created",
             {
@@ -280,8 +285,12 @@ class Task(DeletedMetaFields, models.Model):
 
         sandbox_env = None
         if sandbox_environment_id is not None:
-            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
-            if not sandbox_env:
+            sandbox_env = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=team.id,
+                task_created_by_id=user_id,
+            )
+            if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
         task = Task.objects.create(
@@ -454,7 +463,7 @@ class TaskRun(models.Model):
 
     environment = models.CharField(
         max_length=10,
-        choices=Environment.choices,
+        choices=Environment,
         default=Environment.CLOUD,
         help_text="Execution environment",
     )
@@ -467,7 +476,7 @@ class TaskRun(models.Model):
         help_text="Current stage for this run (e.g., 'research', 'plan', 'build')",
     )
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.NOT_STARTED)
+    status = models.CharField(max_length=20, choices=Status, default=Status.NOT_STARTED)
 
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
@@ -518,14 +527,82 @@ class TaskRun(models.Model):
         env_id = (self.state or {}).get("sandbox_environment_id")
         if not env_id:
             return None
-        env = SandboxEnvironment.objects.filter(id=env_id, team_id=self.team_id).first()
-        if not env:
-            return None
-        if env.private:
-            task_user_id = self.task.created_by_id
-            if not task_user_id or env.created_by_id != task_user_id:
-                return None
-        return env
+        return SandboxEnvironment.get_accessible_for_task(
+            environment_id=env_id,
+            team_id=self.team_id,
+            task_created_by_id=self.task.created_by_id,
+        )
+
+    def prepare_for_cloud_handoff(self) -> None:
+        """
+        Restart this run in the cloud, resuming from its existing log/checkpoints.
+
+        The `handoff_resumed` flag tells the workflow and sandbox provisioning
+        to treat this as a resume of the same run (skip initial prompt, hydrate
+        from the existing log) without overloading `resume_from_run_id`, which
+        means "continue from a different run".
+        """
+        self.status = self.Status.QUEUED
+        self.environment = self.Environment.CLOUD
+        self.completed_at = None
+        self.error_message = None
+
+        state = self.state or {}
+        state["handoff_resumed"] = True
+        state["mode"] = "interactive"
+        state.pop("pending_user_message", None)
+        state.pop("pending_user_message_ts", None)
+        self.state = state
+
+        self.save(
+            update_fields=[
+                "status",
+                "environment",
+                "completed_at",
+                "error_message",
+                "state",
+                "updated_at",
+            ]
+        )
+        self.publish_stream_state_event()
+
+    @classmethod
+    def mutate_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        mutator: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        """Apply a state mutation while holding a row lock on the task run.
+
+        Task-run state is updated from several independent activities. Using a
+        locked read avoids stale read-modify-write cycles that can resurrect
+        keys another activity has already removed.
+        """
+        with transaction.atomic():
+            locked_task_run = cls.objects.select_for_update().get(id=run_id)
+            state = dict(locked_task_run.state or {})
+            mutator(state)
+            locked_task_run.state = state
+            locked_task_run.save(update_fields=["state", "updated_at"])
+            return state
+
+    @classmethod
+    def update_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        *,
+        updates: dict[str, Any] | None = None,
+        remove_keys: Iterable[str] | None = None,
+    ) -> dict[str, Any]:
+        """Merge state updates against the latest persisted row state."""
+
+        def _mutator(state: dict[str, Any]) -> None:
+            for key in remove_keys or []:
+                state.pop(key, None)
+            if updates:
+                state.update(updates)
+
+        return cls.mutate_state_atomic(run_id, _mutator)
 
     @staticmethod
     def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
@@ -559,12 +636,16 @@ class TaskRun(models.Model):
 
     @property
     def log_url(self) -> str:
-        """Generate S3 path for this run's logs"""
+        """Generate the S3 path for this run's logs."""
+        return f"{self.get_task_s3_prefix()}/run_{self.id}.jsonl"
+
+    def get_task_s3_prefix(self) -> str:
+        """Base prefix for task-scoped objects in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
-        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}/run_{self.id}.jsonl"
+        return f"{tasks_folder}/logs/team_{self.team_id}/task_{self.task_id}"
 
     def get_artifact_s3_prefix(self) -> str:
-        """Base prefix for storing artifacts in S3"""
+        """Base prefix for storing artifacts in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
@@ -611,7 +692,7 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
-    def capture_event(self, event: str, properties: dict | None = None) -> None:
+    def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
                 str(self.task.created_by.distinct_id)
@@ -631,12 +712,15 @@ class TaskRun(models.Model):
             }
             if properties:
                 all_properties.update(properties)
-            posthoganalytics.capture(
-                distinct_id=distinct_id,
-                event=event,
-                properties=all_properties,
-                groups=groups(team=self.team),
-            )
+            capture_kwargs: dict = {
+                "distinct_id": distinct_id,
+                "event": event,
+                "properties": all_properties,
+                "groups": groups(team=self.team),
+            }
+            if event_uuid:
+                capture_kwargs["uuid"] = event_uuid
+            posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
 
@@ -723,6 +807,42 @@ class TaskRun(models.Model):
         self.append_log([event])
         self.publish_stream_event(event)
 
+    def emit_progress_event(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Emit a structured progress notification in ACP format.
+
+        Consumed by the desktop client as `_posthog/progress`. Events sharing a
+        `group` coalesce into a single collapsible card on the client, so the
+        backend decides grouping granularity by picking a phase id (e.g.
+        `"setup"`, `"pr_create"`).
+        """
+        params: dict[str, Any] = {
+            "sessionId": str(self.id),
+            "step": step,
+            "status": status,
+            "label": label,
+            "group": group,
+        }
+        if detail is not None:
+            params["detail"] = detail
+        event = {
+            "type": "notification",
+            "timestamp": django_timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/progress",
+                "params": params,
+            },
+        }
+        self.append_log([event])
+        self.publish_stream_event(event)
+
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""
         event = {
@@ -783,7 +903,7 @@ class SandboxSnapshot(UUIDModel):
 
     status = models.CharField(
         max_length=20,
-        choices=Status.choices,
+        choices=Status,
         default=Status.IN_PROGRESS,
     )
 
@@ -870,7 +990,7 @@ class SandboxEnvironment(UUIDModel):
 
     network_access_level = models.CharField(
         max_length=20,
-        choices=NetworkAccessLevel.choices,
+        choices=NetworkAccessLevel,
         default=NetworkAccessLevel.FULL,  # NOTE: Default should be TRUSTED once we have an egress proxy in place
     )
 
@@ -918,6 +1038,29 @@ class SandboxEnvironment(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_by"]),
         ]
+
+    def is_accessible_for_task_creator(self, task_created_by_id: int | None) -> bool:
+        if not self.private:
+            return True
+        return task_created_by_id is not None and self.created_by_id == task_created_by_id
+
+    @classmethod
+    def get_accessible_for_task(
+        cls,
+        *,
+        environment_id: str | uuid.UUID,
+        team_id: int,
+        task_created_by_id: int | None,
+    ) -> Optional["SandboxEnvironment"]:
+        try:
+            environment = cls.objects.filter(id=environment_id, team_id=team_id).first()
+        except (ValidationError, ValueError):
+            return None
+        if environment is None:
+            return None
+        if not environment.is_accessible_for_task_creator(task_created_by_id):
+            return None
+        return environment
 
     def __str__(self):
         return self.name

@@ -1,6 +1,6 @@
 from typing import cast
 
-from django.db.models import Exists, OuterRef, Subquery
+from django.db.models import Exists, OuterRef, QuerySet, Subquery
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -50,7 +50,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         )
 
-    def _get_base_queryset(self):
+    def _get_base_queryset(self) -> QuerySet:
         user = self._get_user()
         team = self.team
         return (
@@ -75,7 +75,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             .order_by("-created_at")
         )
 
-    def _filter_by_access_control(self, queryset):
+    def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         resource_types_in_set = set(
             queryset.exclude(resource_type__isnull=True)
             .exclude(resource_type="")

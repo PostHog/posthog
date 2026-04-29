@@ -18,7 +18,7 @@ use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
-use common_metrics::{setup_metrics_recorder, track_metrics};
+use common_metrics::setup_metrics_routes_for_product;
 use common_redis::Client as RedisClient;
 use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
@@ -298,7 +298,6 @@ pub fn router(
         .merge(flags_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -306,8 +305,7 @@ pub fn router(
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        let recorder_handle = setup_metrics_recorder();
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
+        setup_metrics_routes_for_product(router, "feature_flags")
     } else {
         router
     }

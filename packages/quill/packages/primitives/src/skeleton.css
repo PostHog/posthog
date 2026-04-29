@@ -1,0 +1,11 @@
+@layer components {
+    .quill-skeleton {
+        background-color: var(--accent);
+        border-radius: var(--radius-md, 0.375rem);
+        animation: var(--animate-pulse, pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite);
+    }
+
+    .quill-skeleton * {
+        opacity: 0;
+    }
+}

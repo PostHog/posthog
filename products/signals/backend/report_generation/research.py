@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.temporal.types import SignalData, _render_extra_to_text
 
 
 class ActionabilityChoice(str, Enum):
@@ -253,16 +253,15 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
     """Render a single signal for the research prompt, with numbering."""
-    from products.signals.backend.temporal.types import _render_extra_to_text
-
     lines = [f"### Signal {index}/{total} (id: `{signal.signal_id}`)"]
     lines.append(f"- **Source:** {signal.source_product} / {signal.source_type}")
     lines.append(f"- **Source ID:** {signal.source_id}")
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
-    if signal.extra:
-        lines.extend(_render_extra_to_text(signal.extra))
     lines.append(f"- **Description:** {signal.content}")
+    if signal.extra:
+        lines.append("#### Extras")
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 
@@ -279,7 +278,9 @@ We never use the em-dash, only the en-dash (–).
 
 You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
-2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc."""
+2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
+
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 

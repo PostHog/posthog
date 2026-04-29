@@ -1,4 +1,5 @@
-from typing import Any
+import dataclasses
+from typing import Any, Optional
 
 import requests
 from requests import Request, Response
@@ -8,6 +9,20 @@ from posthog.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+
+@dataclasses.dataclass
+class ClerkResumeConfig:
+    """Resume state for Clerk endpoints.
+
+    All Clerk endpoints use offset-based pagination, so the checkpoint is just
+    the next offset to fetch. On resume we start fetching from the saved offset
+    (at-least-once semantics): any duplicates from a batch that was yielded but
+    whose checkpoint did not persist are deduped by the ``id`` primary key.
+    """
+
+    offset: int
 
 
 def get_resource(name: str) -> EndpointResource:
@@ -43,6 +58,15 @@ class ClerkPaginator(BasePaginator):
         self._limit = limit
         self._offset = 0
 
+    def init_request(self, request: Request) -> None:
+        # Emit the seeded offset on the first request so resume starts from the
+        # saved page. Fresh runs (offset=0) omit the param to preserve the
+        # existing URL shape.
+        if self._offset > 0:
+            if request.params is None:
+                request.params = {}
+            request.params["offset"] = self._offset
+
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         res = response.json()
 
@@ -53,25 +77,45 @@ class ClerkPaginator(BasePaginator):
         # Clerk endpoints return either:
         # - Direct array: /users, /invitations
         # - Wrapped object {data: [...], total_count: ...}: /organizations, /organization_memberships
+        total_count: Optional[int] = None
         if isinstance(res, dict) and "data" in res:
             items = res["data"]
+            raw_total = res.get("total_count")
+            if isinstance(raw_total, int):
+                total_count = raw_total
         elif isinstance(res, list):
             items = res
         else:
             items = []
 
-        # If we got fewer items than the limit, we've reached the end
-        if len(items) < self._limit:
-            self._has_next_page = False
+        next_offset = self._offset + len(items)
+
+        # Prefer total_count for wrapped endpoints so we don't issue an extra
+        # empty request when total_count is exactly divisible by limit.
+        if total_count is not None:
+            self._has_next_page = next_offset < total_count
         else:
-            self._offset += len(items)
-            self._has_next_page = True
+            self._has_next_page = len(items) >= self._limit
+
+        if self._has_next_page:
+            self._offset = next_offset
 
     def update_request(self, request: Request) -> None:
         if self._has_next_page:
             if request.params is None:
                 request.params = {}
             request.params["offset"] = self._offset
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # rest_client only calls this when has_next_page is True, so ``_offset``
+        # already points at the page we still need to fetch.
+        return {"offset": self._offset}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        offset = state.get("offset")
+        if offset is not None:
+            self._offset = int(offset)
+            self._has_next_page = True
 
 
 # Timestamp fields that need conversion from milliseconds to seconds
@@ -129,6 +173,7 @@ def clerk_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[ClerkResumeConfig],
 ) -> SourceResponse:
     endpoint_config = CLERK_ENDPOINTS[endpoint]
 
@@ -155,7 +200,26 @@ def clerk_source(
         "resources": [get_resource(endpoint)],
     }
 
-    resource = rest_api_resource(config, team_id, job_id, None).add_map(_convert_timestamps)
+    # Seed the paginator from the saved checkpoint when resuming.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None and resume_config.offset > 0:
+            initial_paginator_state = {"offset": resume_config.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # rest_client passes None once the paginator is exhausted; nothing to persist then.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(ClerkResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    ).add_map(_convert_timestamps)
 
     return SourceResponse(
         name=endpoint,

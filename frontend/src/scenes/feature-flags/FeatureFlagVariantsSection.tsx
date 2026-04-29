@@ -1,5 +1,6 @@
 import { LemonCollapse, Lettermark, LettermarkColor } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { alphabet } from 'lib/utils'
 
 import { FeatureFlagType, MultivariateFlagVariant } from '~/types'
@@ -33,9 +34,20 @@ export function FeatureFlagVariantsSection({ featureFlag, variants }: FeatureFla
                                     color={LettermarkColor.Gray}
                                     size="small"
                                 />
-                                <span className="text-sm font-medium font-mono">
-                                    {variant.key || `Variant ${index + 1}`}
-                                </span>
+                                {variant.key ? (
+                                    <div onClick={(e) => e.stopPropagation()}>
+                                        <CopyToClipboardInline
+                                            description="variant key"
+                                            selectable
+                                            iconStyle={{ color: 'var(--color-text-secondary)' }}
+                                            className="text-sm font-medium font-mono"
+                                        >
+                                            {variant.key}
+                                        </CopyToClipboardInline>
+                                    </div>
+                                ) : (
+                                    <span className="text-sm font-medium font-mono">{`Variant ${index + 1}`}</span>
+                                )}
                                 <span className="text-xs text-muted">{variant.rollout_percentage || 0}%</span>
                             </div>
                         ),

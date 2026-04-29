@@ -24,6 +24,8 @@ metadata:
           title: Docker-based service orchestration
         - key: deploy
           title: Deploy PostHog to remote instances
+        - key: auth
+          title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
         - key: utilities
@@ -303,6 +305,9 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
+    build:bot-definitions:
+        cmd: python livestream/bot/generate_definitions.py
+        description: Generate livestream bot definitions JSON from bot_definitions.py
     build:schema:
         steps:
             - build:schema-json
@@ -311,7 +316,7 @@ build:
         description: Generate all schema definitions (frontend JSON, Python, latest versions)
     build:openapi-schema:
         cmd: 'mkdir -p frontend/tmp && DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 OPENAPI_MOCK_INTERNAL_API_SECRET=1
-            python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json
+            python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json --fail-on-warn
             && echo "OpenAPI schema written to frontend/tmp/openapi.json"
 
             '
@@ -407,7 +412,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
+        description: Run NGINX Unit application server
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -578,8 +583,17 @@ quality:
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
+auth:
+    metabase:login: null # Click-defined, placed here for categorization
+    metabase:cookie: null # Click-defined, placed here for categorization
+    metabase:databases: null # Click-defined, placed here for categorization
+    metabase:query: null # Click-defined, placed here for categorization
 tools:
     doctor: null # Click-defined, placed here for categorization
+    tool:temporal-codec-server:
+        bin_script: temporal-codec-server
+        description: Run a local Temporal codec server to decode Fernet payloads for debugging
+        hidden: true
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
@@ -627,9 +641,6 @@ tools:
         cmd: python manage.py print_hog_stl_table
         description: Print HogSQL standard library definitions for reference
         hidden: true
-    clickhouse:ai:init:
-        bin_script: clickhouse-ai-events-init
-        description: Create ai_events ClickHouse tables for local development
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: 'TODO: add description for clickhouse-logs-init'
@@ -637,10 +648,6 @@ tools:
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
-        hidden: true
-    tool:granian-metrics:
-        bin_script: granian_metrics.py
-        description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
     sync:storage:
         bin_script: sync-storage
@@ -781,9 +788,9 @@ environment:
         hidden: true
     warm:flags:cache:
         bin_script: warm-flags-cache
-        description: 'Warm the feature-flags hypercache by batch-building flag caches for every team (Rust port of the Python warmer)'
+        description: 'Warm the feature-flags hypercache against the local dev environment (requires ./bin/start running)'
         hidden: true
-    warm:flags:cache:local:
-        bin_script: warm-flags-cache-local
-        description: 'Warm the feature-flags hypercache against the local dev environment'
+    flags:jumphost:
+        bin_script: rust-jumphost
+        description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true

@@ -1,6 +1,6 @@
 # Rust feature flags service
 
-The Rust feature flags service (`rust/feature-flags/`) handles all runtime feature flag evaluation. It serves the `/flags` and `/decide` endpoints that SDKs call. Django remains the admin API for flag CRUD operations (`/api/projects/{id}/feature_flags/`) and serves the local evaluation endpoint (`/api/feature_flag/local_evaluation`).
+The Rust feature flags service (`rust/feature-flags/`) handles all runtime feature flag evaluation and local SDK evaluation. It serves the `/flags` and `/decide` endpoints for flag evaluation, and the `/flags/definitions` endpoint for local SDK evaluation. Django remains the admin API for flag CRUD operations (`/api/projects/{id}/feature_flags/`).
 
 ## Infrastructure routing
 
@@ -15,11 +15,12 @@ AWS ALB
   ▼
 Contour / Envoy (path-based routing)
   │
-  ├── /decide/*              ──▶ posthog-feature-flags:3001  (Rust)
-  ├── /flags/?               ──▶ posthog-feature-flags:3001  (Rust)
-  ├── /api/feature_flag/local_evaluation ──▶ posthog-local-evaluation:8000 (Django, dedicated deployment)
-  ├── /api/*                 ──▶ posthog-web-django:8000     (Django, catch-all)
-  └── /*                     ──▶ posthog-web-django:8000     (Django, final catch-all)
+  ├── /decide/*              ──▶ posthog-feature-flags:3001              (Rust, flags fleet)
+  ├── /flags/?               ──▶ posthog-feature-flags:3001              (Rust, flags fleet)
+  ├── /flags/definitions     ──▶ posthog-feature-flags-definitions:3001  (Rust, definitions fleet)
+  ├── /api/feature_flag/local_evaluation ──▶ posthog-feature-flags-definitions:3001 (Rust, definitions fleet, legacy alias)
+  ├── /api/*                 ──▶ posthog-web-django:8000                 (Django, catch-all)
+  └── /*                     ──▶ posthog-web-django:8000                 (Django, final catch-all)
 ```
 
 Key routing details:
@@ -29,6 +30,18 @@ Key routing details:
 - A **dedicated subdomain** (`us-d.i.posthog.com` / `eu-d.i.posthog.com`) routes only to `decide` + `feature-flags` with no Django fallback
 - All flag routes have a **5-second timeout** and 2 retries on `reset`/`cancelled`
 - Canary rollouts are supported via Argo Rollouts adjusting weights on the HTTPProxy resources
+
+### Fleet split
+
+The Rust service runs as two separate fleets controlled by the `SERVICE_MODE` env var:
+
+| Fleet                               | `SERVICE_MODE` | Routes                                                     | Purpose                                   |
+| ----------------------------------- | -------------- | ---------------------------------------------------------- | ----------------------------------------- |
+| `posthog-feature-flags`             | `flags`        | `/flags`, `/decide`                                        | Runtime flag evaluation                   |
+| `posthog-feature-flags-definitions` | `definitions`  | `/flags/definitions`, `/api/feature_flag/local_evaluation` | Flag definitions for local SDK evaluation |
+
+Both fleets share the same Kubernetes secret (`posthog-feature-flags`) via the `secretName` chart override.
+The `all` mode (default) registers all routes and is used for local development.
 
 Routing config lives in the `charts` repo: `argocd/contour-ingress/values/values.prod-us.yaml` (and `prod-eu`, `dev` variants).
 
@@ -78,17 +91,18 @@ Routing config lives in the `charts` repo: `argocd/contour-ingress/values/values
 
 All routes are defined in `rust/feature-flags/src/router.rs`.
 
-| Route                | Method | Handler                               | Purpose                                                                                                                  |
-| -------------------- | ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `/flags`             | POST   | `endpoint::flags`                     | Feature flag evaluation (primary endpoint)                                                                               |
-| `/flags`             | GET    | `endpoint::flags`                     | Returns minimal response with empty flags                                                                                |
-| `/decide`            | POST   | `endpoint::flags`                     | Same handler as `/flags`, response format varies via `X-Original-Endpoint: decide` header                                |
-| `/flags/definitions` | GET    | `flag_definitions::flags_definitions` | **WIP, not routed in production.** Flag definitions for local SDK evaluation (requires secret token or personal API key) |
-| `/`                  | GET    | `index`                               | Returns `"feature flags"` (basic health check)                                                                           |
-| `/_readiness`        | GET    | `readiness`                           | Kubernetes readiness probe, tests all 4 DB pool connections                                                              |
-| `/_liveness`         | GET    | `liveness`                            | Kubernetes liveness probe, heartbeat-based                                                                               |
-| `/_startup`          | GET    | `startup`                             | Kubernetes startup probe, warms DB pools                                                                                 |
-| `/metrics`           | GET    | Prometheus                            | Metrics scrape endpoint (when `ENABLE_METRICS=true`)                                                                     |
+| Route                                | Method | Handler                               | Purpose                                                                                   |
+| ------------------------------------ | ------ | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `/flags`                             | POST   | `endpoint::flags`                     | Feature flag evaluation (primary endpoint)                                                |
+| `/flags`                             | GET    | `endpoint::flags`                     | Returns minimal response with empty flags                                                 |
+| `/decide`                            | POST   | `endpoint::flags`                     | Same handler as `/flags`, response format varies via `X-Original-Endpoint: decide` header |
+| `/flags/definitions`                 | GET    | `flag_definitions::flags_definitions` | Flag definitions for local SDK evaluation (requires secret token or personal API key)     |
+| `/api/feature_flag/local_evaluation` | GET    | `flag_definitions::flags_definitions` | Legacy alias for `/flags/definitions` (backward compat with old SDK versions)             |
+| `/`                                  | GET    | `index`                               | Returns `"feature flags"` (basic health check)                                            |
+| `/_readiness`                        | GET    | `readiness`                           | Kubernetes readiness probe, tests all 4 DB pool connections                               |
+| `/_liveness`                         | GET    | `liveness`                            | Kubernetes liveness probe, heartbeat-based                                                |
+| `/_startup`                          | GET    | `startup`                             | Kubernetes startup probe, warms DB pools                                                  |
+| `/metrics`                           | GET    | Prometheus                            | Metrics scrape endpoint (when `ENABLE_METRICS=true`)                                      |
 
 All flag routes accept trailing slashes.
 
@@ -117,11 +131,11 @@ The response format depends on the `v` query parameter and the endpoint:
 | `v=1`     | `/decide` | `DecideV1Response`: list of active flag keys                                                 |
 | `v=2`     | `/decide` | `DecideV2Response`: flat `feature_flags: { key: value }` map                                 |
 
-### `/flags/definitions` endpoint (under construction)
+### `/flags/definitions` endpoint
 
-**Not live in production.** This endpoint is under active development and is not routed by Contour. Local evaluation is currently served by Django at `/api/feature_flag/local_evaluation` (see [Django API endpoints](django-api-endpoints.md)), which remains the production endpoint for server-side SDKs.
+This endpoint serves flag definitions for server-side SDKs that evaluate flags locally. It replaced the Django `/api/feature_flag/local_evaluation` endpoint (which is preserved as a Rust alias for backward compatibility). All 7 server-side SDKs (Python, Node, Go, Ruby, PHP, .NET, Rust) now poll this endpoint by default.
 
-The goal is for this Rust endpoint to replace the Django local evaluation endpoint. When complete, it will serve flag definitions for SDKs that evaluate flags locally, authenticated via:
+Authenticated via:
 
 - Team secret API token (`Authorization: Bearer phs_...`), or
 - Personal API key with `feature_flag:read` scope
@@ -206,6 +220,7 @@ All values come from environment variables via the `envconfig` crate. Defined in
 | `MAX_CONCURRENCY` | `1000`           | Max concurrent flag evaluation requests           |
 | `DEBUG`           | `false`          | Pretty console logging vs JSON structured logging |
 | `ENABLE_METRICS`  | `false`          | Expose `/metrics` endpoint                        |
+| `SERVICE_MODE`    | `all`            | Fleet mode: `flags`, `definitions`, or `all`      |
 
 ### PostgreSQL
 

@@ -74,13 +74,22 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                           ]
                         : Object.values(MarketingAnalyticsBaseColumns).map((column) => column.toString())
 
+                // Cost per conversion only makes sense when the Cost metric exists at this level.
+                // At UTM drill-downs (medium/content/term) Cost is excluded because platform
+                // cost can't be attributed to a specific UTM value.
+                const costAvailable = !config.excludedBaseColumns.includes(MarketingAnalyticsBaseColumns.Cost)
+
                 const selectColumns = [
                     ...baseColumns,
                     ...conversionGoals
-                        .map((goal) => [
-                            goal.conversion_goal_name,
-                            `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
-                        ])
+                        .map((goal) =>
+                            costAvailable
+                                ? [
+                                      goal.conversion_goal_name,
+                                      `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
+                                  ]
+                                : [goal.conversion_goal_name]
+                        )
                         .flat(),
                 ].filter(isNotNil)
                 return selectColumns
