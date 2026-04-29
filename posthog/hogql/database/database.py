@@ -356,7 +356,39 @@ class Database(BaseModel):
                 table_name = ".".join(table_name)
             if table_name in self._denied_tables:
                 raise QueryError(f"You don't have access to table `{table_name}`.") from e
-            raise QueryError(f"Unknown table `{table_name}`.") from e
+            suggestions = self._suggest_table_names(table_name)
+            suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
+
+    def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
+        """Return up to `limit` close matches for a mistyped table name.
+
+        Uses a relatively strict cutoff so common exact-text assertions on
+        'Unknown table `...`.' stay stable when the mistyped name has no
+        realistic neighbor in the catalog.
+
+        Builds the candidate list from the raw name caches rather than from
+        `get_all_table_names()` — the latter verifies each warehouse entry by
+        calling `get_table()`, which would recurse back into this helper when
+        a warehouse table fails to resolve.
+        """
+        import difflib
+
+        try:
+            candidates = set(self.get_posthog_table_names())
+            candidates.update(self._warehouse_table_names)
+            candidates.update(self._warehouse_self_managed_table_names)
+            candidates.update(self._view_table_names)
+        except Exception:
+            return []
+        # Drop any candidate that matches the input — suggesting `persons` for `persons`
+        # is noise, and on a direct connection the same name can exist in the broader
+        # catalog without being available on the source we actually queried.
+        lowered = name.casefold()
+        candidates = {c for c in candidates if c.casefold() != lowered}
+        if not candidates:
+            return []
+        return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
 
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names: list[str] = []

@@ -2444,7 +2444,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             assert len(result) == 4
 
-            assert Counter([res[0]["breakdown"] for res in result]) == Counter([["Mac"], ["Chrome"], ["Safari"], [""]])
+            assert sorted([res[0]["breakdown"] for res in result]) == sorted([["Mac"], ["Chrome"], ["Safari"], [""]])
 
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
@@ -2520,7 +2520,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             assert len(result) == 2
 
-            assert Counter([res[0]["breakdown"] for res in result]) == Counter([["Mac"], ["Safari"]])
+            assert sorted([res[0]["breakdown"] for res in result]) == sorted([["Mac"], ["Safari"]])
 
         def test_funnel_personless_events_are_supported_with_breakdown(self):
             personless_user = uuid.uuid4()

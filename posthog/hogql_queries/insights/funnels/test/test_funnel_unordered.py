@@ -565,7 +565,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         assert len(results) == 3
 
-        assert Counter([res[0]["breakdown"] for res in results]) == Counter([[""], ["Mac"], ["Safari"]])
+        assert sorted([res[0]["breakdown"] for res in results]) == sorted([[""], ["Mac"], ["Safari"]])
 
 
 class TestFunnelUnorderedGroupBreakdown(

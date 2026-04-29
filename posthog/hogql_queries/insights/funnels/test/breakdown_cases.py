@@ -3140,7 +3140,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             assert len(results) == 4
 
-            assert Counter([res[0]["breakdown"] for res in results]) == Counter([["Mac"], ["Chrome"], ["Safari"], [""]])
+            assert sorted([res[0]["breakdown"] for res in results]) == sorted([["Mac"], ["Chrome"], ["Safari"], [""]])
 
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
@@ -3225,7 +3225,7 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
 
             assert len(results) == 2
 
-            assert Counter([res[0]["breakdown"] for res in results]) == Counter([["Mac"], ["Safari"]])
+            assert sorted([res[0]["breakdown"] for res in results]) == sorted([["Mac"], ["Safari"]])
 
         def test_funnel_step_breakdown_with_first_time_for_user_math(self):
             query = FunnelsQuery(

@@ -623,7 +623,7 @@ class TestFunnelUnorderedStepsBreakdown(
 
         assert len(result) == 3
 
-        assert Counter([res[0]["breakdown"] for res in result]) == Counter([[""], ["Mac"], ["Safari"]])
+        assert sorted([res[0]["breakdown"] for res in result]) == sorted([[""], ["Mac"], ["Safari"]])
 
 
 class TestFunnelUnorderedStepsConversionTime(

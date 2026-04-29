@@ -1,6 +1,5 @@
 import random
 import string
-from collections import Counter
 
 from posthog.test.base import BaseTest
 
@@ -54,7 +53,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        assert Counter(actual) == Counter(expected)
+        assert sorted(actual, key=str) == sorted(expected, key=str)
 
     def test_insight_change_of_tags_can_be_logged(self) -> None:
         actual = changes_between(
@@ -72,7 +71,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        assert Counter(actual) == Counter(expected)
+        assert sorted(actual, key=str) == sorted(expected, key=str)
 
     def test_insight_change_of_derived_name_can_be_logged(self) -> None:
         actual = changes_between(
@@ -90,7 +89,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        assert Counter(actual) == Counter(expected)
+        assert sorted(actual, key=str) == sorted(expected, key=str)
 
     def test_insight_change_of_description_can_be_logged(self) -> None:
         actual = changes_between(
@@ -108,7 +107,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        assert Counter(actual) == Counter(expected)
+        assert sorted(actual, key=str) == sorted(expected, key=str)
 
     def _an_insight_with(self, tagged_items=None, **kwargs) -> Insight:
         if tagged_items is None:

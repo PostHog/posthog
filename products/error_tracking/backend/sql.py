@@ -2,7 +2,12 @@ from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS,
+    CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS,
+    KAFKA_COLUMNS_WITH_PARTITION,
+    kafka_engine,
+)
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
@@ -125,6 +130,62 @@ INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = """
 INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
 
+# WarpStream-shared Kafka engine table + MV for error_tracking_issue_fingerprint_overrides.
+# Coexists with the MSK-pointed table during cut-over; the MSK side gets dropped in a follow-up
+# migration once produce traffic has fully shifted to warpstream-shared.
+
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_KAFKA_TABLE = (
+    f"kafka_{ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE}_ws"
+)
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV = f"{ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE}_ws_mv"
+
+DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_KAFKA_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_KAFKA_TABLE}"
+)
+DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV_SQL = (
+    f"DROP TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV}"
+)
+
+
+def KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_TABLE_SQL(on_cluster=True):
+    return ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(
+            KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
+            group=CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV_SQL(
+    on_cluster=True, target_table=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WRITABLE_TABLE
+):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {target_table}
+AS SELECT
+team_id,
+fingerprint,
+issue_id,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.{kafka_table}
+WHERE version > 0 -- only store updated rows, not newly inserted ones
+""".format(
+        mv_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV,
+        target_table=target_table,
+        kafka_table=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+
 #
 # error_tracking_fingerprint_issue_state: Contains issue metadata alongside fingerprint
 # mappings, eliminating the need for Postgres JOINs in the list query.
@@ -246,6 +307,63 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL = lambda: ERROR_TRACKING_FINGER
 INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = """
 INSERT INTO error_tracking_fingerprint_issue_state (fingerprint, issue_id, team_id, issue_name, issue_description, issue_status, assigned_user_id, assigned_role_id, first_seen, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(issue_name)s, %(issue_description)s, %(issue_status)s, %(assigned_user_id)s, %(assigned_role_id)s, %(first_seen)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
+
+# WarpStream-shared Kafka engine table + MV for error_tracking_fingerprint_issue_state.
+# Coexists with the MSK-pointed table during cut-over.
+
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_KAFKA_TABLE = f"kafka_{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}_ws"
+ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_MV = f"{ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE}_ws_mv"
+
+DROP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_KAFKA_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_KAFKA_TABLE}"
+)
+DROP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_MV_SQL = (
+    f"DROP TABLE IF EXISTS {ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_MV}"
+)
+
+
+def KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_TABLE_SQL():
+    return ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            group=CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+    )
+
+
+def ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_MV_SQL(
+    target_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WRITABLE_TABLE,
+):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {target_table}
+AS SELECT
+team_id,
+fingerprint,
+issue_id,
+issue_name,
+issue_description,
+issue_status,
+assigned_user_id,
+assigned_role_id,
+first_seen,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.{kafka_table}
+""".format(
+        mv_name=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_MV,
+        target_table=target_table,
+        kafka_table=ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 
 
 # IMPORTANT: The following table definitions are obsolete and were replaced by the general-purpose
