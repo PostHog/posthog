@@ -323,7 +323,7 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
-// Keep in sync with NOT_IN_COHORT_ID in posthog/queries/breakdown_props.py
+// Keep in sync with NOT_IN_COHORT_ID in posthog/hogql_queries/insights/utils/breakdowns.py
 export const NOT_IN_COHORT_ID = 2 ** 52
 
 export function getCohortNameFromId(

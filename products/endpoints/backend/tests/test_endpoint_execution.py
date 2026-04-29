@@ -1795,7 +1795,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(results[1][0])
 
     def test_inline_insight_cleans_other_sentinel_and_alerts(self):
-        from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
         for event_name in [f"event_{i}" for i in range(30)]:
             _create_event(

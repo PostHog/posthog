@@ -17,7 +17,6 @@ from posthog.schema import (
     StartHandling,
 )
 
-from posthog.hogql_queries.experiments.breakdown_injector import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
     get_experiment_query_debug,
@@ -25,6 +24,7 @@ from posthog.hogql_queries.experiments.utils import (
     get_variant_results,
     validate_variant_result,
 )
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 
 
 def _columns_for(
