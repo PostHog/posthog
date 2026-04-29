@@ -845,7 +845,6 @@ def social_create_user(
             WebauthnCredential.objects.filter(user=user).delete()
             user.passkeys_enabled_for_2fa = False
             user.is_email_verified = True
-            WebauthnCredential.objects.filter(user=user).delete()
             user.save()
 
         if invite_id:
