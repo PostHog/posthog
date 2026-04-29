@@ -270,9 +270,15 @@ jobs:
                           body: `**Canary deployment failed.** [View details](${runUrl})`
                       });
 
-    # Heavy job: build image + dispatch to charts
-    build_and_enable:
-        name: Build feature-flags image and enable canary
+    # Lightweight preflight: validate PR + resolve target_environment.
+    # On `pull_request: synchronize`, target_environment comes from the active
+    # canary's state in PostHog/charts:state.yaml — NOT a hardcoded default.
+    # If the canary is disabled or owned by a different PR, should_proceed is
+    # set to 'false' and the heavy build_and_enable job is skipped entirely.
+    # Hardcoding 'dev' here would silently overwrite an active prod-us / prod-eu
+    # canary, which causes ArgoCD to prune the running prod canary deployment.
+    preflight:
+        name: Preflight checks for canary deployment
         needs: [handle_comment]
         if: >-
             !cancelled() &&
@@ -281,16 +287,63 @@ jobs:
                 (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'canary-flags')) ||
                 (needs.handle_comment.result == 'success' && needs.handle_comment.outputs.should_build == 'true')
             )
-        runs-on: depot-ubuntu-22.04
-        timeout-minutes: 30
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
         permissions:
-            id-token: write
             contents: read
-            packages: write
             pull-requests: read
             issues: write
+        outputs:
+            pr_number: ${{ steps.pr_info.outputs.pr_number }}
+            pr_head_sha: ${{ steps.pr_info.outputs.pr_head_sha }}
+            canary_weight: ${{ steps.pr_info.outputs.canary_weight }}
+            target_environment: ${{ steps.pr_info.outputs.target_environment }}
+            image_tag: ${{ steps.pr_info.outputs.image_tag }}
+            pr_author: ${{ steps.pr_info.outputs.pr_author }}
+            should_proceed: ${{ steps.pr_info.outputs.should_proceed }}
 
         steps:
+            # Charts deployer token for reading state.yaml on synchronize.
+            # state.yaml in PostHog/charts is the source of truth for the
+            # active canary's target_environment; we read it here instead of
+            # defaulting to 'dev' which would clobber a prod canary.
+            - name: Get charts deployer token (for state.yaml read)
+              id: charts_token
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Read active canary state from charts
+              id: state_lookup
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ steps.charts_token.outputs.token }}
+              run: |
+                  # Synchronize-only: read PostHog/charts:state.yaml so the
+                  # rebuild dispatch keeps the active canary in its current
+                  # environment. We MUST NOT silently default to `dev` on
+                  # network/auth/parse failure — that is the bug being fixed.
+                  set -euo pipefail
+                  tmp=$(mktemp)
+                  gh api --retry 3 \
+                      -H 'Accept: application/vnd.github.raw' \
+                      repos/PostHog/charts/contents/state.yaml > "$tmp"
+                  enabled=$(yq '.state["feature-flags"].canary.enabled // false' "$tmp")
+                  active_pr=$(yq '.state["feature-flags"].canary.pr_number // 0' "$tmp")
+                  target_env=$(yq '.state["feature-flags"].canary.target_environment // ""' "$tmp")
+                  # weight may be a number or the string "auto"; if missing,
+                  # fall back to "auto" (matches stable fleet per-pod traffic).
+                  weight=$(yq '.state["feature-flags"].canary.weight // "auto"' "$tmp")
+                  echo "enabled=${enabled}"       >> "$GITHUB_OUTPUT"
+                  echo "active_pr=${active_pr}"   >> "$GITHUB_OUTPUT"
+                  echo "target_env=${target_env}" >> "$GITHUB_OUTPUT"
+                  echo "weight=${weight}"         >> "$GITHUB_OUTPUT"
+                  echo "Active canary: enabled=${enabled} pr=${active_pr} env=${target_env} weight=${weight}"
+
             - name: Resolve PR info and validate approval
               id: pr_info
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -299,6 +352,10 @@ jobs:
                   COMMENT_PR_HEAD_SHA: ${{ needs.handle_comment.outputs.pr_head_sha }}
                   COMMENT_CANARY_WEIGHT: ${{ needs.handle_comment.outputs.canary_weight }}
                   COMMENT_TARGET_ENV: ${{ needs.handle_comment.outputs.target_environment }}
+                  STATE_ENABLED: ${{ steps.state_lookup.outputs.enabled }}
+                  STATE_PR_NUMBER: ${{ steps.state_lookup.outputs.active_pr }}
+                  STATE_TARGET_ENV: ${{ steps.state_lookup.outputs.target_env }}
+                  STATE_WEIGHT: ${{ steps.state_lookup.outputs.weight }}
               with:
                   script: |
                       let prNumber, canaryWeight, targetEnvironment, headSha;
@@ -315,10 +372,43 @@ jobs:
                           // the PR HEAD cannot change between validation and checkout.
                           headSha = process.env.COMMENT_PR_HEAD_SHA;
                       } else {
+                          // pull_request: synchronize.
+                          // The active canary's settings are the source of truth —
+                          // read them from state.yaml (loaded by the state_lookup
+                          // step). If the canary is disabled or owned by a different
+                          // PR, skip the rebuild entirely; the user must use
+                          // /pr-canary to opt back in. Silently defaulting to
+                          // env=`dev` and weight=`auto` here is the bug we are
+                          // fixing — it would overwrite the active canary's settings
+                          // (e.g. nuke a prod-eu canary at weight 4 and replace it
+                          // with a dev canary at auto weight).
                           prNumber = context.payload.pull_request.number;
-                          canaryWeight = 'auto';
-                          targetEnvironment = 'dev';
                           headSha = context.payload.pull_request.head.sha;
+
+                          const stateEnabled = process.env.STATE_ENABLED === 'true';
+                          const statePr = parseInt(process.env.STATE_PR_NUMBER);
+                          const stateEnv = process.env.STATE_TARGET_ENV;
+                          const stateWeight = process.env.STATE_WEIGHT;
+
+                          if (!stateEnabled || statePr !== prNumber) {
+                              core.notice(
+                                  `Skipping canary rebuild: active canary state is ` +
+                                  `enabled=${stateEnabled}, pr=${statePr}, current PR=${prNumber}. ` +
+                                  `Use /pr-canary to redeploy.`
+                              );
+                              core.setOutput('should_proceed', 'false');
+                              return;
+                          }
+
+                          if (!stateEnv) {
+                              core.setFailed(
+                                  `Active canary for PR #${prNumber} has empty target_environment ` +
+                                  `in PostHog/charts:state.yaml — refusing to dispatch.`
+                              );
+                              return;
+                          }
+                          targetEnvironment = stateEnv;
+                          canaryWeight = stateWeight || 'auto';
                       }
 
                       if (isNaN(prNumber) || prNumber <= 0) {
@@ -384,6 +474,11 @@ jobs:
                       if (prAuthor) {
                           core.setOutput('pr_author', prAuthor);
                       }
+                      // Gate downstream build_and_enable job. Set last so any
+                      // earlier early-return (skipped sync, validation failure)
+                      // leaves should_proceed unset/'false'. The build job's
+                      // `if:` checks for the literal string 'true'.
+                      core.setOutput('should_proceed', 'true');
 
                       console.log(`PR #${prNumber} approved. SHA: ${headSha}`);
 
@@ -392,14 +487,14 @@ jobs:
             # Shared by "Verify canary label was authorized" and "Verify team membership".
             - name: Get app token for team membership check
               id: app-token
-              if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+              if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && steps.pr_info.outputs.should_proceed == 'true'
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
             - name: Verify canary label was authorized
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' && steps.pr_info.outputs.should_proceed == 'true'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
@@ -461,7 +556,7 @@ jobs:
                       );
 
             - name: Verify PR author is org member
-              if: github.event_name != 'issue_comment'
+              if: github.event_name != 'issue_comment' && steps.pr_info.outputs.should_proceed == 'true'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
@@ -530,6 +625,7 @@ jobs:
                       );
 
             - name: Validate canary inputs
+              if: steps.pr_info.outputs.should_proceed == 'true'
               env:
                   CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
                   TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
@@ -555,10 +651,48 @@ jobs:
 
                   echo "Validated: weight=${CANARY_WEIGHT}, environment=${TARGET_ENVIRONMENT}"
 
+            # Mirror of build_and_enable's failure reporter so that a preflight
+            # failure (team membership rejection, state.yaml fetch error, etc.)
+            # leaves a comment on the PR. Fires for both /pr-canary comments
+            # and pull_request: synchronize events: on synchronize, a state.yaml
+            # read failure would otherwise produce a red Action with no PR
+            # signal.
+            - name: Report failure on PR
+              if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: prNumber,
+                          body: `**Canary deployment failed.** [View details](${runUrl})`
+                      });
+
+    # Heavy job: build image + dispatch to charts.
+    # Gated on preflight.should_proceed so a synchronize event that targets a
+    # canary owned by another PR (or a disabled canary) is skipped without
+    # building or dispatching anything.
+    build_and_enable:
+        name: Build feature-flags image and enable canary
+        needs: [preflight]
+        if: needs.preflight.outputs.should_proceed == 'true'
+        runs-on: depot-ubuntu-22.04
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+            pull-requests: read
+            issues: write
+
+        steps:
             - name: Check Out Repo
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
-                  ref: ${{ steps.pr_info.outputs.pr_head_sha }}
+                  ref: ${{ needs.preflight.outputs.pr_head_sha }}
                   sparse-checkout: |
                       rust/
                       proto/
@@ -596,7 +730,7 @@ jobs:
                   context: ./rust/
                   file: ./rust/Dockerfile
                   push: true
-                  tags: ghcr.io/posthog/posthog/feature-flags:${{ steps.pr_info.outputs.image_tag }}
+                  tags: ghcr.io/posthog/posthog/feature-flags:${{ needs.preflight.outputs.image_tag }}
                   platforms: linux/arm64
                   build-args: |
                       SCCACHE_LOG=warn
@@ -618,10 +752,10 @@ jobs:
             - name: Dispatch canary deployment to charts repo
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
-                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
-                  IMAGE_TAG: ${{ steps.pr_info.outputs.image_tag }}
-                  CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
-                  TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
+                  PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+                  IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
                   STARTED_BY: ${{ github.actor }}
               with:
                   github-token: ${{ steps.deployer.outputs.token }}
@@ -641,10 +775,10 @@ jobs:
 
             - name: Summary
               env:
-                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
-                  IMAGE_TAG: ${{ steps.pr_info.outputs.image_tag }}
-                  CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
-                  TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
+                  PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+                  IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
               run: |
                   echo "## Canary Flags - Build & Dispatch" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
@@ -659,10 +793,10 @@ jobs:
               if: success() && github.event_name == 'issue_comment'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
-                  PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
-                  IMAGE_TAG: ${{ steps.pr_info.outputs.image_tag }}
-                  CANARY_WEIGHT: ${{ steps.pr_info.outputs.canary_weight }}
-                  TARGET_ENVIRONMENT: ${{ steps.pr_info.outputs.target_environment }}
+                  PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+                  IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
               with:
                   script: |
                       await github.rest.reactions.createForIssueComment({
@@ -692,11 +826,11 @@ jobs:
                       });
 
             - name: Report failure on PR
-              if: failure() && github.event_name == 'issue_comment'
+              if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
-                      const prNumber = context.payload.issue.number;
+                      const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;
                       const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
                       await github.rest.issues.createComment({
                           owner: context.repo.owner,
