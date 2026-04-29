@@ -126,43 +126,76 @@ _CHANNELS_PAGE_SIZE = 200
 _CHANNELS_MAX_PAGES = 50
 
 
-def _fetch_channels_by_type(access_token: str, channel_type: str) -> list[dict[str, Any]]:
+def _fetch_channels_page(
+    url: str, access_token: str, params: dict[str, Any]
+) -> tuple[list[dict[str, Any]], str | None]:
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = _slack_get(url, headers=headers, params=params, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+
+    if not data.get("ok"):
+        error = data.get("error", "unknown_error")
+        raise Exception(f"Slack API error fetching channels: {error}")
+
+    next_cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
+    return data.get("channels", []), next_cursor
+
+
+def _fetch_public_channels(access_token: str) -> list[dict[str, Any]]:
+    url = "https://slack.com/api/conversations.list"
     channels: list[dict[str, Any]] = []
     cursor: str | None = None
-    url = "https://slack.com/api/conversations.list"
-    headers = {"Authorization": f"Bearer {access_token}"}
 
     for _ in range(_CHANNELS_MAX_PAGES):
         params: dict[str, Any] = {
-            "types": channel_type,
+            "types": "public_channel",
             "limit": _CHANNELS_PAGE_SIZE,
             "exclude_archived": "true",
         }
         if cursor:
             params["cursor"] = cursor
 
-        response = _slack_get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-
-        if not data.get("ok"):
-            error = data.get("error", "unknown_error")
-            raise Exception(f"Slack API error fetching channels: {error}")
-
-        channels.extend(data.get("channels", []))
-
-        cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
+        page, cursor = _fetch_channels_page(url, access_token, params)
+        channels.extend(page)
         if cursor is None:
             break
 
     return channels
 
 
-def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
+def _fetch_private_channels(access_token: str, authed_user: str | None) -> list[dict[str, Any]]:
+    # users.conversations only returns channels the user is a member of, which is the
+    # only set we can sync history for anyway. Avoids enumerating private channels the
+    # token can see but cannot read.
+    url = "https://slack.com/api/users.conversations"
+    channels: list[dict[str, Any]] = []
+    cursor: str | None = None
+
+    for _ in range(_CHANNELS_MAX_PAGES):
+        params: dict[str, Any] = {
+            "types": "private_channel",
+            "limit": _CHANNELS_PAGE_SIZE,
+            "exclude_archived": "true",
+        }
+        if authed_user:
+            params["user"] = authed_user
+        if cursor:
+            params["cursor"] = cursor
+
+        page, cursor = _fetch_channels_page(url, access_token, params)
+        channels.extend(page)
+        if cursor is None:
+            break
+
+    return channels
+
+
+def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, Any]]:
     # Fetch public and private separately — Slack's conversations.list pagination is buggy
     # when public and private types are requested in a single call.
-    public = _fetch_channels_by_type(access_token, "public_channel")
-    private = _fetch_channels_by_type(access_token, "private_channel")
+    public = _fetch_public_channels(access_token)
+    private = _fetch_private_channels(access_token, authed_user)
     return public + private
 
 
@@ -243,9 +276,9 @@ def _fetch_thread_replies(
         has_more = cursor is not None
 
 
-def get_channels(access_token: str) -> list[dict[str, str]]:
+def get_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, str]]:
     """Return channel id + name pairs for all accessible channels."""
-    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels(access_token)]
+    return [{"id": ch["id"], "name": ch["name"]} for ch in _fetch_all_channels(access_token, authed_user)]
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:
