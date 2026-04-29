@@ -28,18 +28,23 @@ def _build_bot_array_lookup(
     default: str = "",
     empty_ua_value: str = "",
 ) -> ast.Expr:
-    """Build a multiMatchAnyIndexCaseInsensitive + array lookup expression for efficient bot detection.
+    """Build a multiMatchAnyIndex + array lookup expression for efficient bot detection.
 
-    Uses multiMatchAnyIndexCaseInsensitive so a single canonical pattern (e.g. "Meta-ExternalFetcher")
-    catches every UA-case variant ("meta-externalfetcher", "META-EXTERNALFETCHER"). NULL user agents
-    are coalesced to empty string so they match the ^$ pattern and get classified as empty_ua_value
-    instead of falling through to default.
+    Each pattern is wrapped with the inline `(?i)` flag so hyperscan matches case-insensitively
+    — a single canonical pattern (e.g. "Meta-ExternalFetcher") catches every UA-case variant
+    ("meta-externalfetcher", "META-EXTERNALFETCHER"). NULL user agents are coalesced to empty
+    string so they match the ^$ pattern and get classified as empty_ua_value instead of falling
+    through to default.
+
+    multiMatchAnyIndexCaseInsensitive does not exist in our ClickHouse version — only the
+    literal-substring multiSearch* family has CaseInsensitive variants. The (?i) flag is the
+    portable way to get case-insensitive multi-regex matching.
     """
     # Coalesce NULL to empty string so NULL user agents match the ^$ pattern
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    # Build patterns array (all bot patterns + empty UA pattern)
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    # Build patterns array (all bot patterns + empty UA pattern), each prefixed with (?i)
+    patterns = [f"(?i){p}" for p in BOT_DEFINITIONS.keys()] + ["^$"]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
     # Build labels array (corresponding labels + empty UA label)
@@ -47,10 +52,8 @@ def _build_bot_array_lookup(
     labels.append(empty_ua_value)
     labels_array = ast.Array(exprs=[ast.Constant(value=label) for label in labels])
 
-    # multiMatchAnyIndexCaseInsensitive(user_agent, patterns) -> 0 if no match, else 1-based index.
-    # Case-insensitive so a single pattern catches every UA-case variant (e.g. "meta-externalfetcher"
-    # matches "Meta-ExternalFetcher").
-    index_call = ast.Call(name="multiMatchAnyIndexCaseInsensitive", args=[safe_user_agent, patterns_array])
+    # multiMatchAnyIndex(user_agent, patterns) -> 0 if no match, else 1-based index.
+    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
     # labels[index] - array access (1-based in ClickHouse)
     label_lookup = ast.ArrayAccess(array=labels_array, property=index_call, nullish=False)
@@ -120,17 +123,17 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     Returns true if the user agent matches bot/automation patterns, false otherwise.
     NULL user agents are treated as bots (empty UA is considered automation).
 
-    Uses multiMatchAnyIndexCaseInsensitive for efficient single-pass matching
-    (same as get_traffic_type etc.).
+    Uses multiMatchAnyIndex with (?i)-prefixed patterns for case-insensitive single-pass
+    matching (same as get_traffic_type etc.).
     """
     user_agent_expr = args[0]
 
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    patterns = [f"(?i){p}" for p in BOT_DEFINITIONS.keys()] + ["^$"]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
-    index_call = ast.Call(name="multiMatchAnyIndexCaseInsensitive", args=[safe_user_agent, patterns_array])
+    index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotEq,

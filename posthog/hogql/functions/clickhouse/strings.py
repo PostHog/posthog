@@ -67,7 +67,6 @@ STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "match": HogQLFunctionMeta("match", 2, 2),
     "multiMatchAny": HogQLFunctionMeta("multiMatchAny", 2, 2),
     "multiMatchAnyIndex": HogQLFunctionMeta("multiMatchAnyIndex", 2, 2),
-    "multiMatchAnyIndexCaseInsensitive": HogQLFunctionMeta("multiMatchAnyIndexCaseInsensitive", 2, 2),
     "multiMatchAllIndices": HogQLFunctionMeta("multiMatchAllIndices", 2, 2),
     "multiFuzzyMatchAny": HogQLFunctionMeta("multiFuzzyMatchAny", 3, 3),
     "multiFuzzyMatchAnyIndex": HogQLFunctionMeta("multiFuzzyMatchAnyIndex", 3, 3),

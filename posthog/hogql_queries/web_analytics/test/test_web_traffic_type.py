@@ -65,7 +65,7 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_traffic_type_expr(user_agent_expr)
 
-        # Uses if(multiMatchAnyIndexCaseInsensitive(...) = 0, default, labels[index]) pattern
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
         assert expr.name == "if"
         assert len(expr.args) == 3
@@ -77,7 +77,7 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_traffic_category_expr(user_agent_expr)
 
-        # Uses if(multiMatchAnyIndexCaseInsensitive(...) = 0, default, labels[index]) pattern
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
         assert expr.name == "if"
         assert len(expr.args) == 3
@@ -89,11 +89,11 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = is_bot_expr(user_agent_expr)
 
-        # Uses multiMatchAnyIndexCaseInsensitive(...) != 0 pattern
+        # Uses multiMatchAnyIndex(...) != 0 pattern
         assert isinstance(expr, ast.CompareOperation)
         assert expr.op == ast.CompareOperationOp.NotEq
         assert isinstance(expr.left, ast.Call)
-        assert expr.left.name == "multiMatchAnyIndexCaseInsensitive"
+        assert expr.left.name == "multiMatchAnyIndex"
         assert isinstance(expr.right, ast.Constant)
         assert expr.right.value == 0
 
@@ -101,7 +101,7 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_bot_type_expr(user_agent_expr)
 
-        # Uses if(multiMatchAnyIndexCaseInsensitive(...) = 0, default, labels[index]) pattern
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
         assert expr.name == "if"
         assert len(expr.args) == 3
@@ -113,7 +113,7 @@ class TestTrafficTypeExpressions:
         user_agent_expr = ast.Field(chain=["properties", "$user_agent"])
         expr = get_bot_name_expr(user_agent_expr)
 
-        # Uses if(multiMatchAnyIndexCaseInsensitive(...) = 0, default, labels[index]) pattern
+        # Uses if(multiMatchAnyIndex(...) = 0, default, labels[index]) pattern
         assert isinstance(expr, ast.Call)
         assert expr.name == "if"
         assert len(expr.args) == 3

@@ -15,7 +15,7 @@ from posthog.hogql_queries.web_analytics.bot_ua_fixtures import (
 
 
 def _find_matching_pattern(ua: str) -> str | None:
-    """Simulate multiMatchAnyIndexCaseInsensitive: find first BOT_DEFINITIONS pattern that matches (case-insensitive)."""
+    """Simulate multiMatchAnyIndex: find first BOT_DEFINITIONS pattern that matches (case-insensitive)."""
     for pattern in BOT_DEFINITIONS:
         if re.search(re.escape(pattern), ua, flags=re.IGNORECASE):
             return pattern
@@ -65,7 +65,7 @@ class TestBotClassificationRealUA:
 
     def test_all_bot_definitions_have_matching_ua_fixture(self):
         # Patterns that are substrings of other patterns can't have standalone UA fixtures
-        # because multiMatchAnyIndexCaseInsensitive may match the shorter pattern first
+        # because multiMatchAnyIndex may match the shorter pattern first
         KNOWN_SUBSTRING_PATTERNS: set[str] = set()
 
         all_bot_uas = []
