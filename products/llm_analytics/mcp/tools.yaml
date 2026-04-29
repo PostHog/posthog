@@ -209,34 +209,146 @@ tools:
         enabled: false
     llm-analytics-review-queue-items-create:
         operation: llm_analytics_review_queue_items_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: traces/{trace_id}
+        title: Create review queue item
+        description: >
+            Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if
+            the trace already has an active review or is already pending in any review queue.
     llm-analytics-review-queue-items-destroy:
         operation: llm_analytics_review_queue_items_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete review queue item
+        description: >
+            Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace
+            can be queued again later if needed.
     llm-analytics-review-queue-items-list:
         operation: llm_analytics_review_queue_items_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        list: true
+        title: List review queue items
+        description: >
+            List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id,
+            trace_id__in, search, and ordering so agents can find traces that are still queued for review.
+        mcp_version: 1
     llm-analytics-review-queue-items-partial-update:
         operation: llm_analytics_review_queue_items_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        title: Update review queue item
+        description: >
+            Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace
+            has already been reviewed and can no longer stay queued.
     llm-analytics-review-queue-items-retrieve:
         operation: llm_analytics_review_queue_items_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        title: Get review queue item
+        description: >
+            Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and
+            timestamps for the pending review task.
+        mcp_version: 1
     llm-analytics-review-queues-create:
         operation: llm_analytics_review_queues_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: reviews?queue_id={id}
+        title: Create review queue
+        description: >
+            Create a review queue for routing traces that still need review. Queue names must be unique among active
+            queues in the current project.
     llm-analytics-review-queues-destroy:
         operation: llm_analytics_review_queues_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete review queue
+        description: >
+            Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments
+            that still belong to it.
     llm-analytics-review-queues-list:
         operation: llm_analytics_review_queues_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: reviews?queue_id={id}
+        list: true
+        title: List review queues
+        description: >
+            List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and
+            timestamps. Supports queue-name search and ordering.
+        mcp_version: 1
     llm-analytics-review-queues-partial-update:
         operation: llm_analytics_review_queues_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: reviews?queue_id={id}
+        title: Update review queue
+        description: |
+            Rename an existing review queue. The updated name must stay unique among active queues in the project.
     llm-analytics-review-queues-retrieve:
         operation: llm_analytics_review_queues_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: reviews?queue_id={id}
+        title: Get review queue
+        description: |
+            Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.
+        mcp_version: 1
     llm-analytics-score-definitions-create:
         operation: llm_analytics_score_definitions_create
         enabled: false
@@ -291,19 +403,76 @@ tools:
         enabled: false
     llm-analytics-trace-reviews-create:
         operation: llm_analytics_trace_reviews_create
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: traces/{trace_id}
+        title: Create trace review
+        description: >
+            Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to
+            clear a matching pending review-queue item after the review is saved.
     llm-analytics-trace-reviews-destroy:
         operation: llm_analytics_trace_reviews_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete trace review
+        description: >
+            Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if
+            needed.
     llm-analytics-trace-reviews-list:
         operation: llm_analytics_trace_reviews_list
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        list: true
+        title: List trace reviews
+        description: >
+            List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns
+            comments, scores, reviewers, and timestamps.
+        mcp_version: 1
     llm-analytics-trace-reviews-partial-update:
         operation: llm_analytics_trace_reviews_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        title: Update trace review
+        description: >
+            Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to
+            clear only a matching pending queue item after the review is saved.
     llm-analytics-trace-reviews-retrieve:
         operation: llm_analytics_trace_reviews_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        title: Get trace review
+        description: >
+            Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and
+            timestamps.
+        mcp_version: 1
     llm-analytics-translate-create:
         operation: llm_analytics_translate_create
         enabled: false
