@@ -32,7 +32,6 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
@@ -300,9 +299,8 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, showLegacyFilters, hasQueryInput, isEmbeddedMode } =
-        useValues(sqlEditorLogic)
-    const { setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
+    const { setSourceQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -516,19 +514,6 @@ export function OutputPane(): JSX.Element {
                     ))}
                 </div>
                 <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                    {showLegacyFilters && (
-                        <DateRange
-                            key="date-range"
-                            query={sourceQuery.source}
-                            setQuery={(query) => {
-                                setSourceQuery({
-                                    ...sourceQuery,
-                                    source: query,
-                                })
-                                runQuery(query.query)
-                            }}
-                        />
-                    )}
                     {activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">

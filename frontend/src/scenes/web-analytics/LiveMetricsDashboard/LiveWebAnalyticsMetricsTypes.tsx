@@ -42,6 +42,8 @@ export interface SlidingWindowBucket {
     referrers: Map<string, number>
     uniqueUsers: Set<string>
     countries: Map<string, Set<string>>
+    // Optional to keep existing test fixtures and backfill helpers concise. Keyed via `buildCityKey`.
+    cities?: Map<string, Set<string>>
     // Optional so that existing tests and backfill helpers don't have to
     // construct bot maps when they are not asserting on bot traffic.
     bots?: Map<string, { count: number; category: string }>
@@ -58,6 +60,26 @@ export interface CountryBreakdownItem {
     country: string
     count: number
     percentage: number
+}
+
+export interface CityBreakdownItem {
+    cityName: string
+    countryCode: string
+    count: number
+    percentage: number
+}
+
+export const CITY_KEY_SEPARATOR = '|'
+
+export const buildCityKey = (cityName: string, countryCode: string): string =>
+    `${cityName}${CITY_KEY_SEPARATOR}${countryCode}`
+
+export const parseCityKey = (key: string): { cityName: string; countryCode: string } => {
+    const sepIdx = key.lastIndexOf(CITY_KEY_SEPARATOR)
+    if (sepIdx === -1) {
+        return { cityName: key, countryCode: '' }
+    }
+    return { cityName: key.slice(0, sepIdx), countryCode: key.slice(sepIdx + 1) }
 }
 
 export interface LiveGeoEvent {

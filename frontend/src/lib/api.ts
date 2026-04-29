@@ -226,6 +226,7 @@ import type {
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
+    SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -620,6 +621,10 @@ export class ApiRequest {
 
     public fileSystemShortcutDetail(id: NonNullable<FileSystemEntry['id']>, teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent(id)
+    }
+
+    public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
+        return this.fileSystemShortcut(teamId).addPathComponent('reorder')
     }
 
     // # Persisted folder
@@ -2462,6 +2467,9 @@ const api = {
         },
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
+        },
+        async reorder(orderedIds: NonNullable<FileSystemEntry['id']>[]): Promise<FileSystemEntry[]> {
+            return await new ApiRequest().fileSystemShortcutReorder().create({ data: { ordered_ids: orderedIds } })
         },
     },
 
@@ -4583,6 +4591,21 @@ const api = {
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },
+        async collabStream(
+            notebookId: NotebookType['short_id'],
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest().notebook(notebookId).withAction('collab/stream').assembleFullUrl(true)
+            await api.stream(url, { method: 'GET', onMessage, onError, signal })
+        },
     },
 
     sessionGroupSummaries: {
@@ -5596,7 +5619,7 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
+        authorizeUrl(params: { kind: string; next?: string; is_sandbox?: boolean }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(
@@ -6685,6 +6708,14 @@ const api = {
                 .sessionSummary()
                 .withAction('create_session_summaries_individually')
                 .create({ data })
+        },
+        config: {
+            async get(): Promise<SessionSummariesConfig> {
+                return await new ApiRequest().sessionSummary().withAction('config').get()
+            },
+            async update(data: Partial<SessionSummariesConfig>): Promise<SessionSummariesConfig> {
+                return await new ApiRequest().sessionSummary().withAction('config').update({ data })
+            },
         },
     },
 

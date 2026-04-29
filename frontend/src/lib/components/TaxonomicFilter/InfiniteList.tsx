@@ -16,7 +16,7 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { SelectItemMeta, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
@@ -103,6 +103,26 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
             }
         >
             <LemonTag>Stale</LemonTag>
+        </Tooltip>
+    )
+}
+
+const VALUE_MATCH_MAX_LENGTH = 30
+
+const valueMatchIndicator = (matchedValue: string): JSX.Element => {
+    const truncated =
+        matchedValue.length > VALUE_MATCH_MAX_LENGTH
+            ? matchedValue.slice(0, VALUE_MATCH_MAX_LENGTH) + '…'
+            : matchedValue
+    return (
+        <Tooltip title={<>Matched on value: "{matchedValue}"</>}>
+            <LemonTag
+                aria-label="Matched on value"
+                data-attr="taxonomic-value-match-indicator"
+                className="ml-1 max-w-[12rem] truncate"
+            >
+                {truncated}
+            </LemonTag>
         </Tooltip>
     )
 }
@@ -243,19 +263,40 @@ const renderItemContents = ({
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : (
-        <div className="taxonomic-list-row-contents min-w-0">
-            {listGroupType === TaxonomicFilterGroupType.Elements ? (
-                <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
-            ) : (
-                <>
-                    {icon}
-                    <span className="truncate" title={itemGroup.getName?.(item) || item.name || ''}>
-                        {itemGroup.getName?.(item) || item.name || ''}
-                    </span>
-                </>
-            )}
-        </div>
+        <>
+            <div className="taxonomic-list-row-contents min-w-0">
+                {listGroupType === TaxonomicFilterGroupType.Elements ? (
+                    <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
+                ) : (
+                    <>
+                        {icon}
+                        <span className="truncate" title={itemGroup.getName?.(item) || item.name || ''}>
+                            {itemGroup.getName?.(item) || item.name || ''}
+                        </span>
+                    </>
+                )}
+            </div>
+            {(() => {
+                const matchedValue = getMatchedValue(item)
+                return matchedValue ? valueMatchIndicator(matchedValue) : null
+            })()}
+        </>
     )
+}
+
+function getMatchedValue(item: TaxonomicDefinitionTypes): string | null {
+    if (typeof item !== 'object' || item === null) {
+        return null
+    }
+    const candidate = item as unknown as { matchedOn?: string; matchedValue?: string }
+    if (
+        candidate.matchedOn === 'value' &&
+        typeof candidate.matchedValue === 'string' &&
+        candidate.matchedValue.length > 0
+    ) {
+        return candidate.matchedValue
+    }
+    return null
 }
 
 const selectedItemHasPopover = (
@@ -317,7 +358,8 @@ interface InfiniteListRowProps {
     selectItem: (
         group: TaxonomicFilterGroup,
         value: string | number | null,
-        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true }
+        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
+        meta?: SelectItemMeta
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
@@ -422,7 +464,12 @@ export const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
-            selectItem(itemGroup, trimmedSearchQuery, { name: trimmedSearchQuery, isNonCaptured: true })
+            selectItem(
+                itemGroup,
+                trimmedSearchQuery,
+                { name: trimmedSearchQuery, isNonCaptured: true },
+                { position: rowIndex }
+            )
         }
 
         return (
@@ -527,7 +574,7 @@ export const InfiniteListRow = ({
                         return
                     }
                     if (canSelectItem(listGroupType, dataWarehousePopoverFields)) {
-                        return selectItem(itemGroup, itemValue ?? null, item)
+                        return selectItem(itemGroup, itemValue ?? null, item, { position: rowIndex })
                     }
                     onToggleRowPin(rowIndex)
                 }}

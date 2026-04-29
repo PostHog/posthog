@@ -953,6 +953,39 @@ class ExperimentService:
         )
 
     # ------------------------------------------------------------------
+    # Unarchive
+    # ------------------------------------------------------------------
+
+    def unarchive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
+        """Unarchive an archived experiment: validate it is archived, set archived=False."""
+        if not experiment.archived:
+            raise ValidationError("Experiment is not archived.")
+
+        experiment.archived = False
+        experiment.save()
+
+        self._report_experiment_unarchived(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_unarchived(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment unarchived",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
+    # ------------------------------------------------------------------
     # Pause / Resume
     # ------------------------------------------------------------------
 
