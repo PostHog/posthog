@@ -431,6 +431,45 @@ class ExecuteLLMJudgeInputs:
         }
 
 
+def _is_errored_trace(properties: dict[str, Any]) -> bool:
+    """Return True when the captured trace recorded an error.
+
+    `$ai_is_error` may be ingested as a Python bool or a JSON-encoded string depending on the
+    SDK and capture path, so we normalise both forms here.
+    """
+    raw = properties.get("$ai_is_error")
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() == "true"
+    return False
+
+
+def _build_errored_trace_result(allows_na: bool) -> dict[str, Any]:
+    """Result returned when the source trace errored — skips the LLM call entirely.
+
+    `skipped` is set so the workflow can avoid charging the team's trial quota for an
+    evaluation that never ran.
+    """
+    reasoning = "Source trace errored before producing output; evaluation skipped."
+    result: dict[str, Any] = {
+        "verdict": None if allows_na else False,
+        "reasoning": reasoning,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "is_byok": False,
+        "key_id": None,
+        "allows_na": allows_na,
+        "model": "",
+        "provider": "",
+        "skipped": True,
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
 @temporalio.activity.defn
 async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event.
@@ -462,6 +501,19 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
 
     output_config = evaluation.get("output_config", {})
     allows_na = output_config.get("allows_na", False)
+
+    # Parse properties early so we can short-circuit on traces that errored before producing
+    # any output. Without this guard, the judge runs against an empty Output and tends to
+    # return spurious verdicts (often `true`) instead of recognising that there is nothing to
+    # evaluate.
+    event_type = event_data["event"]
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    if _is_errored_trace(properties):
+        increment_errors("trace_errored_skipped")
+        return _build_errored_trace_result(allows_na)
 
     # Fetch provider key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
@@ -552,12 +604,6 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
 
     is_byok = provider_key is not None
     key_id = str(provider_key.id) if provider_key else None
-
-    # Build context from event
-    event_type = event_data["event"]
-    properties = event_data["properties"]
-    if isinstance(properties, str):
-        properties = json.loads(properties)
 
     # Extract input/output based on event type
     input_raw, output_raw = extract_event_io(event_type, properties)
@@ -1086,8 +1132,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         )
                 raise
 
-            # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals)
-            if not result.get("is_byok"):
+            # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals).
+            # Skipped evaluations (e.g. errored source trace) never made an API call, so they do not
+            # consume trial quota.
+            if not result.get("is_byok") and not result.get("skipped"):
                 threshold_pct = await temporalio.workflow.execute_activity(
                     increment_trial_eval_count_activity,
                     evaluation["team_id"],
@@ -1204,4 +1252,5 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
+            "skipped": result.get("skipped", False),
         }

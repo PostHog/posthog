@@ -298,6 +298,147 @@ class TestRunEvaluationWorkflow:
             assert result["reasoning"] == "This is a greeting, not a math problem"
             assert result["allows_na"] is True
 
+    @parameterized.expand(
+        [
+            ("bool_true", True),
+            ("string_true", "true"),
+            ("string_True_capitalized", "True"),
+        ]
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_skips_errored_traces(
+        self, _name: str, ai_is_error_value: Any, setup_data
+    ):
+        """Errored traces have no meaningful output — the judge must short-circuit instead of
+        producing a verdict against an empty Output (which historically defaulted to true)."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response relevant?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [],
+                "$ai_is_error": ai_is_error_value,
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client_class.assert_not_called()
+
+        assert result["verdict"] is False
+        assert result["skipped"] is True
+        assert result["allows_na"] is False
+        assert result["input_tokens"] == 0
+        assert result["output_tokens"] == 0
+        assert result["total_tokens"] == 0
+        assert "errored" in result["reasoning"].lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_skips_errored_trace_with_allows_na(self, setup_data):
+        """When N/A is allowed, errored traces should be marked inapplicable rather than verdict=false."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response relevant?"},
+            "output_type": "boolean",
+            "output_config": {"allows_na": True},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "Hi"}],
+                "$ai_is_error": True,
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client_class.assert_not_called()
+
+        assert result["verdict"] is None
+        assert result["applicable"] is False
+        assert result["allows_na"] is True
+        assert result["skipped"] is True
+
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("explicit_false", {"$ai_is_error": False}),
+            ("string_false", {"$ai_is_error": "false"}),
+        ]
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
+        self, _name: str, error_props: dict[str, Any], setup_data
+    ):
+        """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response relevant?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+                **error_props,
+            },
+        )
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Correct")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+            )
+
+            mock_client.complete.assert_called_once()
+
+        assert result["verdict"] is True
+        assert result.get("skipped") is not True
+
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_emit_evaluation_event_activity_allows_na_applicable(self, setup_data):
