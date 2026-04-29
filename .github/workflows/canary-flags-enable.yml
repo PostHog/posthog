@@ -826,11 +826,11 @@ jobs:
                       });
 
             - name: Report failure on PR
-              if: failure() && github.event_name == 'issue_comment'
+              if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
-                      const prNumber = context.payload.issue.number;
+                      const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;
                       const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
                       await github.rest.issues.createComment({
                           owner: context.repo.owner,
