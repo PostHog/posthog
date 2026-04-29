@@ -56,6 +56,13 @@ _SHARED_PATH_PARAMS: dict[str, dict[str, Any]] = {
         "schema": {"type": "string"},
         "description": "Deprecated. Use /api/projects/{project_id}/ instead.",
     },
+    "OrganizationIdPath": {
+        "in": "path",
+        "name": "organization_id",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/.",
+    },
 }
 
 # Reverse lookup keyed by the inlined parameter name.
