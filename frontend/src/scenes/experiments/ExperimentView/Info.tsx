@@ -6,6 +6,7 @@ import { IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
@@ -63,6 +64,14 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         legacySecondaryMetricsResults?.[0]?.last_refresh ||
         primaryMetricsResults?.[0]?.last_refresh ||
         secondaryMetricsResults?.[0]?.last_refresh
+
+    // Results are stale when the experiment config (metrics, exposure criteria,
+    // parameters, ...) has been updated after the most recent refresh. The user
+    // refreshes manually to re-run the queries.
+    const isOutdated =
+        !!experiment.config_updated_at &&
+        !!lastRefresh &&
+        dayjs(experiment.config_updated_at).isAfter(dayjs(lastRefresh))
 
     const status = getExperimentStatus(experiment)
     const isPaused = isExperimentPaused(experiment)
@@ -216,6 +225,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                 <ExperimentReloadAction
                                     isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                     lastRefresh={lastRefresh}
+                                    isOutdated={isOutdated}
                                     onClick={() => {
                                         // Track manual refresh click
                                         reportExperimentMetricsRefreshed(experiment, true, {

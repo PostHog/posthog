@@ -99,6 +99,7 @@ export const NEW_EXPERIMENT: Experiment = {
     created_at: null,
     created_by: null,
     updated_at: null,
+    config_updated_at: null,
     holdout_id: null,
     exposure_criteria: {
         filterTestAccounts: true,

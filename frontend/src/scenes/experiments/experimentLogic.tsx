@@ -137,6 +137,7 @@ export const NEW_EXPERIMENT: Experiment = {
     created_at: null,
     created_by: null,
     updated_at: null,
+    config_updated_at: null,
     holdout_id: null,
     exposure_criteria: {
         filterTestAccounts: true,
@@ -1518,8 +1519,11 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            // Load metrics for launched experiments (will set up auto-refresh after load completes)
-            if (experiment && isLaunched(experiment)) {
+            // Load metrics for launched experiments (will set up auto-refresh after load completes).
+            // Config changes (e.g. attaching a shared metric) reload the experiment but should NOT
+            // refresh results — the user opts in to a refresh via the Outdated indicator on the
+            // "Last refreshed" button.
+            if (experiment && isLaunched(experiment) && payload?.triggeredBy !== 'config_change') {
                 actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual')
             }
         },
@@ -1750,7 +1754,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 update_feature_flag_params: false,
             })
-            actions.refreshExperimentResults(true, 'config_change')
         },
         resetRunningExperiment: async () => {
             try {
@@ -1770,17 +1773,11 @@ export const experimentLogic = kea<experimentLogicType>([
             if (payload?.update_feature_flag_params && experiment.feature_flag) {
                 actions.updateFlagFromPartial(experiment.feature_flag)
             }
-            if (isLaunched(experiment)) {
-                // For launched experiments, refresh results if any of these fields are updated
-                const forceRefresh =
-                    payload?.start_date !== undefined ||
-                    payload?.end_date !== undefined ||
-                    payload?.metrics !== undefined ||
-                    payload?.metrics_secondary !== undefined ||
-                    payload?.stats_config !== undefined ||
-                    payload?.only_count_matured_users !== undefined
-                actions.refreshExperimentResults(forceRefresh, 'config_change')
-            }
+            // Config changes do NOT auto-refresh results — the backend bumps
+            // experiment.config_updated_at and the UI surfaces an "Outdated"
+            // indicator on the "Last refreshed" button so the user can refresh
+            // on demand. This avoids cascading refreshes when editing multiple
+            // metrics in sequence.
         },
         createExposureCohortSuccess: ({ exposureCohort }) => {
             if (exposureCohort && exposureCohort.id !== 'new') {

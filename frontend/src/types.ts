@@ -4561,6 +4561,7 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
+    config_updated_at: string | null
     holdout_id?: number | null
     holdout?: ExperimentHoldoutType
     stats_config?: {

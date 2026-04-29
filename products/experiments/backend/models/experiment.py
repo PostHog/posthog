@@ -52,6 +52,20 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     end_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    # Bumped explicitly by the experiment service when fields that affect query
+    # results change (metrics, exposure_criteria, parameters, ...). Compared to
+    # cached result `last_refresh` to flag stale results in the UI. Distinct
+    # from `updated_at`, which also bumps on non-config saves like `archived`
+    # or `conclusion`.
+    config_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Timestamp of the most recent change to fields that affect experiment results "
+            "(metrics, exposure criteria, parameters, etc.). Compare with cached result timestamps "
+            "to detect when results are stale."
+        ),
+    )
     archived = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False, null=True)
     type = models.CharField(max_length=40, choices=ExperimentType, null=True, blank=True, default="product")

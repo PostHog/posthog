@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -92,10 +92,12 @@ const INTERVAL_OPTIONS = Array.from(getExperimentRefreshIntervalSeconds(), (valu
 export const ExperimentReloadAction = ({
     isRefreshing,
     lastRefresh,
+    isOutdated,
     onClick,
 }: {
     isRefreshing: boolean
     lastRefresh: string
+    isOutdated?: boolean
     onClick: () => void
 }): JSX.Element => {
     const { autoRefresh } = useValues(experimentLogic)
@@ -133,7 +135,16 @@ export const ExperimentReloadAction = ({
 
     return (
         <div className="flex flex-col">
-            <Label intent="menu">Last refreshed</Label>
+            <div className="flex items-center gap-2">
+                <Label intent="menu">Last refreshed</Label>
+                {isOutdated && (
+                    <Tooltip title="Configuration changes detected. Refresh to see updated results.">
+                        <LemonTag type="warning" size="small">
+                            Outdated
+                        </LemonTag>
+                    </Tooltip>
+                )}
+            </div>
             <div className="relative">
                 <LemonButton
                     onClick={onClick}

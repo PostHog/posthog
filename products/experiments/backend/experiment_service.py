@@ -51,6 +51,26 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
+# Fields whose mutation invalidates cached experiment results — when any of
+# these change, `config_updated_at` is bumped so the UI can flag results as
+# outdated. Excludes display-only fields (name, description, ordering) and
+# lifecycle fields that do not change query semantics (archived, conclusion,
+# status, deleted, type).
+CONFIG_FIELDS: frozenset[str] = frozenset(
+    {
+        "metrics",
+        "metrics_secondary",
+        "parameters",
+        "stats_config",
+        "exposure_criteria",
+        "only_count_matured_users",
+        "scheduling_config",
+        "start_date",
+        "end_date",
+        "holdout",
+    }
+)
+
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
 
 DEFAULT_VARIANTS = [
@@ -545,6 +565,7 @@ class ExperimentService:
             "deleted": deleted,
             "conclusion": conclusion,
             "conclusion_comment": conclusion_comment,
+            "config_updated_at": timezone.now(),
         }
         if create_in_folder is not None:
             create_kwargs["_create_in_folder"] = create_in_folder
@@ -910,6 +931,7 @@ class ExperimentService:
         feature_flag.active = True
         feature_flag.save()
 
+        experiment.config_updated_at = timezone.now()
         experiment.save()
 
         self._report_experiment_launched(experiment, request=request)
@@ -1098,6 +1120,7 @@ class ExperimentService:
         experiment.end_date = timezone.now()
         experiment.conclusion = conclusion
         experiment.conclusion_comment = conclusion_comment
+        experiment.config_updated_at = timezone.now()
         experiment.save()
 
         self._report_experiment_ended(experiment, request=request)
@@ -1184,6 +1207,7 @@ class ExperimentService:
         experiment.archived = False
         experiment.conclusion = None
         experiment.conclusion_comment = None
+        experiment.config_updated_at = timezone.now()
 
         experiment.save()
 
@@ -1284,6 +1308,7 @@ class ExperimentService:
         was_running = experiment.is_running
         if was_running:
             experiment.end_date = timezone.now()
+            experiment.config_updated_at = timezone.now()
         if conclusion is not None:
             experiment.conclusion = conclusion
         if conclusion_comment is not None:
@@ -1525,6 +1550,10 @@ class ExperimentService:
         # --- apply changes and save ----------------------------------------
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
+
+        if update_saved_metrics or CONFIG_FIELDS.intersection(update_data.keys()):
+            experiment.config_updated_at = timezone.now()
+
         experiment.save()
 
         return experiment
