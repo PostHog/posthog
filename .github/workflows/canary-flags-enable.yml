@@ -82,6 +82,7 @@ jobs:
             - name: Check out canary scripts
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
+                  ref: master
                   sparse-checkout: .github/scripts/canary
                   sparse-checkout-cone-mode: false
 
@@ -225,8 +226,10 @@ jobs:
                           return;
                       }
 
-                      // Pin the PR head SHA now so it cannot change between
-                      // validation and checkout (TOCTOU mitigation).
+                      // Resolve the PR head SHA once and pass it through to
+                      // build_and_enable so the docker build operates on the
+                      // exact SHA we just validated, not whatever the PR head
+                      // happens to be at the moment the build job picks up.
                       const { data: pr } = await github.rest.pulls.get({
                           owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber,
                       });
@@ -805,6 +808,7 @@ jobs:
               if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
+                  ref: master
                   sparse-checkout: .github/scripts/canary
                   sparse-checkout-cone-mode: false
             - name: Upsert preflight failure marker
@@ -843,15 +847,30 @@ jobs:
             issues: write
 
         steps:
-            - name: Check Out Repo
+            # Trusted: canary helper scripts come from the default branch so
+            # the github-script `require()`s below cannot execute PR-author-
+            # controlled code in this privileged context. Lands at workspace
+            # root so existing `require('./.github/scripts/canary/...')` paths
+            # are unchanged.
+            - name: Check out trusted canary scripts (default branch)
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  ref: master
+                  sparse-checkout: .github/scripts/canary
+                  sparse-checkout-cone-mode: false
+
+            # Untrusted: PR build context. Pinned to the SHA validated by
+            # handle_comment, isolated under `pr-head/` so it is consumed only
+            # by the docker build step and never executed on the runner.
+            - name: Check Out PR build context
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   ref: ${{ needs.preflight.outputs.pr_head_sha }}
                   sparse-checkout: |
                       rust/
                       proto/
-                      .github/scripts/canary/
                   sparse-checkout-cone-mode: false
+                  path: pr-head
 
             - name: Mark BUILDING in PR comment
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -879,7 +898,7 @@ jobs:
                       });
 
             - name: Copy proto files into rust build context
-              run: cp -r proto rust/proto
+              run: cp -r pr-head/proto pr-head/rust/proto
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -907,8 +926,8 @@ jobs:
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   project: vglf58qgzw
-                  context: ./rust/
-                  file: ./rust/Dockerfile
+                  context: ./pr-head/rust/
+                  file: ./pr-head/rust/Dockerfile
                   push: true
                   tags: ghcr.io/posthog/posthog/feature-flags:${{ needs.preflight.outputs.image_tag }}
                   platforms: linux/arm64
@@ -1064,6 +1083,7 @@ jobs:
             - name: Check out canary scripts
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
+                  ref: master
                   sparse-checkout: .github/scripts/canary
                   sparse-checkout-cone-mode: false
 

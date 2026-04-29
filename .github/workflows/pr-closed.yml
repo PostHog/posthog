@@ -34,6 +34,7 @@ jobs:
             - name: Check out canary scripts
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
+                  ref: master
                   sparse-checkout: .github/scripts/canary
                   sparse-checkout-cone-mode: false
 
