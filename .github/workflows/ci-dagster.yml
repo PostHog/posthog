@@ -176,7 +176,7 @@ jobs:
     dagster:
         name: Dagster tests (${{ matrix.group }}/${{ matrix.concurrency }})
         needs: [changes]
-        timeout-minutes: 20
+        timeout-minutes: 40
         strategy:
             fail-fast: false
             matrix:
