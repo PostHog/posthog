@@ -263,7 +263,7 @@ export const CombinedOverlays: Story = {
     },
 }
 
-function ThrowOnRender(): JSX.Element {
+function ThrowOnRender(): never {
     throw new Error('intentional render error for ChartErrorBoundary story')
 }
 
