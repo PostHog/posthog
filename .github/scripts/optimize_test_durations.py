@@ -99,6 +99,14 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
             "--collect-only",
             "-q",
         ]
+    elif segment == "Dagster":
+        cmd = [
+            "pytest",
+            "posthog/dags",
+            "products/**/dags",
+            "--collect-only",
+            "-q",
+        ]
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     tests = set()
