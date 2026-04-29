@@ -147,8 +147,11 @@ class TaggerSerializer(serializers.ModelSerializer):
                 # avoids leaking anything beyond intended validation feedback.
                 messages = [err.get("msg", "Invalid value") for err in e.errors()]
                 raise serializers.ValidationError({"tagger_config": messages})
-            except ValueError as e:
-                raise serializers.ValidationError({"tagger_config": str(e)})
+            except ValueError:
+                # validate_tagger_config only raises ValueError for unknown tagger_type, which is
+                # already constrained upstream by the ChoiceField. Use a static message so we don't
+                # surface user-controlled input in the response (CodeQL py/stack-trace-exposure).
+                raise serializers.ValidationError({"tagger_config": "Unsupported tagger type"})
         return data
 
     def _resolve_provider_key(self, model_config_data: dict[str, Any], team_id: int) -> LLMProviderKey | None:
