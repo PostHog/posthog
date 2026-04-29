@@ -45,6 +45,7 @@ import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/sce
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -735,7 +736,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Configure head sampling and path drops before logs reach storage. Rules are evaluated in ingestion order.',
                 component: <LogsSamplingSection />,
-                flag: 'LOGS_SAMPLING_RULES',
+                flag: LogsFeatureFlagKeys.samplingRules,
                 keywords: ['sample', 'sampling', 'drop', 'volume', 'noise'],
             },
             {

@@ -20,6 +20,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsServicesLogic, ServiceRow } from './logsServicesLogic'
 
@@ -77,7 +78,7 @@ export function LogsServices(): JSX.Element {
         useValues(logsServicesLogic)
     const { setDateFrom } = useActions(logsServicesLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
-    const samplingRulesUi = useFeatureFlag('LOGS_SAMPLING_RULES')
+    const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.samplingRules)
 
     const presetItems = DATE_OPTIONS.map((opt) => ({
         label: opt.label,

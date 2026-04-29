@@ -8,11 +8,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 
 export function LogsSamplingSection(): JSX.Element {
-    const enabled = useFeatureFlag('LOGS_SAMPLING_RULES')
+    const enabled = useFeatureFlag(LogsFeatureFlagKeys.samplingRules)
     if (!enabled) {
         return null
     }
