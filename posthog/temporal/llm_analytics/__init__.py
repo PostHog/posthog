@@ -60,6 +60,10 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     summarize_and_save_activity,
 )
 
+from products.signals.backend.temporal.emit_eval_report_signal import (
+    EmitEvalReportSignalWorkflow,
+    emit_eval_report_signal_activity,
+)
 from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_activity
 
 EVAL_WORKFLOWS = [
@@ -97,6 +101,7 @@ WORKFLOWS = [
     ScheduleAllEvalReportsWorkflow,
     CheckCountTriggeredReportsWorkflow,
     GenerateAndDeliverEvalReportWorkflow,
+    EmitEvalReportSignalWorkflow,
     # Evaluation clustering (Stage A sampler + Stage B clustering)
     LLMAEvaluationSamplerCoordinatorWorkflow,
     LLMAEvaluationSamplerWorkflow,
@@ -131,6 +136,7 @@ ACTIVITIES = [
     store_report_run_activity,
     deliver_report_activity,
     update_next_delivery_date_activity,
+    emit_eval_report_signal_activity,
     # Evaluation clustering activities
     sample_and_embed_for_job_activity,
     perform_evaluation_clustering_compute_activity,

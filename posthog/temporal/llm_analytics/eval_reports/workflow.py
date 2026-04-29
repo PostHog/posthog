@@ -205,10 +205,11 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         )
 
         # 3b. Emit a signal for this report run (fire-and-forget).
-        # Runs on the signals worker via VIDEO_EXPORT_TASK_QUEUE so the LLM summary
-        # call doesn't block delivery. Gated by the same SignalSourceConfig(LLM_ANALYTICS,
-        # EVALUATION) row that gates per-result emission — the activity bails out early
-        # for teams/evaluations that haven't opted in.
+        # Runs on the same LLMA worker as the parent via LLMA_TASK_QUEUE; ABANDON
+        # parent-close lets the LLM summary call continue independently so it doesn't
+        # block delivery. Gated by the same SignalSourceConfig(LLM_ANALYTICS, EVALUATION)
+        # row that gates per-result emission — the activity bails out early for
+        # teams/evaluations that haven't opted in.
         # Wrapped in workflow.patched so in-flight workflows started before this code
         # was deployed don't hit a nondeterminism error on replay — they'll skip the
         # child-workflow command entirely.
@@ -229,7 +230,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                         content=agent_result.content,
                     ),
                     id=f"emit-eval-report-signal-{context.team_id}-{context.evaluation_id}-{store_result.report_run_id}",
-                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    task_queue=settings.LLMA_TASK_QUEUE,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     execution_timeout=timedelta(minutes=5),

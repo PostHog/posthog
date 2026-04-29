@@ -199,7 +199,6 @@ class TestSignalsProductModuleIntegrity:
             "TeamSignalReingestionWorkflow",
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
-            "EmitEvalReportSignalWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -219,7 +218,6 @@ class TestSignalsProductModuleIntegrity:
             "assign_and_emit_signal_activity",
             "delete_report_activity",
             "emit_eval_signal_activity",
-            "emit_eval_report_signal_activity",
             "fetch_report_contexts_activity",
             "flush_signals_to_s3_activity",
             "signal_with_start_grouping_v2_activity",

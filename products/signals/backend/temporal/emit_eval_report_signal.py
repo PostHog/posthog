@@ -208,10 +208,10 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
 class EmitEvalReportSignalWorkflow(PostHogWorkflow):
     """Dedicated workflow for emitting eval report signals.
 
-    Runs on VIDEO_EXPORT_TASK_QUEUE (the signals worker) instead of the LLMA
-    queue. Fire-and-forget from GenerateAndDeliverEvalReportWorkflow — the
-    caller uses ParentClosePolicy.ABANDON so the report workflow doesn't wait
-    for signal emission (which does its own LLM call) to complete.
+    Runs on LLMA_TASK_QUEUE alongside the parent GenerateAndDeliverEvalReportWorkflow.
+    Fire-and-forget — the caller uses ParentClosePolicy.ABANDON so the report
+    workflow doesn't wait for signal emission (which does its own LLM call) to
+    complete, even though both run on the same worker.
     """
 
     @staticmethod
