@@ -846,6 +846,7 @@ class Database(BaseModel):
                         id=connection_id,
                         access_method=ExternalDataSource.AccessMethod.DIRECT,
                     )
+                    .select_related(None)
                     .only("connection_metadata")
                     .first()
                 )
@@ -1536,6 +1537,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     with timings.measure("traffic_type_virtual_fields"):
         from posthog.hogql.database.schema.traffic_type import (
             create_bot_name_field,
+            create_bot_operator_field,
             create_is_bot_field,
             create_traffic_category_field,
             create_traffic_type_field,
@@ -1546,6 +1548,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             ("$virt_traffic_type", create_traffic_type_field),
             ("$virt_traffic_category", create_traffic_category_field),
             ("$virt_bot_name", create_bot_name_field),
+            ("$virt_bot_operator", create_bot_operator_field),
         ]:
             events_table.fields[field_name] = factory_fn(name=field_name)
 

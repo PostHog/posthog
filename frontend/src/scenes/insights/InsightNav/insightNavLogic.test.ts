@@ -8,9 +8,18 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { EventsQuery, FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery, Node } from '~/queries/schema/schema-general'
+import {
+    EventsQuery,
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    Node,
+    ProductKey,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    BaseMathType,
     ChartDisplayType,
     FunnelVizType,
     InsightLogicProps,
@@ -21,6 +30,8 @@ import {
     QueryBasedInsightModel,
     StepOrderValue,
 } from '~/types'
+
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { insightDataLogic } from '../insightDataLogic'
 
@@ -66,7 +77,12 @@ describe('insightNavLogic', () => {
             }).toMatchValues({
                 query: {
                     kind: NodeKind.InsightVizNode,
-                    source: { ...nodeKindToDefaultQuery[NodeKind.TrendsQuery], filterTestAccounts: true, version: 2 },
+                    source: {
+                        ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
+                        filterTestAccounts: true,
+                        version: 2,
+                        tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    },
                 },
             })
         })
@@ -87,9 +103,19 @@ describe('insightNavLogic', () => {
                                 name: 'Pageview',
                             },
                         ],
+                        tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                 },
             })
+        })
+
+        it('tags queries with product_analytics productKey', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                logic.actions.setActiveView(InsightType.TRENDS)
+            })
+
+            const query = builtInsightDataLogic.values.query as InsightVizNode
+            expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
         })
 
         it('can set active view to QUERY', async () => {
@@ -256,6 +282,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
                             lifecycleFilter: { showValuesOnSeries: true },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -364,6 +391,48 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it.each([
+                ['switching away from trends and back', [InsightType.FUNNELS]],
+                ['switching through multiple tabs', [InsightType.FUNNELS, InsightType.LIFECYCLE]],
+            ] as const)('preserves series math when %s', async (_, intermediateViews) => {
+                const trendsQueryWithUniqueUsers: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                        ],
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithUniqueUsers)
+                })
+
+                for (const view of intermediateViews) {
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(view)
+                    }).toFinishAllListeners()
+                }
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [expect.objectContaining({ math: BaseMathType.UniqueUsers })],
+                    },
+                })
+            })
+
             it('gets rid of minute when leaving trends', async () => {
                 ;(trendsQuery.source as TrendsQuery).interval = 'minute'
                 await expectLogic(logic, () => {
@@ -381,6 +450,7 @@ describe('insightNavLogic', () => {
                             filterTestAccounts: true,
                             interval: 'hour',
                             lifecycleFilter: { showValuesOnSeries: true },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -420,6 +490,7 @@ describe('insightNavLogic', () => {
                                 breakdown_group_type_index: undefined,
                                 breakdown_normalize_url: undefined,
                             },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -460,6 +531,7 @@ describe('insightNavLogic', () => {
                                     { property: '$device_type', type: 'event' },
                                 ],
                             },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -499,6 +571,7 @@ describe('insightNavLogic', () => {
                                 breakdown_group_type_index: 0,
                                 breakdown_normalize_url: true,
                             },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -552,6 +625,7 @@ describe('insightNavLogic', () => {
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             interval: 'hour',
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])

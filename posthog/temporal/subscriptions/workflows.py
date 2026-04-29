@@ -203,6 +203,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_exported_asset_ids: list[int] = []
         delivery_recipient_results: list[dict] = []
+        # Hoisted so the finally block can always pass it to update_delivery_record,
+        # even on early returns (no-assets SKIPPED) or exceptions before the summary
+        # activity runs.
+        change_summary: str | None = None
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -306,7 +310,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Reads content_snapshot back from Postgres — persisted inline by
             # create_export_assets above (via delivery_id, or via the
             # workflow_id fallback lookup when replaying pre-rollout workflows).
-            change_summary: str | None = None
             if delivery_id is not None:
                 try:
                     snapshot_result = await temporalio.workflow.execute_activity(
@@ -389,6 +392,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             status=final_status,
                             exported_asset_ids=delivery_exported_asset_ids or None,
                             recipient_results=delivery_recipient_results or None,
+                            change_summary=change_summary,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error
                             else None,

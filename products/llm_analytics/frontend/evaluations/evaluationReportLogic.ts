@@ -91,6 +91,98 @@ export function buildDeliveryTargets(draft: ReportConfigDraft): EvaluationReport
     return targets
 }
 
+function buildReportUpdatePayload(
+    draft: ReportConfigDraft,
+    activeReport: EvaluationReport,
+    targets: EvaluationReportDeliveryTarget[]
+): Record<string, unknown> {
+    const data: Record<string, unknown> = {
+        frequency: draft.frequency,
+        delivery_targets: targets,
+        report_prompt_guidance: draft.reportPromptGuidance,
+    }
+    if (draft.frequency === 'scheduled') {
+        data.rrule = draft.rrule
+        data.starts_at = draft.startsAt
+        data.timezone_name = draft.timezoneName
+    }
+    if (draft.frequency === 'every_n') {
+        data.trigger_threshold = draft.triggerThreshold
+        // Only write cooldown_minutes back when the user changed it — the draft rounds
+        // minutes to hours for display, so unconditionally writing (hours * 60) would
+        // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
+        const seededCooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+        if (draft.cooldownHours !== seededCooldownHours) {
+            data.cooldown_minutes = draft.cooldownHours * 60
+        }
+    }
+    return data
+}
+
+function buildReportCreatePayload(
+    draft: ReportConfigDraft,
+    evaluationId: string,
+    targets: EvaluationReportDeliveryTarget[]
+): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+        evaluation: evaluationId,
+        frequency: draft.frequency,
+        delivery_targets: targets,
+        report_prompt_guidance: draft.reportPromptGuidance,
+        enabled: true,
+    }
+    if (draft.frequency === 'scheduled') {
+        body.rrule = draft.rrule
+        body.starts_at = draft.startsAt
+        body.timezone_name = draft.timezoneName
+    }
+    if (draft.frequency === 'every_n') {
+        body.trigger_threshold = draft.triggerThreshold
+        body.cooldown_minutes = draft.cooldownHours * 60
+    }
+    return body
+}
+
+/** Inline persistor used by the parent evaluation save flow so the single
+ * "Save changes" button at the top of the page commits both the evaluation
+ * and the (optional) scheduled report. Mirrors the saveDraft listener but
+ * bypasses the loader plumbing so callers can await the network write.
+ *
+ * Returns true if a network write was performed. */
+export async function persistReportDraft(
+    teamId: number,
+    evaluationId: string,
+    draft: ReportConfigDraft,
+    activeReport: EvaluationReport | null
+): Promise<boolean> {
+    const targets = buildDeliveryTargets(draft)
+    if (activeReport) {
+        // Match the inner Save button's validation so the main Save flow
+        // doesn't silently clear all delivery targets on an existing report.
+        if (targets.length === 0) {
+            lemonToast.warning('Scheduled report not saved — add at least one delivery target.')
+            return false
+        }
+        await api.update(
+            `api/environments/${teamId}/llm_analytics/evaluation_reports/${activeReport.id}/`,
+            buildReportUpdatePayload(draft, activeReport, targets)
+        )
+        return true
+    }
+    // No active report yet — create only if the draft has savable content.
+    if (!draft.enabled) {
+        return false
+    }
+    if (targets.length === 0 && draft.reportPromptGuidance.trim().length === 0) {
+        return false
+    }
+    await api.create(
+        `api/environments/${teamId}/llm_analytics/evaluation_reports/`,
+        buildReportCreatePayload(draft, evaluationId, targets)
+    )
+    return true
+}
+
 export const evaluationReportLogic = kea<evaluationReportLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'evaluations', 'evaluationReportLogic']),
     props({} as EvaluationReportLogicProps),
@@ -324,27 +416,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             const { configDraft, activeReport } = values
             const targets = buildDeliveryTargets(configDraft)
             if (activeReport) {
-                const data: Record<string, unknown> = {
-                    frequency: configDraft.frequency,
-                    delivery_targets: targets,
-                    report_prompt_guidance: configDraft.reportPromptGuidance,
-                }
-                if (configDraft.frequency === 'scheduled') {
-                    data.rrule = configDraft.rrule
-                    data.starts_at = configDraft.startsAt
-                    data.timezone_name = configDraft.timezoneName
-                }
-                if (configDraft.frequency === 'every_n') {
-                    data.trigger_threshold = configDraft.triggerThreshold
-                    // Only write cooldown_minutes back when the user changed it — the draft rounds
-                    // minutes to hours for display, so unconditionally writing (hours * 60) would
-                    // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
-                    const seededCooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
-                    if (configDraft.cooldownHours !== seededCooldownHours) {
-                        data.cooldown_minutes = configDraft.cooldownHours * 60
-                    }
-                }
-                actions.updateReport({ reportId: activeReport.id, data })
+                actions.updateReport({
+                    reportId: activeReport.id,
+                    data: buildReportUpdatePayload(configDraft, activeReport, targets),
+                })
             } else {
                 actions.createReport({
                     evaluationId: props.evaluationId,

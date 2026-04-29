@@ -490,7 +490,99 @@ class IsolationChainCheck(ProductCheck):
         return result
 
 
+class ProductYamlCheck(ProductCheck):
+    """Validates product.yaml exists, parses, and has correct field types."""
+
+    label = "product.yaml"
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        from .product_yaml import parse_product_yaml
+
+        yaml_path = ctx.product_dir / "product.yaml"
+
+        if not yaml_path.exists():
+            return CheckResult(
+                lines=["✗ missing"],
+                issues=["Missing product.yaml — every product needs name and owners"],
+                file=f"products/{ctx.name}",
+            )
+
+        result = CheckResult(file=f"products/{ctx.name}/product.yaml")
+
+        data, parse_err = parse_product_yaml(yaml_path)
+        if parse_err:
+            result.issues.append(f"product.yaml {parse_err}")
+            result.lines = [f"✗ {result.issues[0]}"]
+            return result
+
+        name = data.get("name")
+        if not name or not isinstance(name, str):
+            result.issues.append("product.yaml missing 'name' field (must be a non-empty string)")
+
+        owners = data.get("owners")
+        if not owners:
+            result.issues.append("product.yaml missing 'owners' field — who owns this product?")
+        elif not isinstance(owners, list) or not all(isinstance(o, str) for o in owners):
+            result.issues.append("product.yaml 'owners' must be a list of strings")
+
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
+class ProductYamlOwnersCheck(ProductCheck):
+    """Validates product.yaml owner slugs against GitHub org teams."""
+
+    label = "product.yaml owners"
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        from .gh import get_team_slugs
+        from .product_yaml import parse_product_yaml
+
+        yaml_path = ctx.product_dir / "product.yaml"
+        if not yaml_path.exists():
+            return CheckResult(skip=True)
+
+        data, parse_err = parse_product_yaml(yaml_path)
+        if parse_err:
+            return CheckResult(skip=True)
+
+        owners = data.get("owners")
+        if not owners or not isinstance(owners, list):
+            return CheckResult(skip=True)
+
+        gh_teams, fetch_err = get_team_slugs()
+        if gh_teams is None:
+            import os
+
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                return CheckResult(lines=[f"⚠ {fetch_err}, skipping in CI"])
+            return CheckResult(
+                lines=[f"✗ {fetch_err}"],
+                issues=[fetch_err],
+                file=f"products/{ctx.name}/product.yaml",
+            )
+
+        result = CheckResult(file=f"products/{ctx.name}/product.yaml")
+
+        for owner in owners:
+            if isinstance(owner, str) and owner not in gh_teams:
+                result.issues.append(
+                    f"owner '{owner}' is not a GitHub team in PostHog org — check https://github.com/orgs/PostHog/teams"
+                )
+
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
 CHECKS: list[ProductCheck] = [
+    ProductYamlCheck(),
+    ProductYamlOwnersCheck(),
     RequiredRootFilesCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),

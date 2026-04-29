@@ -36,6 +36,22 @@ env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
+    # Verify the path filter below stays in sync with what dagster files
+    # actually import — prevents silent drift where a new import slips in
+    # without a matching filter entry.
+    validate-paths:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Validate dagster path filter coverage
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  clean: false
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+            - run: uv run .github/scripts/check-dagster-paths.py
+
     # Job to decide if we should run dagster ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -53,7 +69,7 @@ jobs:
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -62,68 +78,43 @@ jobs:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
-                        # Dagster depends on Python, so ensure we run on any possible changes to it
-                        - 'posthog/**/*.py'
-                        - 'ee/**/*.py'
-                        - 'common/**/*.py'
-                        # Add all products except those without backend and batch exports
-                        - 'products/actions/backend/**/*.py'
-                        - 'products/alerts/backend/**/*.py'
-                        - 'products/analytics_platform/backend/**/*.py'
-                        - 'products/annotations/backend/**/*.py'
-                        - 'products/cdp/backend/**/*.py'
-                        - 'products/cohorts/backend/**/*.py'
-                        - 'products/conversations/backend/**/*.py'
-                        - 'products/core_events/backend/**/*.py'
-                        - 'products/customer_analytics/backend/**/*.py'
-                        - 'products/dashboards/backend/**/*.py'
-                        - 'products/data_modeling/backend/**/*.py'
+                        # --- posthog submodules that DAGs actually import ---
+                        # (verified by tracing imports of all 148 dagster Python files)
+                        - 'posthog/clickhouse/**'
+                        - 'posthog/models/**'
+                        - 'posthog/hogql/**'
+                        - 'posthog/hogql_queries/**'
+                        - 'posthog/settings/**'
+                        - 'posthog/kafka_client/**'
+                        - 'posthog/schema.py'
+                        - 'posthog/utils.py'
+                        - 'posthog/errors.py'
+                        - 'posthog/exceptions_capture.py'
+                        - 'posthog/metrics.py'
+                        - 'posthog/git.py'
+                        - 'posthog/llm/**'
+                        - 'posthog/person_db_router.py'
+                        - 'posthog/redis.py'
+                        - 'posthog/event_usage.py'
+                        - 'posthog/products.py'
+                        - 'posthog/cloud_utils.py'
+                        - 'posthog/ducklake/**'
+                        # Test infrastructure used by dagster tests
+                        - 'posthog/conftest.py'
+                        - 'posthog/test/**'
+                        # --- ee modules that DAGs import ---
+                        - 'ee/billing/**'
+                        - 'ee/clickhouse/**'
+                        - 'ee/hogai/**'
+                        # --- Only the 8 products that DAGs actually import from ---
                         - 'products/data_warehouse/backend/**/*.py'
-                        - 'products/desktop_recordings/backend/**/*.py'
-                        - 'products/early_access_features/backend/**/*.py'
-                        - 'products/editor/backend/**/*.py'
-                        - 'products/embedded_analytics/backend/**/*.py'
-                        - 'products/endpoints/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
-                        - 'products/experiments/backend/**/*.py'
-                        - 'products/feature_flags/backend/**/*.py'
-                        - 'products/games/backend/**/*.py'
-                        - 'products/groups/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
-                        - 'products/integrations/backend/**/*.py'
-                        - 'products/links/backend/**/*.py'
-                        - 'products/live_debugger/backend/**/*.py'
                         - 'products/llm_analytics/backend/**/*.py'
-                        - 'products/llm_observability/backend/**/*.py'
-                        - 'products/logs/backend/**/*.py'
-                        - 'products/managed_migrations/backend/**/*.py'
-                        - 'products/marketing_analytics/backend/**/*.py'
-                        - 'products/mcp/backend/**/*.py'
-                        - 'products/mcp_analytics/backend/**/*.py'
-                        - 'products/mcp_store/backend/**/*.py'
-                        - 'products/messaging/backend/**/*.py'
-                        - 'products/metrics/backend/**/*.py'
-                        - 'products/notebooks/backend/**/*.py'
-                        - 'products/notifications/backend/**/*.py'
-                        - 'products/persons/backend/**/*.py'
-                        - 'products/platform_features/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
-                        - 'products/product_analytics/backend/**/*.py'
-                        - 'products/product_tours/backend/**/*.py'
-                        - 'products/replay/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'
-                        - 'products/session_summaries/backend/**/*.py'
-                        - 'products/signals/backend/**/*.py'
-                        - 'products/slack_app/backend/**/*.py'
-                        - 'products/surveys/backend/**/*.py'
-                        - 'products/tasks/backend/**/*.py'
-                        - 'products/toolbar/backend/**/*.py'
-                        - 'products/tracing/backend/**/*.py'
-                        - 'products/user_interviews/backend/**/*.py'
-                        - 'products/visual_review/backend/**/*.py'
                         - 'products/web_analytics/backend/**/*.py'
-                        - 'products/workflows/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         - .github/clickhouse-versions.json
@@ -152,7 +143,7 @@ jobs:
               id: read-versions
               if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
               run: |
-                  oldest_supported=$(jq -r '.versions.oldest_supported' .github/clickhouse-versions.json)
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
@@ -162,7 +153,7 @@ jobs:
     dagster:
         name: Dagster tests (${{ matrix.runner }})
         needs: [changes]
-        timeout-minutes: 30
+        timeout-minutes: 35
         strategy:
             fail-fast: false
             matrix:
@@ -228,7 +219,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust

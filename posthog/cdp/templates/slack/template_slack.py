@@ -47,7 +47,7 @@ if (res.status != 200 or res.body.ok == false) {
             "integration_key": "slack_workspace",
             "integration_field": "slack_channel",
             "label": "Channel to post to",
-            "description": "Select the channel to post to (e.g. #general). The PostHog app must be installed in the workspace.",
+            "description": "Select the channel to post to (e.g. #general). The PostHog app must be installed in the workspace. For private channels, the PostHog app must be a member of the channel.",
             "secret": False,
             "hidden": False,
             "required": True,

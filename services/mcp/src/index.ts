@@ -9,7 +9,7 @@ import {
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, sanitizeHeaderValue } from '@/lib/utils'
+import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -162,6 +162,17 @@ const handleRequest = async (
     if (url.pathname === '/.well-known/openai-apps-challenge') {
         return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
             headers: { 'content-type': 'text/plain' },
+        })
+    }
+
+    // Health endpoint for uptime probes and load-balancer checks.
+    // Public and unauthenticated so external monitors can hit it without a token.
+    if (url.pathname === '/health' || url.pathname === '/healthz') {
+        return new Response(JSON.stringify({ status: 'ok' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store',
+            },
         })
     }
 
@@ -318,7 +329,11 @@ const handleRequest = async (
     const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
+    // Explicit selection between tool-based and CLI-based MCP. Falls back to the
+    // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
+    const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
+
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
     if (mcpConsumer) {

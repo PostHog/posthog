@@ -15,7 +15,7 @@ class ColumnConfiguration(UUIDModel):
     context_key = models.CharField(max_length=255, db_index=True)
     columns = ArrayField(models.TextField(), null=False, blank=False, default=list)
     filters = models.JSONField(default=dict, null=True, blank=True)
-    visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.SHARED)
+    visibility = models.CharField(max_length=10, choices=Visibility, default=Visibility.SHARED)
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True)
     created_at = models.DateTimeField(default=timezone.now)
