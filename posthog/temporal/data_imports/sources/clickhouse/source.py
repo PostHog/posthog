@@ -68,6 +68,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="https://user:password@play.clickhouse.com:8443/default",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="host",
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,

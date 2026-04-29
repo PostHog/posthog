@@ -17,7 +17,7 @@ env:
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

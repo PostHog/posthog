@@ -196,6 +196,17 @@ export function CodeEditor({
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     const mutationObserver = useRef<MutationObserver | null>(null)
+    // Track every model this editor instance has been attached to, so we can
+    // dispose them on unmount. Monaco models live in a global registry until
+    // explicitly disposed; without this, models accumulate forever and retain
+    // their attached `codeEditorLogic` BuiltLogic via `(model as any).codeEditorLogic`.
+    const editorModelsRef = useRef<Set<editor.ITextModel>>(new Set())
+    // Live ref to the Monaco API so the cleanup closure (captured by
+    // `useOnMountEffect`'s [] dep) can read the *current* value rather than
+    // the `null` it had at mount time. Without this the `stillInUse` guard
+    // in `disposeTrackedModels` is dead code: `monaco.editor.getEditors()`
+    // returns `[]` and every tracked model is unconditionally disposed.
+    const monacoApiRef = useRef<Monaco | null>(null)
 
     const disposeMonacoDisposables = (): void => {
         monacoDisposables.current.forEach((d) => d?.dispose())
@@ -207,11 +218,55 @@ export function CodeEditor({
         mutationObserver.current = null
     }
 
-    const clearLogicReferenceFromModel = (): void => {
-        const model = editorRef.current?.getModel()
-        if (model) {
-            ;(model as any).codeEditorLogic = undefined
+    const disposeTrackedModels = (): void => {
+        const models = editorModelsRef.current
+        if (models.size === 0) {
+            return
         }
+        const monacoApi = monacoApiRef.current
+        // Skip a model if any OTHER live editor still holds it as its current
+        // model — disposing would break that editor, and nulling its
+        // `codeEditorLogic` would silently break HogQL autocomplete /
+        // metadata providers in the surviving editor.
+        const otherEditors = (monacoApi?.editor.getEditors?.() ?? []).filter((e) => e !== editorRef.current)
+        for (const model of models) {
+            if (model.isDisposed()) {
+                continue
+            }
+            const stillInUse = otherEditors.some((e) => e.getModel() === model)
+            if (stillInUse) {
+                continue
+            }
+            // Null the back-reference only on models we're actually about to
+            // dispose. Doing it for shared models would break consumers
+            // (e.g. hogQLAutocompleteProvider, hogQLMetadataProvider) that
+            // read `model.codeEditorLogic` to look up logic state.
+            ;(model as any).codeEditorLogic = undefined
+            try {
+                model.dispose()
+            } catch {
+                // already disposed or in invalid state
+            }
+        }
+        models.clear()
+    }
+
+    const trackEditorModels = (editorInstance: importedEditor.IStandaloneCodeEditor, monacoApi: Monaco): void => {
+        monacoApiRef.current = monacoApi
+        const initial = editorInstance.getModel()
+        if (initial) {
+            editorModelsRef.current.add(initial)
+        }
+        const disposable = editorInstance.onDidChangeModel((e) => {
+            if (!e.newModelUrl) {
+                return
+            }
+            const next = monacoApi.editor.getModel(e.newModelUrl)
+            if (next) {
+                editorModelsRef.current.add(next)
+            }
+        })
+        monacoDisposables.current.push(disposable)
     }
 
     const disposeEditor = (): void => {
@@ -232,7 +287,6 @@ export function CodeEditor({
         return () => {
             disposeMonacoDisposables()
             disconnectMutationObserver()
-            clearLogicReferenceFromModel()
 
             // Dispose the editor BEFORE @monaco-editor/react's own cleanup
             // runs: Monaco's services (HoverService, ContextView,
@@ -241,6 +295,15 @@ export function CodeEditor({
             // a strong reference lets Monaco tear down its services in an
             // order that releases those DOM refs.
             disposeEditor()
+
+            // Now that our editor is disposed, dispose every model this
+            // editor used and was uniquely owned by us. `disposeTrackedModels`
+            // also nulls the `codeEditorLogic` back-reference on each
+            // disposed model. Models still held by another live editor are
+            // skipped on both counts, so HogQL autocomplete/metadata
+            // providers (which read `model.codeEditorLogic`) keep working
+            // for the surviving editor.
+            disposeTrackedModels()
 
             setMonacoAndEditor(null)
 
@@ -339,6 +402,7 @@ export function CodeEditor({
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         editorRef.current = editor
+        trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
 
@@ -449,6 +513,11 @@ export function CodeEditor({
             const modifiedEditor = diff.getModifiedEditor()
             editorRef.current = modifiedEditor
             diffEditorRef.current = diff
+            trackEditorModels(modifiedEditor, monaco)
+            const original = diff.getOriginalEditor().getModel()
+            if (original) {
+                editorModelsRef.current.add(original)
+            }
             setMonacoAndEditor([monaco, modifiedEditor])
 
             if (editorProps.onChange) {
