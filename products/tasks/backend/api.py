@@ -304,9 +304,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
-            if internal_param is True:
-                qs = qs.filter(internal=True)
-            else:
+            if not internal_param:
                 qs = qs.filter(internal=False)
 
         # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
