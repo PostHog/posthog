@@ -54,7 +54,7 @@ export function SnapshotFacetSidebar({
                                     className={`flex items-center justify-between gap-2 px-2 py-1 rounded text-xs text-left transition-colors ${
                                         active
                                             ? 'bg-primary-3000-button-bg text-primary-3000-button-fg font-medium'
-                                            : 'hover:bg-fill-tertiary'
+                                            : 'hover:bg-primary-highlight'
                                     }`}
                                 >
                                     <span className="truncate">{bucket.label}</span>

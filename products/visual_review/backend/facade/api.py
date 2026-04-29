@@ -206,6 +206,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
                 is_quarantined=(run.run_type, identifier) in raw.quarantined_ids,
                 last_run_at=run.completed_at or run.created_at,
+                recent_diff_avg=raw.drift_avg_by_id.get(identifier),
                 sparkline=sparkline,
             )
         )

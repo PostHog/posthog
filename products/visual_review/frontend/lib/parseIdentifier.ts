@@ -3,49 +3,6 @@
 // in sync with `_derive_area` if/when the backend ever needs to mirror it for
 // a server-side facet.
 
-// Map of known PostHog area keywords (matched as `-`-separated tokens, not
-// substrings, to avoid `errortracking` matching `tracking`). Order doesn't
-// matter — first hit wins, but the keys are disjoint enough that there's no
-// real ambiguity.
-const AREA_TOKENS: Array<[string[], string]> = [
-    [['insight', 'insights'], 'Insights'],
-    [['dashboard', 'dashboards'], 'Dashboards'],
-    [['replay', 'recording', 'recordings', 'session-replay'], 'Session replay'],
-    [['funnel', 'funnels'], 'Funnels'],
-    [['retention'], 'Retention'],
-    [['feature-flag', 'feature-flags', 'flags'], 'Feature flags'],
-    [['experiment', 'experiments'], 'Experiments'],
-    [['survey', 'surveys'], 'Surveys'],
-    [['notebook', 'notebooks'], 'Notebooks'],
-    [['person', 'persons', 'cohort', 'cohorts'], 'Persons'],
-    [['data-management', 'datamanagement'], 'Data management'],
-    [['data-warehouse', 'datawarehouse', 'data-pipelines', 'datapipelines', 'batchexports'], 'Data pipelines'],
-    [['onboarding'], 'Onboarding'],
-    [['setting', 'settings'], 'Settings'],
-    [['error-tracking', 'errortracking'], 'Error tracking'],
-    [['web-analytics', 'webanalytics'], 'Web analytics'],
-    [['llm-analytics', 'llmanalytics'], 'LLM analytics'],
-    [['toolbar'], 'Toolbar'],
-    [['heatmap', 'heatmaps'], 'Heatmaps'],
-    [['workflow', 'workflows'], 'Workflows'],
-    [['visual-review', 'visual_review'], 'Visual review'],
-    [['customer-analytics', 'customeranalytics'], 'Customer analytics'],
-    [['revenue-analytics', 'revenueanalytics'], 'Revenue analytics'],
-    [['marketing-analytics', 'marketinganalytics'], 'Marketing analytics'],
-    [['inbox'], 'Inbox'],
-    [['activity'], 'Activity'],
-    [['annotations'], 'Annotations'],
-    [['apps', 'plugins'], 'Apps'],
-    [['comments'], 'Comments'],
-    [['integrations'], 'Integrations'],
-    [['exports', 'exporter'], 'Exports'],
-    [['actions'], 'Actions'],
-    [['endpoints'], 'Endpoints'],
-    [['mcp'], 'MCP'],
-    [['posthog-3000', 'theme'], 'Theming'],
-    [['lemon', 'ui'], 'UI primitives'],
-]
-
 export type Theme = 'light' | 'dark' | null
 
 export function parseTheme(identifier: string): { stem: string; theme: Theme } {
@@ -58,35 +15,53 @@ export function parseTheme(identifier: string): { stem: string; theme: Theme } {
     return { stem: identifier, theme: null }
 }
 
+// Tokens that act as "modifier" prefixes inside identifiers like
+// `error-tracking`, `data-management`, `feature-flags`. When the area token
+// is one of these, we glue it together with the next token so the facet shows
+// "Error tracking" instead of just "Error".
+const TWO_WORD_HEADS = new Set([
+    'customer',
+    'data',
+    'error',
+    'feature',
+    'live',
+    'llm',
+    'marketing',
+    'product',
+    'revenue',
+    'session',
+    'user',
+    'visual',
+    'web',
+])
+
+// Capitalize first letter, leave the rest as-is so multi-word labels read
+// naturally ("Feature flags" not "Feature Flags").
+function titleCase(s: string): string {
+    return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
+}
+
 export function parseArea(identifier: string): string {
-    // Identifier shape varies — sometimes `<area>--<name>`, often something
-    // like `scenes-app-<area>-...` for Storybook stories, or `components-...`
-    // for component-level shots. Walk the first few `-`-separated tokens and
-    // return the first one we recognize.
-    const stem = parseTheme(identifier).stem
-    const head = stem.split('--')[0].toLowerCase()
-    const tokens = head.split('-')
-
-    // Storybook story IDs nest the area inside `scenes-app-<area>-...`. Skip
-    // the wrapper segments to look for the real area first.
-    const startIndex = tokens[0] === 'scenes' && tokens[1] === 'app' ? 2 : 0
-
-    // Try multi-token matches (e.g. "data-management") first, then single tokens.
-    for (let i = startIndex; i < tokens.length; i++) {
-        for (let span = Math.min(3, tokens.length - i); span >= 1; span--) {
-            const candidate = tokens.slice(i, i + span).join('-')
-            for (const [keys, label] of AREA_TOKENS) {
-                if (keys.includes(candidate)) {
-                    return label
-                }
-            }
-        }
+    // Storybook identifiers tend to follow one of three shapes:
+    //   - `scenes-app-<area>-<rest...>` — the area is the third token
+    //   - `components-<rest...>`        — bucket as "Components"
+    //   - `<area>-<rest...>`            — first token IS the area
+    // Two-word area names ("error-tracking", "data-management") are detected
+    // via a tiny TWO_WORD_HEADS set instead of a curated full table.
+    const stem = parseTheme(identifier).stem.split('--')[0].toLowerCase()
+    const tokens = stem.split('-')
+    let i = 0
+    if (tokens[i] === 'scenes' && tokens[i + 1] === 'app') {
+        i += 2
     }
-
-    if (tokens[0] === 'components') {
+    if (tokens[i] === 'components') {
         return 'Components'
     }
-    return 'Other'
+    if (!tokens[i]) {
+        return 'Other'
+    }
+    const head = TWO_WORD_HEADS.has(tokens[i]) && tokens[i + 1] ? `${tokens[i]} ${tokens[i + 1]}` : tokens[i]
+    return titleCase(head)
 }
 
 // Display-friendly run-type label ("playwright · chromium" for Playwright runs

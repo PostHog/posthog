@@ -26,8 +26,11 @@ export const scene: SceneExport = {
     }),
 }
 
+// Width is the smallest column we'll allow before snapping to a fewer-column
+// layout — keeps cards readable on tablet. Height is set so that the 140px
+// thumbnail box + 60px metadata strip + borders fit comfortably.
 const CARD_MIN_WIDTH = 220
-const CARD_HEIGHT = 220
+const CARD_HEIGHT = 210
 const CARD_GAP = 12
 
 export function VisualReviewSnapshotOverviewScene(): JSX.Element {
@@ -37,9 +40,11 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
         repo,
         filteredEntries,
         statCounts,
+        frequentlyToleratedCount,
         facetGroups,
         facetSelection,
         filters,
+        sortLabel,
         thumbnailBasePath,
     } = useValues(visualReviewSnapshotOverviewSceneLogic)
     const { setStatPreset, toggleType, toggleArea, toggleStability, setTheme, setSearch, clearAllFilters } = useActions(
@@ -61,19 +66,25 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
 
     const repoId = repo?.id ?? ''
 
+    // Theme is never neutral (always Light or Dark), so we don't count it
+    // toward `isFiltered` — picking a side is the default state.
     const isFiltered =
         filters.statPreset !== 'all' ||
         filters.typeKeys.length > 0 ||
         filters.areas.length > 0 ||
         filters.stability.length > 0 ||
-        filters.theme !== null ||
         filters.search.length > 0
 
     return (
         <SceneContent>
             <SceneTitleSection name="Snapshots" resourceType={{ type: 'visual_review' }} />
 
-            <SnapshotStatRow counts={statCounts} preset={filters.statPreset} onChange={setStatPreset} />
+            <SnapshotStatRow
+                counts={statCounts}
+                frequentlyToleratedCount={frequentlyToleratedCount}
+                preset={filters.statPreset}
+                onChange={setStatPreset}
+            />
 
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonInput
@@ -85,10 +96,9 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                 />
                 <LemonSegmentedButton
                     size="small"
-                    value={filters.theme ?? 'any'}
-                    onChange={(value) => setTheme(value === 'any' ? null : (value as 'light' | 'dark'))}
+                    value={filters.theme}
+                    onChange={(value) => setTheme(value as 'light' | 'dark')}
                     options={[
-                        { value: 'any', label: 'Any theme' },
                         { value: 'light', label: 'Light' },
                         { value: 'dark', label: 'Dark' },
                     ]}
@@ -102,6 +112,9 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                         Clear all
                     </button>
                 )}
+                <div className="text-xs text-muted ml-auto">
+                    Sorted by <span className="text-default">{sortLabel.label}</span>
+                </div>
             </div>
 
             {overview?.truncated && (

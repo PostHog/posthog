@@ -1897,6 +1897,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             tolerate_90d_by_id={},
             quarantined_ids=set(),
             sparkline_by_id={},
+            drift_avg_by_id={},
             totals_all=0,
             totals_recent=0,
             totals_frequent=0,
@@ -1975,7 +1976,11 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     # 3c. Sparkline — last 30 days of run results bucketed by classification.
     # One grouped query, then bucket in Python so we keep this portable across
     # SQLite (tests) and Postgres without resorting to TruncDate or SQL CASE.
+    # Same loop also accumulates the running drift average so we get
+    # `recent_diff_avg` for free in this single pass.
     sparkline_by_id: dict[str, dict[str, _SparkBuckets]] = defaultdict(lambda: defaultdict(_SparkBuckets))
+    drift_sum_by_id: dict[str, float] = defaultdict(float)
+    drift_count_by_id: dict[str, int] = defaultdict(int)
     if universe_identifiers:
         spark_rows = RunSnapshot.objects.filter(
             run__repo_id=repo_id,
@@ -1987,8 +1992,9 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             "result",
             "is_quarantined",
             "tolerated_hash_match_id",
+            "diff_percentage",
         )
-        for identifier, run_created_at, result, is_quar, tol_match_id in spark_rows:
+        for identifier, run_created_at, result, is_quar, tol_match_id, diff_pct in spark_rows:
             day_key = run_created_at.date().isoformat()
             buckets = sparkline_by_id[identifier][day_key]
             if is_quar:
@@ -1999,6 +2005,9 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
                 buckets.changed += 1
             else:
                 buckets.clean += 1
+            if diff_pct is not None and diff_pct > 0:
+                drift_sum_by_id[identifier] += diff_pct
+                drift_count_by_id[identifier] += 1
 
     # 4. Totals computed across the *full* universe (not the truncated slice)
     # so the stat row stays correct when the entries are clipped.
@@ -2045,12 +2054,19 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     # query is only worth it once we routinely hit truncation.
     by_run_type: dict[str, int] = dict(Counter(s.run.run_type for s in universe))
 
+    drift_avg_by_id: dict[str, float] = {
+        identifier: drift_sum_by_id[identifier] / drift_count_by_id[identifier]
+        for identifier in drift_count_by_id
+        if drift_count_by_id[identifier] > 0
+    }
+
     return _BaselineOverviewRaw(
         entries=universe,
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
         quarantined_ids=quarantined_pairs,
         sparkline_by_id=sparkline_by_id,
+        drift_avg_by_id=drift_avg_by_id,
         totals_all=totals_all,
         totals_recent=len(recent_ids),
         totals_frequent=len(frequent_ids),
@@ -2081,6 +2097,7 @@ class _BaselineOverviewRaw:
     tolerate_90d_by_id: dict[str, int]
     quarantined_ids: set[tuple[str, str]]
     sparkline_by_id: dict[str, dict[str, _SparkBuckets]]
+    drift_avg_by_id: dict[str, float]
     totals_all: int
     totals_recent: int
     totals_frequent: int

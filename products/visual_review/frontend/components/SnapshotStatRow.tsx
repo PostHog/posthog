@@ -1,21 +1,17 @@
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
-export type StatPreset = 'all' | 'recently_tolerated' | 'frequently_tolerated' | 'currently_quarantined'
+export type StatPreset = 'all' | 'tolerated_drift' | 'currently_quarantined'
 
 const COLOR_BY_PRESET: Record<StatPreset, string> = {
     all: 'var(--text-tertiary)',
-    recently_tolerated: 'var(--primary-3000)',
-    frequently_tolerated: 'var(--primary-3000)',
+    tolerated_drift: 'var(--primary-3000)',
     currently_quarantined: 'var(--warning-dark)',
 }
 
 const STATS: Array<{ value: StatPreset; label: string; description: string }> = [
     { value: 'all', label: 'All snapshots', description: 'Every baseline image' },
-    { value: 'recently_tolerated', label: 'Recently tolerated', description: 'Any tolerate in last 30 days' },
     {
-        value: 'frequently_tolerated',
-        label: 'Frequently tolerated',
-        description: '≥ 3 tolerates in last 90 days · trust debt',
+        value: 'tolerated_drift',
+        label: 'Tolerated drift',
+        description: 'At least one tolerate in the last 30 days',
     },
     {
         value: 'currently_quarantined',
@@ -24,39 +20,58 @@ const STATS: Array<{ value: StatPreset; label: string; description: string }> = 
     },
 ]
 
+// Plain tile grid instead of LemonSegmentedButton — segmented buttons assume
+// equal-width single-line content, which warped the multi-line stat tiles
+// and misaligned numbers across columns. A bordered grid keeps numbers and
+// labels on consistent baselines.
 export function SnapshotStatRow({
     counts,
+    frequentlyToleratedCount,
     preset,
     onChange,
 }: {
     counts: Record<StatPreset, number>
+    // Inline trust-debt indicator on the Tolerated tile — the count of
+    // identifiers tolerated ≥3 times in the last 90d. Surfaced as a small
+    // chip rather than its own slice.
+    frequentlyToleratedCount: number
     preset: StatPreset
     onChange: (next: StatPreset) => void
 }): JSX.Element {
     return (
-        <LemonSegmentedButton
-            fullWidth
-            size="large"
-            value={preset}
-            onChange={(value: string) => onChange(value as StatPreset)}
-            options={STATS.map((s) => ({
-                value: s.value,
-                label: (
-                    <div className="flex flex-col items-start gap-0.5 py-1 min-w-0 w-full">
-                        <div className="text-2xl font-semibold leading-tight">{counts[s.value].toLocaleString()}</div>
-                        <div className="flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {STATS.map((s) => {
+                const active = preset === s.value
+                return (
+                    <button
+                        key={s.value}
+                        type="button"
+                        onClick={() => onChange(s.value)}
+                        className={`text-left border rounded p-3 transition-colors flex flex-col gap-1 ${
+                            active
+                                ? 'border-primary-3000 bg-primary-3000-button-bg'
+                                : 'border-border bg-bg-light hover:border-primary-3000-hover'
+                        }`}
+                    >
+                        <div className="text-2xl font-semibold leading-none tabular-nums">
+                            {counts[s.value].toLocaleString()}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs font-semibold mt-1">
                             <span
-                                className="w-2 h-2 rounded-full"
+                                className="w-2 h-2 rounded-full shrink-0"
                                 style={{ backgroundColor: COLOR_BY_PRESET[s.value] }}
                             />
-                            {s.label}
+                            <span className="truncate">{s.label}</span>
+                            {s.value === 'tolerated_drift' && frequentlyToleratedCount > 0 && (
+                                <span className="ml-auto bg-primary-3000-button-bg text-primary-3000 text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0">
+                                    {frequentlyToleratedCount} frequent
+                                </span>
+                            )}
                         </div>
-                        <div className="text-[11px] text-muted whitespace-normal text-left leading-tight">
-                            {s.description}
-                        </div>
-                    </div>
-                ),
-            }))}
-        />
+                        <div className="text-[11px] text-muted leading-tight">{s.description}</div>
+                    </button>
+                )
+            })}
+        </div>
     )
 }

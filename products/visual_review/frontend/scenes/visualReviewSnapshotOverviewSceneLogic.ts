@@ -17,7 +17,11 @@ export interface VisualReviewSnapshotOverviewSceneLogicProps {
     repoId: string
 }
 
-export type ThemeFilter = 'light' | 'dark' | null
+// We deliberately don't model "show both themes" — for snapshot identifiers
+// that ship as light+dark pairs that would double the grid. Picking one side
+// dedups by default. Identifiers without a theme suffix are always shown
+// regardless of which side is selected.
+export type ThemeFilter = 'light' | 'dark'
 export type Filters = {
     statPreset: StatPreset
     typeKeys: string[]
@@ -32,7 +36,7 @@ const EMPTY_FILTERS: Filters = {
     typeKeys: [],
     areas: [],
     stability: [],
-    theme: null,
+    theme: 'light',
     search: '',
 }
 
@@ -80,10 +84,8 @@ function entryStability(entry: BaselineEntryApi): Array<keyof typeof STABILITY_K
 
 function matchesStatPreset(entry: BaselineEntryApi, preset: StatPreset): boolean {
     switch (preset) {
-        case 'recently_tolerated':
+        case 'tolerated_drift':
             return entry.tolerate_count_30d >= 1
-        case 'frequently_tolerated':
-            return entry.tolerate_count_90d >= 3
         case 'currently_quarantined':
             return entry.is_quarantined
         case 'all':
@@ -174,7 +176,12 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             (
                 entries
             ): Array<
-                BaselineEntryApi & { _area: string; _theme: ThemeFilter; _typeKey: string; _stability: string[] }
+                BaselineEntryApi & {
+                    _area: string
+                    _theme: 'light' | 'dark' | null
+                    _typeKey: string
+                    _stability: string[]
+                }
             > =>
                 entries.map((e) => ({
                     ...e,
@@ -184,11 +191,26 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                     _stability: entryStability(e),
                 })),
         ],
+        // The sort applied to filteredEntries depends on the active stat
+        // preset — alphabetical for the broad "All" view, severity-style
+        // ordering for the slices that highlight problems. Keeping it
+        // hardcoded per preset (rather than user-pickable) keeps the UX
+        // tight; the indicator label in the toolbar tells the user which
+        // sort is active.
+        sortLabel: [
+            (s) => [s.filters],
+            (filters): { kind: 'alpha' | 'drift'; label: string } => {
+                if (filters.statPreset === 'all') {
+                    return { kind: 'alpha', label: 'name (A → Z)' }
+                }
+                return { kind: 'drift', label: 'drift avg (high → low)' }
+            },
+        ],
         filteredEntries: [
-            (s) => [s.decoratedEntries, s.filters],
-            (entries, filters) => {
+            (s) => [s.decoratedEntries, s.filters, s.sortLabel],
+            (entries, filters, sortLabel) => {
                 const search = filters.search.trim().toLowerCase()
-                return entries.filter((e) => {
+                const filtered = entries.filter((e) => {
                     if (!matchesStatPreset(e, filters.statPreset)) {
                         return false
                     }
@@ -204,7 +226,10 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                     ) {
                         return false
                     }
-                    if (filters.theme && e._theme !== filters.theme) {
+                    // Theme dedup: only keep entries that match the chosen
+                    // side, OR have no theme suffix at all. That collapses
+                    // light+dark pairs without dropping single-theme stories.
+                    if (e._theme !== null && e._theme !== filters.theme) {
                         return false
                     }
                     if (search && !e.identifier.toLowerCase().includes(search)) {
@@ -212,7 +237,25 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                     }
                     return true
                 })
+                if (sortLabel.kind === 'alpha') {
+                    filtered.sort((a, b) => a.identifier.localeCompare(b.identifier))
+                } else {
+                    filtered.sort(
+                        (a, b) =>
+                            (b.recent_diff_avg ?? 0) - (a.recent_diff_avg ?? 0) ||
+                            b.tolerate_count_30d - a.tolerate_count_30d ||
+                            a.identifier.localeCompare(b.identifier)
+                    )
+                }
+                return filtered
             },
+        ],
+        // Trust-debt count surfaced inline on the Tolerated tile. Falls back
+        // to recomputing client-side when the server didn't ship totals.
+        frequentlyToleratedCount: [
+            (s) => [s.decoratedEntries, s.overview],
+            (entries, overview): number =>
+                overview?.totals.frequently_tolerated ?? entries.filter((e) => e.tolerate_count_90d >= 3).length,
         ],
         statCounts: [
             (s) => [s.decoratedEntries, s.overview],
@@ -224,15 +267,13 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                 if (totals) {
                     return {
                         all: totals.all_snapshots,
-                        recently_tolerated: totals.recently_tolerated,
-                        frequently_tolerated: totals.frequently_tolerated,
+                        tolerated_drift: totals.recently_tolerated,
                         currently_quarantined: totals.currently_quarantined,
                     }
                 }
                 return {
                     all: entries.length,
-                    recently_tolerated: entries.filter((e) => e.tolerate_count_30d >= 1).length,
-                    frequently_tolerated: entries.filter((e) => e.tolerate_count_90d >= 3).length,
+                    tolerated_drift: entries.filter((e) => e.tolerate_count_30d >= 1).length,
                     currently_quarantined: entries.filter((e) => e.is_quarantined).length,
                 }
             },
@@ -266,7 +307,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                         ) {
                             return false
                         }
-                        if (excluded !== 'theme' && filters.theme && e._theme !== filters.theme) {
+                        if (excluded !== 'theme' && e._theme !== null && e._theme !== filters.theme) {
                             return false
                         }
                         if (excluded !== 'search' && search && !e.identifier.toLowerCase().includes(search)) {
@@ -333,7 +374,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             if (f.stability.length) {
                 out.stability = f.stability.join(',')
             }
-            if (f.theme) {
+            if (f.theme !== EMPTY_FILTERS.theme) {
                 out.theme = f.theme
             }
             if (f.search) {
@@ -363,7 +404,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                 typeKeys: hash.types ? hash.types.split(',') : [],
                 areas: hash.areas ? hash.areas.split(',') : [],
                 stability: hash.stability ? hash.stability.split(',') : [],
-                theme: (hash.theme as ThemeFilter) ?? null,
+                theme: hash.theme === 'dark' ? 'dark' : 'light',
                 search: hash.q ?? '',
             }
             if (next.statPreset !== f.statPreset) {

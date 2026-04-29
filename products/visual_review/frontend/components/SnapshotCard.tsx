@@ -31,19 +31,21 @@ export function SnapshotCard({
     return (
         <Link
             to={href}
-            className="border rounded bg-bg-light overflow-hidden flex flex-col hover:border-primary transition-colors"
+            // Without an explicit border-color, Tailwind's `border` falls back
+            // to `currentColor` — and Link sets `currentColor` to the primary
+            // orange. That painted every card with an orange frame.
+            className="border border-border rounded bg-bg-light overflow-hidden flex flex-col text-default hover:border-primary transition-colors"
             data-attr="visual-review-snapshot-card"
         >
             <div
-                className={`relative aspect-[16/10] flex items-center justify-center overflow-hidden ${
+                // Thumbnails are bounded by pixelhog at THUMB_WIDTH (200) ×
+                // THUMB_HEIGHT (140), so we know the box can never overflow.
+                // Fix the height to the cap and align top so taller content
+                // anchors consistently across cards; shorter content lets
+                // the bg-light (or bg-3000 for dark variants) show beneath.
+                className={`relative h-[140px] flex items-start justify-center overflow-hidden border-b border-border ${
                     theme === 'dark' ? 'bg-bg-3000' : 'bg-bg-light'
                 }`}
-                style={{
-                    backgroundImage:
-                        'linear-gradient(45deg, rgba(0,0,0,0.04) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.04) 75%), linear-gradient(45deg, rgba(0,0,0,0.04) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.04) 75%)',
-                    backgroundSize: '12px 12px',
-                    backgroundPosition: '0 0, 6px 6px',
-                }}
             >
                 {thumbnailUrl ? (
                     <img
@@ -54,7 +56,7 @@ export function SnapshotCard({
                         className="max-w-full max-h-full object-contain"
                     />
                 ) : (
-                    <span className="text-muted text-xs">No thumbnail</span>
+                    <span className="text-muted text-xs my-auto">No thumbnail</span>
                 )}
                 <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
                     {entry.is_quarantined && (

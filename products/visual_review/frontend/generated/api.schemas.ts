@@ -69,6 +69,8 @@ export interface BaselineEntryApi {
     tolerate_count_90d: number
     is_quarantined: boolean
     last_run_at: string
+    /** @nullable */
+    recent_diff_avg: number | null
 }
 
 export type BaselineTotalsApiByRunType = { [key: string]: number }

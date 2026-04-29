@@ -336,6 +336,10 @@ class BaselineEntry:
     tolerate_count_90d: int
     is_quarantined: bool
     last_run_at: datetime
+    # Average diff_percentage across runs in the last 30 days that produced
+    # a non-zero diff. Drives the severity sort on the Tolerated and
+    # Quarantined slices. None when there's no signal yet.
+    recent_diff_avg: float | None
     sparkline: list[BaselineSparklineDay]
 
 
