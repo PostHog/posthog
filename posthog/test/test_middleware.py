@@ -1608,12 +1608,12 @@ def test_oauth_coop_middleware(path, query_string, expected_coop):
 
 @parameterized.expand(
     [
-        ("mcp_user_agent_sets_defaults", "posthog/mcp-server v1", "mcp", "mcp", "query"),
-        ("api_user_agent_no_defaults", "Mozilla/5.0", "api", None, None),
-        ("posthog_code_no_defaults", "posthog/code", "posthog_code", None, None),
+        ("posthog/mcp-server v1", "mcp", "mcp", "query"),
+        ("Mozilla/5.0", "web", None, None),
+        ("posthog/code", "posthog_code", None, None),
     ]
 )
-def test_chqueries_middleware_mcp_defaults(name, user_agent, expected_source, expected_product, expected_feature):
+def test_chqueries_middleware_mcp_defaults(user_agent, expected_source, expected_product, expected_feature):
     from django.http import HttpResponse
     from django.test import RequestFactory
 
@@ -1632,6 +1632,7 @@ def test_chqueries_middleware_mcp_defaults(name, user_agent, expected_source, ex
     factory = RequestFactory()
     request = factory.get("/api/projects/@current/query/", HTTP_USER_AGENT=user_agent)
     request.user = MagicMock(pk=1, is_authenticated=False)
+    request.session = MagicMock(session_key="abc123")
 
     CHQueries(get_response)(request)
 
