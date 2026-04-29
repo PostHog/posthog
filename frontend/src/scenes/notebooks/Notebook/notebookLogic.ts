@@ -135,7 +135,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }),
             ['setItemContext', 'maybeLoadComments'],
             notebookCollabLogic({ shortId: props.shortId }),
-            ['rebaseFromSteps'],
+            ['ackLocalSteps', 'applyRemoteSteps'],
         ],
     })),
     actions({
@@ -378,13 +378,10 @@ export const notebookLogic = kea<notebookLogicType>([
                                     content: values.editor?.getJSON(),
                                     text_content: values.editor?.getText() || '',
                                     title: notebook.title,
+                                    cursor_head: values.ttEditor.state.selection.head,
                                 }
                             )
-                            // Mark sent steps as acknowledged so version update
-                            actions.rebaseFromSteps(
-                                stepsJson,
-                                stepsJson.map(() => sendable.clientID)
-                            )
+                            actions.ackLocalSteps(stepsJson, String(sendable.clientID))
                             if (notebook.content === values.localContent) {
                                 actions.clearLocalContent()
                             }
@@ -392,9 +389,19 @@ export const notebookLogic = kea<notebookLogicType>([
                             return response
                         } catch (error: any) {
                             if (error.status === 409 && error.data?.steps) {
-                                actions.rebaseFromSteps(error.data.steps, error.data.client_ids)
-
-                                // Retry after rebase
+                                // Apply the missed range (deduped by version against SSE), then retry
+                                // PM-collab rebases our pending steps against the new state
+                                const steps = error.data.steps as Record<string, any>[]
+                                const clientIds = error.data.client_ids as string[]
+                                const serverVersion = error.data.version as number
+                                const firstMissedVersion = serverVersion - steps.length + 1
+                                actions.applyRemoteSteps(
+                                    steps.map((step, i) => ({
+                                        step,
+                                        clientId: clientIds[i],
+                                        version: firstMissedVersion + i,
+                                    }))
+                                )
                                 actions.saveNotebook({
                                     content: values.editor?.getJSON() ?? notebook.content,
                                     title: notebook.title,
@@ -402,7 +409,6 @@ export const notebookLogic = kea<notebookLogicType>([
                                 return values.notebook
                             }
                             if (error.status === 410) {
-                                // Steps expired - gap too large to rebase, must reload
                                 actions.clearLocalContent()
                                 actions.loadNotebook()
                                 return values.notebook

@@ -61,7 +61,7 @@ function buildCandidates(
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.hidden || s.hideValueLabels) {
+        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
             continue
         }
         if (s.data.length > maxPointsPerSeries) {
@@ -71,7 +71,7 @@ function buildCandidates(
 
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
-            if (typeof rawValue !== 'number' || !isFinite(rawValue)) {
+            if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
             const yValue = resolveValue(s, dIdx)

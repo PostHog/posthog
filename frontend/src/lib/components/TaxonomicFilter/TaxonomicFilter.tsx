@@ -204,6 +204,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
+        recordPaste,
         moveUp,
         moveDown,
         tabLeft,
@@ -231,6 +232,12 @@ export const TaxonomicFilterSearchInput = forwardRef<
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
             prefix={prefix}
+            onPaste={(e) => {
+                const pasted = e.clipboardData?.getData('text') ?? ''
+                if (pasted.length > 0) {
+                    recordPaste(pasted.length)
+                }
+            }}
             suffix={
                 <>
                     {categoryDropdown}
