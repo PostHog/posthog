@@ -1225,10 +1225,11 @@ class InsightViewSet(
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
 
+    def _is_basic_request(self) -> bool:
+        return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0")
-        ):
+        if self._is_basic_request():
             return InsightBasicSerializer
         if self.action in ("create", "partial_update") and self._is_mcp_request(self.request):
             return MCPInsightSerializer
@@ -1270,9 +1271,7 @@ class InsightViewSet(
         # InsightBasicSerializer skips alerts and only needs PKs from dashboards plus
         # (id, dashboard_id, deleted) from tiles, so the heavy team→organization joins
         # the full serializer relies on are pure waste on the basic path.
-        is_basic = (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0")
-        )
+        is_basic = self._is_basic_request()
 
         if is_basic:
             queryset = queryset.prefetch_related(
