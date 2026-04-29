@@ -42,7 +42,7 @@ def resolve_persons_for_deletion(
     uuids: builtins.list[str] | None,
     distinct_ids: builtins.list[str] | None,
 ) -> builtins.list[Person]:
-    """Materialize Persons matching uuids and/or distinct_ids (union when both given).
+    """Materialize Persons matching either uuids or distinct_ids.
 
     The ``persondistinctid_set`` prefetch must pass a ``team_id``-filtered queryset:
     ``posthog_persondistinctid`` is partitioned by ``team_id``, and a bare
@@ -50,19 +50,9 @@ def resolve_persons_for_deletion(
     ``WHERE team_id = X`` that scans every partition across every team. Pattern
     copied from ``PersonViewSet.safely_get_queryset`` in ``posthog/api/person.py``.
     """
-    person_ids: set[int] = set()
-    if uuids:
-        person_ids.update(Person.objects.filter(team_id=team_id, uuid__in=uuids).values_list("id", flat=True))
-    if distinct_ids:
-        person_ids.update(
-            PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).values_list(
-                "person_id", flat=True
-            )
-        )
-    if not person_ids:
-        return []
-    return list(
-        Person.objects.filter(id__in=person_ids, team_id=team_id)
+
+    persons_queryset = (
+        Person.objects.filter(team_id=team_id)
         .only(*_PERSON_DELETION_COLUMNS)
         .prefetch_related(
             Prefetch(
@@ -72,6 +62,16 @@ def resolve_persons_for_deletion(
             )
         )
     )
+    if uuids:
+        persons_queryset = persons_queryset.filter(uuid__in=uuids)
+    elif distinct_ids:
+        person_ids = PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).values_list(
+            "person_id", flat=True
+        )
+        persons_queryset = persons_queryset.filter(id__in=person_ids)
+    else:
+        return []
+    return list(persons_queryset)
 
 
 def delete_persons_profile(
