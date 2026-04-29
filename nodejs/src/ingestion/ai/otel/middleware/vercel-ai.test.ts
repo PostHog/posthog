@@ -93,7 +93,19 @@ describe('vercel-ai middleware', () => {
                 expect(key).not.toBe('operation.name')
                 expect(key).not.toBe('resource.name')
             }
+            expect(event.properties!['functionId']).toBe('my-func')
             expect(event.properties!['$ai_stop_reason']).toBe('stop')
+        })
+
+        it('ignores empty functionId telemetry', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.functionId': '',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['functionId']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.functionId']).toBeUndefined()
         })
 
         it('maps gen_ai.response.finish_reasons array to $ai_stop_reason', () => {

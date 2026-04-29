@@ -146,8 +146,9 @@ function process(event: PluginEvent, next: () => void): void {
         delete props['ai.toolCall.result']
     }
 
-    if (props['ai.telemetry.functionId'] !== undefined && props['functionId'] === undefined) {
-        props['functionId'] = props['ai.telemetry.functionId']
+    const functionId = props['ai.telemetry.functionId']
+    if (props['functionId'] === undefined && typeof functionId === 'string' && functionId) {
+        props['functionId'] = functionId
     }
 
     const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
