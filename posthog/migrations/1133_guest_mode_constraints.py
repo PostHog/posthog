@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             name="guest_resources",
             field=models.JSONField(
                 default=list,
-                help_text="List of {team_id, resource, resource_id} dicts describing resource grants the invitee should receive on acceptance. A non-empty list marks the invite as a guest invite.",
+                help_text="List of {team_id, resource, resource_id, access_level?} dicts describing resource grants the invitee should receive on acceptance. A non-empty list marks the invite as a guest invite.",
                 validators=[posthog.models.organization_invite.validate_guest_resources],
             ),
         ),
