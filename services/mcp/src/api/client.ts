@@ -1009,9 +1009,13 @@ export class ApiClient {
                 const normalized = normalizeQuery(query)
                 const includeRecordings = Boolean(normalized.includeRecordings)
                 const sourceWithProductKey = injectProductKey(normalized)
+                const sourceTags = sourceWithProductKey.tags as Record<string, unknown> | undefined
                 const wrappedQuery = {
                     kind: 'ActorsQuery',
                     source: sourceWithProductKey,
+                    // Propagate productKey to the top-level wrappedQuery so _infer_query_tags
+                    // in query.py can find it — it only inspects the top-level query.tags.
+                    ...(sourceTags?.productKey ? { tags: { productKey: sourceTags.productKey } } : {}),
                     select: includeRecordings
                         ? ['actor', 'event_count', 'matched_recordings']
                         : ['actor', 'event_count'],
