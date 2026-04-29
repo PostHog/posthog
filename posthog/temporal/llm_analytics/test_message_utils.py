@@ -210,3 +210,51 @@ class TestExtractTextFromMessages:
         messages = [{"role": "assistant", "content": "Hello", "tool_calls": tool_calls}]
         result = extract_text_from_messages(messages)
         assert "Hello" in result
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param("", id="empty_string"),
+            pytest.param(None, id="null"),
+            pytest.param([], id="empty_list"),
+        ],
+    )
+    def test_empty_content_with_role_preserves_slot(self, content):
+        messages = [
+            {"role": "user", "content": "did anything happen?"},
+            {"role": "tool", "tool_call_id": "1", "content": content},
+            {"role": "assistant", "content": "yes"},
+        ]
+        result = extract_text_from_messages(messages)
+        assert "user: did anything happen?" in result
+        assert "tool:" in result
+        assert "assistant: yes" in result
+
+    def test_completely_empty_message_is_skipped(self):
+        messages = [
+            {"role": "user", "content": "Hi"},
+            {},
+            {"role": "assistant", "content": "Hello"},
+        ]
+        result = extract_text_from_messages(messages)
+        assert result == "user: Hi\nassistant: Hello"
+
+    def test_single_dict_renders_tool_calls(self):
+        message = {
+            "role": "assistant",
+            "content": "Calling the tool now.",
+            "tool_calls": [{"id": "1", "type": "function", "function": {"name": "foo", "arguments": '{"x": 1}'}}],
+        }
+        result = extract_text_from_messages(message)
+        assert "Calling the tool now." in result
+        assert "foo" in result
+        assert '{"x": 1}' in result
+
+    def test_single_dict_with_only_tool_calls(self):
+        message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "1", "type": "function", "function": {"name": "send_email", "arguments": "{}"}}],
+        }
+        result = extract_text_from_messages(message)
+        assert "send_email" in result
