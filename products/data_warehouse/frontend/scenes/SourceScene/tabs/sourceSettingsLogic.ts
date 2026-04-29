@@ -402,10 +402,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     }),
     forms(({ values, actions }) => ({
         sourceConfig: {
-            // `props.availableSources` isn't populated at logic build time (BindLogic provides it
-            // after the loader resolves), so build-time defaults can't be derived from it. The
-            // `ConfigurationTab` `useEffect` seeds real defaults at runtime via
-            // `buildKeaFormDefaultFromSourceDetails(...)` and `setJobInputs`/`setSourceConfigValue`.
+            // Real defaults are pushed into the form at runtime by `ConfigurationTab` via
+            // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
             defaults: { prefix: '', description: '', payload: {} },
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {

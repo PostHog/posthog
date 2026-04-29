@@ -1451,9 +1451,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             // Real defaults come from the `defaultSourceConnectionDetails` selector and are
-            // pushed into the form by the `resetSourceForm` listener. Build-time defaults can't
-            // depend on `props.availableSources` because props aren't populated yet at that
-            // moment.
+            // pushed into the form by the `resetSourceForm` listener.
             defaults: { prefix: '', description: '', payload: {} },
             errors: (sourceValues) => {
                 const selectedAccessMethod =
