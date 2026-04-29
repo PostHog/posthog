@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from products.surveys.backend.llm import generate_structured_output
 
-DEFAULT_TRANSLATION_MODEL = "gemini-3-flash-preview"
+DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite-preview"
 
 
 class SurveyRootTranslation(BaseModel):
