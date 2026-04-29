@@ -32,13 +32,6 @@ from hogli.cli import cli
 
 LOGIN_TIMEOUT_SECONDS: float = 180.0
 LOGIN_POLL_INTERVAL_SECONDS: float = 1.0
-# Chrome batches cookie writes and only commits to SQLite every ~30s
-# (constexpr kCommitInterval = base::Seconds(30); in
-# net/extras/sqlite/sqlite_persistent_cookie_store.cc). There's no public API
-# to force an earlier flush — closing tabs/windows doesn't trigger it, and
-# even Cmd+Q is racy. The honest UX is to keep polling and tell the user the
-# 30s lower bound.
-FLUSH_HINT_AFTER_SECONDS: float = 8.0
 
 # Per-browser profile-cookie locations. Each entry is (loader_name, base_directory).
 # We glob `<base>/*/Cookies` to discover every profile (Default, Profile 1, ...).
@@ -190,18 +183,10 @@ def _wait_for_valid_cookie(
 
     Returns the cookie header on success. Raises `click.ClickException` after
     `timeout` seconds without finding a valid session.
-
-    Chrome flushes cookies to its on-disk SQLite store roughly every 30s, so a
-    freshly-set `metabase.SESSION` can be invisible to us for a while. After
-    `FLUSH_HINT_AFTER_SECONDS` we surface a status note explaining the wait.
-    There's no reliable way to force an earlier flush — closing the
-    tab/window does nothing, and Cmd+Q is racy.
     """
-    start = time.monotonic()
-    deadline = start + timeout
+    deadline = time.monotonic() + timeout
     last_status = ""
     last_header: str | None = None
-    flush_hint_shown = False
     while True:
         cookies = _load_cookies_from_browser(domain, browser)
         missing = [name for name in REQUIRED_COOKIES if name not in cookies]
@@ -220,14 +205,6 @@ def _wait_for_valid_cookie(
         if status != last_status:
             click.echo(status)
             last_status = status
-
-        if not flush_hint_shown and time.monotonic() - start >= FLUSH_HINT_AFTER_SECONDS:
-            click.echo(
-                "  note: Chrome batches cookie writes to disk every ~30s. "
-                "If you've signed in, just wait — the CLI will pick them up on the next flush. "
-                "Closing the tab or window does NOT force a flush.",
-            )
-            flush_hint_shown = True
 
         if time.monotonic() >= deadline:
             raise click.ClickException(
