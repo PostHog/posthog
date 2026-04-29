@@ -748,6 +748,39 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+TASK_SUMMARIES_MAX_IDS = 500
+
+
+class TaskSummariesRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=TASK_SUMMARIES_MAX_IDS,
+        help_text=f"Task IDs to fetch summaries for (max {TASK_SUMMARIES_MAX_IDS}).",
+    )
+
+
+class TaskRunSummarySerializer(serializers.Serializer):
+    status = serializers.CharField(allow_null=True)
+    environment = serializers.CharField(allow_null=True)
+
+
+class TaskSummarySerializer(serializers.ModelSerializer):
+    latest_run = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Task
+        fields = ["id", "title", "repository", "created_at", "updated_at", "latest_run"]
+        read_only_fields = fields
+
+    @extend_schema_field(TaskRunSummarySerializer(allow_null=True))
+    def get_latest_run(self, obj):
+        status = getattr(obj, "_latest_run_status", None)
+        if status is None:
+            return None
+        return {"status": status, "environment": getattr(obj, "_latest_run_environment", None)}
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 

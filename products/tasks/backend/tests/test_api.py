@@ -1696,6 +1696,82 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertFalse(response.json()["internal"])
 
 
+class TestTaskSummariesAPI(BaseTaskAPITest):
+    SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
+    SUMMARY_FIELDS = {"id", "title", "repository", "created_at", "updated_at", "latest_run"}
+
+    def post_summaries(self, ids):
+        return self.client.post(self.SUMMARIES_URL, {"ids": ids}, format="json")
+
+    def assertReturnsTaskIds(self, response, expected_ids):
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(t["id"] for t in response.json()), sorted(str(i) for i in expected_ids))
+
+    def test_summaries_returns_only_requested_ids_scoped_to_team(self):
+        task_a = self.create_task("Task A")
+        task_b = self.create_task("Task B")
+        self.create_task("Task C")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team, title="Other", description="", origin_product=Task.OriginProduct.USER_CREATED
+        )
+
+        response = self.post_summaries([str(task_a.id), str(task_b.id), str(other_task.id), str(uuid.uuid4())])
+
+        self.assertReturnsTaskIds(response, [task_a.id, task_b.id])
+
+    def test_summaries_returns_internal_tasks_when_requested_by_id(self):
+        internal_task = Task.objects.create(
+            team=self.team,
+            title="Internal",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+        response = self.post_summaries([str(internal_task.id)])
+
+        self.assertReturnsTaskIds(response, [internal_task.id])
+
+    @parameterized.expand(
+        [
+            ("with_run", True),
+            ("no_runs", False),
+        ]
+    )
+    def test_summaries_response_shape(self, _name, with_run):
+        task = self.create_task("Task")
+        run = (
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.IN_PROGRESS,
+                environment=TaskRun.Environment.LOCAL,
+            )
+            if with_run
+            else None
+        )
+
+        response = self.post_summaries([str(task.id)])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [payload] = response.json()
+        self.assertEqual(set(payload.keys()), self.SUMMARY_FIELDS)
+        expected_run = {"status": run.status, "environment": run.environment} if run else None
+        self.assertEqual(payload["latest_run"], expected_run)
+
+    @parameterized.expand(
+        [
+            ("empty", lambda: []),
+            ("invalid_uuid", lambda: ["not-a-uuid"]),
+            ("too_many", lambda: [str(uuid.uuid4()) for _ in range(501)]),
+        ]
+    )
+    def test_summaries_rejects_invalid_payload(self, _name, ids_factory):
+        response = self.post_summaries(ids_factory())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestTaskAutomationAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.api.sync_automation_schedule")
     def test_create_automation(self, mock_sync_schedule):

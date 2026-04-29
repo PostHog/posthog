@@ -84,6 +84,8 @@ from .serializers import (
     TaskStagedArtifactsFinalizeUploadResponseSerializer,
     TaskStagedArtifactsPrepareUploadRequestSerializer,
     TaskStagedArtifactsPrepareUploadResponseSerializer,
+    TaskSummariesRequestSerializer,
+    TaskSummarySerializer,
     build_task_run_artifact_size_error,
     get_task_run_artifact_max_size_bytes,
 )
@@ -210,6 +212,35 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("repository")
         )
         serializer = TaskRepositoriesResponseSerializer({"repositories": list(repositories)})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskSummariesRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskSummarySerializer, description="Summary fields for the requested tasks"),
+        },
+        summary="Fetch task summaries by ID",
+        description=(
+            "Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, "
+            "`updated_at`, and the latest run's `status` and `environment`."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="summaries",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def summaries(self, request, **kwargs):
+        ids = request.validated_data["ids"]
+        latest_run = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id")
+        tasks = Task.objects.filter(team=self.team, deleted=False, id__in=ids).annotate(
+            _latest_run_status=Subquery(latest_run.values("status")[:1]),
+            _latest_run_environment=Subquery(latest_run.values("environment")[:1]),
+        )
+        serializer = TaskSummarySerializer(tasks, many=True)
         return Response(serializer.data)
 
     @validated_request(
