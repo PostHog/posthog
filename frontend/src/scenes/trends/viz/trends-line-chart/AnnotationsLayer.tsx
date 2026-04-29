@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef } from 'react'
+import React, { useMemo } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
@@ -32,18 +32,6 @@ export function AnnotationsLayer({
     xTickFormatter,
 }: AnnotationsLayerProps): React.ReactElement | null {
     const { scales, dimensions, labels } = useChart()
-    const wrapperRef = useRef<HTMLDivElement | null>(null)
-
-    // The shared `.AnnotationsOverlay` picks up `padding: 0.5rem` inside `.InsightCard__viz`
-    // (a legacy alignment hack for chart.js). Hog-charts doesn't need it — the canvas is
-    // absolutely positioned, so the padding only shifts the badges off the x-axis.
-    // Null out padding inline to avoid touching the shared scss rule.
-    useLayoutEffect(() => {
-        const overlay = wrapperRef.current?.querySelector<HTMLDivElement>('.AnnotationsOverlay')
-        if (overlay) {
-            overlay.style.padding = '0'
-        }
-    })
 
     const chartLike = useMemo(() => {
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
@@ -66,7 +54,7 @@ export function AnnotationsLayer({
     }
 
     return (
-        <div ref={wrapperRef} style={WRAPPER_STYLE} onClick={stopClickPropagation}>
+        <div className="HogChartsAnnotationsLayer" style={WRAPPER_STYLE} onClick={stopClickPropagation}>
             <AnnotationsOverlay
                 chart={chartLike as unknown as Chart}
                 dates={dates}
