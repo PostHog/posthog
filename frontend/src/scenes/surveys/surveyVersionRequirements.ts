@@ -132,10 +132,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     {
         feature: 'Custom survey position',
         sdkVersions: {
-            'posthog-js': '1.0.0',
             'posthog-react-native': '4.43.13',
         },
         unsupportedSdks: [
+            { sdk: 'posthog-js', issue: false },
             { sdk: 'posthog-ios', issue: false },
             { sdk: 'posthog-android', issue: false },
             { sdk: 'posthog_flutter', issue: false },
