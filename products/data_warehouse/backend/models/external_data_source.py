@@ -104,11 +104,10 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted_at = datetime.now()
         self.save()
 
-        if (self.job_inputs or {}).get("cdc_enabled"):
-            # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
-            from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+        # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
+        from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 
-            SourceRegistry.get_source(ExternalDataSourceType(self.source_type)).cleanup_cdc_resources_on_deletion(self)
+        SourceRegistry.get_source(ExternalDataSourceType(self.source_type)).cleanup_cdc_resources_on_deletion(self)
 
     def reload_schemas(self):
         from products.data_warehouse.backend.data_load.service import (

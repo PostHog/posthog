@@ -170,21 +170,25 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         }
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
-        """Drop the Temporal schedule (always) + PostHog-managed slot/publication.
+        """Drop the Temporal schedule + PostHog-managed slot/publication.
 
-        Schedule lives on our side, slot lives on the customer's DB.
+        Schedule lives on our side, slot lives on the customer's DB. No-op for
+        postgres sources without CDC enabled.
         """
+        cdc_config = PostgresCDCConfig.from_source(source)
+        if not cdc_config.enabled:
+            return
+
         # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
         from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
 
-        # Schedule key = source id. Delete unconditionally; NotFound is a no-op.
+        # Schedule key = source id. NotFound is a no-op.
         try:
             delete_cdc_extraction_schedule(str(source.id))
         except Exception:
             log.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(source.id)})
 
-        cdc_config = PostgresCDCConfig.from_source(source)
-        if not cdc_config.enabled or cdc_config.management_mode != "posthog":
+        if cdc_config.management_mode != "posthog":
             return
         if not cdc_config.slot_name or not cdc_config.publication_name:
             return
