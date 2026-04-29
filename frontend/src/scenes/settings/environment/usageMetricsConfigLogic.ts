@@ -191,24 +191,15 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     forms(({ actions }) => ({
         usageMetric: {
             defaults: NEW_USAGE_METRIC,
-            errors: ({ name, math, math_property, filters }) => {
-                const source = getMetricSource(filters)
-                const dwFilters = filters as UsageMetricFiltersDataWarehouse
-                return {
-                    name: !name ? 'Name is required' : undefined,
-                    math_property:
-                        math === 'sum' && !math_property
-                            ? source === 'data_warehouse'
-                                ? 'Column to sum is required'
-                                : 'Property is required for sum'
-                            : undefined,
-                    filters:
-                        source === 'data_warehouse' &&
-                        (!dwFilters.table_name || !dwFilters.timestamp_field || !dwFilters.key_field)
-                            ? 'Table, timestamp field, and key field are required'
-                            : undefined,
-                }
-            },
+            errors: ({ name, math, math_property, filters }) => ({
+                name: !name ? 'Name is required' : undefined,
+                math_property:
+                    math === 'sum' && !math_property
+                        ? getMetricSource(filters) === 'data_warehouse'
+                            ? 'Column to sum is required'
+                            : 'Property is required for sum'
+                        : undefined,
+            }),
             submit: (formData) => {
                 if (formData?.id) {
                     actions.updateUsageMetric(formData)
