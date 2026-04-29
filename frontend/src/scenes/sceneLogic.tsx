@@ -50,6 +50,27 @@ import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
+/**
+ * Scenes a user flagged as a guest is allowed to render directly.
+ *
+ * Keep this list tight — the backend middleware will 404 any API call we make
+ * from a non-allowlisted scene anyway, but letting the scene mount at all
+ * wastes time and exposes chrome the guest cannot use. Additions here should
+ * correspond to resource types the guest-mode middleware (see
+ * `posthog/middleware_guest.py`) has a rule for.
+ */
+export const GUEST_ALLOWED_SCENES: ReadonlySet<Scene> = new Set<Scene>([
+    Scene.Guest,
+    Scene.Dashboard,
+    Scene.Insight,
+    Scene.Notebook,
+    Scene.Login,
+    Scene.Error404,
+    Scene.ErrorAccessDenied,
+    Scene.ErrorNetwork,
+    Scene.ErrorProjectUnavailable,
+])
+
 const TAB_STATE_KEY = 'scene-tabs-state'
 const PINNED_TAB_STATE_KEY = 'scene-tabs-pinned-state'
 
@@ -327,7 +348,14 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [router, ['locationChanged', 'push'], inviteLogic, ['hideInviteModal']],
+        actions: [
+            router,
+            ['locationChanged', 'push'],
+            inviteLogic,
+            ['hideInviteModal'],
+            userLogic,
+            ['loadUserSuccess'],
+        ],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
@@ -1051,6 +1079,28 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             persistTabs(values.tabs, values.homepage)
         },
+        loadUserSuccess: () => {
+            // Route guard: re-evaluate the current scene against the guest allowlist now that
+            // user data has loaded. The synchronous check inside `openScene` is gated on
+            // `!userLoading` so a hard navigation to a granted URL doesn't bounce to /guest
+            // before `is_guest_in_current_project` is known. This listener completes the
+            // round-trip — once the user payload arrives, we redirect if (and only if) the
+            // user is a guest on a non-allowed scene.
+            const { user } = userLogic.values
+            if (!user?.is_guest_in_current_project) {
+                return
+            }
+            const sceneId = values.sceneId
+            if (!sceneId || GUEST_ALLOWED_SCENES.has(sceneId as Scene)) {
+                return
+            }
+            // `from=login` tells the landing scene this redirect came from a system deflection
+            // (post-login bounce, deep-link to a forbidden scene). When the guest has only one
+            // grant, the landing scene treats the flag as "auto-jump to that resource"; without
+            // the flag, the landing always shows the list. Header "Shared with you" link omits
+            // the flag so users explicitly opening the page see their grant(s).
+            router.actions.replace(`${urls.guest()}?from=login`)
+        },
         locationChanged: ({ pathname, search, hash, routerState, method }) => {
             pathname = addProjectIdIfMissing(pathname)
             if (routerState?.tabs && method === 'POP') {
@@ -1164,8 +1214,19 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         openScene: ({ tabId, sceneId, sceneKey, params, method }) => {
             const sceneConfig = sceneConfigurations[sceneId] || {}
-            const { user } = userLogic.values
+            const { user, userLoading } = userLogic.values
             const { preflight } = preflightLogic.values
+
+            // Guests can only open scenes on the allowlist. The actual deflection is done by
+            // the `enforceGuestSceneGuard` listener below — gating on `!userLoading` so that
+            // hard navigation to a granted URL doesn't bounce to /guest before the user
+            // payload (and thus `is_guest_in_current_project`) has loaded. We still call it
+            // here so the redirect fires synchronously when the user is already known.
+            if (!userLoading && user?.is_guest_in_current_project && !GUEST_ALLOWED_SCENES.has(sceneId as Scene)) {
+                // `?from=login` — see the matching note in the `loadUserSuccess` listener above.
+                router.actions.replace(`${urls.guest()}?from=login`)
+                return
+            }
 
             if (sceneId === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
@@ -1232,6 +1293,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
                         !teamLogic.values.currentTeam?.ingested_event &&
+                        // Guests should never be sent to admin onboarding; they have a guest landing scene instead.
+                        !user.is_guest_in_current_project &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )

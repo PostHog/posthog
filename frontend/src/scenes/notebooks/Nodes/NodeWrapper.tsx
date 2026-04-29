@@ -39,6 +39,7 @@ import {
     NotebookNodeType,
 } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { notebookGuestPolicyLogic } from '../../guest/notebookGuestPolicyLogic'
 
 const NON_COPYABLE_NODES = [
     NotebookNodeType.PersonProperties,
@@ -68,6 +69,8 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeIds, containerSize, notebook, mode } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
+    const notebookShortId = mountedNotebookLogic.props.shortId
+    const notebookGuestPolicy = useValues(notebookGuestPolicyLogic({ shortId: notebookShortId }))
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
 
     const logicProps: NotebookNodeLogicProps = {
@@ -260,6 +263,20 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     const hasMenu = menuItems.some((x) => !!x)
     const isInCanvas = mode === 'canvas'
+
+    // Block render for non-cascadeable embedded nodes when the viewer is a guest. The
+    // BE wouldn't grant access to executable / admin nodes (`ph-python`, `ph-hogql`,
+    // `ph-task-create`, etc.) and rendering them would only fire 4xx requests. Return a
+    // skeleton placeholder instead — non-guests are unaffected.
+    if (notebookGuestPolicy.isGuest && !notebookGuestPolicy.canRenderEmbeddedNode(nodeType)) {
+        return (
+            <NodeViewWrapper as="div">
+                <div className={clsx(nodeType, 'NotebookNode', 'NotebookNode--guest-blocked', 'p-3 text-muted')}>
+                    <em>This block isn't available in shared view.</em>
+                </div>
+            </NodeViewWrapper>
+        )
+    }
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>

@@ -164,3 +164,29 @@ describe('API helper', () => {
         })
     })
 })
+
+describe('resolveSceneResource', () => {
+    // Delay importing so the spec module doesn't try to pull the kea userLogic at eval time.
+    const { resolveSceneResource } = jest.requireActual('lib/api')
+
+    it.each([
+        ['/project/1/notebooks/nb_short_id', 'notebook:nb_short_id'],
+        ['/project/1/notebooks/abc-def/', 'notebook:abc-def'],
+    ] as const)('resolves %s -> %s', (path, expected) => {
+        expect(resolveSceneResource(path)).toBe(expected)
+    })
+
+    it.each([
+        ['/'],
+        ['/home'],
+        ['/project/123/home'],
+        ['/project/123/notebooks/new'],
+        ['/project/123/experiments/123'],
+        // Dashboard / insight URLs return null for now — they're added in the
+        // dashboard / insight follow-up PR.
+        ['/project/123/dashboard/42'],
+        ['/project/123/insights/ABC123'],
+    ] as const)('returns null for %s', (path) => {
+        expect(resolveSceneResource(path)).toBeNull()
+    })
+})

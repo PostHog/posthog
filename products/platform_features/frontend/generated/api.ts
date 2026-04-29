@@ -446,6 +446,30 @@ export const membersDestroy = async (
     })
 }
 
+/**
+ * Promote a guest membership to a regular member.
+
+Deletes all `GuestResourceGrant` + mirroring `AccessControl` rows and flips the
+`is_guest` flag. Admin+ only.
+ */
+export const getMembersPromoteGuestCreateUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/promote_guest/`
+}
+
+export const membersPromoteGuestCreate = async (
+    organizationId: string,
+    userUuid: string,
+    organizationMemberApi: NonReadonly<OrganizationMemberApi>,
+    options?: RequestInit
+): Promise<OrganizationMemberApi> => {
+    return apiMutator<OrganizationMemberApi>(getMembersPromoteGuestCreateUrl(organizationId, userUuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationMemberApi),
+    })
+}
+
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {
     return `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/`
 }

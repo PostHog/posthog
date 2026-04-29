@@ -27,7 +27,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
+// Pure-function form of the policy (not the kea logic) is intentional here: notebookLogic
+// is a *dependency* of `notebookGuestPolicyLogic`, so connecting back would create a cycle.
+import { notebookGuestPolicy } from 'scenes/guest/notebookGuestPolicyLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -123,6 +127,8 @@ export const notebookLogic = kea<notebookLogicType>([
             ['showKernelInfo', 'showTableOfContents'],
             notebookCollabLogic({ shortId: props.shortId }),
             ['ttEditor'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             notebooksModel,
@@ -413,6 +419,14 @@ export const notebookLogic = kea<notebookLogicType>([
                                 actions.loadNotebook()
                                 return values.notebook
                             }
+                            // 4xx that isn't a conflict (e.g. guest 403): wipe optimistic local
+                            // state so the on-screen content snaps back to the server's truth.
+                            // Otherwise the optimistic edit appears successful and persists in
+                            // localStorage across reloads.
+                            if (error.status >= 400 && error.status < 500) {
+                                actions.clearLocalContent()
+                                actions.loadNotebook()
+                            }
                             throw error
                         }
                     }
@@ -452,6 +466,11 @@ export const notebookLogic = kea<notebookLogicType>([
                             actions.showConflictWarning()
                             return null
                         }
+                        // 4xx (non-conflict): same revert path as the collab/save branch above.
+                        if (error.status >= 400 && error.status < 500) {
+                            actions.clearLocalContent()
+                            actions.loadNotebook()
+                        }
                         throw error
                     }
                 },
@@ -459,9 +478,18 @@ export const notebookLogic = kea<notebookLogicType>([
                     if (!values.notebook) {
                         return values.notebook
                     }
-                    const response = await api.notebooks.update(values.notebook.short_id, { title })
-                    refreshTreeItem('notebook', String(values.notebook.short_id))
-                    return response
+                    try {
+                        const response = await api.notebooks.update(values.notebook.short_id, { title })
+                        refreshTreeItem('notebook', String(values.notebook.short_id))
+                        return response
+                    } catch (error: any) {
+                        // Revert on 4xx so the renamed title doesn't appear successful for a
+                        // viewer guest whose PATCH was rejected (surface pass H-2 / P-3).
+                        if (error.status >= 400 && error.status < 500) {
+                            actions.loadNotebook()
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -879,6 +907,13 @@ export const notebookLogic = kea<notebookLogicType>([
         loadNotebookSuccess: () => {
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
+            // Guest viewers must not see fake-edits resurrected from a previous session's
+            // localStorage. The persisted `localContent` reducer is shared across users —
+            // surface pass H-1 leak vector. Clear it as soon as we know the loaded notebook
+            // is being viewed by a guest viewer.
+            if (notebookGuestPolicy(values.user, values.notebook).blockOptimisticPersist && values.localContent) {
+                actions.clearLocalContent()
+            }
         },
 
         exportJSON: () => {

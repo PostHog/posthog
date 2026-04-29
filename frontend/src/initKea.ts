@@ -106,7 +106,8 @@ export function initKea({
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
-                    !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
+                    !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
+                    !(isLoadAction && error.status === 404) // 404s on GET loaders usually mean "does not exist for this user"; dont toast
                 ) {
                     let errorMessage = error.detail || error.statusText
                     const isTwoFactorError =

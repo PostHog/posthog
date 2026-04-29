@@ -3,11 +3,12 @@ import './InviteModal.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -19,6 +20,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
 
+import { GuestResourcePicker } from './GuestResourcePicker'
 import { inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
@@ -189,22 +191,32 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
     )
 }
 
+// Sentinel value for the "Guest" entry in the organization-level dropdown. Selecting it
+// flips the whole invite form into guest mode (same effect as the Invite-as-guest checkbox).
+const GUEST_LEVEL_OPTION = 'guest' as const
+type OrgLevelValue = number | typeof GUEST_LEVEL_OPTION
+
 export function InviteRow({
     index,
     isDeletable,
     hideProjectAccessSelector = false,
+    hideOrgLevelSelector = false,
 }: {
     index: number
     isDeletable: boolean
     hideProjectAccessSelector?: boolean
+    hideOrgLevelSelector?: boolean
 }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
+    const guestModeEnabled = useFeatureFlag('GUEST_MODE')
 
-    const { invitesToSend } = useValues(inviteLogic)
-    const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
+    const { invitesToSend, isGuestInvite } = useValues(inviteLogic)
+    const inviteActions = useActions(inviteLogic)
+    const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex, setIsGuestInvite } = inviteActions
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -214,10 +226,33 @@ export function InviteRow({
         ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
         : [OrganizationMembershipLevel.Member]
 
-    const allowedLevelsOptions = allowedLevels.map((level) => ({
-        value: level,
-        label: OrganizationMembershipLevel[level],
-    }))
+    const hasMultipleInvites = invitesToSend.length > 1
+    // Guest invites require admin+ on the backend, which is exactly when `allowedLevels`
+    // has more than one option (the current user can assign at least one level below their own).
+    // Gating the Guest option on this keeps it out of the dropdown for non-admin inviters
+    // who couldn't create a guest invite anyway.
+    const canShowGuestLevel = guestModeEnabled && hasAccessControl && allowedLevels.length > 1
+
+    // Guest sits at the top of the dropdown but Member remains the default (the value prop
+    // resolves to Member when invitesToSend[index].level is unset — `allowedLevels[0]` is Member
+    // because `organizationMembershipLevelIntegers` starts at Member).
+    const allowedLevelsOptions: { value: OrgLevelValue; label: string; disabledReason?: string }[] = [
+        ...(canShowGuestLevel
+            ? [
+                  {
+                      value: GUEST_LEVEL_OPTION,
+                      label: 'Guest',
+                      disabledReason: hasMultipleInvites
+                          ? 'Guest invites go out one at a time. Remove extra rows to invite as guest.'
+                          : undefined,
+                  },
+              ]
+            : []),
+        ...allowedLevels.map((level) => ({
+            value: level as OrgLevelValue,
+            label: OrganizationMembershipLevel[level],
+        })),
+    ]
 
     return (
         <div className="space-y-4 bg-surface-secondary py-4 px-4 rounded-md">
@@ -261,16 +296,26 @@ export function InviteRow({
                         />
                     </div>
                 )}
-                {allowedLevelsOptions.length > 1 && (
+                {allowedLevelsOptions.length > 1 && !hideOrgLevelSelector && (
                     <div className="flex-1 flex gap-1 items-center justify-between">
-                        <LemonSelect
+                        <LemonSelect<OrgLevelValue>
                             className="bg-bg-light"
                             fullWidth
                             data-attr="invite-row-org-member-level"
                             options={allowedLevelsOptions}
-                            value={invitesToSend[index].level || allowedLevels[0]}
+                            value={isGuestInvite ? GUEST_LEVEL_OPTION : invitesToSend[index].level || allowedLevels[0]}
                             onChange={(v) => {
-                                updateInviteAtIndex({ level: v }, index)
+                                if (v === GUEST_LEVEL_OPTION) {
+                                    setIsGuestInvite(true)
+                                    return
+                                }
+                                if (typeof v === 'number') {
+                                    // Switching away from Guest: null out guest-only state so we
+                                    // don't ship a member invite with attached grants. Safe to
+                                    // call unconditionally — a no-op when we weren't in guest mode.
+                                    inviteActions.resetGuestState()
+                                    updateInviteAtIndex({ level: v }, index)
+                                }
                             }}
                         />
                     </div>
@@ -309,13 +354,16 @@ export function InviteTeamMatesComponent({
     hideProjectAccessSelector?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
-    const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
-
-    const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
-    const areInvitesDeletable = invitesToSend.length > 1
+    const { invitesToSend, inviteContainsOwnerLevel, isGuestInvite, bypassSsoEnforcement } = useValues(inviteLogic)
+    const { appendInviteRow, updateMessage, setIsInviteConfirmed, setBypassSsoEnforcement } = useActions(inviteLogic)
 
     const { currentOrganization } = useValues(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
+    const guestModeEnabled = useFeatureFlag('GUEST_MODE')
+
+    const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE && !isGuestInvite
+    const areInvitesDeletable = invitesToSend.length > 1
 
     const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
 
@@ -327,6 +375,9 @@ export function InviteTeamMatesComponent({
         value: level,
         label: OrganizationMembershipLevel[level],
     }))
+
+    // Only offer SSO bypass if the org actually enforces SSO; otherwise the toggle is meaningless.
+    const orgHasSsoEnforced = !!(currentOrganization as any)?.sso_enforcement
 
     return (
         <>
@@ -347,7 +398,7 @@ export function InviteTeamMatesComponent({
 
                 {invitesToSend.map((_, index) => (
                     <InviteRow
-                        hideProjectAccessSelector={hideProjectAccessSelector}
+                        hideProjectAccessSelector={hideProjectAccessSelector || isGuestInvite}
                         index={index}
                         key={index.toString()}
                         isDeletable={areInvitesDeletable}
@@ -362,7 +413,36 @@ export function InviteTeamMatesComponent({
                     )}
                 </div>
             </div>
-            {preflight?.email_service_available && (
+
+            {guestModeEnabled && hasAccessControl && isGuestInvite && (
+                <div className="mt-4 p-3 border rounded-md space-y-3" data-attr="guest-invite-block">
+                    <div className="flex items-center gap-2">
+                        <b>Guest access</b>
+                        <Tooltip title="Guests are external collaborators with read-only access to dashboards, insights, or notebooks you select. They don't appear in member pickers, filters, or @ mentions.">
+                            <IconInfo className="text-muted-alt" />
+                        </Tooltip>
+                    </div>
+                    <GuestResourcePicker />
+                    {orgHasSsoEnforced && (
+                        <div className="space-y-2">
+                            <LemonCheckbox
+                                checked={bypassSsoEnforcement}
+                                onChange={setBypassSsoEnforcement}
+                                label="Bypass SSO enforcement for this guest"
+                                data-attr="guest-invite-bypass-sso"
+                            />
+                            {bypassSsoEnforcement && (
+                                <LemonBanner type="warning">
+                                    I understand this lets the guest authenticate with email + password even though our
+                                    organization enforces SSO.
+                                </LemonBanner>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {preflight?.email_service_available && !isGuestInvite && (
                 <div className="mt-4">
                     <div className="mb-2">
                         <b>Message (optional)</b>
@@ -375,7 +455,7 @@ export function InviteTeamMatesComponent({
                 </div>
             )}
 
-            {inviteContainsOwnerLevel && (
+            {inviteContainsOwnerLevel && !isGuestInvite && (
                 <div className="mt-4">
                     <b>Confirm owner-level invites</b>
 
