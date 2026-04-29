@@ -1659,9 +1659,9 @@ export const SurveysGenerateTranslationsCreateBody = /* @__PURE__ */ zod.object(
         .default(surveysGenerateTranslationsCreateBodyOverwriteDefault)
         .describe('Whether to overwrite existing translations for this language.'),
     survey: zod
-        .record(zod.string(), zod.unknown().describe('Draft survey field value.'))
+        .record(zod.string(), zod.unknown().nullable().describe('Draft survey field value.'))
         .optional()
-        .describe('Optional draft survey payload to translate instead of the last saved survey.'),
+        .describe('Optional translation-only draft survey payload to translate instead of the last saved survey.'),
 })
 
 /**

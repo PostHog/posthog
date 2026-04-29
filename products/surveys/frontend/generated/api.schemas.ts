@@ -1875,9 +1875,9 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
 }
 
 /**
- * Optional draft survey payload to translate instead of the last saved survey.
+ * Optional translation-only draft survey payload to translate instead of the last saved survey.
  */
-export type GenerateSurveyTranslationsRequestApiSurvey = { [key: string]: unknown }
+export type GenerateSurveyTranslationsRequestApiSurvey = { [key: string]: unknown | null }
 
 export interface GenerateSurveyTranslationsRequestApi {
     /** Language code to generate translations for, for example pt-BR. */
@@ -1886,7 +1886,7 @@ export interface GenerateSurveyTranslationsRequestApi {
     source_language?: string
     /** Whether to overwrite existing translations for this language. */
     overwrite?: boolean
-    /** Optional draft survey payload to translate instead of the last saved survey. */
+    /** Optional translation-only draft survey payload to translate instead of the last saved survey. */
     survey?: GenerateSurveyTranslationsRequestApiSurvey
 }
 
