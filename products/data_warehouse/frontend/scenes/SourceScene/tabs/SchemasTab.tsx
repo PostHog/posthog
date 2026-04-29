@@ -330,7 +330,8 @@ function ManagedSchemaTable({
                               key: 'rows_synced_sparkline',
                               render: function RenderSparkline(_: unknown, schema: ExternalDataSourceSchema) {
                                   const lastSyncedAt = schema.last_synced_at ? dayjs(schema.last_synced_at) : null
-                                  const syncedWithin7Days = lastSyncedAt?.isAfter(dayjs().subtract(7, 'day')) ?? false
+                                  const syncedWithin7Days =
+                                      lastSyncedAt?.isSameOrAfter(dayjs().subtract(7, 'day')) ?? false
 
                                   if (!syncedWithin7Days) {
                                       return <span className="text-muted">—</span>

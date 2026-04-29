@@ -16,6 +16,8 @@ export interface AppMetricsSparklineProps extends AppMetricsLogicProps {
     metricLabels?: Record<string, string>
 }
 
+const DEFAULT_SUCCESS_METRIC_NAMES = ['success']
+
 export function AppMetricsSparkline({
     successMetricNames,
     metricLabels,
@@ -27,7 +29,6 @@ export function AppMetricsSparkline({
     const { ref: inViewRef, inView } = useInView({
         triggerOnce: true,
     })
-    const successNames = successMetricNames ?? ['success']
 
     useEffect(() => {
         if (inStorybookTestRunner() || (inView && !appMetricsTrendsLoading)) {
@@ -36,8 +37,9 @@ export function AppMetricsSparkline({
     }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const displayData: SparklineTimeSeries[] = useMemo(() => {
-        // We sort the series based on the given metricKind
+        const successNames = successMetricNames ?? DEFAULT_SUCCESS_METRIC_NAMES
 
+        // We sort the series based on the given metricKind
         const sortListValue = params.breakdownBy === 'metric_kind' ? params.metricKind : params.metricName
         const sortList = sortListValue ? (Array.isArray(sortListValue) ? sortListValue : [sortListValue]) : []
 
@@ -55,7 +57,7 @@ export function AppMetricsSparkline({
                 values: s.values,
             })) || []
         )
-    }, [appMetricsTrends, params, successNames, metricLabels])
+    }, [appMetricsTrends, params, successMetricNames, metricLabels])
 
     const labels = appMetricsTrends?.labels || []
 
