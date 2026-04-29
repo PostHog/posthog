@@ -39,6 +39,14 @@ export const eventDefinitions: EventDefinition[] = [
         last_seen_at: friday,
         created_at: setupWeek,
     },
+    {
+        id: 'evt-005',
+        name: 'NoActivity',
+        description: 'Event whose series is all zeros (drives empty-state branch)',
+        tags: [],
+        last_seen_at: friday,
+        created_at: setupWeek,
+    },
 ]
 
 export const propertyDefinitions: PropertyDefinition[] = [
@@ -115,6 +123,12 @@ export const trendsSeries = {
         days,
         labels,
     } satisfies CannedSeries,
+    noActivity: {
+        label: 'NoActivity',
+        data: [0, 0, 0, 0, 0],
+        days,
+        labels,
+    } satisfies CannedSeries,
     pageviewsCompare: [
         { label: '$pageview', data: [45, 82, 134, 210, 95], days, labels, compare: true, compare_label: 'current' },
         {
@@ -148,6 +162,7 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
     },
     ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
     Minimal: { default: trendsSeries.minimal },
+    NoActivity: { default: trendsSeries.noActivity },
 }
 
 /** Resolver for compare queries — returns current + previous period series. */

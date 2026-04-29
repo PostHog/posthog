@@ -2100,6 +2100,7 @@ export interface BillingProductV2AddonType {
     display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
     display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
+    default_unit_amount_usd?: string | null // Product's default (undiscounted) unit price
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
