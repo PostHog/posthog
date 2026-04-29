@@ -454,6 +454,10 @@ flags_hypercache = HyperCache(
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
     batch_load_fn=_get_feature_flags_for_teams_batch,
     expiry_sorted_set_key=FLAGS_CACHE_EXPIRY_SORTED_SET,
+    # Etag is consumed by the Rust feature-flags service in-memory cache
+    # (FlagDefinitionsCache), keyed on (team_id, etag). Without this, the cache
+    # bypass branch fires on every request and the perf opt is wasted.
+    enable_etag=True,
 )
 
 
@@ -556,6 +560,17 @@ def verify_team_flags(
             "status": "mismatch",
             "issue": "MISSING_EVALUATION_METADATA",
             "details": "Cache entry missing evaluation_metadata",
+            "db_data": db_data,
+        }
+
+    # Without an etag, the Rust feature-flags in-memory cache bypasses every
+    # request for this team via the `etag_missing` branch. Surfacing this here
+    # turns a silent perf regression into a counted verifier mismatch.
+    if flags_hypercache.get_etag(team) is None:
+        return {
+            "status": "mismatch",
+            "issue": "MISSING_ETAG",
+            "details": "Cache entry has payload but no etag — Rust in-memory cache will bypass for this team",
             "db_data": db_data,
         }
 
