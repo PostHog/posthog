@@ -17,6 +17,7 @@ import {
     IconMinus,
     IconPlus,
     IconShare,
+    IconScreen,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
@@ -354,7 +355,7 @@ function SplitOutputToggle({ splitView, onClick }: SplitOutputToggleProps): JSX.
             className="self-center"
             type="secondary"
             size="small"
-            icon={<IconColumns />}
+            icon={splitView ? <IconScreen /> : <IconColumns />}
             onClick={onClick}
             tooltip={splitView ? 'Show one output at a time' : 'Show results and visualization side by side'}
             data-attr="sql-editor-output-split-toggle"
@@ -374,21 +375,18 @@ function VisualizationActions({
     onToggleChartSettingsPanel,
 }: VisualizationActionsProps): JSX.Element {
     return (
-        <div className="flex justify-between flex-wrap">
-            <div className="flex items-center" />
-            <div className="flex items-center">
-                <div className="flex gap-2 items-center flex-wrap">
-                    <TableDisplay disabledReason={!hasColumns ? 'No results to visualize' : undefined} />
+        <div className="flex justify-end flex-wrap">
+            <div className="flex gap-2 items-center flex-wrap">
+                <TableDisplay disabledReason={!hasColumns ? 'No results to visualize' : undefined} />
 
-                    <LemonButton
-                        disabledReason={!hasColumns ? 'No results to visualize' : undefined}
-                        type={settingsOpen ? 'primary' : 'secondary'}
-                        icon={<IconGear />}
-                        size="small"
-                        onClick={onToggleChartSettingsPanel}
-                        tooltip="Visualization settings"
-                    />
-                </div>
+                <LemonButton
+                    disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                    type={settingsOpen ? 'primary' : 'secondary'}
+                    icon={<IconGear />}
+                    size="small"
+                    onClick={onToggleChartSettingsPanel}
+                    tooltip="Visualization settings"
+                />
             </div>
         </div>
     )
@@ -545,13 +543,12 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         queryId,
         pollResponse,
     } = useValues(dataNodeLogic)
-    const { queryCancelled } = useValues(dataVisualizationLogic)
+    const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
     const splitPaneRef = useRef<HTMLDivElement>(null)
     const splitView = activeTab === OutputTab.Both
-    const [isVisualizationSettingsPanelOpen, setIsVisualizationSettingsPanelOpen] = useState(false)
     const splitResizerProps = useMemo<ResizerLogicProps>(
         () => ({
             containerRef: splitPaneRef,
@@ -573,10 +570,8 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
     }, [])
 
     const toggleVisualizationSettingsPanel = useCallback(() => {
-        const nextIsOpen = !isVisualizationSettingsPanelOpen
-        setIsVisualizationSettingsPanelOpen(nextIsOpen)
-        toggleChartSettingsPanel(nextIsOpen)
-    }, [isVisualizationSettingsPanelOpen, toggleChartSettingsPanel])
+        toggleChartSettingsPanel()
+    }, [toggleChartSettingsPanel])
 
     const columns = useMemo(() => {
         const types = response?.types
@@ -744,7 +739,7 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         pollResponse,
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
-        showVisualizationSettings: isVisualizationSettingsPanelOpen,
+        showVisualizationSettings: isChartSettingsPanelOpen,
     }
     const sharedActionsProps = {
         response,
@@ -753,7 +748,7 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         exportContext,
         hasQueryInput,
         isEmbeddedMode,
-        settingsOpen: isVisualizationSettingsPanelOpen,
+        settingsOpen: isChartSettingsPanelOpen,
         onShareTab: shareTab,
         onToggleChartSettingsPanel: toggleVisualizationSettingsPanel,
     }
