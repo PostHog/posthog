@@ -29,6 +29,13 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    // Optional override for the brokers used to produce `cdp_internal_events`. When set,
+    // cymbal opens a second producer pointed at this host list (used for the warpstream-cyclotron
+    // VC, where the hog-functions consumer reads). When unset, internal events go through the
+    // primary `kafka` producer like everything else.
+    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_HOSTS")]
+    pub cyclotron_kafka_hosts: Option<String>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 
