@@ -1705,7 +1705,10 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
 
     def assertReturnsTaskIds(self, response, expected_ids):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(sorted(t["id"] for t in response.json()), sorted(str(i) for i in expected_ids))
+        self.assertEqual(
+            sorted(t["id"] for t in response.json()["results"]),
+            sorted(str(i) for i in expected_ids),
+        )
 
     def test_summaries_returns_only_requested_ids_scoped_to_team(self):
         task_a = self.create_task("Task A")
@@ -1755,16 +1758,39 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         response = self.post_summaries([str(task.id)])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        [payload] = response.json()
+        [payload] = response.json()["results"]
         self.assertEqual(set(payload.keys()), self.SUMMARY_FIELDS)
         expected_run = {"status": run.status, "environment": run.environment} if run else None
         self.assertEqual(payload["latest_run"], expected_run)
+
+    def test_summaries_paginates_large_id_sets(self):
+        tasks = [self.create_task(f"Task {i}") for i in range(3)]
+        ids = [str(t.id) for t in tasks]
+
+        response = self.client.post(f"{self.SUMMARIES_URL}?limit=2", {"ids": ids}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(len(payload["results"]), 2)
+        self.assertIsNotNone(payload["next"])
+
+        # Follow `next` cursor; combined results should equal the full set without duplicates.
+        next_url = payload["next"]
+        next_path = next_url[next_url.index("/api/") :]
+        response2 = self.client.post(next_path, {"ids": ids}, format="json")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        payload2 = response2.json()
+        self.assertEqual(len(payload2["results"]), 1)
+        self.assertIsNone(payload2["next"])
+
+        seen_ids = [r["id"] for r in payload["results"]] + [r["id"] for r in payload2["results"]]
+        self.assertEqual(sorted(seen_ids), sorted(ids))
+        self.assertEqual(len(set(seen_ids)), 3)
 
     @parameterized.expand(
         [
             ("empty", lambda: []),
             ("invalid_uuid", lambda: ["not-a-uuid"]),
-            ("too_many", lambda: [str(uuid.uuid4()) for _ in range(501)]),
         ]
     )
     def test_summaries_rejects_invalid_payload(self, _name, ids_factory):

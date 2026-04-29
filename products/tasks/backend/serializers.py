@@ -748,7 +748,7 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
-TASK_SUMMARIES_MAX_IDS = 500
+TASK_SUMMARIES_MAX_IDS = 5000
 
 
 class TaskSummariesRequestSerializer(serializers.Serializer):
@@ -756,7 +756,10 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
         child=serializers.UUIDField(),
         allow_empty=False,
         max_length=TASK_SUMMARIES_MAX_IDS,
-        help_text=f"Task IDs to fetch summaries for (max {TASK_SUMMARIES_MAX_IDS}).",
+        help_text=(
+            f"Task IDs to fetch summaries for (max {TASK_SUMMARIES_MAX_IDS}). Response is paginated; "
+            f"follow the `next` cursor to retrieve all results."
+        ),
     )
 
 

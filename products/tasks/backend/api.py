@@ -18,7 +18,8 @@ from django.utils import timezone
 import requests as http_requests
 import jsonschema
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -227,22 +228,45 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, "
             "`updated_at`, and the latest run's `status` and `environment`."
         ),
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Page size for the paginated response.",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Offset into the result set for pagination.",
+            ),
+        ],
     )
     @action(
         detail=False,
         methods=["post"],
         url_path="summaries",
         required_scopes=["task:read"],
-        pagination_class=None,
         filter_backends=[],
     )
     def summaries(self, request, **kwargs):
         ids = request.validated_data["ids"]
         latest_run = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id")
-        tasks = Task.objects.filter(team=self.team, deleted=False, id__in=ids).annotate(
-            _latest_run_status=Subquery(latest_run.values("status")[:1]),
-            _latest_run_environment=Subquery(latest_run.values("environment")[:1]),
+        tasks = (
+            Task.objects.filter(team=self.team, deleted=False, id__in=ids)
+            .annotate(
+                _latest_run_status=Subquery(latest_run.values("status")[:1]),
+                _latest_run_environment=Subquery(latest_run.values("environment")[:1]),
+            )
+            .order_by("-created_at", "id")
         )
+        page = self.paginate_queryset(tasks)
+        if page is not None:
+            serializer = TaskSummarySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = TaskSummarySerializer(tasks, many=True)
         return Response(serializer.data)
 
