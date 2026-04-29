@@ -33,6 +33,7 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { botAnalyticsLogic } from 'scenes/web-analytics/botAnalyticsLogic'
 import {
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_REFERRER_PREFIX,
@@ -1223,10 +1224,35 @@ const HogQLTableTile = ({
     insightProps: InsightLogicProps
     tileId: TileId
 }): JSX.Element => {
-    const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
-    const { rawWebAnalyticsFilters } = useValues(webAnalyticsFilterLogic)
+    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
+    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
 
     const context = useMemo((): QueryContext => {
+        // Bot tile rows are single-select toggles: clicking the same value again clears it,
+        // any other click replaces. Keeps the toolbar dropdown chip in sync.
+        const toggleFilter = (key: string, value: string): void => {
+            const existing = rawBotAnalyticsFilters.find((f) => 'key' in f && f.key === key)
+            const otherFilters = rawBotAnalyticsFilters.filter((f) => !('key' in f && f.key === key))
+            const existingValues =
+                existing && 'value' in existing
+                    ? Array.isArray(existing.value)
+                        ? existing.value
+                        : [existing.value]
+                    : []
+            if (existingValues.length === 1 && existingValues[0] === value) {
+                setBotAnalyticsFilters(otherFilters)
+                return
+            }
+            setBotAnalyticsFilters([
+                ...otherFilters,
+                {
+                    key,
+                    value: [value],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ])
+        }
         if (tileId === TileId.BOT_CRAWLERS) {
             return {
                 ...webAnalyticsDataTableQueryContext,
@@ -1239,28 +1265,30 @@ const HogQLTableTile = ({
                     }
                     return {
                         className: 'cursor-pointer',
-                        // Match BotPropertySelect's single-select pattern (WebAnalyticsFilters.tsx)
-                        // so the picked crawler shows up in the toolbar dropdown.
-                        onClick: () => {
-                            const otherFilters = rawWebAnalyticsFilters.filter(
-                                (f) => !('key' in f && f.key === '$virt_bot_name')
-                            )
-                            setWebAnalyticsFilters([
-                                ...otherFilters,
-                                {
-                                    key: '$virt_bot_name',
-                                    value: [botName],
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                },
-                            ])
-                        },
+                        onClick: () => toggleFilter('$virt_bot_name', botName),
+                    }
+                },
+            }
+        }
+        if (tileId === TileId.BOT_PATHS) {
+            return {
+                ...webAnalyticsDataTableQueryContext,
+                insightProps,
+                rowProps: (record: unknown) => {
+                    const result = (record as { result?: unknown[] })?.result
+                    const path = Array.isArray(result) ? (result[0] as string) : null
+                    if (!path) {
+                        return {}
+                    }
+                    return {
+                        className: 'cursor-pointer',
+                        onClick: () => toggleFilter('$pathname', path),
                     }
                 },
             }
         }
         return { ...webAnalyticsDataTableQueryContext, insightProps }
-    }, [insightProps, tileId, rawWebAnalyticsFilters, setWebAnalyticsFilters])
+    }, [insightProps, tileId, rawBotAnalyticsFilters, setBotAnalyticsFilters])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">

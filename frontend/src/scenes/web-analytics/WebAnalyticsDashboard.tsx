@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
@@ -51,10 +51,12 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { BotAnalyticsFilters } from './BotAnalyticsFilters'
+import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
-import { BotAnalyticsFilters, WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -438,20 +440,27 @@ const MainContent = (): JSX.Element => {
     }
 
     if (productTab === ProductTab.BOT_ANALYTICS) {
-        return (
-            <>
-                <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
-                    Bot detection is based on user agent pattern matching. Events with no user agent are excluded from
-                    these results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events —
-                    most bots don't execute JavaScript, so client-side tracking alone misses the majority of crawler
-                    traffic.
-                </LemonBanner>
-                <Tiles />
-            </>
-        )
+        return <BotAnalyticsTiles />
     }
 
     return <Tiles />
+}
+
+const BotAnalyticsTiles = (): JSX.Element => {
+    // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
+    useMountedLogic(botAnalyticsLogic)
+    const { tiles } = useValues(botAnalyticsLogic)
+
+    return (
+        <>
+            <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
+                Bot detection is based on user agent pattern matching. Events with no user agent are excluded from these
+                results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
+                don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
+            </LemonBanner>
+            <Tiles tiles={tiles} />
+        </>
+    )
 }
 
 const HealthTabLabel = (): JSX.Element => {
