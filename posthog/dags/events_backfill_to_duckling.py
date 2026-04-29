@@ -68,7 +68,7 @@ from posthog.dags.events_backfill_to_ducklake import (
     EXPECTED_DUCKLAKE_COLUMNS,
     MAX_RETRY_ATTEMPTS,
 )
-from posthog.ducklake.client import _make_duckgres_conninfo
+from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import get_duckgres_server_for_organization, get_ducklake_catalog_by_team_org
 from posthog.ducklake.models import DuckLakeBackfill, DuckLakeCatalog
 
@@ -127,13 +127,16 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
             "cannot route to a duckgres instance without a team identifier."
         )
 
-    conninfo = _make_duckgres_conninfo(
+    conninfo = make_duckgres_conninfo(
         catalog.team_id,
         organization_id=str(catalog.organization_id),
     )
-    conninfo += f" connect_timeout={DUCKGRES_CONNECT_TIMEOUT}"
-    conninfo += f" options='-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}'"
-    return psycopg.connect(conninfo, autocommit=True)
+    return psycopg.connect(
+        conninfo,
+        autocommit=True,
+        connect_timeout=DUCKGRES_CONNECT_TIMEOUT,
+        options=f"-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}",
+    )
 
 
 # Columns to export from ClickHouse events table for duckling backfill.
@@ -481,11 +484,7 @@ def table_exists(
     try:
         conn.execute(f"DESCRIBE {catalog_alias}.{schema}.{table}")
         return True
-    except (
-        psycopg.errors.UndefinedTable,
-        psycopg.errors.InvalidSchemaName,
-        psycopg.DatabaseError,
-    ):
+    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         return False
 
 
@@ -544,6 +543,7 @@ def _set_table_partitioning(
 def ensure_events_table_exists(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
+    conn: psycopg.Connection[Any],
 ) -> bool:
     """Create the events table in the duckling's DuckLake catalog if it doesn't exist.
 
@@ -557,29 +557,9 @@ def ensure_events_table_exists(
     """
     alias = DUCKLAKE_ALIAS
 
-    conn = _connect_duckgres(catalog)
-    try:
-        if table_exists(conn, alias, "posthog", "events"):
-            context.log.info("Events table already exists in duckling catalog")
-            # Ensure partitioning is set even on existing tables (idempotent)
-            _set_table_partitioning(
-                conn,
-                alias,
-                "events",
-                "year(timestamp), month(timestamp), day(timestamp)",
-                context,
-                catalog.team_id,
-            )
-            return False
-
-        context.log.info("Creating posthog schema if it doesn't exist...")
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
-
-        context.log.info("Creating events table in duckling catalog...")
-        conn.execute(EVENTS_TABLE_DDL.format(catalog=alias))
-        context.log.info("Successfully created events table")
-
-        # Set partitioning by year/month/day for efficient querying
+    if table_exists(conn, alias, "posthog", "events"):
+        context.log.info("Events table already exists in duckling catalog")
+        # Ensure partitioning is set even on existing tables (idempotent)
         _set_table_partitioning(
             conn,
             alias,
@@ -588,22 +568,38 @@ def ensure_events_table_exists(
             context,
             catalog.team_id,
         )
+        return False
 
-        logger.info(
-            "duckling_events_table_created",
-            team_id=catalog.team_id,
-            bucket=catalog.bucket,
-        )
-        return True
+    context.log.info("Creating posthog schema if it doesn't exist...")
+    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
 
-    finally:
-        conn.close()
+    context.log.info("Creating events table in duckling catalog...")
+    conn.execute(EVENTS_TABLE_DDL.format(catalog=alias))
+    context.log.info("Successfully created events table")
+
+    # Set partitioning by year/month/day for efficient querying
+    _set_table_partitioning(
+        conn,
+        alias,
+        "events",
+        "year(timestamp), month(timestamp), day(timestamp)",
+        context,
+        catalog.team_id,
+    )
+
+    logger.info(
+        "duckling_events_table_created",
+        team_id=catalog.team_id,
+        bucket=catalog.bucket,
+    )
+    return True
 
 
 @_retry_duckgres_connection
 def ensure_persons_table_exists(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
+    conn: psycopg.Connection[Any],
 ) -> bool:
     """Create the persons table in the duckling's DuckLake catalog if it doesn't exist.
 
@@ -617,29 +613,9 @@ def ensure_persons_table_exists(
     """
     alias = DUCKLAKE_ALIAS
 
-    conn = _connect_duckgres(catalog)
-    try:
-        if table_exists(conn, alias, "posthog", "persons"):
-            context.log.info("Persons table already exists in duckling catalog")
-            # Ensure partitioning is set even on existing tables (idempotent)
-            _set_table_partitioning(
-                conn,
-                alias,
-                "persons",
-                "year(_timestamp), month(_timestamp)",
-                context,
-                catalog.team_id,
-            )
-            return False
-
-        context.log.info("Creating posthog schema if it doesn't exist...")
-        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
-
-        context.log.info("Creating persons table in duckling catalog...")
-        conn.execute(PERSONS_TABLE_DDL.format(catalog=alias))
-        context.log.info("Successfully created persons table")
-
-        # Set partitioning by year/month of _timestamp for efficient querying
+    if table_exists(conn, alias, "posthog", "persons"):
+        context.log.info("Persons table already exists in duckling catalog")
+        # Ensure partitioning is set even on existing tables (idempotent)
         _set_table_partitioning(
             conn,
             alias,
@@ -648,104 +624,38 @@ def ensure_persons_table_exists(
             context,
             catalog.team_id,
         )
+        return False
 
-        logger.info(
-            "duckling_persons_table_created",
-            team_id=catalog.team_id,
-            bucket=catalog.bucket,
-        )
-        return True
+    context.log.info("Creating posthog schema if it doesn't exist...")
+    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
 
-    finally:
-        conn.close()
+    context.log.info("Creating persons table in duckling catalog...")
+    conn.execute(PERSONS_TABLE_DDL.format(catalog=alias))
+    context.log.info("Successfully created persons table")
 
+    # Set partitioning by year/month of _timestamp for efficient querying
+    _set_table_partitioning(
+        conn,
+        alias,
+        "persons",
+        "year(_timestamp), month(_timestamp)",
+        context,
+        catalog.team_id,
+    )
 
-def delete_events_table(
-    context: AssetExecutionContext,
-    catalog: DuckLakeCatalog,
-) -> bool:
-    """Delete the events table from the duckling's DuckLake catalog.
-
-    WARNING: This will permanently delete all events data in the duckling.
-
-    Returns True if the table was deleted, False if it didn't exist.
-    """
-    alias = DUCKLAKE_ALIAS
-
-    conn = _connect_duckgres(catalog)
-    try:
-        if not table_exists(conn, alias, "posthog", "events"):
-            context.log.info("Events table does not exist, nothing to delete")
-            return False
-
-        context.log.warning("Deleting events table from duckling catalog...")
-        _validate_identifier(alias)
-        conn.execute(f"DROP TABLE {alias}.posthog.events")
-        context.log.warning("Successfully deleted events table")
-        logger.warning(
-            "duckling_events_table_deleted",
-            team_id=catalog.team_id,
-            bucket=catalog.bucket,
-        )
-        return True
-
-    except Exception:
-        context.log.exception(f"Failed to delete events table for team_id={catalog.team_id}")
-        logger.exception(
-            "duckling_events_table_delete_failed",
-            team_id=catalog.team_id,
-            bucket=catalog.bucket,
-        )
-        raise
-    finally:
-        conn.close()
-
-
-def delete_persons_table(
-    context: AssetExecutionContext,
-    catalog: DuckLakeCatalog,
-) -> bool:
-    """Delete the persons table from the duckling's DuckLake catalog.
-
-    WARNING: This will permanently delete all persons data in the duckling.
-
-    Returns True if the table was deleted, False if it didn't exist.
-    """
-    alias = DUCKLAKE_ALIAS
-
-    conn = _connect_duckgres(catalog)
-    try:
-        if not table_exists(conn, alias, "posthog", "persons"):
-            context.log.info("Persons table does not exist, nothing to delete")
-            return False
-
-        context.log.warning("Deleting persons table from duckling catalog...")
-        _validate_identifier(alias)
-        conn.execute(f"DROP TABLE {alias}.posthog.persons")
-        context.log.warning("Successfully deleted persons table")
-        logger.warning(
-            "duckling_persons_table_deleted",
-            team_id=catalog.team_id,
-            bucket=catalog.bucket,
-        )
-        return True
-
-    except Exception:
-        context.log.exception(f"Failed to delete persons table for team_id={catalog.team_id}")
-        logger.exception(
-            "duckling_persons_table_delete_failed",
-            team_id=catalog.team_id,
-            bucket=catalog.bucket,
-        )
-        raise
-    finally:
-        conn.close()
+    logger.info(
+        "duckling_persons_table_created",
+        team_id=catalog.team_id,
+        bucket=catalog.bucket,
+    )
+    return True
 
 
 @_retry_duckgres_connection
 def validate_duckling_schema(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
+    conn: psycopg.Connection[Any],
 ) -> None:
     """Validate that the duckling's events table schema matches our export columns.
 
@@ -754,88 +664,79 @@ def validate_duckling_schema(
     """
     alias = DUCKLAKE_ALIAS
 
-    conn = _connect_duckgres(catalog)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(f"DESCRIBE {alias}.posthog.events")
-            ducklake_columns = {row[0] for row in cur.fetchall()}
+    with conn.cursor() as cur:
+        cur.execute(f"DESCRIBE {alias}.posthog.events")
+        ducklake_columns = {row[0] for row in cur.fetchall()}
 
-        missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
-        if missing_in_ducklake:
-            context.log.warning(
-                f"Duckling events table is missing columns that we export: {missing_in_ducklake}. "
-                "These columns will be added automatically by ducklake_add_data_files if the table "
-                "supports schema evolution."
-            )
-            logger.warning(
-                "duckling_schema_mismatch",
-                team_id=catalog.team_id,
-                missing_columns=list(missing_in_ducklake),
-            )
-
-        extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_COLUMNS
-        if extra_in_ducklake:
-            context.log.info(f"Duckling has additional columns not in our export: {extra_in_ducklake}")
-
-        context.log.info(
-            f"Schema validation passed. Duckling has {len(ducklake_columns)} columns, "
-            f"we export {len(EXPECTED_DUCKLAKE_COLUMNS)} columns."
+    missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
+    if missing_in_ducklake:
+        context.log.warning(
+            f"Duckling events table is missing columns that we export: {missing_in_ducklake}. "
+            "These columns will be added automatically by ducklake_add_data_files if the table "
+            "supports schema evolution."
         )
-        logger.info(
-            "duckling_schema_validation_passed",
+        logger.warning(
+            "duckling_schema_mismatch",
             team_id=catalog.team_id,
-            ducklake_columns=len(ducklake_columns),
-            export_columns=len(EXPECTED_DUCKLAKE_COLUMNS),
+            missing_columns=list(missing_in_ducklake),
         )
 
-    finally:
-        conn.close()
+    extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_COLUMNS
+    if extra_in_ducklake:
+        context.log.info(f"Duckling has additional columns not in our export: {extra_in_ducklake}")
+
+    context.log.info(
+        f"Schema validation passed. Duckling has {len(ducklake_columns)} columns, "
+        f"we export {len(EXPECTED_DUCKLAKE_COLUMNS)} columns."
+    )
+    logger.info(
+        "duckling_schema_validation_passed",
+        team_id=catalog.team_id,
+        ducklake_columns=len(ducklake_columns),
+        export_columns=len(EXPECTED_DUCKLAKE_COLUMNS),
+    )
 
 
 @_retry_duckgres_connection
 def validate_duckling_persons_schema(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
+    conn: psycopg.Connection[Any],
 ) -> None:
     """Validate that the duckling's persons table schema matches our export columns."""
     alias = DUCKLAKE_ALIAS
 
-    conn = _connect_duckgres(catalog)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(f"DESCRIBE {alias}.posthog.persons")
-            ducklake_columns = {row[0] for row in cur.fetchall()}
+    with conn.cursor() as cur:
+        cur.execute(f"DESCRIBE {alias}.posthog.persons")
+        ducklake_columns = {row[0] for row in cur.fetchall()}
 
-        missing_in_ducklake = EXPECTED_DUCKLAKE_PERSONS_COLUMNS - ducklake_columns
-        if missing_in_ducklake:
-            context.log.warning(
-                f"Duckling persons table is missing columns that we export: {missing_in_ducklake}. "
-                "These columns will be added automatically by ducklake_add_data_files if the table "
-                "supports schema evolution."
-            )
-            logger.warning(
-                "duckling_persons_schema_mismatch",
-                team_id=catalog.team_id,
-                missing_columns=list(missing_in_ducklake),
-            )
-
-        extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_PERSONS_COLUMNS
-        if extra_in_ducklake:
-            context.log.info(f"Duckling persons has additional columns not in our export: {extra_in_ducklake}")
-
-        context.log.info(
-            f"Persons schema validation passed. Duckling has {len(ducklake_columns)} columns, "
-            f"we export {len(EXPECTED_DUCKLAKE_PERSONS_COLUMNS)} columns."
+    missing_in_ducklake = EXPECTED_DUCKLAKE_PERSONS_COLUMNS - ducklake_columns
+    if missing_in_ducklake:
+        context.log.warning(
+            f"Duckling persons table is missing columns that we export: {missing_in_ducklake}. "
+            "These columns will be added automatically by ducklake_add_data_files if the table "
+            "supports schema evolution."
         )
-        logger.info(
-            "duckling_persons_schema_validation_passed",
+        logger.warning(
+            "duckling_persons_schema_mismatch",
             team_id=catalog.team_id,
-            ducklake_columns=len(ducklake_columns),
-            export_columns=len(EXPECTED_DUCKLAKE_PERSONS_COLUMNS),
+            missing_columns=list(missing_in_ducklake),
         )
 
-    finally:
-        conn.close()
+    extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_PERSONS_COLUMNS
+    if extra_in_ducklake:
+        context.log.info(f"Duckling persons has additional columns not in our export: {extra_in_ducklake}")
+
+    context.log.info(
+        f"Persons schema validation passed. Duckling has {len(ducklake_columns)} columns, "
+        f"we export {len(EXPECTED_DUCKLAKE_PERSONS_COLUMNS)} columns."
+    )
+    logger.info(
+        "duckling_persons_schema_validation_passed",
+        team_id=catalog.team_id,
+        ducklake_columns=len(ducklake_columns),
+        export_columns=len(EXPECTED_DUCKLAKE_PERSONS_COLUMNS),
+    )
 
 
 @retry(
@@ -863,12 +764,12 @@ def _execute_export_with_retry(
         raise
 
 
-@_retry_duckgres_connection
 def delete_events_partition_data(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
     team_id: int,
     partition_date: datetime,
+    conn: psycopg.Connection[Any],
 ) -> int:
     """Delete existing events data for a specific team_id and date from DuckLake.
 
@@ -876,9 +777,8 @@ def delete_events_partition_data(
     before registering new files.
 
     DuckLake transaction conflicts are retried server-side by duckgres
-    (server/transient.go retryOnConflict, max 5 attempts with jitter). Transient
-    connection/network failures are retried by the `_retry_duckgres_connection`
-    decorator (max 3 attempts with exponential backoff).
+    (server/transient.go retryOnConflict, max 5 attempts with jitter). Connection
+    retries live in the caller — this helper operates on a connection it doesn't own.
 
     Returns the number of rows deleted.
     """
@@ -897,12 +797,10 @@ def delete_events_partition_data(
       AND timestamp < %s
     """
 
-    conn = _connect_duckgres(catalog)
     try:
         with conn.cursor() as cur:
             cur.execute(delete_sql, (team_id, date_str, next_date_str))
-            result = cur.fetchone()
-            deleted_count = result[0] if result else 0
+            deleted_count = cur.rowcount if cur.rowcount != -1 else 0
 
         if deleted_count > 0:
             context.log.info(f"Deleted {deleted_count} existing events for team_id={team_id}, date={date_str}")
@@ -914,11 +812,7 @@ def delete_events_partition_data(
             )
         return deleted_count
 
-    except (
-        psycopg.errors.UndefinedTable,
-        psycopg.errors.InvalidSchemaName,
-        psycopg.DatabaseError,
-    ):
+    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         context.log.debug(f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}")
         return 0
     except Exception:
@@ -929,25 +823,22 @@ def delete_events_partition_data(
             date=date_str,
         )
         raise
-    finally:
-        conn.close()
 
 
-@_retry_duckgres_connection
 def delete_persons_partition_data(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
     team_id: int,
-    partition_date: datetime | None = None,
+    partition_date: datetime | None,
+    conn: psycopg.Connection[Any],
 ) -> int:
     """Delete existing persons data for a specific team_id (and optionally date) from DuckLake.
 
     For full exports (partition_date=None), deletes all persons for the team.
     For daily exports, deletes persons modified on that date.
 
-    DuckLake transaction conflicts are retried server-side by duckgres. Transient
-    connection/network failures are retried by the `_retry_duckgres_connection`
-    decorator (max 3 attempts with exponential backoff).
+    DuckLake transaction conflicts are retried server-side by duckgres. Connection
+    retries live in the caller — this helper operates on a connection it doesn't own.
 
     Returns the number of rows deleted.
     """
@@ -972,14 +863,12 @@ def delete_persons_partition_data(
         """
         delete_params = (team_id, date_str, next_date_str)
 
-    conn = _connect_duckgres(catalog)
     try:
         if partition_date is None:
             context.log.info(f"Deleting all existing persons for team_id={team_id}")
         with conn.cursor() as cur:
             cur.execute(delete_sql, delete_params)
-            result = cur.fetchone()
-            deleted_count = result[0] if result else 0
+            deleted_count = cur.rowcount if cur.rowcount != -1 else 0
 
         if deleted_count > 0:
             context.log.info(f"Deleted {deleted_count} existing persons for team_id={team_id}, date={date_label}")
@@ -991,11 +880,7 @@ def delete_persons_partition_data(
             )
         return deleted_count
 
-    except (
-        psycopg.errors.UndefinedTable,
-        psycopg.errors.InvalidSchemaName,
-        psycopg.DatabaseError,
-    ):
+    except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
         return 0
     except Exception:
@@ -1006,8 +891,6 @@ def delete_persons_partition_data(
             date=date_label,
         )
         raise
-    finally:
-        conn.close()
 
 
 def export_events_to_duckling_s3(
@@ -1089,6 +972,7 @@ def register_file_with_duckling(
     catalog: DuckLakeCatalog,
     s3_path: str,
     config: DucklingBackfillConfig,
+    conn: psycopg.Connection[Any],
 ) -> bool:
     """Register an exported Parquet file with the duckling's DuckLake catalog.
 
@@ -1104,6 +988,7 @@ def register_file_with_duckling(
         catalog: The DuckLakeCatalog for this duckling.
         s3_path: S3 path of the Parquet file to register.
         config: Job configuration.
+        conn: psycopg connection to the org's duckgres server.
 
     Returns:
         True if registration succeeded, False otherwise.
@@ -1118,30 +1003,17 @@ def register_file_with_duckling(
 
     alias = DUCKLAKE_ALIAS
 
-    conn = _connect_duckgres(catalog)
-    try:
-        context.log.info(f"Registering file with DuckLake: {s3_path}")
-        conn.execute(
-            psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
-                psql.Literal(alias),
-                psql.Literal(s3_path),
-            )
+    context.log.info(f"Registering file with DuckLake: {s3_path}")
+    conn.execute(
+        psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
+            psql.Literal(alias),
+            psql.Literal(s3_path),
         )
+    )
 
-        context.log.info(f"Successfully registered: {s3_path}")
-        logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
-        return True
-
-    except Exception:
-        context.log.exception(f"Failed to register file {s3_path}")
-        logger.exception(
-            "duckling_file_registration_failed",
-            s3_path=s3_path,
-            team_id=catalog.team_id,
-        )
-        raise
-    finally:
-        conn.close()
+    context.log.info(f"Successfully registered: {s3_path}")
+    logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
+    return True
 
 
 def export_persons_to_duckling_s3(
@@ -1237,7 +1109,7 @@ def export_persons_full_to_duckling_s3(
     Returns:
         S3 path that was written, or None if dry_run.
     """
-    path_without_scheme = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/full/{run_id}.parquet"
+    path_without_scheme = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year=0/month=0/{run_id}.parquet"
     s3_url = get_s3_url_for_clickhouse(catalog.bucket, catalog.bucket_region, path_without_scheme)
     s3_path = f"s3://{catalog.bucket}/{path_without_scheme}"
 
@@ -1300,6 +1172,7 @@ def register_persons_file_with_duckling(
     catalog: DuckLakeCatalog,
     s3_path: str,
     config: DucklingBackfillConfig,
+    conn: psycopg.Connection[Any],
 ) -> bool:
     """Register an exported persons Parquet file with the duckling's DuckLake catalog.
 
@@ -1317,34 +1190,21 @@ def register_persons_file_with_duckling(
 
     alias = DUCKLAKE_ALIAS
 
-    conn = _connect_duckgres(catalog)
-    try:
-        context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-        conn.execute(
-            psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
-                psql.Literal(alias),
-                psql.Literal(s3_path),
-            )
+    context.log.info(f"Registering persons file with DuckLake: {s3_path}")
+    conn.execute(
+        psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
+            psql.Literal(alias),
+            psql.Literal(s3_path),
         )
+    )
 
-        context.log.info(f"Successfully registered persons: {s3_path}")
-        logger.info(
-            "duckling_persons_file_registered",
-            s3_path=s3_path,
-            team_id=catalog.team_id,
-        )
-        return True
-
-    except Exception:
-        context.log.exception(f"Failed to register persons file {s3_path}")
-        logger.exception(
-            "duckling_persons_file_registration_failed",
-            s3_path=s3_path,
-            team_id=catalog.team_id,
-        )
-        raise
-    finally:
-        conn.close()
+    context.log.info(f"Successfully registered persons: {s3_path}")
+    logger.info(
+        "duckling_persons_file_registered",
+        s3_path=s3_path,
+        team_id=catalog.team_id,
+    )
+    return True
 
 
 @asset(
@@ -1392,93 +1252,99 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         f"Backfill ready for team_id={team_id}: duckgres={server.host}:{server.port}, bucket={catalog.bucket}"
     )
 
-    # Delete events table if requested (dangerous - loses all data)
-    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
-        context.log.warning("delete_tables=True: Deleting events table...")
-        delete_events_table(context, catalog)
+    # Use a single connection for all metadata operations to reduce churn
+    conn = _connect_duckgres(catalog)
+    try:
+        # Delete events table if requested (dangerous - loses all data)
+        if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+            context.log.warning("delete_tables=True: Deleting events table...")
+            conn.execute(f"DROP TABLE {DUCKLAKE_ALIAS}.posthog.events")
 
-    # Create events table if it doesn't exist
-    if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
-        context.log.info("Ensuring events table exists in duckling catalog...")
-        ensure_events_table_exists(context, catalog)
+        # Create events table if it doesn't exist
+        if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
+            context.log.info("Ensuring events table exists in duckling catalog...")
+            ensure_events_table_exists(context, catalog, conn)
 
-    # Validate schema before starting export (skip if dry_run or skip_ducklake_registration)
-    if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
-        context.log.info("Validating duckling schema compatibility...")
-        validate_duckling_schema(context, catalog)
+        # Validate schema before starting export (skip if dry_run or skip_ducklake_registration)
+        if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
+            context.log.info("Validating duckling schema compatibility...")
+            validate_duckling_schema(context, catalog, conn)
 
-    # Prepare ClickHouse settings
-    merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
-    merged_settings.update(settings_with_log_comment(context))
-    if config.clickhouse_settings:
-        merged_settings.update(config.clickhouse_settings)
-        context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
+        # Prepare ClickHouse settings
+        merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
+        merged_settings.update(settings_with_log_comment(context))
+        if config.clickhouse_settings:
+            merged_settings.update(config.clickhouse_settings)
+            context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = _get_cluster()
-    tags = dagster_tags(context)
-    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+        cluster = _get_cluster()
+        tags = dagster_tags(context)
+        workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
-    # Process each date in the partition
-    total_exported = 0
-    total_registered = 0
-    s3_paths: list[str] = []
+        # Process each date in the partition
+        total_exported = 0
+        total_registered = 0
+        s3_paths: list[str] = []
 
-    for partition_date in dates:
-        date_str = partition_date.strftime("%Y-%m-%d")
-        context.log.info(f"Processing date {date_str}...")
+        for partition_date in dates:
+            date_str = partition_date.strftime("%Y-%m-%d")
+            context.log.info(f"Processing date {date_str}...")
 
-        # Delete existing DuckLake data for this partition before re-processing
-        if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
-            delete_events_partition_data(context, catalog, team_id, partition_date)
+            # Delete existing DuckLake data for this partition before re-processing
+            if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
+                delete_events_partition_data(context, catalog, team_id, partition_date, conn=conn)
 
-        def do_export(client: Client, date: datetime = partition_date) -> str | None:
-            with tags_context(kind="dagster", dagster=tags):
-                return export_events_to_duckling_s3(
-                    context=context,
-                    client=client,
-                    config=config,
-                    catalog=catalog,
-                    team_id=team_id,
-                    date=date,
-                    run_id=run_id,
-                    settings=merged_settings,
-                )
+            def do_export(client: Client, date: datetime = partition_date) -> str | None:
+                with tags_context(kind="dagster", dagster=tags):
+                    return export_events_to_duckling_s3(
+                        context=context,
+                        client=client,
+                        config=config,
+                        catalog=catalog,
+                        team_id=team_id,
+                        date=date,
+                        run_id=run_id,
+                        settings=merged_settings,
+                    )
 
-        s3_path = cluster.any_host_by_role(
-            fn=do_export,
-            workload=workload,
-            node_role=NodeRole.DATA,
-        ).result()
+            s3_path = cluster.any_host_by_role(
+                fn=do_export,
+                workload=workload,
+                node_role=NodeRole.DATA,
+            ).result()
 
-        # Register with DuckLake if we have a file
-        if s3_path:
-            total_exported += 1
-            s3_paths.append(s3_path)
-            if register_file_with_duckling(context, catalog, s3_path, config):
-                total_registered += 1
+            # Register with DuckLake if we have a file
+            if s3_path:
+                total_exported += 1
+                s3_paths.append(s3_path)
+                if register_file_with_duckling(context, catalog, s3_path, config, conn):
+                    total_registered += 1
 
-    context.add_output_metadata(
-        {
-            "team_id": team_id,
-            "partition_key": context.partition_key,
-            "dates_processed": len(dates),
-            "files_exported": total_exported,
-            "files_registered": total_registered,
-            "bucket": catalog.bucket,
-        }
-    )
+        context.add_output_metadata(
+            {
+                "team_id": team_id,
+                "partition_key": context.partition_key,
+                "dates_processed": len(dates),
+                "files_exported": total_exported,
+                "files_registered": total_registered,
+                "bucket": catalog.bucket,
+            }
+        )
 
-    context.log.info(
-        f"Completed duckling backfill for team_id={team_id}: "
-        f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
-    )
-    logger.info(
-        "duckling_backfill_complete",
-        team_id=team_id,
-        dates_processed=len(dates),
-        files_exported=total_exported,
-        files_registered=total_registered,
-    )
+        context.log.info(
+            f"Completed duckling backfill for team_id={team_id}: "
+            f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
+        )
+        logger.info(
+            "duckling_backfill_complete",
+            team_id=team_id,
+            dates_processed=len(dates),
+            files_exported=total_exported,
+            files_registered=total_registered,
+        )
+
+    finally:
+        conn.close()
 
 
 @asset(
@@ -1536,145 +1402,155 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         f"Backfill ready for team_id={team_id}: duckgres={server.host}:{server.port}, bucket={catalog.bucket}"
     )
 
-    # Delete persons table if requested (dangerous - loses all data)
-    if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
-        context.log.warning("delete_tables=True: Deleting persons table...")
-        delete_persons_table(context, catalog)
+    # Use a single connection for all metadata operations to reduce churn
+    conn = _connect_duckgres(catalog)
+    try:
+        # Delete persons table if requested (dangerous - loses all data)
+        if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
+            context.log.warning("delete_tables=True: Deleting persons table...")
+            conn.execute(f"DROP TABLE {DUCKLAKE_ALIAS}.posthog.persons")
 
-    # Create persons table if it doesn't exist
-    if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
-        context.log.info("Ensuring persons table exists in duckling catalog...")
-        ensure_persons_table_exists(context, catalog)
+        # Create persons table if it doesn't exist
+        if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
+            context.log.info("Ensuring persons table exists in duckling catalog...")
+            ensure_persons_table_exists(context, catalog, conn)
 
-    if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
-        context.log.info("Validating duckling persons schema compatibility...")
-        validate_duckling_persons_schema(context, catalog)
+        if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
+            context.log.info("Validating duckling persons schema compatibility...")
+            validate_duckling_persons_schema(context, catalog, conn)
 
-    merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
-    merged_settings.update(settings_with_log_comment(context))
-    if config.clickhouse_settings:
-        merged_settings.update(config.clickhouse_settings)
-        context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
+        merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
+        merged_settings.update(settings_with_log_comment(context))
+        if config.clickhouse_settings:
+            merged_settings.update(config.clickhouse_settings)
+            context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    cluster = _get_cluster()
-    tags = dagster_tags(context)
-    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+        cluster = _get_cluster()
+        tags = dagster_tags(context)
+        workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
-    if is_full:
-        # FULL EXPORT MODE - single query for all persons
-        context.log.info(f"Full export mode: exporting all persons for team_id={team_id}")
+        if is_full:
+            # FULL EXPORT MODE - single query for all persons
+            context.log.info(f"Full export mode: exporting all persons for team_id={team_id}")
 
-        # Delete all existing persons data for this team before full re-export
-        if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
-            delete_persons_partition_data(context, catalog, team_id, partition_date=None)
-
-        def do_full_export(client: Client) -> str | None:
-            with tags_context(kind="dagster", dagster=tags):
-                return export_persons_full_to_duckling_s3(
-                    context=context,
-                    client=client,
-                    config=config,
-                    catalog=catalog,
-                    team_id=team_id,
-                    run_id=run_id,
-                    settings=merged_settings,
-                )
-
-        s3_path = cluster.any_host_by_role(
-            fn=do_full_export,
-            workload=workload,
-            node_role=NodeRole.DATA,
-        ).result()
-
-        files_exported = 1 if s3_path else 0
-        files_registered = 0
-        if s3_path:
-            if register_persons_file_with_duckling(context, catalog, s3_path, config):
-                files_registered = 1
-
-        context.add_output_metadata(
-            {
-                "team_id": team_id,
-                "partition_key": partition_key,
-                "export_mode": "full",
-                "files_exported": files_exported,
-                "files_registered": files_registered,
-                "bucket": catalog.bucket,
-            }
-        )
-
-        context.log.info(
-            f"Completed duckling persons full backfill for team_id={team_id}: "
-            f"{files_exported} file exported, {files_registered} registered"
-        )
-        logger.info(
-            "duckling_persons_backfill_complete",
-            team_id=team_id,
-            export_mode="full",
-            files_exported=files_exported,
-            files_registered=files_registered,
-        )
-    else:
-        # DAILY EXPORT MODE - process each date in the partition
-        total_exported = 0
-        total_registered = 0
-
-        for partition_date in dates:
-            date_str = partition_date.strftime("%Y-%m-%d")
-            context.log.info(f"Processing persons for date {date_str}...")
-
-            # Delete existing DuckLake data for this partition before re-processing
+            # Delete all existing persons data for this team before full re-export
             if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
-                delete_persons_partition_data(context, catalog, team_id, partition_date)
+                delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=conn)
 
-            def do_export(client: Client, date: datetime = partition_date) -> str | None:
+            def do_full_export(client: Client) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
-                    return export_persons_to_duckling_s3(
+                    return export_persons_full_to_duckling_s3(
                         context=context,
                         client=client,
                         config=config,
                         catalog=catalog,
                         team_id=team_id,
-                        date=date,
                         run_id=run_id,
                         settings=merged_settings,
                     )
 
             s3_path = cluster.any_host_by_role(
-                fn=do_export,
+                fn=do_full_export,
                 workload=workload,
                 node_role=NodeRole.DATA,
             ).result()
 
+            files_exported = 1 if s3_path else 0
+            files_registered = 0
             if s3_path:
-                total_exported += 1
-                if register_persons_file_with_duckling(context, catalog, s3_path, config):
-                    total_registered += 1
+                if register_persons_file_with_duckling(context, catalog, s3_path, config, conn):
+                    files_registered = 1
 
-        context.add_output_metadata(
-            {
-                "team_id": team_id,
-                "partition_key": partition_key,
-                "export_mode": "daily",
-                "dates_processed": len(dates),
-                "files_exported": total_exported,
-                "files_registered": total_registered,
-                "bucket": catalog.bucket,
-            }
-        )
+            context.add_output_metadata(
+                {
+                    "team_id": team_id,
+                    "partition_key": partition_key,
+                    "export_mode": "full",
+                    "files_exported": files_exported,
+                    "files_registered": files_registered,
+                    "bucket": catalog.bucket,
+                }
+            )
 
-        context.log.info(
-            f"Completed duckling persons daily backfill for team_id={team_id}: "
-            f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
-        )
-        logger.info(
-            "duckling_persons_backfill_complete",
-            team_id=team_id,
-            export_mode="daily",
-            dates_processed=len(dates),
-            files_exported=total_exported,
-            files_registered=total_registered,
-        )
+            context.log.info(
+                f"Completed duckling persons full backfill for team_id={team_id}: "
+                f"{files_exported} file exported, {files_registered} registered"
+            )
+            logger.info(
+                "duckling_persons_backfill_complete",
+                team_id=team_id,
+                export_mode="full",
+                files_exported=files_exported,
+                files_registered=files_registered,
+            )
+        else:
+            # DAILY EXPORT MODE - process each date in the partition
+            total_exported = 0
+            total_registered = 0
+
+            for partition_date in dates:
+                date_str = partition_date.strftime("%Y-%m-%d")
+                context.log.info(f"Processing persons for date {date_str}...")
+
+                # Delete existing DuckLake data for this partition before re-processing
+                if (
+                    config.cleanup_existing_partition_data
+                    and not config.dry_run
+                    and not config.skip_ducklake_registration
+                ):
+                    delete_persons_partition_data(context, catalog, team_id, partition_date, conn=conn)
+
+                def do_export(client: Client, date: datetime = partition_date) -> str | None:
+                    with tags_context(kind="dagster", dagster=tags):
+                        return export_persons_to_duckling_s3(
+                            context=context,
+                            client=client,
+                            config=config,
+                            catalog=catalog,
+                            team_id=team_id,
+                            date=date,
+                            run_id=run_id,
+                            settings=merged_settings,
+                        )
+
+                s3_path = cluster.any_host_by_role(
+                    fn=do_export,
+                    workload=workload,
+                    node_role=NodeRole.DATA,
+                ).result()
+
+                if s3_path:
+                    total_exported += 1
+                    if register_persons_file_with_duckling(context, catalog, s3_path, config, conn):
+                        total_registered += 1
+
+            context.add_output_metadata(
+                {
+                    "team_id": team_id,
+                    "partition_key": partition_key,
+                    "export_mode": "daily",
+                    "dates_processed": len(dates),
+                    "files_exported": total_exported,
+                    "files_registered": total_registered,
+                    "bucket": catalog.bucket,
+                }
+            )
+
+            context.log.info(
+                f"Completed duckling persons daily backfill for team_id={team_id}: "
+                f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
+            )
+            logger.info(
+                "duckling_persons_backfill_complete",
+                team_id=team_id,
+                export_mode="daily",
+                dates_processed=len(dates),
+                files_exported=total_exported,
+                files_registered=total_registered,
+            )
+
+    finally:
+        conn.close()
 
 
 @sensor(
