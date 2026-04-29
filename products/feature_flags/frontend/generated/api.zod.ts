@@ -966,7 +966,7 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
         .datetime({})
         .nullish()
         .describe(
-            'Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)'
+            'Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.'
         ),
     groups: zod
         .string()

@@ -104,6 +104,7 @@ from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+from products.tasks.backend.serializers import ErrorResponseSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -2072,10 +2073,6 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField(help_text="Error message describing what went wrong")
-
-
 class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
     """Feature flag state at a given version plus reconstruction metadata."""
 
@@ -3546,11 +3543,11 @@ class FeatureFlagViewSet(
                     {"error": f"Invalid timestamp: {e}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except Exception as e:
+            except Exception:
                 # ClickHouse / infra failures keep the generic 500 but log the real cause.
                 logger.exception("Failed to build person properties at timestamp for flag %s", feature_flag.key)
                 return Response(
-                    {"error": "Failed to build person properties at specified timestamp.", "detail": str(e)},
+                    {"error": "Failed to build person properties at specified timestamp."},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
         else:
@@ -3589,10 +3586,10 @@ class FeatureFlagViewSet(
                     {"error": f"Invalid timestamp: {e}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            except Exception as e:
+            except Exception:
                 logger.exception("Failed to reconstruct flag at timestamp for flag %s", feature_flag.key)
                 return Response(
-                    {"error": "Failed to reconstruct flag at specified timestamp.", "detail": str(e)},
+                    {"error": "Failed to reconstruct flag at specified timestamp."},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 

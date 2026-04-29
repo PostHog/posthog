@@ -775,7 +775,7 @@ export interface FeatureFlagTestEvaluationRequestApi {
     /** Person ID to test against (mutually exclusive with distinct_id) */
     person_id?: string
     /**
-     * Optional timestamp to evaluate flag using both flag conditions and person properties as they existed at that time (ISO format)
+     * Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.
      * @nullable
      */
     timestamp?: string | null
@@ -808,8 +808,10 @@ export interface FeatureFlagConditionPropertyAnalysisApi {
 export interface FeatureFlagConditionAnalysisApi {
     /** Index of this condition in the feature flag */
     index: number
-    /** Whether this condition was the one that matched */
+    /** True when this condition was the one that determined the flag's outcome. Use this to find the winning condition — at most one condition per flag is True. */
     matched: boolean
+    /** True when every property in this condition evaluated to true, regardless of whether this condition was the eventual winner. */
+    properties_matched?: boolean
     /** Human-readable explanation of why this condition matched/didn't match */
     explanation: string
     /** Rollout percentage for this condition (0.0-100.0) */
@@ -841,10 +843,18 @@ export interface FeatureFlagTestEvaluationResponseApi {
     payload: unknown | null
     /** Person properties at the time of evaluation (for historical evaluations) */
     person_properties: FeatureFlagTestEvaluationResponseApiPersonProperties
-    /** The distinct_id used for rollout/variant bucketing. Matches the caller-provided distinct_id when given; otherwise the lexicographically smallest distinct_id of the person. */
-    evaluation_distinct_id: string
+    /**
+     * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
+     * @nullable
+     */
+    evaluation_distinct_id: string | null
     /** Detailed analysis of each condition in the feature flag */
     conditions: FeatureFlagConditionAnalysisApi[]
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
 }
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
