@@ -76,6 +76,7 @@ from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_veri
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
@@ -278,8 +279,6 @@ class UserSerializer(serializers.ModelSerializer):
         return default_device(instance) is not None
 
     def get_has_sso_enforcement(self, instance: User) -> bool:
-        from posthog.models.organization_domain import OrganizationDomain
-
         organization = instance.current_organization
         if not organization:
             return False
@@ -505,8 +504,6 @@ class UserSerializer(serializers.ModelSerializer):
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
-            from posthog.models.organization_domain import OrganizationDomain
-
             new_email = validated_data["email"]
             # Block bypass: a user on an SSO-enforced domain can't move off of it.
             if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
