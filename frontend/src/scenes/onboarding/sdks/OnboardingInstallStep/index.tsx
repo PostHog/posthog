@@ -9,8 +9,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
-import { OnboardingStepComponentType } from '../../onboardingLogic'
+import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
+import { availableOnboardingProducts } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
 import { LogsSDKInstructions } from '../logs/LogsSDKInstructions'
@@ -77,6 +78,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
+    const { productKey } = useValues(onboardingLogic)
+    const productName = productKey
+        ? availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name
+        : undefined
+    const installTitle = productName ? `Install ${productName}` : 'Install'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -224,7 +230,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     // Control: existing behavior — SDK grid without the wizard hero
     return (
         <OnboardingStep
-            title="Install"
+            title={installTitle}
             stepKey={OnboardingStepKey.INSTALL}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             showSkip={showSkipAtBottom}
