@@ -197,20 +197,26 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
 # Minimum age of the throttle clock (last_refresh OR created_at — see
 # `_last_refresh_for_shared_gate` in posthog/api/insight.py) before a shared insight may
 # honor `?refresh=force_blocking`. Bounds anonymous cache-bypass abuse on the public
-# sharing surface in the steady state. Limitations of the gate:
+# sharing surface in the steady state.
 #
-# - It is a soft, best-effort cap, not a hard rate limit. `last_refresh` only advances
-#   AFTER a recompute completes (`posthog/caching/calculate_results.py:108`), so several
-#   concurrent requests within the same window can all pass before any of them updates
-#   the row. The org-level 6-slot dashboard concurrency limiter (`DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES`)
-#   is the actual blast-radius cap.
-# - The downgrade target `RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE` still computes
-#   blocking on a cold/missing cache. The throttle attenuates load when the cache is
-#   warm-but-stale; cold-cache shared insights remain bounded by the same 6-slot cap.
-# - Mirrors the client-side `SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES` constant in
-#   `frontend/src/scenes/dashboard/dashboardUtils.ts`. Equality is asserted in
-#   `test_shared_force_blocking_min_age_matches_frontend` to catch silent drift.
-SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(minutes=60)
+# Set to match `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` in `frontend/src/scenes/dashboard/dashboardUtils.ts`
+# (1800s = 30 min) — that's the cadence at which the existing periodic auto-refresh
+# (`SharedDashboardAutoRefresh` in `frontend/src/exporter/Exporter.tsx`) fires
+# `force_blocking` on shared dashboards. A higher throttle would silently drop every
+# other tick. The frontend's separate one-shot stale check (`SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES`,
+# 60min) is naturally allowed by this gate too — it only ever fires when stale ≥ 60 ≥ 30.
+#
+# Limitations of the gate (both bounded by the org-level 6-slot dashboard concurrency cap):
+# - Best-effort, not a hard rate limit. `last_refresh` only advances AFTER a recompute
+#   completes (`posthog/caching/calculate_results.py:108`), so concurrent requests in the
+#   same window can all pass before any of them updates the row.
+# - The downgrade target `RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE` still computes blocking
+#   on a cold/missing cache. The throttle attenuates load when the cache is warm-but-stale.
+#
+# Equality with the frontend periodic-refresh interval is asserted in
+# `test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval` to catch
+# silent drift.
+SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(minutes=30)
 
 
 _SHARED_MODE_WHITELIST = {
