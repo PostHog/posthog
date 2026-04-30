@@ -243,6 +243,11 @@ export interface TaskApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * User-scoped GitHub integration to use for user-authored cloud runs.
+     * @nullable
+     */
+    github_user_integration?: string | null
     /** @nullable */
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
@@ -300,6 +305,11 @@ export interface PatchedTaskApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * User-scoped GitHub integration to use for user-authored cloud runs.
+     * @nullable
+     */
+    github_user_integration?: string | null
     /** @nullable */
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi

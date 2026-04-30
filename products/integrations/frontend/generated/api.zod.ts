@@ -247,6 +247,34 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod
     .describe('Standard Integration serializer.')
 
 /**
+ * Refresh repositories accessible to a specific GitHub installation.
+ * @summary Refresh repositories for a personal GitHub installation
+ */
+export const UsersIntegrationsGithubReposRefreshCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid().describe('PostHog UserIntegration row id.'),
+    kind: zod.string().describe('Integration kind; always `github` for this API.'),
+    installation_id: zod.string().describe('GitHub App installation id.'),
+    repository_selection: zod
+        .string()
+        .nullish()
+        .describe('Repository selection mode from GitHub (e.g. selected or all).'),
+    account: zod
+        .object({
+            type: zod
+                .string()
+                .nullish()
+                .describe('GitHub account type for the installation (e.g. User or Organization).'),
+            name: zod.string().nullish().describe('GitHub login or organization name tied to the installation.'),
+        })
+        .nullish()
+        .describe('Installation account metadata from GitHub.'),
+    uses_shared_installation: zod
+        .boolean()
+        .describe('True when this installation id matches a team-level GitHub integration on the active project.'),
+    created_at: zod.iso.datetime({}).describe('When this integration row was created.'),
+})
+
+/**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
 
 ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested

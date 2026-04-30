@@ -43,6 +43,7 @@ def register_all_admin():
         TeamAdmin,
         TextAdmin,
         UserAdmin,
+        UserIntegrationAdmin,
         UserProductListAdmin,
     )
     from posthog.admin.admins.exported_asset_admin import ExportedAssetAdmin
@@ -75,6 +76,7 @@ def register_all_admin():
         Project,
         Team,
         User,
+        UserIntegration,
     )
     from posthog.models.file_system.user_product_list import UserProductList
     from posthog.models.oauth import OAuthApplication
@@ -126,6 +128,7 @@ def register_all_admin():
     admin.site.register(DataDeletionRequest, DataDeletionRequestAdmin)
     admin.site.register(InstanceSetting, InstanceSettingAdmin)
     admin.site.register(Integration, IntegrationAdmin)
+    admin.site.register(UserIntegration, UserIntegrationAdmin)
     admin.site.register(PluginConfig, PluginConfigAdmin)
     admin.site.register(Plugin, PluginAdmin)
     admin.site.register(Text, TextAdmin)
