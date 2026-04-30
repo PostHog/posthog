@@ -143,6 +143,7 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.data_warehouse",
 ]
 layer = "modules"
 
