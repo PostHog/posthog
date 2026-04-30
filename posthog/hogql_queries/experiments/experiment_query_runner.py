@@ -80,6 +80,12 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
 # trade-off to experiments where most of the data is already in past
 # (frozen) windows. Bypassed by an explicit PrecomputationMode.PRECOMPUTED
 # query override.
+#
+# Why 12h: covers the workday in which users launch experiments — that's
+# when they refresh the results page most often and the 15-min cache lag
+# would be most noticeable. Past that, refreshes drop off and the cost
+# saving from precomputation matters more than the freshness gap. Short
+# enough that experiments still hit the precomputed (fast) path on day two.
 MIN_PRECOMPUTATION_DURATION_SECONDS = 12 * 60 * 60  # 12 hours
 
 MAX_EXECUTION_TIME = 600
