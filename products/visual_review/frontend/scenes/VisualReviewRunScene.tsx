@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -329,6 +330,7 @@ export function VisualReviewRunScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
             <SceneTitleSection
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}

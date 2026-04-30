@@ -173,6 +173,9 @@ export function VisualReviewRunsScene(): JSX.Element {
                         loadCounts()
                     }}
                     loading={runsLoading}
+                    // Push refresh away from the segmented filter; sitting flush
+                    // next to the active-tab handle made it look like another tab.
+                    className="ml-auto"
                 >
                     Refresh
                 </LemonButton>
