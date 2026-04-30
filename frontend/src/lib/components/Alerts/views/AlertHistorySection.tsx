@@ -90,7 +90,7 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     }
     if (status === 'failed') {
         return (
-            <Tooltip title="The investigation agent could not complete. See server logs for details.">
+            <Tooltip title="The investigation agent couldn't complete in time. The alert was still delivered. If this keeps happening, you can turn off the investigation agent in this alert's settings.">
                 <span className="text-danger">Failed</span>
             </Tooltip>
         )
