@@ -6,11 +6,12 @@
 //
 // Usage:
 //
-//	phrocs [--debug] [--config <config.yaml>]
+//	phrocs [--debug] [--config <config.yaml>]          # interactive TUI
+//	phrocs -d | --detach [--config <config.yaml>]      # detached mode (no TUI)
+//	phrocs wait [--timeout N] [--json]                 # block on readiness
+//	phrocs stop [--timeout N]                          # stop detached process via IPC
+//	phrocs attach                                      # polling TUI against a detached process
 //	phrocs --version
-//
-// If --config is omitted, phrocs looks for an mprocs.yaml file in the
-// current directory and uses it automatically.
 //
 // Flags:
 //
@@ -41,47 +42,138 @@ var (
 	BuildDate = "unknown"
 )
 
-func main() {
-	var configPath string
-	var logger *log.Logger
+// detachedChildEnv is set on the re-exec'd child so it knows to skip the fork
+// and run the detached main loop instead.
+const detachedChildEnv = "PHROCS_DETACHED_CHILD"
 
-	// Parse flags: --config <path>, --debug, --version
-	for i := 1; i < len(os.Args); i++ {
-		switch os.Args[i] {
+// parsedArgs captures flags common to every mode. `subcommand` is the first
+// non-flag token if it matches a known name; empty means "interactive or detached
+// based on flag presence".
+type parsedArgs struct {
+	subcommand string
+	configPath string
+	debug      bool
+	detach     bool
+	timeout    int
+	asJSON     bool
+}
+
+func printUsage() {
+	fmt.Println(`phrocs — PostHog dev process runner
+
+Usage:
+  phrocs [--config PATH] [--debug]          interactive TUI (default)
+  phrocs -d | --detach [--config PATH]      detached mode (no TUI)
+  phrocs wait [--timeout N] [--json]        block until ready, crashed, or timeout
+  phrocs stop [--timeout N]                 stop the detached process gracefully
+  phrocs attach                             polling status client against a detached process
+  phrocs --version`)
+}
+
+func parseArgs(args []string) (parsedArgs, error) {
+	pa := parsedArgs{timeout: 300}
+	i := 0
+	// First pass: if the first arg is a known subcommand, consume it.
+	if len(args) > 0 {
+		switch args[0] {
+		case "wait", "stop", "attach", "detach":
+			pa.subcommand = args[0]
+			i = 1
+		}
+	}
+	for ; i < len(args); i++ {
+		switch args[i] {
 		case "--version":
 			fmt.Printf("phrocs %s (%s, %s)\n", Version, Commit, BuildDate)
 			os.Exit(0)
+		case "-h", "--help":
+			printUsage()
+			os.Exit(0)
 		case "--config":
-			// Next arg is the config file path
-			if i+1 < len(os.Args) {
-				configPath = os.Args[i+1]
-				i++
+			if i+1 >= len(args) {
+				return pa, fmt.Errorf("--config requires a value")
 			}
+			pa.configPath = args[i+1]
+			i++
 		case "--debug":
-			f, err := os.OpenFile("/tmp/phrocs-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "phrocs: open debug log: %v\n", err)
-				os.Exit(1)
+			pa.debug = true
+		case "-d", "--detach":
+			pa.detach = true
+		case "--timeout":
+			if i+1 >= len(args) {
+				return pa, fmt.Errorf("--timeout requires a value")
 			}
-			logger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
-			logger.Println("debug logging started")
+			var n int
+			if _, err := fmt.Sscanf(args[i+1], "%d", &n); err != nil {
+				return pa, fmt.Errorf("--timeout: %v", err)
+			}
+			pa.timeout = n
+			i++
+		case "--json":
+			pa.asJSON = true
+		default:
+			return pa, fmt.Errorf("unknown flag: %s", args[i])
 		}
 	}
+	return pa, nil
+}
 
-	configPath, err := config.ResolveConfigPath(configPath)
+func main() {
+	pa, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 
-	cfg, err := config.Load(configPath)
+	switch pa.subcommand {
+	case "wait":
+		os.Exit(runWait(pa.timeout, pa.asJSON))
+	case "stop":
+		os.Exit(runStop(pa.timeout))
+	case "attach":
+		os.Exit(runAttach())
+	case "detach":
+		// `phrocs detach` is an alias for `phrocs -d`
+		pa.detach = true
+	}
+
+	// Detached mode: either the user passed -d explicitly, or the re-exec'd
+	// child landed here with PHROCS_DETACHED_CHILD set.
+	if pa.detach || os.Getenv(detachedChildEnv) == "1" {
+		os.Exit(runDetached(pa.configPath))
+	}
+
+	os.Exit(runInteractive(pa.configPath, pa.debug))
+}
+
+// runInteractive is the original TUI entry point — kept byte-for-byte
+// compatible with pre-subcommand phrocs.
+func runInteractive(configPath string, debug bool) int {
+	var logger *log.Logger
+	if debug {
+		f, err := os.OpenFile("/tmp/phrocs-debug.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "phrocs: open debug log: %v\n", err)
+			return 1
+		}
+		logger = log.New(f, "", log.LstdFlags|log.Lmicroseconds)
+		logger.Println("debug logging started")
+	}
+
+	resolved, err := config.ResolveConfigPath(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
+		return 1
+	}
+
+	cfg, err := config.Load(resolved)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: load config: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	mgr := process.NewManager(cfg)
-	m := tui.New(mgr, cfg, configPath, logger)
+	m := tui.New(mgr, cfg, resolved, logger)
 
 	// If stdout isn't a TTY (e.g. Zed task runner, wrapped launches), open
 	// /dev/tty directly so Bubble Tea can query terminal size and render.
@@ -120,18 +212,19 @@ func main() {
 	wd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: getwd: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	socketPath := ipc.SocketPathFor(wd)
 
 	ln, err := ipc.Listen(socketPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: ipc: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	ownerInode := ipc.SocketInode(socketPath)
 	defer func() {
 		_ = ln.Close()
-		_ = os.Remove(socketPath)
+		ipc.RemoveOwnedSocket(socketPath, ownerInode)
 	}()
 	go func() {
 		// Accept returns an error when the listener is closed on exit; ignore it.
@@ -140,6 +233,7 @@ func main() {
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
