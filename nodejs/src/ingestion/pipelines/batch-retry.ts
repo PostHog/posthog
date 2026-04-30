@@ -16,7 +16,7 @@ export interface BatchRetryOptions {
 
 function isTimeoutError(error: unknown): boolean {
     if (error instanceof Error) {
-        return error.name === 'TimeoutError' || error.name === 'AbortError' || error.message.includes('aborted')
+        return error.name === 'TimeoutError' || error.name === 'AbortError'
     }
     return false
 }
@@ -77,7 +77,7 @@ export function withBatchRetry<T, U, R extends string = never>(
                 logger.warn('⚠️', `${stepName}_timeout_splitting_batch`, {
                     batchSize: values.length,
                 })
-                return binarySplitOnTimeout(step, stepName, values)
+                return binarySplitOnTimeout(step, stepName, values, error, tries, sleepMs)
             }
 
             throw error
@@ -92,25 +92,26 @@ export function withBatchRetry<T, U, R extends string = never>(
  * Binary split a timed-out batch to isolate poison pill events. Splits
  * the batch in half and processes each half through the step with retries.
  * Halves that succeed return their results. Halves that timeout get split
- * again recursively. Each half gets 2 retries to ride out transient blips
- * without blowing the time budget.
+ * again recursively. Each half gets the caller's configured retry count
+ * to ride out transient blips.
  *
  * When a single event times out on its own, it's a confirmed poison pill
- * — DLQ it and move on.
+ * — DLQ it (preserving the original timeout error) and move on.
  */
-const SPLIT_RETRIES = 2
-
 async function binarySplitOnTimeout<T, U, R extends string = never>(
     step: BatchProcessingStep<T, U, R>,
     stepName: string,
-    values: T[]
+    values: T[],
+    originalError: unknown,
+    tries: number,
+    sleepMs: number
 ): Promise<PipelineResult<U, R>[]> {
     if (values.length <= 1) {
         poisonPillCounter.labels(stepName).inc()
         logger.error('🧪', `${stepName}_poison_pill_identified`, {
             batchSize: 1,
         })
-        return values.map(() => dlq<U>(`Poison pill: timed out as single event in ${stepName}`))
+        return values.map(() => dlq<U>(`Poison pill: timed out as single event in ${stepName}`, originalError))
     }
 
     const mid = Math.ceil(values.length / 2)
@@ -119,7 +120,7 @@ async function binarySplitOnTimeout<T, U, R extends string = never>(
 
     for (const half of halves) {
         try {
-            const halfResults = await retryIfRetriable(() => step(half), SPLIT_RETRIES, 100)
+            const halfResults = await retryIfRetriable(() => step(half), tries, sleepMs)
             results.push(...halfResults)
         } catch (error) {
             if (!isTimeoutError(error)) {
@@ -127,7 +128,7 @@ async function binarySplitOnTimeout<T, U, R extends string = never>(
                 // and let the caller's normal error handling deal with it.
                 throw error
             }
-            const splitResults = await binarySplitOnTimeout(step, stepName, half)
+            const splitResults = await binarySplitOnTimeout(step, stepName, half, error, tries, sleepMs)
             results.push(...splitResults)
         }
     }
