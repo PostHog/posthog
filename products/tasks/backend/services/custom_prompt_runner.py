@@ -208,6 +208,7 @@ async def _poll_for_turn(
             return await _drain_final_log(
                 task_run,
                 refreshed_status=refreshed.status,
+                error_message=refreshed.error_message,
                 skip_lines=skip_lines,
                 printed_lines=printed_lines,
                 verbose=verbose,
@@ -220,6 +221,7 @@ async def _drain_final_log(
     task_run,
     *,
     refreshed_status: str,
+    error_message: str | None = None,
     skip_lines: int,
     printed_lines: int,
     verbose: bool,
@@ -255,8 +257,9 @@ async def _drain_final_log(
     if final_message:
         return final_message, final_log, final_lines, printed_lines
     reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
+    cause = f" (cause: {error_message})" if error_message else ""
     raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} — {reason}"
+        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     )
 
 
