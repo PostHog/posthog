@@ -161,6 +161,7 @@ When commands grow past one file and need to import each other, promote to a pac
 
 ```text
 your-repo/
+├── hogli.yaml
 └── tools/
     └── hogli-ext/
         └── hogli_ext/        # underscored: this is the import name
@@ -172,6 +173,7 @@ your-repo/
 ```
 
 ```yaml
+# hogli.yaml
 config:
   commands_dir: tools/hogli-ext/hogli_ext
 ```
