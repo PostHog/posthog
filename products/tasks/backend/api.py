@@ -304,7 +304,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
-            if internal_param is True and self.request.user.is_staff:
+            if internal_param is True and (settings.DEBUG or self.request.user.is_staff):
                 qs = qs.filter(internal=True)
             else:
                 qs = qs.filter(internal=False)

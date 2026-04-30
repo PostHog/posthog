@@ -1649,8 +1649,9 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
 
-    def test_list_internal_true_is_ignored_in_production(self):
-        # DEBUG is False in tests by default, so ?internal=true must not surface internal tasks.
+    def test_list_internal_true_is_ignored_for_non_staff_in_production(self):
+        # Non-staff user with DEBUG=False must not have internal tasks surfaced.
+        self.assertFalse(self.user.is_staff)
         response = self.client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1662,6 +1663,22 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
     def test_list_internal_true_shows_only_internal_tasks_in_debug(self):
         with self.settings(DEBUG=True):
             response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertNotIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks_for_staff(self):
+        # Staff users can list internal tasks even with DEBUG=False.
+        self.user.is_staff = True
+        self.user.save()
+        try:
+            response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        finally:
+            self.user.is_staff = False
+            self.user.save()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
