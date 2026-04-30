@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 #
-# Shell into the flags-cache-jumphost pod. The jumphost is a long-lived
-# `sleep infinity` deployment that ships the warm-flags-cache binary on
-# PATH so ops can run it ad-hoc against an environment's Postgres / Redis
-# / S3.
+# Claim a flags-cache-jumphost pod from the dev pool, drop into bash, and
+# auto-delete the pod on exit. Thin shim that delegates to
+# tools/infra-scripts/clitools/toolbox.py with --pool flags-cache-jumphost
+# and --auto-delete; all the orphan-relabel-claim logic lives there.
 #
 # Prerequisites:
-#   - kubectl context already pointed at the target cluster (e.g.
-#     `kubectl config use-context posthog-dev`).
-#   - The flags-cache-jumphost deployment exists in $KUBE_NAMESPACE.
+#   - kubectl context pointing at the target cluster, or pass
+#     KUBE_CONTEXT=… (e.g. KUBE_CONTEXT=posthog-dev).
 #
 # Usage:
-#   bin/rust-jumphost                  # drops into bash
-#   KUBE_NAMESPACE=posthog bin/rust-jumphost
+#   bin/rust-jumphost                       # claim + connect
+#   KUBE_CONTEXT=posthog-dev bin/rust-jumphost
+#   KUBE_NAMESPACE=posthog   bin/rust-jumphost
+#   bin/rust-jumphost --claim-duration 4    # 4h claim window
 #
 # Inside the pod:
 #   warm-flags-cache --help
@@ -20,6 +21,13 @@
 
 set -euo pipefail
 
-NAMESPACE="${KUBE_NAMESPACE:-posthog}"
+if ! command -v kubectl >/dev/null 2>&1; then
+    echo "Error: kubectl not found on PATH."
+    exit 1
+fi
 
-exec kubectl exec -it "deploy/flags-cache-jumphost" -n "$NAMESPACE" -- bash
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$REPO_ROOT/tools/infra-scripts/clitools/toolbox.py" \
+    --pool flags-cache-jumphost \
+    --auto-delete \
+    "$@"
