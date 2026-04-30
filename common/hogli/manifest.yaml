@@ -787,3 +787,7 @@ environment:
         bin_script: warm-flags-cache-local
         description: 'Warm the feature-flags hypercache against the local dev environment'
         hidden: true
+    seed:llm:clusters:
+        bin_script: seed-llm-clusters.py
+        description: 'Seed synthetic LLM analytics cluster data for local UI testing'
+        hidden: true
