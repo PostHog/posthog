@@ -58,7 +58,7 @@ def _mock_response(
 
 class TestNormalizeUrl(BaseTest):
     def test_strips_userinfo(self) -> None:
-        assert url_fetch._strip_userinfo("https://user:pass@example.com/x") == "https://example.com/x"
+        assert url_fetch.strip_userinfo("https://user:pass@example.com/x") == "https://example.com/x"
 
     def test_lowercases_host_and_scheme(self) -> None:
         assert url_fetch.normalize_url("HTTPS://Example.COM/PATH") == "https://example.com/PATH"

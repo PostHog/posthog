@@ -163,7 +163,7 @@ class _FakeFetch:
     Each value is either a FetchResult or an exception instance.
     """
 
-    def __init__(self, behaviours: dict[str, object]) -> None:
+    def __init__(self, behaviours: dict[str, url_fetch.FetchResult | Exception]) -> None:
         self.behaviours = behaviours
         self.etags_seen: dict[str, str | None] = {}
 

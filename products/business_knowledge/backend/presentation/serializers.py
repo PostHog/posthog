@@ -9,6 +9,8 @@ quota checks that need DB access live in logic.py and are raised during
 create_text_source inside the transaction.
 """
 
+from django.core.files.uploadedfile import UploadedFile
+
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -333,7 +335,7 @@ class CreateFileSourceSerializer(serializers.Serializer):
             raise serializers.ValidationError("Name cannot be blank.")
         return value
 
-    def validate_file(self, value: "UploadedFile") -> "UploadedFile":  # noqa: F821
+    def validate_file(self, value: UploadedFile) -> UploadedFile:  # noqa: F821
         if value.size and value.size > MAX_FILE_SIZE_BYTES:
             raise serializers.ValidationError(f"File exceeds the {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB cap.")
         return value
