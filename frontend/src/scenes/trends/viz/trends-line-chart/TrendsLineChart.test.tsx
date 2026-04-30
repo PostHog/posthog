@@ -1,14 +1,15 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
-import { ChartDisplayType } from '~/types'
+import { AnnotationScope, ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
 
@@ -217,6 +218,103 @@ describe('TrendsLineChart', () => {
 
             await waitFor(() => {
                 expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
+            })
+        })
+    })
+
+    describe('annotations', () => {
+        it('renders an annotation badge when an annotation exists', async () => {
+            renderInsight({
+                query: buildTrendsQuery(),
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Hedgehog spotted',
+                            date_marker: '2024-06-12T12:00:00Z',
+                        }),
+                    ],
+                },
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                const badges = document.querySelectorAll('.AnnotationsBadge')
+                expect(badges.length).toBeGreaterThan(0)
+            })
+        })
+
+        it('does not render annotations when inSharedMode is true', async () => {
+            renderInsight({
+                query: buildTrendsQuery(),
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Hidden in shared mode',
+                            date_marker: '2024-06-12T12:00:00Z',
+                        }),
+                    ],
+                },
+                inSharedMode: true,
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
+        })
+    })
+
+    describe('tooltip date title', () => {
+        it('shows the hovered day in the tooltip title row', async () => {
+            renderInsight({
+                query: buildTrendsQuery({ interval: 'day' }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            // Wednesday is the third day (index 2) in our pageview fixture (2024-06-12).
+            expect(tooltip.title()).toMatch(/Wednesday/i)
+            expect(tooltip.title()).toMatch(/12.+Jun/)
+        })
+    })
+
+    describe('tooltip pin lifecycle', () => {
+        it.each([
+            {
+                trigger: 'Escape key press',
+                unpin: async () => {
+                    fireEvent.keyDown(document, { key: 'Escape' })
+                },
+            },
+            {
+                trigger: 'click outside the chart',
+                unpin: async () => {
+                    // The chart attaches its outside-click listener via setTimeout(0); flush
+                    // first so the listener actually intercepts the click.
+                    await new Promise((resolve) => setTimeout(resolve, 5))
+                    const outside = document.body.appendChild(document.createElement('div'))
+                    fireEvent.click(outside)
+                    outside.remove()
+                },
+            },
+        ])('unpins on $trigger', async ({ unpin }) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+            expect(chart.getTooltip()).toBeInTheDocument()
+
+            await unpin()
+
+            await waitFor(() => {
+                expect(chart.getTooltip()).not.toBeInTheDocument()
             })
         })
     })
