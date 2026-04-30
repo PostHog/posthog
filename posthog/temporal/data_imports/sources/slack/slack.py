@@ -1,3 +1,4 @@
+import time
 import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
@@ -155,6 +156,8 @@ def _fetch_channels_by_type(
     )
     channels: list[dict[str, Any]] = []
     cursor: str | None = None
+    pages = 0
+    t_start = time.monotonic()
 
     for _ in range(_CHANNELS_MAX_PAGES):
         params: dict[str, Any] = {
@@ -169,6 +172,7 @@ def _fetch_channels_by_type(
 
         page, cursor = _fetch_channels_page(url, access_token, params)
         channels.extend(page)
+        pages += 1
         if cursor is None:
             break
     else:
@@ -177,6 +181,15 @@ def _fetch_channels_by_type(
             channel_type=channel_type,
             max_pages=_CHANNELS_MAX_PAGES,
         )
+
+    logger.info(
+        "Slack channel fetch complete",
+        channel_type=channel_type,
+        url=url,
+        pages=pages,
+        channel_count=len(channels),
+        elapsed_ms=int((time.monotonic() - t_start) * 1000),
+    )
 
     return channels
 

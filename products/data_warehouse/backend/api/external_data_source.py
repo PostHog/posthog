@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -1455,12 +1456,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        t_validate = time.monotonic()
         if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        validate_credentials_ms = int((time.monotonic() - t_validate) * 1000)
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1468,13 +1471,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         try:
+            t_schemas = time.monotonic()
             schemas = source.get_schemas(source_config, self.team_id)
+            get_schemas_ms = int((time.monotonic() - t_schemas) * 1000)
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
             )
+
+        logger.info(
+            "database_schema timings",
+            source_type=source_type,
+            team_id=self.team_id,
+            validate_credentials_ms=validate_credentials_ms,
+            get_schemas_ms=get_schemas_ms,
+        )
 
         data = [
             {
