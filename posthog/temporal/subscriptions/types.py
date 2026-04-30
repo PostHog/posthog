@@ -141,6 +141,11 @@ class RecipientResult:
 @dataclasses.dataclass
 class DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+    # True when the activity short-circuited because the subscription is disabled
+    # (already-disabled retry guard, or auto-disabled this run). Tells the workflow
+    # not to advance `next_delivery_date` — otherwise the subscriptions UI shows a
+    # future delivery date for a sub that will never fire.
+    skipped: bool = False
 
 
 @dataclasses.dataclass

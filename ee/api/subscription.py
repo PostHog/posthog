@@ -174,20 +174,28 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
         integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
 
-        # Re-enabling a Slack subscription whose integration is gone would just trigger
-        # the auto-disable path again on next delivery — surface the precondition
-        # failure here so the user sees an actionable error instead of a confusing
-        # auto-disabled email seconds after they hit "Enable".
-        is_re_enabling_slack = (
-            self.instance is not None
-            and attrs.get("enabled") is True
-            and self.instance.enabled is False
-            and target_type == Subscription.SubscriptionTarget.SLACK
-        )
-        if is_re_enabling_slack and not integration_id:
-            raise ValidationError(
-                {"enabled": ["Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first."]}
-            )
+        # Re-enabling a subscription whose delivery prerequisite is still permanently
+        # broken would just trigger the auto-disable path again on next delivery —
+        # surface the precondition failure here so the user sees an actionable error
+        # instead of a confusing auto-disabled email seconds after hitting "Enable".
+        is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
+        if is_re_enabling:
+            if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
+                raise ValidationError(
+                    {
+                        "enabled": [
+                            "Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first."
+                        ]
+                    }
+                )
+            if target_type == Subscription.SubscriptionTarget.WEBHOOK:
+                raise ValidationError(
+                    {
+                        "enabled": [
+                            "Cannot re-enable webhook subscription: webhook delivery is not currently supported. Switch to email or Slack."
+                        ]
+                    }
+                )
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
@@ -551,6 +559,14 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        # Disabled subs short-circuit at the activity entry, so a test delivery on a
+        # disabled sub would return 202 for a no-op — confusing for users trying to
+        # verify a fix. Surface the precondition up front instead.
+        if not subscription.enabled:
+            return Response(
+                {"detail": "Subscription is disabled. Re-enable it before sending a test delivery."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         temporal = sync_connect()
         workflow_id = f"test-delivery-subscription-{subscription.id}"

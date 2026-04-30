@@ -253,6 +253,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         # even on early returns (no-assets SKIPPED) or exceptions before the summary
         # activity runs.
         change_summary: str | None = None
+        # Set when the activity returns DeliverSubscriptionResult(skipped=True) — the
+        # subscription is disabled (already-disabled retry guard or auto-disabled this
+        # run). Tells the finally block not to advance `next_delivery_date` for a
+        # subscription that will never fire again.
+        delivery_skipped: bool = False
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -411,6 +416,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=5,
                 ),
             )
+            delivery_skipped = deliver_result.skipped
 
             # Capture per-recipient results for the delivery record
             delivery_recipient_results = [
@@ -467,8 +473,10 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            # Advance schedule — always for scheduled deliveries, even on failure
-            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
+            # Advance schedule — always for scheduled deliveries, even on failure.
+            # Skipped when the activity reported the subscription is disabled, so the
+            # UI doesn't show a future "Next delivery" date for a sub that will never fire.
+            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED and not delivery_skipped:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,
                     inputs.subscription_id,

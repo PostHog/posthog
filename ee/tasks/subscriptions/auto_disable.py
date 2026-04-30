@@ -6,10 +6,12 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 
-# User-visible reasons embedded in the disabled-subscription email body.
+# User-visible reasons embedded in the disabled-subscription email body or recipient_results error.
 SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
 UNSUPPORTED_TARGET_TYPE_REASON = "Unsupported delivery channel"
-NO_ASSETS_REASON = "All insights or dashboard tiles for this subscription have been deleted"
+# Used only as the recipient_results error message — `no_assets` doesn't auto-disable
+# (it indicates a transient resolve failure that retries can recover from).
+NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
 
 logger = structlog.get_logger(__name__)
 
@@ -46,10 +48,17 @@ def disable_invalid_subscription(subscription: Subscription, reason: str) -> Non
                 "subscription.send_disabled_notification_failed",
                 subscription_id=subscription.id,
                 error=str(e),
+                exc_info=True,
             )
 
 
 def send_notifications_for_disabled_subscription(subscription: Subscription, reason: str, targets: list[str]) -> None:
+    """Send the "subscription auto-disabled" email to the given targets.
+
+    Internal building block for `disable_invalid_subscription` — duplicate-email
+    prevention is the caller's responsibility (provided by the `enabled=False`
+    short-circuit at the activity entry, not by this function).
+    """
     logger.info(
         "subscription.send_disabled_notification",
         subscription_id=subscription.id,

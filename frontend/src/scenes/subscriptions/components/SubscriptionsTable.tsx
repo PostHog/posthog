@@ -20,6 +20,14 @@ export function subscriptionName(sub: SubscriptionApi): string {
     return sub.title?.trim() || sub.resource_name?.trim() || 'Untitled subscription'
 }
 
+// Treat `undefined` as enabled — pre-`enabled`-field cached API responses don't
+// include the field, but those subscriptions are functionally enabled. The
+// generated `SubscriptionApi.enabled?: boolean` permits undefined so this guard
+// stays in place until the field becomes required at the schema level.
+export function isSubscriptionEnabled(sub: SubscriptionApi): boolean {
+    return sub.enabled !== false
+}
+
 export function subscriptionEditHref(sub: SubscriptionApi): string | null {
     if (sub.insight && sub.insight_short_id) {
         return urls.insightSubcription(sub.insight_short_id as InsightShortId, String(sub.id))
@@ -94,7 +102,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                         <div className="min-w-0 w-full overflow-hidden">
                             <Link
                                 to={urls.subscription(sub.id)}
-                                className={`font-medium block truncate ${sub.enabled !== false ? '' : 'text-muted'}`}
+                                className={`font-medium block truncate ${isSubscriptionEnabled(sub) ? '' : 'text-muted'}`}
                                 data-attr="subscription-name-link"
                             >
                                 {name}
@@ -190,10 +198,10 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             key: 'enabled',
             dataIndex: 'enabled',
             render: (_value: unknown, sub: SubscriptionApi) =>
-                sub.enabled !== false ? (
-                    <LemonTag type="success">ENABLED</LemonTag>
+                isSubscriptionEnabled(sub) ? (
+                    <LemonTag type="success">Enabled</LemonTag>
                 ) : (
-                    <LemonTag type="danger">DISABLED</LemonTag>
+                    <LemonTag type="danger">Disabled</LemonTag>
                 ),
         },
         {

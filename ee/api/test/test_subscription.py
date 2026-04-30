@@ -447,6 +447,32 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.json()["attr"] == "enabled"
         assert "Reconnect Slack" in response.json()["detail"]
 
+    def test_patch_enabled_true_rejected_for_webhook_subscription(self):
+        """Webhook delivery is not supported, so a webhook subscription auto-disables on
+        first delivery. Re-enabling without changing target_type would just trigger the
+        auto-disable path again — surface the precondition failure up front.
+        """
+        # Webhook subs can be created (target_type is in the model enum) but are
+        # auto-disabled by the activity since `webhook` isn't in SUPPORTED_TARGET_TYPES.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="webhook",
+            target_value="https://example.com/hook",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="webhook sub",
+            enabled=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        assert "webhook delivery is not currently supported" in response.json()["detail"]
+
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()

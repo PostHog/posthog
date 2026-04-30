@@ -297,6 +297,34 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     )
 
 
+async def _auto_disable_and_return(
+    subscription: Subscription,
+    reason: str,
+    error_type: str,
+    recipient_results: list[RecipientResult],
+    *,
+    recipient_message: str | None = None,
+) -> DeliverSubscriptionResult:
+    """Permanent-failure exit path: record per-recipient failure, capture analytics,
+    auto-disable the subscription, and return a `skipped` result so the workflow
+    doesn't advance `next_delivery_date` for a subscription that will never fire.
+
+    `recipient_message` defaults to `reason`; pass an override only when the
+    user-visible per-recipient message diverges from the disable reason (the
+    Slack-missing-integration branch keeps its pre-existing concise wording).
+    """
+    recipient_results.append(
+        RecipientResult(
+            recipient=subscription.target_value,
+            status="failed",
+            error={"message": recipient_message or reason, "type": error_type},
+        )
+    )
+    _capture_delivery_failed_event(subscription, ApplicationError(reason, non_retryable=True))
+    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
+    return DeliverSubscriptionResult(recipient_results=recipient_results, skipped=True)
+
+
 @temporalio.activity.defn
 async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = []
@@ -316,7 +344,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
             "deliver_subscription.skipped_disabled",
             subscription_id=inputs.subscription_id,
         )
-        return DeliverSubscriptionResult(recipient_results=[])
+        return DeliverSubscriptionResult(recipient_results=[], skipped=True)
 
     await LOGGER.ainfo(
         "deliver_subscription.starting",
@@ -332,21 +360,9 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
-        recipient_results.append(
-            RecipientResult(
-                recipient=subscription.target_value,
-                status="failed",
-                error={"message": UNSUPPORTED_TARGET_TYPE_REASON, "type": "unsupported_target"},
-            )
+        return await _auto_disable_and_return(
+            subscription, UNSUPPORTED_TARGET_TYPE_REASON, "unsupported_target", recipient_results
         )
-        _capture_delivery_failed_event(
-            subscription,
-            ApplicationError(UNSUPPORTED_TARGET_TYPE_REASON, non_retryable=True),
-        )
-        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-            subscription, UNSUPPORTED_TARGET_TYPE_REASON
-        )
-        return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     assets_by_id = await database_sync_to_async(
         lambda: {
@@ -361,7 +377,18 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
     assets = [assets_by_id[aid] for aid in inputs.exported_asset_ids if aid in assets_by_id]
 
     if not assets:
+        # `create_export_assets` already filters insight__deleted=True and tile-less
+        # dashboards, returning empty `exported_asset_ids` when assets are genuinely
+        # gone — the workflow short-circuits to SKIPPED before reaching this activity.
+        # If `assets` is empty here, the activity received non-empty `exported_asset_ids`
+        # but they didn't resolve from DB — a transient condition (TTL sweep, prior
+        # export crash, S3 race). Don't auto-disable; record the failure and let the
+        # next scheduled delivery try again.
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
+        capture_exception(
+            Exception("No assets resolved in deliver_subscription"),
+            {"subscription_id": inputs.subscription_id},
+        )
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.target_value,
@@ -372,9 +399,6 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         _capture_delivery_failed_event(
             subscription,
             ApplicationError(NO_ASSETS_REASON, non_retryable=True),
-        )
-        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-            subscription, NO_ASSETS_REASON
         )
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
@@ -459,32 +483,19 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     "deliver_subscription.no_slack_integration",
                     subscription_id=inputs.subscription_id,
                 )
-                missing_integration_error = {
-                    "message": "No Slack integration configured",
-                    "type": "missing_integration",
-                }
-                recipient_results.append(
-                    RecipientResult(
-                        recipient=subscription.target_value,
-                        status="failed",
-                        error=missing_integration_error,
-                    )
-                )
-                # Preserve the analytics signal that existed pre-auto-disable so
-                # dashboards built on `subscription delivery failed` events keep
-                # surfacing this case.
-                _capture_delivery_failed_event(
-                    subscription,
-                    ApplicationError(SLACK_INTEGRATION_DISCONNECTED_REASON, non_retryable=True),
-                )
                 # The Slack integration this subscription depends on has been
                 # disconnected. This won't self-resolve, so auto-disable the
                 # subscription and notify the owner — same pattern as alert
-                # auto-disable for permanently-broken alert config.
-                await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-                    subscription, SLACK_INTEGRATION_DISCONNECTED_REASON
+                # auto-disable for permanently-broken alert config. The recipient_result
+                # message keeps the concise pre-existing wording ("No Slack integration
+                # configured") that matches existing SubscriptionDelivery error history.
+                return await _auto_disable_and_return(
+                    subscription,
+                    SLACK_INTEGRATION_DISCONNECTED_REASON,
+                    "missing_integration",
+                    recipient_results,
+                    recipient_message="No Slack integration configured",
                 )
-                return DeliverSubscriptionResult(recipient_results=recipient_results)
 
             LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
             delivery_result = await send_slack_message_with_integration_async(

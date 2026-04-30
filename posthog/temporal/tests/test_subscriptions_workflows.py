@@ -475,40 +475,31 @@ async def test_process_subscription_records_missing_slack_integration_failure(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "case_label, target_type, target_value, use_missing_asset, expected_error",
+    "case_label, target_type, target_value, expected_error",
     [
         (
             "missing_slack_integration",
             "slack",
             "C12345|#test-channel",
-            False,
             {"message": "No Slack integration configured", "type": "missing_integration"},
         ),
         (
             "unsupported_target",
             "webhook",
             "https://example.com/hook",
-            False,
             {"message": "Unsupported delivery channel", "type": "unsupported_target"},
-        ),
-        (
-            "no_assets",
-            "email",
-            "owner@example.com",
-            True,
-            {
-                "message": "All insights or dashboard tiles for this subscription have been deleted",
-                "type": "no_assets",
-            },
         ),
     ],
 )
 async def test_deliver_subscription_auto_disables_invalid_subscriptions(
-    team, user, case_label, target_type, target_value, use_missing_asset, expected_error
+    team, user, case_label, target_type, target_value, expected_error
 ):
     """Activity-level auto-disable: subscriptions that can never self-resolve must be
     disabled cleanly (SLO outcome stays success, owner notified) rather than failing
-    every delivery cycle forever.
+    every delivery cycle forever. Note: `no_assets` deliberately doesn't auto-disable —
+    empty-assets-at-delivery is a transient export-pipeline failure (the workflow short-
+    circuits to SKIPPED before `deliver_subscription` runs when assets are genuinely
+    deleted) and Temporal retries can recover. See test_no_assets_does_not_auto_disable.
     """
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"dis-{case_label[:5]}", name=case_label)
     asset = await sync_to_async(ExportedAsset.objects.create)(
@@ -526,9 +517,6 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
         enabled=True,
     )
 
-    # When `use_missing_asset` is True, pass an unresolvable id so `assets` is empty.
-    asset_ids = [99_999_999] if use_missing_asset else [asset.id]
-
     env = ActivityEnvironment()
 
     with (
@@ -544,7 +532,7 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
             deliver_subscription,
             DeliverSubscriptionInputs(
                 subscription_id=subscription.id,
-                exported_asset_ids=asset_ids,
+                exported_asset_ids=[asset.id],
                 total_insight_count=1,
             ),
         )
@@ -553,10 +541,62 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     assert subscription.enabled is False
     send_mock.assert_called_once()
     capture_mock.assert_called_once()
-    # Must return cleanly — NOT raise
+    # Must return cleanly with skipped=True — NOT raise
     assert result is not None
+    assert result.skipped is True
     assert result.recipient_results[0].status == "failed"
     assert result.recipient_results[0].error == expected_error
+
+
+@pytest.mark.asyncio
+async def test_no_assets_does_not_auto_disable(team, user):
+    """`deliver_subscription` is reached only when prepare returned non-empty
+    `exported_asset_ids` — so an empty `assets` list at delivery means the IDs didn't
+    resolve from DB (TTL sweep, S3 race, prior export crash). That's transient: don't
+    auto-disable. Record the failure for the SubscriptionDelivery row, capture a Sentry
+    breadcrumb, return cleanly so Temporal can retry on the next scheduled cycle.
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis-noast", name="no_assets")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="email",
+        target_value="owner@example.com",
+        enabled=True,
+    )
+
+    env = ActivityEnvironment()
+
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock,
+        patch("posthog.temporal.subscriptions.activities.capture_exception") as sentry_mock,
+        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+    ):
+        # Bogus id ensures `assets` resolves empty.
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[99_999_999],
+                total_insight_count=1,
+            ),
+        )
+
+    await sync_to_async(subscription.refresh_from_db)()
+    # Subscription stays enabled — transient failure, retries can recover.
+    assert subscription.enabled is True
+    disable_mock.assert_not_called()
+    # Sentry breadcrumb preserved for ops visibility (Sentry alerts that pre-existed
+    # this PR keep firing).
+    sentry_mock.assert_called_once()
+    capture_mock.assert_called_once()
+    # Returns cleanly — workflow records the per-recipient failure but SLO outcome
+    # stays success; the next scheduled delivery retries.
+    assert result is not None
+    assert result.skipped is False
+    assert result.recipient_results[0].status == "failed"
+    assert result.recipient_results[0].error["type"] == "no_assets"
 
 
 @pytest.mark.asyncio
@@ -594,6 +634,9 @@ async def test_deliver_subscription_short_circuits_when_already_disabled(team, u
         )
 
     assert result.recipient_results == []
+    # `skipped=True` tells the workflow to avoid advancing `next_delivery_date` so the
+    # UI doesn't show a future delivery for a subscription that will never fire.
+    assert result.skipped is True
     disable_mock.assert_not_called()
 
 

@@ -177,12 +177,15 @@ export function EditSubscription({
                                 <LemonInput placeholder="e.g. Weekly team report" />
                             </LemonField>
                             <LemonField name="enabled">
-                                <LemonCheckbox
-                                    checked={subscription?.enabled}
-                                    data-attr="subscription-enabled"
-                                    fullWidth
-                                    label="Enabled"
-                                />
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={value !== false}
+                                        onChange={onChange}
+                                        data-attr="subscription-enabled"
+                                        fullWidth
+                                        label="Enabled"
+                                    />
+                                )}
                             </LemonField>
                         </div>
 
