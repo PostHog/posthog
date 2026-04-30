@@ -20,9 +20,7 @@ const WRAPPER_STYLE: React.CSSProperties = {
     pointerEvents: 'auto',
 }
 
-// Stop pointer events from bubbling to the chart wrapper. Without this the chart's
-// onMouseMove tracks the cursor and moves the crosshair while the user is interacting
-// with annotation badges, and onClick fires onPointClick (e.g. opening the persons modal).
+// Annotation badges must not drive the chart's crosshair or onPointClick.
 const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
