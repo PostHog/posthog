@@ -17,6 +17,10 @@ analytics, experiments, and integrations like Linear, GitHub, and Zendesk.
 
 The Inbox lives at `/inbox` in the PostHog UI; this skill is the agent-facing equivalent.
 
+**Inbox is new** — many users haven't set it up yet. Don't assume an inbox has reports, or that any
+signal sources are configured. The first workflow below tells you how to detect this and what to
+say. Always handle the empty / unconfigured case **before** trying to fulfil the user's request.
+
 ## When to use this skill
 
 - "What's in my inbox?" / "What should I look at first?"
@@ -31,12 +35,12 @@ skill, which queries the `document_embeddings` ClickHouse table via HogQL.
 
 ## Available tools
 
-| Tool                            | Purpose                                                       |
-| ------------------------------- | ------------------------------------------------------------- |
-| `inbox-reports-list`            | Paginated list of reports with filters (status, search, etc.) |
-| `inbox-reports-retrieve`        | Full detail for a single report                               |
-| `inbox-source-configs-list`     | Configured signal sources (which products feed the inbox)     |
-| `inbox-source-configs-retrieve` | Full record for a single source config                        |
+| Tool                                  | Purpose                                                             |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)       |
+| `inbox-reports-retrieve`              | Full detail for a single report                                     |
+| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
+| `inbox-source-configs-retrieve`       | Full record for a single source config                              |
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
 
 All four `inbox-*` tools are read-only. Writes (pause processing, change source configs, manage
@@ -46,13 +50,13 @@ per-user autonomy) are intentionally not exposed via MCP today.
 
 `inbox-reports-list` accepts these filters (combine as needed):
 
-| Filter                | Values                                                                                                | Notes                                                                                  |
-| --------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `status`              | comma-separated: `potential`, `candidate`, `in_progress`, `pending_input`, `ready`, `failed`, `suppressed` | Defaults to all except `suppressed`                                                |
-| `search`              | free-text                                                                                             | Case-insensitive substring match against title and summary                             |
-| `source_product`      | comma-separated, e.g. `error_tracking,session_replay,linear`                                          | Reports kept if any contributing signal comes from a listed product                    |
-| `suggested_reviewers` | comma-separated PostHog user UUIDs                                                                    | Reports kept if their suggested reviewers include any of the given users               |
-| `ordering`            | comma-separated field list, `-` prefix for descending                                                 | Default: `-is_suggested_reviewer,status,-updated_at`                                   |
+| Filter                | Values                                                                                                     | Notes                                                                    |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `status`              | comma-separated: `potential`, `candidate`, `in_progress`, `pending_input`, `ready`, `failed`, `suppressed` | Defaults to all except `suppressed`                                      |
+| `search`              | free-text                                                                                                  | Case-insensitive substring match against title and summary               |
+| `source_product`      | comma-separated, e.g. `error_tracking,session_replay,linear`                                               | Reports kept if any contributing signal comes from a listed product      |
+| `suggested_reviewers` | comma-separated PostHog user UUIDs                                                                         | Reports kept if their suggested reviewers include any of the given users |
+| `ordering`            | comma-separated field list, `-` prefix for descending                                                      | Default: `-is_suggested_reviewer,status,-updated_at`                     |
 
 Status meaning (most relevant first):
 
@@ -62,6 +66,56 @@ Status meaning (most relevant first):
 - `candidate` / `potential` — accumulated signals but not yet promoted
 - `failed` — processing errored
 - `suppressed` — manually hidden, not surfaced by default
+
+## Workflow: handling an empty or unconfigured inbox (read first)
+
+Run this check whenever a user asks about the inbox for the first time in a session, **or** any
+time `inbox-reports-list` returns `count: 0`. The diagnosis decides what to say next.
+
+### Step 1 — Look at source configs
+
+```json
+inbox-source-configs-list
+{ "limit": 50 }
+```
+
+Three meaningful cases:
+
+**Case A — no source configs at all (`count: 0`)**
+
+The user hasn't onboarded to Inbox / signals. **Don't pretend the inbox has data.** Tell the user
+plainly that Inbox needs signal sources to be set up first, and that the recommended way to do
+this is to install **PostHog Code** at <https://posthog.com/code>. Example response:
+
+> Your project doesn't have any signal sources configured yet, so the Inbox is empty. Inbox surfaces
+> issues and trends that PostHog automatically clusters from sources like error tracking, session
+> replay, GitHub, Linear, and Zendesk. The fastest way to set this up is to install
+> [PostHog Code](https://posthog.com/code) — once it's connected, signals will start flowing in
+> and reports will appear in your inbox over the next day or so.
+
+Stop here unless the user wants to discuss setup. Don't run further inbox tools — they'll all be
+empty.
+
+**Case B — source configs exist but all are `enabled: false`**
+
+Sources have been set up at some point but are currently turned off. Tell the user no signals are
+flowing right now and point them at the project's signals settings to re-enable. Don't go fishing
+for reports — anything still there is stale.
+
+**Case C — at least one source config is `enabled: true`**
+
+Setup looks healthy. If `inbox-reports-list` still returns nothing, it's most likely "give it time"
+— signals are flowing but nothing has clustered into a report yet. Tell the user that, briefly
+list which sources are active (e.g. "you have GitHub and error tracking enabled"), and offer to
+check back later or to drop into the `signals` skill to look at raw signal volume.
+
+If any source config has `status: "failed"`, surface that as part of your reply — that source
+isn't producing signals right now, which may explain a thin inbox.
+
+### Step 2 — Only then proceed to the user's actual question
+
+If Step 1 found a healthy setup and at least one report exists, continue with the triage / drill /
+filter workflows below.
 
 ## Workflow: triage what's actionable
 
@@ -79,6 +133,9 @@ inbox-reports-list
 
 Default ordering surfaces the user's own suggested reports first, then by status, then most
 recently updated — which matches how the UI prioritizes.
+
+If `count: 0` comes back, jump to the empty/unconfigured workflow above before saying "your
+inbox is empty" — the right reply depends on whether sources are configured.
 
 ### Step 2 — Summarize by source and actionability
 
@@ -192,6 +249,10 @@ The `status` field reflects the underlying data import or workflow:
 
 ## Tips
 
+- **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
+  call `inbox-source-configs-list` first — no sources means the user needs to install
+  [PostHog Code](https://posthog.com/code) to start receiving signals; sources-but-no-reports
+  means signals are flowing but nothing has clustered yet
 - **Always surface `_posthogUrl`** so the user can click through to the UI
 - The default ordering already prioritizes the user's suggested reports — don't reorder unless
   asked
