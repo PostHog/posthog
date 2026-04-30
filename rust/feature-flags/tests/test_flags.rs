@@ -5671,12 +5671,13 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
         "distinct_id": distinct_id,
     });
 
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
-
-    let bucket_field = current_bucket().to_string();
 
     // Synchronous path writes inline before the response returns, so we can
     // read back without polling.
@@ -5768,6 +5769,9 @@ async fn test_dual_write_lands_counts_in_production_and_shadow_keys() -> Result<
         "distinct_id": distinct_id,
     });
 
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
     // Direct reqwest call so we can set the SDK user-agent that drives
     // Library::from_headers → Library::PosthogNode.
     let http = reqwest::Client::new();
@@ -5779,8 +5783,6 @@ async fn test_dual_write_lands_counts_in_production_and_shadow_keys() -> Result<
         .send()
         .await?;
     assert_eq!(StatusCode::OK, res.status());
-
-    let bucket_field = current_bucket().to_string();
 
     // Production keyspace — written synchronously by `record_usage`.
     let team_counter = client.hget(team_key, bucket_field.clone()).await.unwrap();

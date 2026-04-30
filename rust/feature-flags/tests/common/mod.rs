@@ -370,6 +370,16 @@ impl ServerHandle {
                 feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled(),
             );
 
+            // Tests drive the flusher manually via `flush_pending()`.
+            let billing_aggregator = if *config.billing_aggregator_enabled {
+                Some(feature_flags::billing::BillingAggregator::for_tests(
+                    redis_writer_client.clone(),
+                    feature_flags::billing::BillingAggregatorConfig::default(),
+                ))
+            } else {
+                None
+            };
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
@@ -404,13 +414,7 @@ impl ServerHandle {
                     &[],
                 )),
                 Arc::new(NoOpCohortMembershipProvider),
-                // No background flusher: tests that need a flush call it
-                // directly. Avoids leaking a tokio task per test and keeps the
-                // mock Redis call log free of unrelated flusher writes.
-                Some(feature_flags::billing::BillingAggregator::for_tests(
-                    redis_writer_client.clone(),
-                    feature_flags::billing::BillingAggregatorConfig::default(),
-                )),
+                billing_aggregator,
                 config,
             );
 

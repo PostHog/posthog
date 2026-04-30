@@ -77,13 +77,7 @@ pub async fn increment_request_count(
     request_type: FlagRequestType,
     library: Option<Library>,
 ) -> Result<(), CustomRedisError> {
-    let time_bucket = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        / CACHE_BUCKET_SIZE;
-
-    let time_bucket_str = time_bucket.to_string();
+    let time_bucket_str = current_bucket().to_string();
     let key_name = get_team_request_key(team_id, request_type);
 
     // Build pipeline commands for a single Redis round-trip

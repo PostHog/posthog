@@ -2604,6 +2604,10 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
 
     let server = common::ServerHandle::for_config(config).await;
     let http = reqwest::Client::new();
+
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
     let response = http
         .get(format!(
             "http://{}/flags/definitions?token={}",
@@ -2619,8 +2623,6 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
         "Response body: {}",
         response.text().await.unwrap()
     );
-
-    let bucket_field = current_bucket().to_string();
 
     // Synchronous path writes inline before the response returns, so we can
     // read back without polling.
