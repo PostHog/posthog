@@ -9,8 +9,9 @@ from django.core.cache import cache
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorUnknownTable
 
-from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
+from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner, team_has_logs
 
 
 class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -144,3 +145,115 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"hasLogs": False})
             self.assertEqual(mock_runner.return_value.run.call_count, 2)
+
+    def test_has_logs_api_returns_false_when_logs_table_missing(self):
+        cache.clear()
+
+        with patch("products.logs.backend.has_logs_query_runner.HasLogsQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = CHQueryErrorUnknownTable(
+                "Code: 60. DB::Exception: Unknown table 'logs'", code=60
+            )
+
+            response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"hasLogs": False})
+            self.assertEqual(mock_runner.return_value.run.call_count, 1)
+
+            # Subsequent calls should hit the negative-result cache and skip the runner.
+            response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"hasLogs": False})
+            self.assertEqual(mock_runner.return_value.run.call_count, 1)
+
+    def test_has_logs_api_returns_false_on_arbitrary_clickhouse_error(self):
+        cache.clear()
+
+        with patch("products.logs.backend.has_logs_query_runner.HasLogsQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = ConnectionError("logs cluster unreachable")
+
+            response = self.client.get(f"/api/projects/{self.team.id}/logs/has_logs")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"hasLogs": False})
+
+    def test_team_has_logs_function_caches_error_state(self):
+        cache.clear()
+
+        with patch("products.logs.backend.has_logs_query_runner.HasLogsQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = CHQueryErrorUnknownTable(
+                "Code: 60. DB::Exception: Unknown table 'logs'", code=60
+            )
+
+            self.assertFalse(team_has_logs(self.team))
+            self.assertEqual(mock_runner.return_value.run.call_count, 1)
+
+            # Cached negative result should bypass the runner.
+            self.assertFalse(team_has_logs(self.team))
+            self.assertEqual(mock_runner.return_value.run.call_count, 1)
+
+
+class TestLogsAPIShortCircuitsWhenLogsUnavailable(ClickhouseTestMixin, APIBaseTest):
+    """When the logs ClickHouse table/workload isn't provisioned, the LogsViewSet
+    endpoints should return empty responses instead of bubbling 500s up to
+    cross-product surfaces (TaxonomicFilter on Heatmaps / Error tracking, etc.).
+    """
+
+    def setUp(self):
+        super().setUp()
+        cache.delete(f"team:{self.team.id}:has_logs")
+
+    def _patch_team_has_logs_false(self):
+        return patch("products.logs.backend.api.team_has_logs", return_value=False)
+
+    def test_query_endpoint_returns_empty_when_logs_unavailable(self):
+        with self._patch_team_has_logs_false():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/query",
+                data={"query": {"dateRange": {"date_from": "-1h"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["results"], [])
+        self.assertFalse(body["hasMore"])
+
+    def test_sparkline_endpoint_returns_empty_when_logs_unavailable(self):
+        with self._patch_team_has_logs_false():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/sparkline",
+                data={"query": {"dateRange": {"date_from": "-1h"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+
+    def test_count_endpoint_returns_zero_when_logs_unavailable(self):
+        with self._patch_team_has_logs_false():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/count",
+                data={"query": {"dateRange": {"date_from": "-1h"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"count": 0})
+
+    def test_attributes_endpoint_returns_empty_when_logs_unavailable(self):
+        with self._patch_team_has_logs_false():
+            response = self.client.get(f"/api/projects/{self.team.id}/logs/attributes")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [], "count": 0})
+
+    def test_values_endpoint_returns_empty_when_logs_unavailable(self):
+        with self._patch_team_has_logs_false():
+            response = self.client.get(f"/api/projects/{self.team.id}/logs/values?key=service.name")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [], "refreshing": False})
+
+    def test_services_endpoint_returns_empty_when_logs_unavailable(self):
+        with self._patch_team_has_logs_false():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/services",
+                data={"query": {"dateRange": {"date_from": "-1h"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"services": [], "sparkline": []})

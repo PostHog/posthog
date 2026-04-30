@@ -568,6 +568,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _logs_unavailable(self) -> bool:
+        """Return True if the logs ClickHouse table/workload is unavailable for this team.
+
+        Used to short-circuit query endpoints with empty responses on self-hosted
+        instances that haven't provisioned the logs workload, instead of letting
+        the underlying ClickHouse error bubble up as a 500 to every cross-product
+        surface that probes log attributes (TaxonomicFilter, etc.).
+        """
+        return not team_has_logs(self.team)
+
     @extend_schema(request=_LogsQueryRequestSerializer, responses={200: _LogsQueryResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
@@ -575,6 +585,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if self._logs_unavailable():
+            return Response(
+                {
+                    "query": query_data,
+                    "results": [],
+                    "hasMore": False,
+                    "nextCursor": None,
+                    "maxExportableLogs": LOGS_MAX_EXPORT_ROWS,
+                },
+                status=200,
+            )
 
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
         after_cursor = query_data.get("after", None)
@@ -691,6 +713,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
+        if self._logs_unavailable():
+            return Response([], status=status.HTTP_200_OK)
+
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
@@ -729,6 +754,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def count(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+
+        if self._logs_unavailable():
+            return Response({"count": 0}, status=status.HTTP_200_OK)
 
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
@@ -772,6 +800,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
+        if self._logs_unavailable():
+            return Response({"ranges": [], "interval": "1m"}, status=status.HTTP_200_OK)
+
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
 
@@ -814,6 +845,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
+        if self._logs_unavailable():
+            return Response({"services": [], "sparkline": []}, status=status.HTTP_200_OK)
+
         filter_group = query_data.get("filterGroup", None)
         if filter_group is None:
             filter_group = PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[])
@@ -854,6 +888,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+
+        if self._logs_unavailable():
+            return Response({"results": [], "count": 0}, status=status.HTTP_200_OK)
+
         search = request.GET.get("search", "")
         search_values = request.GET.get("search_values", "false").lower() == "true"
         limit = request.GET.get("limit", 100)
@@ -931,6 +969,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             if not attributeKey:
                 return Response("key is required", status=status.HTTP_400_BAD_REQUEST)
+
+            if self._logs_unavailable():
+                return Response({"results": [], "refreshing": False}, status=status.HTTP_200_OK)
 
             try:
                 dateRange = self.get_model(json.loads(request.GET.get("dateRange", "{}")), DateRange)
