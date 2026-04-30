@@ -70,6 +70,7 @@ PERMISSIONS = [
     "rak_product_read",
     "rak_credit_note_read",
     "rak_invoice_read",
+    "rak_invoice_item_read",  # Separate scope from invoice — /v1/invoiceitems requires this even if invoice_read is set
     "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
     "rak_subscription_read",
     "rak_application_fee_read",
@@ -108,7 +109,7 @@ class StripeSource(
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
             - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
-            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
+            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Invoice items**, **Prices**, and **Subscriptions**
             - Under the **Connect** resource type, select *read* for the **entire resource**
             - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
             These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
