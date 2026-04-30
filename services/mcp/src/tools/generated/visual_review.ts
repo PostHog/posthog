@@ -54,6 +54,25 @@ const visualReviewReposRetrieve = (): ToolBase<typeof VisualReviewReposRetrieveS
     },
 })
 
+const VisualReviewRunsCountsRetrieveSchema = z.object({})
+
+const visualReviewRunsCountsRetrieve = (): ToolBase<
+    typeof VisualReviewRunsCountsRetrieveSchema,
+    Schemas.ReviewStateCounts
+> => ({
+    name: 'visual-review-runs-counts-retrieve',
+    schema: VisualReviewRunsCountsRetrieveSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsCountsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewStateCounts>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/counts/`,
+        })
+        return result
+    },
+})
+
 const VisualReviewRunsListSchema = VisualReviewRunsListQueryParams
 
 const visualReviewRunsList = (): ToolBase<
@@ -103,25 +122,6 @@ const visualReviewRunsRetrieve = (): ToolBase<typeof VisualReviewRunsRetrieveSch
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/`,
         })
         return await withPostHogUrl(context, result, `/visual_review/runs/${result.id}`)
-    },
-})
-
-const VisualReviewRunsCountsRetrieveSchema = z.object({})
-
-const visualReviewRunsCountsRetrieve = (): ToolBase<
-    typeof VisualReviewRunsCountsRetrieveSchema,
-    Schemas.ReviewStateCounts
-> => ({
-    name: 'visual-review-runs-counts-retrieve',
-    schema: VisualReviewRunsCountsRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsCountsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReviewStateCounts>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/counts/`,
-        })
-        return result
     },
 })
 
@@ -202,9 +202,9 @@ const visualReviewRunsToleratedHashesList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-list': visualReviewReposList,
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
+    'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-list': visualReviewRunsList,
     'visual-review-runs-retrieve': visualReviewRunsRetrieve,
-    'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-snapshot-history-list': visualReviewRunsSnapshotHistoryList,
     'visual-review-runs-snapshots-list': visualReviewRunsSnapshotsList,
     'visual-review-runs-tolerated-hashes-list': visualReviewRunsToleratedHashesList,
