@@ -867,26 +867,26 @@ def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict
         ticket.save(update_fields=["status", "unread_team_count", "updated_at"])
 
     elif action == "closed":
-        ticket = _find_github_ticket(team.id, repo, issue_number)
-        if ticket and ticket.status != Status.RESOLVED:
-            old_status = ticket.status
-            ticket.status = Status.RESOLVED
-            ticket.save(update_fields=["status", "updated_at"])
+        existing = _find_github_ticket(team.id, repo, issue_number)
+        if existing and existing.status != Status.RESOLVED:
+            old_status = existing.status
+            existing.status = Status.RESOLVED
+            existing.save(update_fields=["status", "updated_at"])
             try:
-                capture_ticket_status_changed(ticket, old_status, Status.RESOLVED)
+                capture_ticket_status_changed(existing, old_status, Status.RESOLVED)
             except Exception:
-                logger.exception("github_event_status_change_event_failed", ticket_id=str(ticket.id))
+                logger.exception("github_event_status_change_event_failed", ticket_id=str(existing.id))
 
     elif action == "reopened":
-        ticket = _find_github_ticket(team.id, repo, issue_number)
-        if ticket and ticket.status == Status.RESOLVED:
-            old_status = ticket.status
-            ticket.status = Status.OPEN
-            ticket.save(update_fields=["status", "updated_at"])
+        existing = _find_github_ticket(team.id, repo, issue_number)
+        if existing and existing.status == Status.RESOLVED:
+            old_status = existing.status
+            existing.status = Status.OPEN
+            existing.save(update_fields=["status", "updated_at"])
             try:
-                capture_ticket_status_changed(ticket, old_status, Status.OPEN)
+                capture_ticket_status_changed(existing, old_status, Status.OPEN)
             except Exception:
-                logger.exception("github_event_status_change_event_failed", ticket_id=str(ticket.id))
+                logger.exception("github_event_status_change_event_failed", ticket_id=str(existing.id))
 
 
 def _handle_github_comment_event(team: Team, repo: str, action: str, payload: dict[str, Any]) -> None:

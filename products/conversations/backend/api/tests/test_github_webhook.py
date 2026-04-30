@@ -82,7 +82,7 @@ class TestGithubIssuesWebhook(BaseTest):
         else:
             headers["HTTP_X_HUB_SIGNATURE_256"] = _sign(body, secret)
 
-        return self.client.post(
+        return self.client.post(  # type: ignore[arg-type]
             "/api/conversations/v1/github/events",
             body,
             content_type="application/json",
@@ -144,7 +144,7 @@ class TestGithubIssuesWebhook(BaseTest):
             "HTTP_X_GITHUB_EVENT": "issues",
             "HTTP_X_HUB_SIGNATURE_256": _sign(body, WEBHOOK_SECRET),
         }
-        self.client.post(
+        self.client.post(  # type: ignore[arg-type]
             "/api/conversations/v1/github/events",
             body,
             content_type="application/json",

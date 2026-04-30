@@ -116,12 +116,6 @@ class Ticket(UUIDTModel):
                 fields=["team", "teams_channel_id", "teams_conversation_id"],
                 name="posthog_con_teams_thread_idx",
             ),
-            # One ticket per GitHub issue per team — conditional so non-GitHub tickets are unaffected
-            models.UniqueConstraint(
-                fields=["team", "github_repo", "github_issue_number"],
-                condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
-                name="posthog_con_github_issue_uniq",
-            ),
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
             # Dashboard filtered + ordered queries
@@ -139,6 +133,11 @@ class Ticket(UUIDTModel):
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
+            models.UniqueConstraint(
+                fields=["team", "github_repo", "github_issue_number"],
+                condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
+                name="posthog_con_github_issue_uniq",
+            ),
         ]
 
     def __str__(self):

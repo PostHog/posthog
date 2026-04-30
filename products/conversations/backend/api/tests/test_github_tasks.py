@@ -106,6 +106,7 @@ class TestProcessGithubEvent(BaseTest):
         assert ticket.status == Status.NEW
 
         comment = Comment.objects.get(team=self.team, item_id=str(ticket.id))
+        assert comment.content is not None
         assert "**Bug report**" in comment.content
         assert "Description" in comment.content
 
