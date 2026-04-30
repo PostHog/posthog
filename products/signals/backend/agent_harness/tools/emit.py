@@ -74,15 +74,11 @@ async def emit_finding(
     finding_id: str | None = None,
     shadow_mode: bool = False,
 ) -> EmitResult:
-    """Emit a finding through the existing emit_signal pipeline with attribution baked in.
+    """Async entry: route DB calls through `database_sync_to_async` so async callers
+    (the harness runner inside Temporal) don't block the event loop.
 
-    Idempotent on `(run.id, finding_id)`: a previous successful call short-circuits
-    here. Shadow-mode persists the finding to `run.findings` but does not call
-    `emit_signal`. If `emit_signal` raises, the finding row stays `emitted=False`
-    so the failure is visible on the run.
-
-    `time_range` is a `(date_from, date_to)` tuple; the harness normalizes it into
-    the `{"date_from", "date_to"}` shape that `SignalsAgentSignalExtra` expects.
+    Same idempotency + shadow-mode semantics as `emit_finding_sync` — see that
+    function's docstring for the contract.
     """
     _validate_inputs(description, weight, confidence, evidence)
     finding_id = finding_id or _new_finding_id()
@@ -131,6 +127,79 @@ async def emit_finding(
     await database_sync_to_async(_mark_finding_emitted, thread_sensitive=False)(
         run_id=str(run.id), finding_id=finding_id
     )
+    return EmitResult(finding_id=finding_id, emitted=True, skipped_reason=None)
+
+
+def emit_finding_sync(
+    *,
+    team: Team,
+    run: SignalAgentRun,
+    description: str,
+    weight: float,
+    confidence: float,
+    evidence: list[EvidenceEntry],
+    hypothesis: str | None = None,
+    severity: str | None = None,
+    dedupe_keys: list[str] | None = None,
+    time_range: tuple[str, str] | None = None,
+    mcp_trace_id: str | None = None,
+    finding_id: str | None = None,
+    shadow_mode: bool = False,
+) -> EmitResult:
+    """Sync entry used by the DRF view path. Idempotent on `(run.id, finding_id)`.
+
+    Shadow-mode persists the finding to `run.findings` but does not call `emit_signal`.
+    If the external `emit_signal` raises, the finding row stays `emitted=False` so the
+    failure is visible on the run row when the runner reads it back.
+
+    `time_range` is a `(date_from, date_to)` tuple; the harness normalizes it into
+    the `{"date_from", "date_to"}` shape that `SignalsAgentSignalExtra` expects.
+    """
+    from asgiref.sync import async_to_sync
+
+    _validate_inputs(description, weight, confidence, evidence)
+    finding_id = finding_id or _new_finding_id()
+    extra = _build_extra(
+        run_id=str(run.id),
+        finding_id=finding_id,
+        skill_name=run.skill_name,
+        skill_version=run.skill_version,
+        confidence=confidence,
+        evidence=evidence,
+        hypothesis=hypothesis,
+        severity=severity,
+        dedupe_keys=dedupe_keys,
+        time_range=time_range,
+        mcp_trace_id=mcp_trace_id,
+    )
+
+    already_emitted = _record_finding_pre_emit(
+        run_id=str(run.id),
+        finding_id=finding_id,
+        description=description,
+        weight=weight,
+        extra=extra,
+    )
+    if already_emitted:
+        return EmitResult(finding_id=finding_id, emitted=True, skipped_reason="already_emitted")
+
+    if shadow_mode:
+        return EmitResult(finding_id=finding_id, emitted=False, skipped_reason="shadow_mode")
+
+    from products.signals.backend.api import emit_signal
+
+    source_id = f"run:{run.id}:finding:{finding_id}"
+    async_to_sync(emit_signal)(
+        team=team,
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id=source_id,
+        description=description,
+        weight=weight,
+        extra=extra,
+    )
+
+    _mark_finding_emitted(run_id=str(run.id), finding_id=finding_id)
     return EmitResult(finding_id=finding_id, emitted=True, skipped_reason=None)
 
 
