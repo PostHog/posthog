@@ -292,6 +292,7 @@ class InsightBasicSerializer(
     """
 
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
+    dashboards = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
 
@@ -324,6 +325,10 @@ class InsightBasicSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
+    @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
+    def get_dashboards(self, instance: Insight) -> list[int]:
+        return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_viewed_at(self, instance: Insight):
         """Get the last viewed timestamp for this insight by any user in the team."""
@@ -331,8 +336,6 @@ class InsightBasicSerializer(
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-
-        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -1309,7 +1312,6 @@ class InsightViewSet(
 
         if is_basic:
             queryset = queryset.prefetch_related(
-                Prefetch("dashboards", queryset=Dashboard.objects.only("id")),
                 Prefetch(
                     "dashboard_tiles",
                     queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),

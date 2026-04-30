@@ -701,10 +701,65 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [14, 14, 14, 14, 14],
+            [13, 13, 13, 13, 13],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_listing_basic_insights_with_many_dashboards_per_insight_does_not_nplus1(self) -> None:
+        dashboards = [Dashboard.objects.create(name=f"dashboard {n}", team=self.team) for n in range(3)]
+
+        def _create_insight_with_many_dashboards(short_id: str) -> int:
+            insight_id, _ = self.dashboard_api.create_insight(
+                data={
+                    "short_id": short_id,
+                    "dashboards": [d.pk for d in dashboards],
+                    "filters": {"events": [{"id": "$pageview"}]},
+                }
+            )
+            soft_deleted_dashboard = Dashboard.objects.create(name=f"deleted dashboard for {short_id}", team=self.team)
+            DashboardTile.objects_including_soft_deleted.create(
+                dashboard=soft_deleted_dashboard,
+                insight_id=insight_id,
+                deleted=True,
+            )
+            return insight_id
+
+        _create_insight_with_many_dashboards("first")
+        with capture_db_queries() as ctx:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/?basic=true&saved=true&order=-last_modified_at"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 1)
+        baseline_query_count = len(ctx.captured_queries)
+
+        for n in range(2, 6):
+            _create_insight_with_many_dashboards(f"insight-{n}")
+            with capture_db_queries() as ctx:
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/insights/?basic=true&saved=true&order=-last_modified_at"
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(len(response.json()["results"]), n)
+            assert len(ctx.captured_queries) == baseline_query_count, (
+                f"basic insights list grew from {baseline_query_count} to {len(ctx.captured_queries)} queries when listing "
+                f"{n} insights — likely an N+1 in serializer prefetch."
+            )
+
+            per_insight_m2m_lookups = [
+                q
+                for q in ctx.captured_queries
+                if 'FROM "posthog_dashboard"' in q["sql"]
+                and 'INNER JOIN "posthog_dashboardtile"' in q["sql"]
+                and '"posthog_dashboardtile"."insight_id" =' in q["sql"]
+            ]
+            assert per_insight_m2m_lookups == [], (
+                f"found {len(per_insight_m2m_lookups)} per-instance M2M `Insight.dashboards` lookups when serialising basic insights; "
+                f"the batched prefetch should cover them. SQL samples:\n"
+                + "\n".join(q["sql"][:300] for q in per_insight_m2m_lookups[:3])
+            )
 
     def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
         self.dashboard_api.create_insight(
