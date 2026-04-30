@@ -83,7 +83,8 @@ def build_task_run_artifact_size_error(
 
 class TaskSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
-    github_user_integration = serializers.PrimaryKeyRelatedField(
+    # UserIntegration is scoped to request.user in validate_github_user_integration.
+    github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=UserIntegration.objects.filter(kind="github"),
         required=False,
         allow_null=True,

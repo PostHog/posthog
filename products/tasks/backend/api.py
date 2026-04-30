@@ -146,7 +146,7 @@ def _validate_user_authored_task_github_access(task: Task, *, request_user_id: i
         )
 
     user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
-    if not user_github_integration_is_usable(user_github_integration):
+    if user_github_integration is None or not user_github_integration_is_usable(user_github_integration):
         return Response(
             {
                 "type": "validation_error",

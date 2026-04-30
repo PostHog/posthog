@@ -73,6 +73,7 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             return None
 
         try:
+            github_integration: GitHubIntegration | UserGitHubIntegration
             if ctx.github_integration_id:
                 github_integration = get_github_integration(ctx.github_integration_id)
             else:

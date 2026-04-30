@@ -128,6 +128,30 @@ class TestGetPrContextActivity:
         integration.get_pull_request_from_url.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db
+    def test_uses_user_github_integration_for_user_credentials(self, test_task_run):
+        pr_url = "https://github.com/org/repo/pull/42"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+
+        integration = MagicMock()
+        integration.get_pull_request_from_url.return_value = {
+            "success": True,
+            "url": pr_url,
+            "state": "open",
+            "updated_at": "2026-04-23T10:00:00Z",
+        }
+
+        ctx = self._ctx(run_id=str(test_task_run.id), github_integration_id=None)
+        ctx.github_user_integration_id = "user-integration-id"
+
+        with patch(f"{GET_PR_CONTEXT_MODULE}.get_user_github_integration", return_value=integration):
+            result = self._run(ctx)
+
+        assert isinstance(result, GetPrContextOutput)
+        assert result.pr_url == pr_url
+        integration.get_pull_request_from_url.assert_called_once_with(pr_url)
+
+    @pytest.mark.django_db
     def test_defaults_pr_state_to_unknown_when_missing(self, test_task_run):
         pr_url = "https://github.com/org/repo/pull/1"
         test_task_run.output = {"pr_url": pr_url}

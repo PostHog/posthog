@@ -345,7 +345,7 @@ class TestGetSandboxGitHubToken(TestCase):
         [
             ("cached_token_wins", "ghu_cached", True, "ghu_user", None, "ghu_cached"),
             ("identity_token", None, True, "ghu_user", None, "ghu_user"),
-            ("missing_identity", None, False, None, "missing", None),
+            ("missing_identity_falls_back_to_team_token", None, False, None, "missing", "ghs_team"),
             ("identity_requires_reauthorization", None, True, None, "reauthorization", None),
         ]
     )
@@ -375,7 +375,7 @@ class TestGetSandboxGitHubToken(TestCase):
             identity.get_usable_user_access_token.return_value = identity_token
         mock_get_identity.return_value = identity if has_identity else None
 
-        if error_case:
+        if error_case == "reauthorization":
             with self.assertRaises(ReauthorizationRequired):
                 get_sandbox_github_token(
                     123,
@@ -384,6 +384,7 @@ class TestGetSandboxGitHubToken(TestCase):
                     created_by=creator,
                 )
         else:
+            mock_get_github_token.return_value = expected_token
             result = get_sandbox_github_token(
                 123,
                 run_id="run-1",
@@ -405,7 +406,10 @@ class TestGetSandboxGitHubToken(TestCase):
             )
             if has_identity:
                 identity.get_usable_user_access_token.assert_called_once()
-        mock_get_github_token.assert_not_called()
+        if error_case == "missing":
+            mock_get_github_token.assert_called_once_with(123)
+        else:
+            mock_get_github_token.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_bot_authorship_uses_installation_token(self, mock_get_github_token) -> None:

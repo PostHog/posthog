@@ -317,11 +317,9 @@ class Task(DeletedMetaFields, models.Model):
                     allow_refresh=True,
                 )
                 github_user_integration = user_github_integration.integration if user_github_integration else None
-            elif not github_integration and not is_public_sandbox_repo(repository):
-                raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
-            if authorship_mode == PrAuthorshipMode.USER and create_pr and github_user_integration is None:
-                raise ValueError(f"User {user_id} does not have a GitHub integration for {repository}")
+            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
+                raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
         if sandbox_environment_id is not None:

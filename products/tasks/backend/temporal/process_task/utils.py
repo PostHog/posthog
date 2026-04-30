@@ -489,9 +489,11 @@ def get_sandbox_github_token(
     1. Caller-supplied token cached at run-create time (backward compat for the
        PostHog Code CLI — wins when present so self-managed tokens still work).
     2. Server-side ``UserIntegration`` for the task creator, refreshing on demand.
+    3. Team ``Integration`` token for legacy runs that predate persisted user identity.
 
     ``BOT`` authorship falls through to the team's ``Integration`` installation token.
     """
+    pr_authorship_mode: PrAuthorshipMode | None
     if task is not None:
         created_by = task.created_by
         repository = repository or task.repository
@@ -521,10 +523,12 @@ def get_sandbox_github_token(
                 allow_refresh=True,
             )
         if user_github_integration is None:
-            raise ReauthorizationRequired(
-                f"User-authored run {run_id} requires a linked GitHub account with repo access."
-            )
-        return user_github_integration.get_usable_user_access_token()
+            if github_integration_id is None:
+                raise ReauthorizationRequired(
+                    f"User-authored run {run_id} requires a linked GitHub account with repo access."
+                )
+        else:
+            return user_github_integration.get_usable_user_access_token()
 
     if github_integration_id is None:
         return None
