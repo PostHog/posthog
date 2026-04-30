@@ -1235,7 +1235,7 @@ class InsightViewSet(
         span = trace.get_current_span()
         span.set_attribute("posthog.team_id", self.team_id)
         span.set_attribute("posthog.basic", self._is_basic_request())
-        span.set_attribute("posthog.saved", request.query_params.get("saved", ""))
+        span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
         span.set_attribute("posthog.order", request.query_params.get("order", ""))
         return super().list(request, *args, **kwargs)
 
