@@ -190,10 +190,21 @@ fn resolve_start_offset(committed: Option<i64>, earliest: i64, lookback: i64) ->
 
 /// Populate the cache from Kafka for a single partition.
 ///
-/// Invariants at call time (enforced by the handoff protocol's `Warming`
-/// phase): no one is producing to the partition, and the old owner has
-/// drained its in-flight handlers. That means HWM is stable and we can
-/// consume to a known endpoint without racing producers.
+/// Invariants at call time (enforced by the handoff protocol). The
+/// coordinator only advances to `Warming` once two predecessor phases
+/// have closed:
+///
+///   * `Freezing → Draining`: every router has acked freeze and stopped
+///     forwarding to the old owner.
+///   * `Draining → Warming`: the old owner has drained its in-flight
+///     request handlers and written `PodDrainedAck`. Because the leader's
+///     produce path awaits the Kafka delivery future before returning,
+///     "no in-flight" implies "every acked write is durable in Kafka."
+///
+/// Together those mean: by the time `warm_from_kafka` runs, no producer
+/// can append to this partition's Kafka log. The HWM we snapshot here
+/// is therefore stable, and we can consume to a known endpoint without
+/// racing producers.
 pub async fn warm_from_kafka(
     cfg: &WarmingConfig,
     cache: &PartitionedCache,

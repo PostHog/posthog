@@ -14,15 +14,24 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Handles partition ownership lifecycle events for a leader pod.
 ///
-/// Drives three phase responses via the `HandoffHandler` trait:
-///   - `drain_partition_inflight`: waits until no in-flight request handlers
-///     remain for the partition. Because the produce path awaits the Kafka
-///     delivery future before returning, this implies every write this pod
-///     ever acked is durable in Kafka.
-///   - `warm_partition`: consumes the `personhog_updates` topic for the
-///     partition and repopulates the in-memory cache. Returns the HWM
-///     reached so the coordinator can record it.
-///   - `release_partition`: drops the partition's cache.
+/// Drives three phase responses via the `HandoffHandler` trait,
+/// matching the four-phase handoff protocol
+/// (`Freezing → Draining → Warming → Complete`):
+///   - `drain_partition_inflight` (fired in `Draining` for the
+///     old owner): waits until no in-flight request handlers remain
+///     for the partition. By the time the coordinator advances to
+///     `Draining`, every router has acked freeze and stopped
+///     forwarding, so the inflight count strictly drops to zero.
+///     Because the produce path awaits the Kafka delivery future
+///     before returning, "no in-flight" implies "every write this
+///     pod ever acked is durable in Kafka." The pod then writes
+///     `PodDrainedAck` so the coordinator can advance to `Warming`.
+///   - `warm_partition` (fired in `Warming` for the new owner):
+///     consumes the `personhog_updates` topic for the partition and
+///     repopulates the in-memory cache up to the now-stable HWM.
+///   - `release_partition` (fired in `Complete` for the old owner):
+///     drops the partition's cache after the routing table has
+///     flipped to the new owner.
 pub struct LeaderHandoffHandler {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
