@@ -1,5 +1,4 @@
 import json
-from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -91,12 +90,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
             response = self.client.get(path.format(team_id=self.team.id))
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "Legacy insight endpoints are not available for this user."
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Legacy insight endpoints are not available for this user.")
         legacy_calls = [
             c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-endpoints-disabled"
         ]
-        assert len(legacy_calls) == 1
+        self.assertEqual(len(legacy_calls), 1)
 
     def test_creating_legacy_filter_insight_blocked_with_feature_flag(self) -> None:
         with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
@@ -105,15 +104,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"name": "Legacy filter insight", "filters": {"insight": "TRENDS", "events": [{"id": "$pageview"}]}},
             )
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert (
-            response.json()["detail"]
-            == "Creating or updating insights with legacy filters is not available for this user."
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "Creating or updating insights with legacy filters is not available for this user.",
         )
         legacy_filter_calls = [
             c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
         ]
-        assert len(legacy_filter_calls) == 1
+        self.assertEqual(len(legacy_filter_calls), 1)
 
     def test_creating_query_insight_not_blocked_by_legacy_filter_flag(self) -> None:
         with patch("posthog.api.insight.posthoganalytics.feature_enabled", return_value=True) as mock_feature_enabled:
@@ -125,11 +124,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         legacy_filter_calls = [
             c for c in mock_feature_enabled.call_args_list if c[0][0] == "legacy-insight-filters-disabled"
         ]
-        assert len(legacy_filter_calls) == 0
+        self.assertEqual(len(legacy_filter_calls), 0)
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -148,7 +147,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
-        assert len(response["results"]) == 1
+        self.assertEqual(len(response["results"]), 1)
 
     def test_get_insight_items_all_environments_included(self) -> None:
         filter_dict = {
@@ -183,9 +182,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
         response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
 
-        assert {insight["id"] for insight in response_project["results"]} == {insight_a.id, insight_b.id}
-        assert {insight["id"] for insight in response_env_current["results"]} == {insight_a.id, insight_b.id}
-        assert {insight["id"] for insight in response_env_other["results"]} == {insight_a.id, insight_b.id}
+        self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
+        self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
 
     @patch("posthoganalytics.capture")
     def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
@@ -221,14 +220,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"name": "test"},
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
-            assert response_1.status_code == status.HTTP_201_CREATED
-            assert {
-                "created_at": "2021-08-23T12:00:00Z",
-                "created_by": self_user_basic_serialized,
-                "updated_at": "2021-08-23T12:00:00Z",
-                "last_modified_at": "2021-08-23T12:00:00Z",
-                "last_modified_by": self_user_basic_serialized,
-            }.items() <= response_1.json().items()
+            self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
+            self.assertLessEqual(
+                {
+                    "created_at": "2021-08-23T12:00:00Z",
+                    "created_by": self_user_basic_serialized,
+                    "updated_at": "2021-08-23T12:00:00Z",
+                    "last_modified_at": "2021-08-23T12:00:00Z",
+                    "last_modified_by": self_user_basic_serialized,
+                }.items(),
+                response_1.json().items(),
+            )
             mock_capture.assert_any_call(
                 distinct_id=self.user.distinct_id,
                 event="insight created",
@@ -262,14 +264,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"favorited": True},
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
-            assert response_2.status_code == status.HTTP_200_OK
-            assert {
-                "created_at": "2021-08-23T12:00:00Z",
-                "created_by": self_user_basic_serialized,
-                "updated_at": "2021-09-20T12:00:00Z",
-                "last_modified_at": "2021-08-23T12:00:00Z",
-                "last_modified_by": self_user_basic_serialized,
-            }.items() <= response_2.json().items()
+            self.assertEqual(response_2.status_code, status.HTTP_200_OK)
+            self.assertLessEqual(
+                {
+                    "created_at": "2021-08-23T12:00:00Z",
+                    "created_by": self_user_basic_serialized,
+                    "updated_at": "2021-09-20T12:00:00Z",
+                    "last_modified_at": "2021-08-23T12:00:00Z",
+                    "last_modified_by": self_user_basic_serialized,
+                }.items(),
+                response_2.json().items(),
+            )
             insight_short_id = response_2.json()["short_id"]
             # Check that "insight updated" event was called among all capture calls
             mock_capture.assert_any_call(
@@ -302,24 +307,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"filters": {"events": []}},
             )
-            assert response_3.status_code == status.HTTP_200_OK
-            assert {
-                "created_at": "2021-08-23T12:00:00Z",
-                "created_by": self_user_basic_serialized,
-                "updated_at": "2021-10-21T12:00:00Z",
-                "last_modified_at": "2021-10-21T12:00:00Z",
-                "last_modified_by": self_user_basic_serialized,
-            }.items() <= response_3.json().items()
+            self.assertEqual(response_3.status_code, status.HTTP_200_OK)
+            self.assertLessEqual(
+                {
+                    "created_at": "2021-08-23T12:00:00Z",
+                    "created_by": self_user_basic_serialized,
+                    "updated_at": "2021-10-21T12:00:00Z",
+                    "last_modified_at": "2021-10-21T12:00:00Z",
+                    "last_modified_by": self_user_basic_serialized,
+                }.items(),
+                response_3.json().items(),
+            )
         with freeze_time("2021-12-23T12:00:00Z"):
             response_4 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "XYZ"})
-            assert response_4.status_code == status.HTTP_200_OK
-            assert {
-                "created_at": "2021-08-23T12:00:00Z",
-                "created_by": self_user_basic_serialized,
-                "updated_at": "2021-12-23T12:00:00Z",
-                "last_modified_at": "2021-12-23T12:00:00Z",
-                "last_modified_by": self_user_basic_serialized,
-            }.items() <= response_4.json().items()
+            self.assertEqual(response_4.status_code, status.HTTP_200_OK)
+            self.assertLessEqual(
+                {
+                    "created_at": "2021-08-23T12:00:00Z",
+                    "created_by": self_user_basic_serialized,
+                    "updated_at": "2021-12-23T12:00:00Z",
+                    "last_modified_at": "2021-12-23T12:00:00Z",
+                    "last_modified_by": self_user_basic_serialized,
+                }.items(),
+                response_4.json().items(),
+            )
 
         # Field last_modified_by is updated when another user makes a material change
         self.client.force_login(alt_user)
@@ -328,14 +339,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"description": "Lorem ipsum."},
             )
-            assert response_5.status_code == status.HTTP_200_OK
-            assert {
-                "created_at": "2021-08-23T12:00:00Z",
-                "created_by": self_user_basic_serialized,
-                "updated_at": "2022-01-01T12:00:00Z",
-                "last_modified_at": "2022-01-01T12:00:00Z",
-                "last_modified_by": alt_user_basic_serialized,
-            }.items() <= response_5.json().items()
+            self.assertEqual(response_5.status_code, status.HTTP_200_OK)
+            self.assertLessEqual(
+                {
+                    "created_at": "2021-08-23T12:00:00Z",
+                    "created_by": self_user_basic_serialized,
+                    "updated_at": "2022-01-01T12:00:00Z",
+                    "last_modified_at": "2022-01-01T12:00:00Z",
+                    "last_modified_by": alt_user_basic_serialized,
+                }.items(),
+                response_5.json().items(),
+            )
 
     def test_get_saved_insight_items(self) -> None:
         filter_dict = {
@@ -364,10 +378,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/",
             data={"saved": "true", "user": "true"},
         )
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert len(response.json()["results"]) == 2
-        assert len(response.json()["results"][0]["short_id"]) == 8
+        self.assertEqual(len(response.json()["results"]), 2)
+        self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
 
     def test_dashboard_template_insights_default_to_saved(self) -> None:
         from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -376,9 +390,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         create_dashboard_from_template("DEFAULT_APP", dashboard)
 
         insights = Insight.objects.filter(dashboard_tiles__dashboard=dashboard)
-        assert insights.count() > 0
+        self.assertGreater(insights.count(), 0)
         for insight in insights:
-            assert insight.saved, f"Insight '{insight.name}' should have saved=True"
+            self.assertTrue(insight.saved, f"Insight '{insight.name}' should have saved=True")
 
     def test_get_favorited_insight_items(self) -> None:
         filter_dict = {
@@ -404,10 +418,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?favorited=true&user=true")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["favorited"]
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
     def test_hide_feature_flag_insights_filter(self) -> None:
         from posthog.helpers.dashboard_templates import (
@@ -448,14 +462,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Without filter, should return all 3 insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 3
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 3)
 
         # With filter, should exclude feature flag insights
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["name"] == "Regular Insight"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
 
     def test_get_insight_in_dashboard_context(self) -> None:
         filter_dict = {
@@ -472,12 +486,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         insight_in_isolation = self.dashboard_api.get_insight(insight_id)
-        assert insight_in_isolation.get("filters_hash", None) is not None
+        self.assertIsNotNone(insight_in_isolation.get("filters_hash", None))
 
         insight_on_dashboard = self.dashboard_api.get_insight(insight_id, query_params={"from_dashboard": dashboard_id})
-        assert insight_on_dashboard.get("filters_hash", None) is not None
+        self.assertIsNotNone(insight_on_dashboard.get("filters_hash", None))
 
-        assert insight_in_isolation["filters_hash"] != insight_on_dashboard["filters_hash"]
+        self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {
@@ -553,11 +567,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=12345678")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["short_id"] == "12345678"
-        assert response.json()["results"][0]["filters"]["events"][0]["id"] == "$pageview"
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
+        self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
 
     @parameterized.expand(
         [
@@ -583,14 +597,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{lookup(insight)}/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["id"] == insight.id
-        assert response.json()["short_id"] == "abcd1234"
-        assert response.json()["name"] == "dual-lookup"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], insight.id)
+        self.assertEqual(response.json()["short_id"], "abcd1234")
+        self.assertEqual(response.json()["name"], "dual-lookup")
 
     def test_retrieve_insight_by_unknown_short_id_returns_404(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/insights/notthere/")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_retrieve_insight_by_numeric_short_id_falls_back_to_short_id(self) -> None:
         # A small number of legacy insights have numeric-only short_ids — they must remain retrievable
@@ -605,10 +619,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{numeric_short_id}/")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["id"] == insight.id
-        assert response.json()["short_id"] == numeric_short_id
-        assert response.json()["name"] == "numeric-short-id"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], insight.id)
+        self.assertEqual(response.json()["short_id"], numeric_short_id)
+        self.assertEqual(response.json()["name"], "numeric-short-id")
 
     def test_basic_results(self) -> None:
         """
@@ -625,31 +639,34 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        assert len(response.json()["results"]) == 2
-        assert set(response.json()["results"][0].keys()) == {
-            "id",
-            "short_id",
-            "name",
-            "derived_name",
-            "favorited",
-            "filters",
-            "query",
-            "dashboards",
-            "dashboard_tiles",
-            "description",
-            "last_refresh",
-            "refreshing",
-            "saved",
-            "updated_at",
-            "created_by",
-            "created_at",
-            "last_modified_at",
-            "tags",
-            "user_access_level",
-            "last_viewed_at",
-        }
+        self.assertEqual(len(response.json()["results"]), 2)
+        self.assertEqual(
+            set(response.json()["results"][0].keys()),
+            {
+                "id",
+                "short_id",
+                "name",
+                "derived_name",
+                "favorited",
+                "filters",
+                "query",
+                "dashboards",
+                "dashboard_tiles",
+                "description",
+                "last_refresh",
+                "refreshing",
+                "saved",
+                "updated_at",
+                "created_by",
+                "created_at",
+                "last_modified_at",
+                "tags",
+                "user_access_level",
+                "last_viewed_at",
+            },
+        )
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -671,19 +688,23 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 }
             )
 
-            assert Insight.objects.count() == i + 1
+            self.assertEqual(Insight.objects.count(), i + 1)
 
             with capture_db_queries() as capture_query_context:
                 response = self.client.get(f"/api/projects/{self.team.id}/insights?basic=true")
-                assert response.status_code == status.HTTP_200_OK
-                assert len(response.json()["results"]) == i + 1
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(len(response.json()["results"]), i + 1)
 
             query_count_for_create_and_read = len(capture_query_context.captured_queries)
             queries.append(capture_query_context.captured_queries)
             query_counts.append(query_count_for_create_and_read)
 
         # adding more insights doesn't change the query count
-        assert [15, 15, 15, 15, 15] == query_counts, f"received query counts\n\n{query_counts}"
+        self.assertEqual(
+            [14, 14, 14, 14, 14],
+            query_counts,
+            f"received query counts\n\n{query_counts}",
+        )
 
     def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
         self.dashboard_api.create_insight(
@@ -714,7 +735,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=TRENDS")
 
-        assert len(response.json()["results"]) == 2
+        self.assertEqual(len(response.json()["results"]), 2)
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(
@@ -739,7 +760,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         any_on_dashboard_one = self.client.get(
             f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}]"
         )
-        assert any_on_dashboard_one.status_code == status.HTTP_200_OK
+        self.assertEqual(any_on_dashboard_one.status_code, status.HTTP_200_OK)
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id, insight_two_id]
 
@@ -747,7 +768,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         any_on_dashboard_one_and_two = self.client.get(
             f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}, {dashboard_two_id}]"
         )
-        assert any_on_dashboard_one_and_two.status_code == status.HTTP_200_OK
+        self.assertEqual(any_on_dashboard_one_and_two.status_code, status.HTTP_200_OK)
         matched_insights = [insight["id"] for insight in any_on_dashboard_one_and_two.json()["results"]]
         assert matched_insights == [insight_two_id]
 
@@ -757,7 +778,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         any_on_dashboard_one = self.client.get(
             f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}]"
         )
-        assert any_on_dashboard_one.status_code == status.HTTP_200_OK
+        self.assertEqual(any_on_dashboard_one.status_code, status.HTTP_200_OK)
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
 
@@ -774,16 +795,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
-        assert response_data["description"] is None
-        assert response_data["tags"] == []
+        self.assertEqual(response_data["description"], None)
+        self.assertEqual(response_data["tags"], [])
 
         objects = Insight.objects.all()
-        assert objects.count() == 1
-        assert objects[0].filters["events"][0]["id"] == "$pageview"
-        assert objects[0].filters["date_from"] == "-90d"
-        assert len(objects[0].short_id) == 8
+        self.assertEqual(objects.count(), 1)
+        self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
+        self.assertEqual(objects[0].filters["date_from"], "-90d")
+        self.assertEqual(len(objects[0].short_id), 8)
 
         self.assert_insight_activity(
             response_data["id"],
@@ -817,10 +838,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 }
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
-        assert response_data["name"] is None
-        assert response_data["derived_name"] is None
+        self.assertEqual(response_data["name"], None)
+        self.assertEqual(response_data["derived_name"], None)
 
         self.assert_insight_activity(response_data["id"], [])
 
@@ -839,7 +860,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
-        assert tile is not None
+        self.assertIsNotNone(tile)
 
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboards(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
@@ -1207,9 +1228,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
-        assert response_data["derived_name"] == "pageview unique users"
+        self.assertEqual(response_data["derived_name"], "pageview unique users")
 
         self.assert_insight_activity(
             response_data["id"],
@@ -1242,20 +1263,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/{insight_id}",
                 {"name": "insight new name", "tags": ["add", "these", "tags"]},
             )
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_data = response.json()
-            assert response_data["name"] == "insight new name"
-            assert sorted(response_data["tags"]) == ["add", "tags", "these"]
-            assert response_data["created_by"]["distinct_id"] == self.user.distinct_id
-            assert (
-                response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(sorted(response_data["tags"]), ["add", "tags", "these"])
+            self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+            self.assertEqual(
+                response_data["effective_restriction_level"],
+                Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
             )
-            assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
+            self.assertEqual(
+                response_data["effective_privilege_level"],
+                Dashboard.PrivilegeLevel.CAN_EDIT,
+            )
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
 
-            assert response.json()["name"] == "insight new name"
+            self.assertEqual(response.json()["name"], "insight new name")
 
             self.assert_insight_activity(
                 insight_id,
@@ -1309,14 +1334,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_cannot_set_filters_hash_via_api(self) -> None:
         insight_id, insight = self.dashboard_api.create_insight({"name": "should not update the filters_hash"})
         original_filters_hash = insight["filters_hash"]
-        assert original_filters_hash is not None
+        self.assertIsNotNone(original_filters_hash)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"filters_hash": "should not update the value"},
         )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["filters_hash"] == original_filters_hash
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["filters_hash"], original_filters_hash)
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self) -> None:
@@ -1336,12 +1361,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"filters": {"events": [{"id": "$pageview", "custom_name": custom_name}]}},
             )
 
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_data = response.json()
-            assert response_data["filters"]["events"][0]["custom_name"] == expected_name
+            self.assertEqual(response_data["filters"]["events"][0]["custom_name"], expected_name)
             insight.refresh_from_db()
-            assert insight.filters["events"][0]["custom_name"] == expected_name
+            self.assertEqual(insight.filters["events"][0]["custom_name"], expected_name)
 
     def test_save_new_funnel(self) -> None:
         dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
@@ -1384,16 +1409,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "dashboard": dashboard.pk,
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         objects = Insight.objects.all()
-        assert objects.count() == 1
-        assert objects[0].filters["events"][1]["id"] == "$rageclick"
-        assert objects[0].filters["display"] == "FunnelViz"
-        assert objects[0].filters["interval"] == "day"
-        assert objects[0].filters["date_from"] == "-30d"
-        assert objects[0].filters["layout"] == "horizontal"
-        assert len(objects[0].short_id) == 8
+        self.assertEqual(objects.count(), 1)
+        self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
+        self.assertEqual(objects[0].filters["display"], "FunnelViz")
+        self.assertEqual(objects[0].filters["interval"], "day")
+        self.assertEqual(objects[0].filters["date_from"], "-30d")
+        self.assertEqual(objects[0].filters["layout"], "horizontal")
+        self.assertEqual(len(objects[0].short_id), 8)
 
     def test_insight_refreshing_legacy_conversion(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
@@ -1435,49 +1460,52 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "dashboards": [dashboard_id],
                 },
             ).json()
-            assert response["last_refresh"] is None
+            self.assertEqual(response["last_refresh"], None)
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 0]
-            assert response["last_refresh"] == "2012-01-15T04:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
 
         with freeze_time("2012-01-15T05:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 1]
-            assert response["last_refresh"] == "2012-01-15T05:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"  # did not change
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
         with freeze_time("2012-01-16T05:01:34.000Z"):
             # load it in the context of the dashboard, so has last 14 days as filter
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
-            assert response["result"][0]["data"] == [
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                2.0,
-                1.0,
-                0.0,
-            ]
-            assert response["last_refresh"] == "2012-01-16T05:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"  # did not change
+            self.assertEqual(
+                response["result"][0]["data"],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    2.0,
+                    1.0,
+                    0.0,
+                ],
+            )
+            self.assertEqual(response["last_refresh"], "2012-01-16T05:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
         with freeze_time("2012-01-25T05:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
-            assert response["last_refresh"] is None
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"  # did not change
+            self.assertEqual(response["last_refresh"], None)
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
         #  Test property filter
 
@@ -1491,23 +1519,26 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
-            assert response["result"][0]["data"] == [
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-                0.0,
-                0.0,
-            ]
+            self.assertEqual(
+                response["result"][0]["data"],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                ],
+            )
 
     @parameterized.expand(
         [
@@ -1568,73 +1599,76 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "dashboards": [dashboard_id],
                 },
             ).json()
-            assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            self.assertNotIn("code", response)  # Watching out for an error code
+            self.assertEqual(response["last_refresh"], None)
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == 1
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 0]
-            assert response["last_refresh"] == "2012-01-15T04:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"
-            assert not response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertFalse(response["is_cached"])
 
         with freeze_time("2012-01-15T05:01:34.000Z"):
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == 2
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 1]
-            assert response["last_refresh"] == "2012-01-15T05:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"  # did not change
-            assert not response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertFalse(response["is_cached"])
 
         with freeze_time("2012-01-15T05:17:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/").json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == 2
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 1]
-            assert response["last_refresh"] == "2012-01-15T05:01:34Z"  # Using cached result
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"  # did not change
-            assert response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")  # Using cached result
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertTrue(response["is_cached"])
 
         with freeze_time("2012-01-15T05:17:39.000Z"):
             # Make sure the /query/ endpoint reuses the same cached result
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query_dict}).json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == 2
-            assert response["results"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 1]
-            assert response["last_refresh"] == "2012-01-15T05:01:34Z"  # Using cached result
-            assert response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(response["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")  # Using cached result
+            self.assertTrue(response["is_cached"])
 
         with freeze_time("2012-01-16T05:01:34.000Z"):
             # load it in the context of the dashboard, so has last 14 days as filter
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == 3
-            assert response["result"][0]["data"] == [
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                2.0,
-                1.0,
-                0.0,
-            ]
-            assert response["last_refresh"] == "2012-01-16T05:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"  # did not change
-            assert not response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 3)
+            self.assertEqual(
+                response["result"][0]["data"],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    2.0,
+                    1.0,
+                    0.0,
+                ],
+            )
+            self.assertEqual(response["last_refresh"], "2012-01-16T05:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertFalse(response["is_cached"])
 
         #  Test property filter
 
@@ -1649,25 +1683,28 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == 4
-            assert response["result"][0]["data"] == [
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-                0.0,
-                0.0,
-            ]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 4)
+            self.assertEqual(
+                response["result"][0]["data"],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                ],
+            )
 
     @patch(
         "posthog.caching.insight_caching_state.calculate_target_age_insight",
@@ -1713,27 +1750,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     },
                 },
             ).json()
-            assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            self.assertNotIn("code", response)  # Watching out for an error code
+            self.assertEqual(response["last_refresh"], None)
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            assert "code" not in response
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 0]
-            assert response["last_refresh"] == "2012-01-15T04:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"
-            assert not response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertFalse(response["is_cached"])
 
         with freeze_time("2012-01-17T05:01:34.000Z"):
             update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
 
         with freeze_time("2012-01-17T06:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            assert "code" not in response
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 2, 0, 0, 0]
-            assert response["last_refresh"] == "2012-01-17T05:01:34Z"  # Got refreshed with `update_cache`!
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"
-            assert response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertTrue(response["is_cached"])
 
     @parameterized.expand(
         [
@@ -1795,19 +1832,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query_dict}).json()
-            assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            self.assertNotIn("code", response)  # Watching out for an error code
+            self.assertEqual(response["last_refresh"], None)
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            assert "code" not in response
+            self.assertNotIn("code", response)
 
-            assert spy_execute_hogql_query.call_count == 1
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
 
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 0]
-            assert response["last_refresh"] == "2012-01-15T04:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"
-            assert not response["is_cached"]
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertFalse(response["is_cached"])
 
         with freeze_time("2012-01-17T05:01:34.000Z"):
             update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
@@ -1815,12 +1852,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with freeze_time("2012-01-17T06:01:34.000Z"):
             call_count_before = spy_execute_hogql_query.call_count
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == call_count_before
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 2, 0, 0, 0]
-            assert response["last_refresh"] == "2012-01-17T05:01:34Z"  # Got refreshed with `update_cache`!
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"
-            assert response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, call_count_before)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertTrue(response["is_cached"])
 
     @parameterized.expand(
         [
@@ -1881,39 +1918,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "dashboards": [dashboard_id],
                 },
             ).json()
-            assert "code" not in response  # Watching out for an error code
-            assert response["last_refresh"] is None
+            self.assertNotIn("code", response)  # Watching out for an error code
+            self.assertEqual(response["last_refresh"], None)
             insight_id = response["id"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=blocking").json()
-            assert "code" not in response
-            assert spy_execute_hogql_query.call_count == 1
-            assert response["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 0]
-            assert response["last_refresh"] == "2012-01-15T04:01:34Z"
-            assert response["last_modified_at"] == "2012-01-15T04:01:34Z"
-            assert not response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertFalse(response["is_cached"])
 
         with freeze_time("2012-01-15T05:17:39.000Z"):
             # Make sure the /query/ endpoint reuses the same cached result - ASYNC EXECUTION HERE!
             response = self.client.post(
                 f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "async"}
             ).json()
-            assert "code" not in response
-            assert response.get("query_status") is None
-            assert spy_execute_hogql_query.call_count == 1
-            assert response["results"][0]["data"] == [0, 0, 0, 0, 0, 0, 2, 0]
-            assert response["last_refresh"] == "2012-01-15T04:01:34Z"  # Using cached result
-            assert response["is_cached"]
+            self.assertNotIn("code", response)
+            self.assertIsNone(response.get("query_status"))
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(response["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
+            self.assertTrue(response["is_cached"])
 
         with freeze_time("2012-01-15T05:17:39.000Z"):
             # Now with force async requested - cache should be ignored
             response = self.client.post(
                 f"/api/projects/{self.team.id}/query/", {"query": query_dict, "refresh": "force_async"}
             ).json()
-            assert "code" not in response
-            assert response.get("query_status", {}).get("query_async") is True
-            assert (
-                response.get("query_status", {}).get("complete") is False
+            self.assertNotIn("code", response)
+            self.assertIs(response.get("query_status", {}).get("query_async"), True)
+            self.assertIs(
+                response.get("query_status", {}).get("complete"), False
             )  # Just checking that recalculation was initiated
 
         # make new insight to test cache miss
@@ -1940,9 +1977,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Check that cache miss contains query status
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=async").json()
-        assert "code" not in response
-        assert response["result"] is None
-        assert response["query_status"]["query_async"]
+        self.assertNotIn("code", response)
+        self.assertEqual(response["result"], None)
+        self.assertEqual(response["query_status"]["query_async"], True)
 
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -1959,15 +1996,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["query"] == query
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"], query)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["query"]["source"]["filters"]["dateRange"]["date_from"] == "-180d"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
 
     def test_dashboard_filters_applied_to_data_visualization_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -1984,15 +2021,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["query"] == query
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"], query)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["query"]["source"]["filters"]["dateRange"]["date_from"] == "-180d"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
 
     def test_dashboard_filters_applied_to_events_query_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
@@ -2007,15 +2044,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["query"] == query
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"], query)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["query"]["source"]["after"] == "-180d"
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"]["source"]["after"], "-180d")
 
     # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
@@ -2029,16 +2066,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
             ).json()
 
-        assert response["result"][0]["count"] == 2
-        assert response["result"][0]["action"]["name"] == "$pageview"
-        assert response["timezone"] == "UTC"
+        self.assertEqual(response["result"][0]["count"], 2)
+        self.assertEqual(response["result"][0]["action"]["name"], "$pageview")
+        self.assertEqual(response["timezone"], "UTC")
 
     def test_nonexistent_cohort_is_handled(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': 2137}])}"
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_cohort_without_match_group_works(self) -> None:
         whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
@@ -2050,7 +2087,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': whatever_cohort_without_match_groups.pk}])}"
         )  # This should not throw an error, just act like there's no event matches
 
-        assert response_nonexistent_property.status_code == 200
+        self.assertEqual(response_nonexistent_property.status_code, 200)
         response_nonexistent_property_data = response_nonexistent_property.json()
         response_cohort_without_match_groups_data = response_cohort_without_match_groups.json()
         response_nonexistent_property_data.pop("last_refresh")
@@ -2091,7 +2128,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type': 'cohort', 'key': 'id', 'value': 113}])}"
             )
 
-        assert response_precalculated_cohort.status_code == 200
+        self.assertEqual(response_precalculated_cohort.status_code, 200)
         response_user_property_data = response_user_property.json()
         response_precalculated_cohort_data = response_precalculated_cohort.json()
         response_user_property_data.pop("last_refresh")
@@ -2117,11 +2154,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/trend/",
                 data={"events": json.dumps([{"id": "$pageview"}]), "compare": "true"},
             )
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         result = response.json()
-        assert len(result["result"]) == 2
-        assert result["result"][0]["compare_label"] == "current"
-        assert result["result"][1]["compare_label"] == "previous"
+        self.assertEqual(len(result["result"]), 2)
+        self.assertEqual(result["result"][0]["compare_label"], "current")
+        self.assertEqual(result["result"][1]["compare_label"], "previous")
 
     def test_insight_trends_breakdown_pagination(self) -> None:
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -2142,8 +2179,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "breakdown_type": "event",
                 },
             )
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "offset=25" in response.json()["next"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("offset=25", response.json()["next"])
 
     def test_insight_funnels_basic_post(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"])
@@ -2159,15 +2196,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "funnel_window_days": 14,
             },
         )
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
         # clickhouse funnels don't have a loading system
-        assert len(response_json["result"]) == 2
-        assert response_json["result"][0]["name"] == "user signed up"
-        assert response_json["result"][0]["count"] == 1
-        assert response_json["result"][1]["name"] == "user did things"
-        assert response_json["result"][1]["count"] == 1
+        self.assertEqual(len(response_json["result"]), 2)
+        self.assertEqual(response_json["result"][0]["name"], "user signed up")
+        self.assertEqual(response_json["result"][0]["count"], 1)
+        self.assertEqual(response_json["result"][1]["name"], "user did things")
+        self.assertEqual(response_json["result"][1]["count"], 1)
 
     # Tests backwards-compatibility when we changed GET to POST | GET
     def test_insight_funnels_basic_get(self) -> None:
@@ -2178,10 +2215,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
 
         # clickhouse funnels don't have a loading system
-        assert len(response["result"]) == 2
-        assert response["result"][0]["name"] == "user signed up"
-        assert response["result"][1]["name"] == "user did things"
-        assert response["timezone"] == "UTC"
+        self.assertEqual(len(response["result"]), 2)
+        self.assertEqual(response["result"][0]["name"], "user signed up")
+        self.assertEqual(response["result"][1]["name"], "user did things")
+        self.assertEqual(response["timezone"], "UTC")
 
     def test_logged_out_user_cannot_retrieve_insight(self) -> None:
         self.client.logout()
@@ -2195,8 +2232,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/{insight.id}/",
         )
 
-        assert response.status_code == 403, response.json()
-        assert response.json() == self.unauthenticated_response()
+        self.assertEqual(response.status_code, 403, response.json())
+        self.assertEqual(
+            response.json(),
+            self.unauthenticated_response(),
+        )
 
     def test_logged_out_user_can_retrieve_insight_with_correct_insight_sharing_access_token(self) -> None:
         self.client.logout()
@@ -2244,22 +2284,50 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        assert response_invalid_token_retrieve.status_code == 403, response_invalid_token_retrieve.json()
-        assert response_invalid_token_retrieve.json() == self.unauthenticated_response(
-            "Sharing access token is invalid.", "authentication_failed"
+        self.assertEqual(
+            response_invalid_token_retrieve.status_code,
+            403,
+            response_invalid_token_retrieve.json(),
         )
-        assert response_incorrect_token_retrieve.status_code == 404, response_incorrect_token_retrieve.json()
-        assert response_incorrect_token_retrieve.json() == self.not_found_response()
-        assert response_correct_token_retrieve.status_code == 200, response_correct_token_retrieve.json()
-        assert {"name": "Foobar"}.items() <= response_correct_token_retrieve.json().items()
-        assert response_correct_token_list.status_code == 200, response_correct_token_list.json()
+        self.assertEqual(
+            response_invalid_token_retrieve.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(
+            response_incorrect_token_retrieve.status_code,
+            404,
+            response_incorrect_token_retrieve.json(),
+        )
+        self.assertEqual(
+            response_incorrect_token_retrieve.json(),
+            self.not_found_response(),
+        )
+        self.assertEqual(
+            response_correct_token_retrieve.status_code,
+            200,
+            response_correct_token_retrieve.json(),
+        )
+        self.assertLessEqual(
+            {
+                "name": "Foobar",
+            }.items(),
+            response_correct_token_retrieve.json().items(),
+        )
+        self.assertEqual(
+            response_correct_token_list.status_code,
+            200,
+            response_correct_token_list.json(),
+        )
         # abcdfghi not returned as it's not related to this sharing configuration
-        assert response_correct_token_list.json()["count"] == 1
-        assert {
-            "id": insight.id,
-            "name": "Foobar",
-            "short_id": "12345678",
-        }.items() <= response_correct_token_list.json()["results"][0].items()
+        self.assertEqual(response_correct_token_list.json()["count"], 1)
+        self.assertLessEqual(
+            {
+                "id": insight.id,
+                "name": "Foobar",
+                "short_id": "12345678",
+            }.items(),
+            response_correct_token_list.json()["results"][0].items(),
+        )
 
     def test_logged_out_user_cannot_retrieve_deleted_insight_with_correct_insight_sharing_access_token(self) -> None:
         self.client.logout()
@@ -2278,8 +2346,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/{deleted_insight.id}/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        assert response_retrieve.status_code == 404, response_retrieve.json()
-        assert response_retrieve.json() == self.not_found_response()
+        self.assertEqual(response_retrieve.status_code, 404, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.not_found_response(),
+        )
 
     def test_logged_out_user_cannot_update_insight_with_correct_insight_sharing_access_token(self) -> None:
         self.client.logout()
@@ -2298,9 +2369,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"name": "Barfoo"},
         )
 
-        assert response_retrieve.status_code == 403, response_retrieve.json()
-        assert response_retrieve.json() == self.unauthenticated_response(
-            "Sharing access token can only be used for GET requests.", "authentication_failed"
+        self.assertEqual(response_retrieve.status_code, 403, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.unauthenticated_response(
+                "Sharing access token can only be used for GET requests.",
+                "authentication_failed",
+            ),
         )
 
     def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
@@ -2324,13 +2399,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/?short_id={insight.short_id}&sharing_access_token={sharing_configuration.access_token}",
         )
 
-        assert response_retrieve.status_code == 403, response_retrieve.json()
-        assert response_retrieve.json() == self.unauthenticated_response(
-            "Sharing access token is invalid.", "authentication_failed"
+        self.assertEqual(response_retrieve.status_code, 403, response_retrieve.json())
+        self.assertEqual(
+            response_retrieve.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
-        assert response_list.status_code == 403, response_retrieve.json()
-        assert response_list.json() == self.unauthenticated_response(
-            "Sharing access token is invalid.", "authentication_failed"
+        self.assertEqual(response_list.status_code, 403, response_retrieve.json())
+        self.assertEqual(
+            response_list.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
         )
 
     def test_logged_out_user_can_retrieve_insight_with_correct_dashboard_sharing_access_token(self) -> None:
@@ -2386,16 +2463,29 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        assert response_incorrect_token_retrieve.status_code == 403, response_incorrect_token_retrieve.json()
-        assert response_incorrect_token_retrieve.json() == self.unauthenticated_response(
-            "Sharing access token is invalid.", "authentication_failed"
+        self.assertEqual(
+            response_incorrect_token_retrieve.status_code,
+            403,
+            response_incorrect_token_retrieve.json(),
         )
-        assert response_correct_token_retrieve.status_code == 200, response_correct_token_retrieve.json()
-        assert {"name": "Foobar"}.items() <= response_correct_token_retrieve.json().items()
+        self.assertEqual(
+            response_incorrect_token_retrieve.json(),
+            self.unauthenticated_response("Sharing access token is invalid.", "authentication_failed"),
+        )
+        self.assertEqual(
+            response_correct_token_retrieve.status_code,
+            200,
+            response_correct_token_retrieve.json(),
+        )
+        self.assertLessEqual({"name": "Foobar"}.items(), response_correct_token_retrieve.json().items())
         # Below checks that the deleted insight and non-deleted insight whose tile is deleted are not be retrievable
         # Also, the text tile should not affect things
-        assert response_correct_token_list.status_code == 200, response_correct_token_list.json()
-        assert response_correct_token_list.json()["count"] == 1
+        self.assertEqual(
+            response_correct_token_list.status_code,
+            200,
+            response_correct_token_list.json(),
+        )
+        self.assertEqual(response_correct_token_list.json()["count"], 1)
 
     def test_logged_out_user_cannot_retrieve_insight_with_correct_deleted_dashboard_sharing_access_token(self) -> None:
         self.client.logout()
@@ -2415,8 +2505,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/?sharing_access_token={sharing_configuration.access_token}",
         )
 
-        assert response_correct_token_list.status_code == 200, response_correct_token_list.json()
-        assert response_correct_token_list.json()["count"] == 0
+        self.assertEqual(
+            response_correct_token_list.status_code,
+            200,
+            response_correct_token_list.json(),
+        )
+        self.assertEqual(response_correct_token_list.json()["count"], 0)
 
     def test_insight_trends_csv(self) -> None:
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -2431,13 +2525,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         lines = response.content.splitlines()
 
-        assert lines[0] == b"http://localhost:8010/insights/test123/", lines[0]
-        assert (
-            lines[1]
-            == b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012"
-        ), lines[0]
-        assert lines[2] == b"test custom,0,0,0,0,0,0,2,1"
-        assert len(lines) == 3, response.content
+        self.assertEqual(lines[0], b"http://localhost:8010/insights/test123/", lines[0])
+        self.assertEqual(
+            lines[1],
+            b"series,8-Jan-2012,9-Jan-2012,10-Jan-2012,11-Jan-2012,12-Jan-2012,13-Jan-2012,14-Jan-2012,15-Jan-2012",
+            lines[0],
+        )
+        self.assertEqual(lines[2], b"test custom,0,0,0,0,0,0,2,1")
+        self.assertEqual(len(lines), 3, response.content)
 
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
@@ -2462,13 +2557,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"insight_ids": [insight.id]},
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         created_insight_viewed = InsightViewed.objects.all()[0]
-        assert created_insight_viewed.insight == insight
-        assert created_insight_viewed.team == self.team
-        assert created_insight_viewed.user == self.user
-        assert created_insight_viewed.last_viewed_at == datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(created_insight_viewed.insight, insight)
+        self.assertEqual(created_insight_viewed.team, self.team)
+        self.assertEqual(created_insight_viewed.user, self.user)
+        self.assertEqual(
+            created_insight_viewed.last_viewed_at,
+            datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
+        )
 
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -2482,18 +2580,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/viewed",
                 {"insight_ids": [insight.id]},
             )
-            assert response.status_code == status.HTTP_201_CREATED
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         with freeze_time("2022-03-23T00:00:00.000Z"):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/insights/viewed",
                 {"insight_ids": [insight.id]},
             )
-            assert response.status_code == status.HTTP_201_CREATED
-            assert InsightViewed.objects.count() == 1
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(InsightViewed.objects.count(), 1)
 
             updated_insight_viewed = InsightViewed.objects.all()[0]
-            assert updated_insight_viewed.last_viewed_at == datetime(2022, 3, 23, 0, 0, tzinfo=ZoneInfo("UTC"))
+            self.assertEqual(
+                updated_insight_viewed.last_viewed_at,
+                datetime(2022, 3, 23, 0, 0, tzinfo=ZoneInfo("UTC")),
+            )
 
     def test_cant_view_insight_viewed_for_insight_in_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -2509,8 +2610,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"insight_ids": [insight.id]},
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
-        assert InsightViewed.objects.count() == 0
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), 0)
 
     def test_get_recently_viewed_insights(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
@@ -2524,7 +2625,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response_data = response.json()
 
         # No results if no insights have been viewed
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id]
 
     def test_get_recently_viewed_insights_include_query_based_insights(self) -> None:
@@ -2570,7 +2671,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
 
     def test_recently_viewed_insights_ordered_by_view_date(self) -> None:
@@ -2608,7 +2709,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response_data = response.json()
 
         # Insights are ordered by most recently viewed
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
 
         self.client.post(
@@ -2620,7 +2721,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response_data = response.json()
 
         # Order updates when an insight is viewed again
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id, insight_2_id]
 
     def test_get_recent_insights_with_feature_flag(self) -> None:
@@ -2653,11 +2754,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=insight-with-flag-used")
         response_data = response.json()
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         ids_in_response = [r["id"] for r in response_data["results"]]
         # insight 3 is not included in response
-        assert Counter(ids_in_response) == Counter([insight.id, insight2.id])
+        self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
 
     def test_get_recent_insights_with_feature_flag_query_based(self) -> None:
         """Query-based insights store breakdown config in the query JSON field, not filters."""
@@ -2698,9 +2799,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=my-test-flag")
         response_data = response.json()
 
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids_in_response = [r["id"] for r in response_data["results"]]
-        assert Counter(ids_in_response) == Counter([insight_with_flag.id])
+        self.assertCountEqual(ids_in_response, [insight_with_flag.id])
 
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,
@@ -2760,20 +2861,23 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"dashboards": [dashboard_own_team.pk, dashboard_other_team.pk]},
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_hard_delete_is_forbidden(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         api_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
-        assert api_response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
-        assert self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code == status.HTTP_200_OK
+        self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_200_OK,
+        )
 
     def test_soft_delete_causes_404(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
-        assert update_response.status_code == status.HTTP_200_OK
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
@@ -2788,9 +2892,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },  # This request should work also if other fields are provided
         )
 
-        assert (
-            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code
-            == status.HTTP_404_NOT_FOUND
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
         )
 
         update_response = self.client.patch(
@@ -2800,9 +2904,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "an insight",
             },  # This request should work also if other fields are provided
         )
-        assert update_response.status_code == status.HTTP_200_OK
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        assert self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code == status.HTTP_200_OK
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_200_OK,
+        )
 
         # assert that undeletes end up in the activity log
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
@@ -2832,7 +2939,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/{other_insight.id}",
             {"deleted": False},
         )
-        assert other_update_response.status_code == status.HTTP_404_NOT_FOUND
+        self.assertEqual(other_update_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cancel_running_query(self) -> None:
         # There is no good way of writing a test that tests this without it being very slow
@@ -2841,7 +2948,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/cancel",
             {"client_query_id": f"testid"},
         )
-        assert response.status_code == 201, response.content
+        self.assertEqual(response.status_code, 201, response.content)
 
     def test_including_query_id_does_not_affect_cache_key(self) -> None:
         """
@@ -2887,7 +2994,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 data={"events": json.dumps([{"id": "$pageview"}])},
             )
             found_data_points = response.json()["result"][0]["count"]
-            assert found_data_points == 25
+            self.assertEqual(found_data_points, 25)
 
             # test trends global property filter
             response = self.client.get(
@@ -2908,9 +3015,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ),
                 },
             )
-            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             found_data_points = response.json()["result"][0]["count"]
-            assert found_data_points == 14
+            self.assertEqual(found_data_points, 14)
 
             # test trends global property filter with a disallowed placeholder
             response_placeholder = self.client.get(
@@ -2924,8 +3031,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     ),
                 },
             )
-            assert response_placeholder.status_code == status.HTTP_400_BAD_REQUEST, response_placeholder.json()
-            assert response_placeholder.json() == self.validation_error_response("Unresolved placeholder: {team_id}")
+            self.assertEqual(
+                response_placeholder.status_code,
+                status.HTTP_400_BAD_REQUEST,
+                response_placeholder.json(),
+            )
+            self.assertEqual(
+                response_placeholder.json(),
+                self.validation_error_response("Unresolved placeholder: {team_id}"),
+            )
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries
@@ -2966,7 +3080,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             )
             found_data_points = response.json()["result"][0]["count"]
-            assert found_data_points == 10
+            self.assertEqual(found_data_points, 10)
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries
@@ -2991,10 +3105,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             )
             result = response.json()["result"]
-            assert result[0]["count"] == 15
-            assert result[0]["breakdown_value"] == "more"
-            assert result[1]["count"] == 10
-            assert result[1]["breakdown_value"] == "le%ss"
+            self.assertEqual(result[0]["count"], 15)
+            self.assertEqual(result[0]["breakdown_value"], "more")
+            self.assertEqual(result[1]["count"], 10)
+            self.assertEqual(result[1]["breakdown_value"], "le%ss")
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
@@ -3039,14 +3153,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_json = response.json()
-            assert len(response_json["result"]) == 2
-            assert response_json["result"][0]["name"] == "user signed up"
-            assert response_json["result"][0]["count"] == 1
-            assert response_json["result"][1]["name"] == "user did things"
-            assert response_json["result"][1]["count"] == 0
-            assert response_json["timezone"] == "UTC"
+            self.assertEqual(len(response_json["result"]), 2)
+            self.assertEqual(response_json["result"][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0]["count"], 1)
+            self.assertEqual(response_json["result"][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][1]["count"], 0)
+            self.assertEqual(response_json["timezone"], "UTC")
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
@@ -3111,14 +3225,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_json = response.json()
-            assert len(response_json["result"]) == 2
-            assert response_json["result"][0]["name"] == "user signed up"
-            assert response_json["result"][0]["count"] == 1
-            assert response_json["result"][1]["name"] == "user did things"
-            assert response_json["result"][1]["count"] == 0
-            assert response_json["timezone"] == "UTC"
+            self.assertEqual(len(response_json["result"]), 2)
+            self.assertEqual(response_json["result"][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0]["count"], 1)
+            self.assertEqual(response_json["result"][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][1]["count"], 0)
+            self.assertEqual(response_json["timezone"], "UTC")
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
@@ -3161,19 +3275,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             response_json = response.json()
-            assert len(response_json["result"]) == 1
-            assert len(response_json["result"][0]) == 2
-            assert response_json["result"][0][0]["name"] == "user signed up"
-            assert response_json["result"][0][0]["count"] == 1
-            assert response_json["result"][0][0]["breakdown"] == ["there is no fish"]
-            assert response_json["result"][0][0]["breakdown_value"] == ["there is no fish"]
-            assert response_json["result"][0][1]["name"] == "user did things"
-            assert response_json["result"][0][1]["count"] == 0
-            assert response_json["result"][0][1]["breakdown"] == ["there is no fish"]
-            assert response_json["result"][0][1]["breakdown_value"] == ["there is no fish"]
-            assert response_json["timezone"] == "UTC"
+            self.assertEqual(len(response_json["result"]), 1)
+            self.assertEqual(len(response_json["result"][0]), 2)
+            self.assertEqual(response_json["result"][0][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0][0]["count"], 1)
+            self.assertEqual(response_json["result"][0][0]["breakdown"], ["there is no fish"])
+            self.assertEqual(response_json["result"][0][0]["breakdown_value"], ["there is no fish"])
+            self.assertEqual(response_json["result"][0][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][0][1]["count"], 0)
+            self.assertEqual(response_json["result"][0][1]["breakdown"], ["there is no fish"])
+            self.assertEqual(response_json["result"][0][1]["breakdown_value"], ["there is no fish"])
+            self.assertEqual(response_json["timezone"], "UTC")
 
     # @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
@@ -3216,19 +3330,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_window_days": 14,
                 },
             )
-            assert response.status_code == status.HTTP_200_OK, response.json()
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
             response_json = response.json()
-            assert len(response_json["result"]) == 1
-            assert len(response_json["result"][0]) == 2
-            assert response_json["result"][0][0]["name"] == "user signed up"
-            assert response_json["result"][0][0]["count"] == 1
-            assert response_json["result"][0][0]["breakdown"] == ["there is no fish"]
-            assert response_json["result"][0][0]["breakdown_value"] == ["there is no fish"]
-            assert response_json["result"][0][1]["name"] == "user did things"
-            assert response_json["result"][0][1]["count"] == 0
-            assert response_json["result"][0][1]["breakdown"] == ["there is no fish"]
-            assert response_json["result"][0][1]["breakdown_value"] == ["there is no fish"]
-            assert response_json["timezone"] == "UTC"
+            self.assertEqual(len(response_json["result"]), 1)
+            self.assertEqual(len(response_json["result"][0]), 2)
+            self.assertEqual(response_json["result"][0][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0][0]["count"], 1)
+            self.assertEqual(response_json["result"][0][0]["breakdown"], ["there is no fish"])
+            self.assertEqual(response_json["result"][0][0]["breakdown_value"], ["there is no fish"])
+            self.assertEqual(response_json["result"][0][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][0][1]["count"], 0)
+            self.assertEqual(response_json["result"][0][1]["breakdown"], ["there is no fish"])
+            self.assertEqual(response_json["result"][0][1]["breakdown_value"], ["there is no fish"])
+            self.assertEqual(response_json["timezone"], "UTC")
 
     def test_insight_funnels_hogql_aggregating_steps(self) -> None:
         with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -3282,14 +3396,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_viz_type": "steps",
                 },
             )
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_json = response.json()
-            assert len(response_json["result"]) == 2
-            assert response_json["result"][0]["name"] == "user signed up"
-            assert response_json["result"][0]["count"] == 2
-            assert response_json["result"][1]["name"] == "user did things"
-            assert response_json["result"][1]["count"] == 1
-            assert response_json["timezone"] == "UTC"
+            self.assertEqual(len(response_json["result"]), 2)
+            self.assertEqual(response_json["result"][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0]["count"], 2)
+            self.assertEqual(response_json["result"][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][1]["count"], 1)
+            self.assertEqual(response_json["timezone"], "UTC")
 
     @skip("Compatibility issue CH 23.12 (see #21318)")
     def test_insight_funnels_hogql_aggregating_time_to_convert(self) -> None:
@@ -3349,11 +3463,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "date_to": None,
                 },
             )
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_json = response.json()
-            assert response_json["result"]["bins"] == [[4.0, 1], [64.0, 0]]
-            assert response_json["result"]["average_conversion_time"] == 4.0
-            assert response_json["timezone"] == "UTC"
+            self.assertEqual(response_json["result"]["bins"], [[4.0, 1], [64.0, 0]])
+            self.assertEqual(response_json["result"]["average_conversion_time"], 4.0)
+            self.assertEqual(response_json["timezone"], "UTC")
 
     def test_insight_funnels_hogql_aggregating_trends(self) -> None:
         with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -3400,31 +3514,40 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "funnel_viz_type": "trends",
                 },
             )
-            assert response.status_code == status.HTTP_200_OK
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_json = response.json()
-            assert len(response_json["result"]) == 1
-            assert response_json["result"][0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0]
-            assert response_json["result"][0]["days"] == [
-                "2012-01-09",
-                "2012-01-10",
-                "2012-01-11",
-                "2012-01-12",
-                "2012-01-13",
-                "2012-01-14",
-                "2012-01-15",
-                "2012-01-16",
-            ]
-            assert response_json["result"][0]["labels"] == [
-                "9-Jan-2012",
-                "10-Jan-2012",
-                "11-Jan-2012",
-                "12-Jan-2012",
-                "13-Jan-2012",
-                "14-Jan-2012",
-                "15-Jan-2012",
-                "16-Jan-2012",
-            ]
-            assert response_json["timezone"] == "UTC"
+            self.assertEqual(len(response_json["result"]), 1)
+            self.assertEqual(
+                response_json["result"][0]["data"],
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0],
+            )
+            self.assertEqual(
+                response_json["result"][0]["days"],
+                [
+                    "2012-01-09",
+                    "2012-01-10",
+                    "2012-01-11",
+                    "2012-01-12",
+                    "2012-01-13",
+                    "2012-01-14",
+                    "2012-01-15",
+                    "2012-01-16",
+                ],
+            )
+            self.assertEqual(
+                response_json["result"][0]["labels"],
+                [
+                    "9-Jan-2012",
+                    "10-Jan-2012",
+                    "11-Jan-2012",
+                    "12-Jan-2012",
+                    "13-Jan-2012",
+                    "14-Jan-2012",
+                    "15-Jan-2012",
+                    "16-Jan-2012",
+                ],
+            )
+            self.assertEqual(response_json["timezone"], "UTC")
 
     def test_insight_with_filters_via_hogql(self) -> None:
         filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}
@@ -3437,15 +3560,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # fresh response
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 0, 0]
-        assert not response.json()["is_cached"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertFalse(response.json()["is_cached"])
 
         # cached response
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=false&use_cache=true")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["result"][0]["data"] == [0, 0, 0, 0, 0, 0, 0, 0]
-        assert response.json()["is_cached"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertTrue(response.json()["is_cached"])
 
     def test_insight_returns_cached_hogql(self) -> None:
         insight = Insight.objects.create(
@@ -3476,17 +3599,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         ).json()
 
-        assert "code" not in response  # Watching out for an error code
-        assert response["results"][0]["last_refresh"] is None
-        assert response["results"][0]["hogql"] is None
+        self.assertNotIn("code", response)  # Watching out for an error code
+        self.assertEqual(response["results"][0]["last_refresh"], None)
+        self.assertIsNone(response["results"][0]["hogql"])
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights",
             data={"short_id": insight.short_id, "refresh": "true"},
         ).json()
 
-        assert "code" not in response
-        assert response["results"][0]["hogql"] is not None
+        self.assertNotIn("code", response)
+        self.assertIsNotNone(response["results"][0]["hogql"])
 
     def test_insight_returns_cached_types(self) -> None:
         insight = Insight.objects.create(
@@ -3512,17 +3635,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         ).json()
 
-        assert "code" not in response
-        assert response["results"][0]["last_refresh"] is None
-        assert response["results"][0]["types"] is None
+        self.assertNotIn("code", response)
+        self.assertEqual(response["results"][0]["last_refresh"], None)
+        self.assertIsNone(response["results"][0]["types"])
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights",
             data={"short_id": insight.short_id, "refresh": "true"},
         ).json()
 
-        assert "code" not in response
-        assert response["results"][0]["types"] is not None
+        self.assertNotIn("code", response)
+        self.assertIsNotNone(response["results"][0]["types"])
 
     def test_insight_variables_overrides(self):
         dashboard = Dashboard.objects.create(
@@ -3675,17 +3798,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Verify we can access visible insights
         self.client.force_login(user2)
         response = self.client.get(f"/api/projects/{self.team.pk}/insights/")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         insight_ids = [insight["id"] for insight in response.json()["results"]]
-        assert visible_insight.id in insight_ids
-        assert hidden_insight.id not in insight_ids
+        self.assertIn(visible_insight.id, insight_ids)
+        self.assertNotIn(hidden_insight.id, insight_ids)
 
         # Verify we can access all insights as creator
         self.client.force_login(self.user)
         response = self.client.get(f"/api/projects/{self.team.pk}/insights/")
-        assert response.status_code == status.HTTP_200_OK
-        assert visible_insight.id in [insight["id"] for insight in response.json()["results"]]
-        assert hidden_insight.id in [insight["id"] for insight in response.json()["results"]]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
+        self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
 
     def test_insight_activity_respects_access_control(self) -> None:
         self.organization.available_product_features = [
@@ -3706,10 +3829,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.force_login(user2)
 
         retrieve_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/")
-        assert retrieve_response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
 
         activity_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/activity/")
-        assert activity_response.status_code == status.HTTP_403_FORBIDDEN
+        self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_create_insight_in_specific_folder(self):
         response = self.client.post(
@@ -3722,7 +3845,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             format="json",
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         insight_id = response.json()["short_id"]
 
         assert insight_id is not None
@@ -3758,34 +3881,34 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, 200)
 
         response_data = response.json()
-        assert "query" in response_data
-        assert "source" in response_data["query"]
-        assert "variables" in response_data["query"]["source"]
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
 
         # only one variable should be included
-        assert len(response_data["query"]["source"]["variables"]) == 0
+        self.assertEqual(len(response_data["query"]["source"]["variables"]), 0)
 
         variable = InsightVariable.objects.create(team=self.team, code_name="test_var", name="Test Variable")
 
         # # Get the insight via the API
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, 200)
 
         # # Verify both variables are properly included in the response
         response_data = response.json()
-        assert "query" in response_data
-        assert "source" in response_data["query"]
-        assert "variables" in response_data["query"]["source"]
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
 
         # # Check that the variable properties are included
         variable_id = str(variable.id)
-        assert variable_id in response_data["query"]["source"]["variables"]
+        self.assertIn(variable_id, response_data["query"]["source"]["variables"])
         variable_data = response_data["query"]["source"]["variables"][variable_id]
-        assert variable_data["code_name"] == "test_var"
-        assert variable_data["variableId"] == variable_id
+        self.assertEqual(variable_data["code_name"], "test_var")
+        self.assertEqual(variable_data["variableId"], variable_id)
 
     def test_list_insights_with_short_id_includes_all_if_admin(self) -> None:
         """
@@ -3827,24 +3950,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Test 1: Regular user should not see blocked insight in regular list
         response = self.client.get(f"/api/projects/{self.team.id}/insights/")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         insight_ids = [insight["id"] for insight in results]
-        assert accessible_insight.id in insight_ids
-        assert blocked_insight.id not in insight_ids
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
 
         # Test 2: Regular user should not see blocked insight even with short_id
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
-        assert len(results) == 0  # Should be filtered out
+        self.assertEqual(len(results), 0)  # Should be filtered out
 
         # Test 3: Regular user should see accessible insight with short_id
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["id"] == accessible_insight.id
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
 
         # Test 4: Organization admin should see all insights regardless of access controls
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -3852,27 +3975,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Admin should see only accessible insight in regular list
         response = self.client.get(f"/api/projects/{self.team.id}/insights/")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         insight_ids = [insight["id"] for insight in results]
-        assert accessible_insight.id in insight_ids
-        assert blocked_insight.id not in insight_ids
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
 
         # Admin should see blocked insight with short_id (include_all_if_admin=True)
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["id"] == blocked_insight.id
-        assert results[0]["short_id"] == blocked_insight_short_id
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], blocked_insight.id)
+        self.assertEqual(results[0]["short_id"], blocked_insight_short_id)
 
         # Admin should see accessible insight with short_id
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
-        assert response.status_code == status.HTTP_200_OK
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["id"] == accessible_insight.id
-        assert results[0]["short_id"] == accessible_insight_short_id
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+        self.assertEqual(results[0]["short_id"], accessible_insight_short_id)
 
     def test_dashboard_breakdown_filter_migration(self):
         """Test that dashboard breakdown filters work with retention queries and single breakdowns"""
@@ -3914,23 +4037,23 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
         )
 
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, 200)
         response_data = response.json()
 
-        assert response_data["id"] == insight.id
-        assert response_data["name"] == "Test Retention Insight"
+        self.assertEqual(response_data["id"], insight.id)
+        self.assertEqual(response_data["name"], "Test Retention Insight")
 
-        assert "query" in response_data
+        self.assertIn("query", response_data)
         query_data = response_data["query"]
-        assert query_data["kind"] == "RetentionQuery"
+        self.assertEqual(query_data["kind"], "RetentionQuery")
 
         # Verify breakdown filter is applied correctly
-        assert "breakdownFilter" in query_data
+        self.assertIn("breakdownFilter", query_data)
         breakdown_filter = query_data["breakdownFilter"]
 
         # Should have the single breakdown applied
-        assert breakdown_filter.get("breakdown") == "browser"
-        assert breakdown_filter.get("breakdown_type") == "person"
+        self.assertEqual(breakdown_filter.get("breakdown"), "browser")
+        self.assertEqual(breakdown_filter.get("breakdown_type"), "person")
 
     def test_updating_query_updates_query_metadata(self):
         """
@@ -3958,7 +4081,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # Initial query metadata should not be empty
-        assert insight.query_metadata is not None
+        self.assertIsNotNone(insight.query_metadata)
         initial_metadata = insight.query_metadata.copy() if insight.query_metadata is not None else None
 
         # update the query for the insight
@@ -3984,8 +4107,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Query metadata should be updated
         updated_metadata = insight.query_metadata
-        assert updated_metadata is not None
-        assert initial_metadata != updated_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertNotEqual(initial_metadata, updated_metadata)
 
     def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
         """
@@ -4013,7 +4136,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # Initial query metadata should not be empty
-        assert insight.query_metadata is not None
+        self.assertIsNotNone(insight.query_metadata)
         initial_metadata = insight.query_metadata.copy() if insight.query_metadata is not None else None
 
         # update the name for the insight without changing the query
@@ -4023,8 +4146,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Query metadata should remain unchanged
         updated_metadata = insight.query_metadata
-        assert updated_metadata is not None
-        assert initial_metadata == updated_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertEqual(initial_metadata, updated_metadata)
 
     def test_funnel_breakdown_override(self):
         _create_person(team=self.team, distinct_ids=["person_1"])
@@ -4080,18 +4203,18 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
         )
 
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, 200)
         response_data = response.json()
         query_source = response_data["query"]["source"]
 
         # Verify breakdown filter is applied correctly
         breakdown_filter = query_source["breakdownFilter"]
-        assert breakdown_filter.get("breakdown") == "$browser"
-        assert breakdown_filter.get("breakdown_type") == "event"
+        self.assertEqual(breakdown_filter.get("breakdown"), "$browser")
+        self.assertEqual(breakdown_filter.get("breakdown_type"), "event")
 
         # Verify the breakdown filter is applied in the result
-        assert "result" in response_data
-        assert response_data["result"][0][0]["breakdown"] == ["Chrome"]
+        self.assertIn("result", response_data)
+        self.assertEqual(response_data["result"][0][0]["breakdown"], ["Chrome"])
 
 
 class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
@@ -4129,8 +4252,8 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/?refresh=blocking")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert error_message in str(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
 
     @parameterized.expand(
         [
@@ -4161,8 +4284,8 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             data={"events": json.dumps([{"id": "$pageview"}])},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert error_message in str(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))
 
     @parameterized.expand(
         [
@@ -4193,5 +4316,5 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
             data={"events": json.dumps([{"id": "$pageview"}, {"id": "$pageleave"}])},
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert error_message in str(response.json())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(error_message, str(response.json()))

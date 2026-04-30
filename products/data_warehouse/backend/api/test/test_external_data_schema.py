@@ -198,7 +198,15 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert payload == {
             "incremental_fields": [
-                {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                {
+                    "label": "id",
+                    "type": "integer",
+                    "field": "id",
+                    "field_type": "integer",
+                    "nullable": True,
+                    # Table has no index on `id`, so the warning UI will fire for this field.
+                    "is_indexed": False,
+                }
             ],
             "incremental_available": True,
             "append_available": True,

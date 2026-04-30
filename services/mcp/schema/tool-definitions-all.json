@@ -1273,6 +1273,36 @@
             "readOnlyHint": true
         }
     },
+    "evaluation-config-get": {
+        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation config",
+        "title": "Get evaluation config",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-config-set-active-key": {
+        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from the PostHog UI before retrying.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Set active evaluation provider key",
+        "title": "Set active evaluation provider key",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "evaluation-create": {
         "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
         "category": "LLM analytics",
@@ -1309,6 +1339,21 @@
         "feature": "llm_analytics",
         "summary": "Get evaluation",
         "title": "Get evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-judge-models": {
+        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List supported llm_judge models",
+        "title": "List supported llm_judge models",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
         "annotations": {
@@ -1513,7 +1558,7 @@
         }
     },
     "execute-sql": {
-        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the posthog-query-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.",
+        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.",
         "category": "SQL",
         "feature": "sql",
         "summary": "Execute an SQL query.",
@@ -2321,7 +2366,7 @@
         }
     },
     "hogql-schema": {
-        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost.",
+        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost. Pass 'connectionId' to introspect a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
         "category": "Insights & analytics",
         "summary": "List tables and columns available to HogQL queries.",
         "feature": "insights",
@@ -3522,7 +3567,7 @@
         "system_prompt_hint": "User return patterns over time"
     },
     "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps.",
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps. To target a Postgres or DuckDB direct-query data warehouse source instead of ClickHouse, set 'connectionId' on a HogQLQuery (call external-data-sources-list to discover ids).",
         "category": "Insights & analytics",
         "summary": "Run a trend, funnel, paths or HogQL query.",
         "feature": "insights",
@@ -3601,7 +3646,7 @@
         "system_prompt_hint": "List persons behind a trends data point"
     },
     "query-validate": {
-        "description": "Dry-run a HogQL query: parse and type-check it without executing, so there is no ClickHouse cost and no 202 polling. Returns structured errors (with character positions), warnings, notices, and the list of tables the query references. Use this before 'query-run' on any non-trivial HogQL to catch column typos, missing tables, and syntax issues up front instead of iterating on opaque execution errors. Accepts the same language values as the HogQL editor: 'hogQL' (default, full SELECT), 'hogQLExpr' (bare expression), 'hog', or 'hogTemplate'.",
+        "description": "Dry-run a HogQL query: parse and type-check it without executing, so there is no ClickHouse cost and no 202 polling. Returns structured errors (with character positions), warnings, notices, and the list of tables the query references. Use this before 'query-run' on any non-trivial HogQL to catch column typos, missing tables, and syntax issues up front instead of iterating on opaque execution errors. Accepts the same language values as the HogQL editor: 'hogQL' (default, full SELECT), 'hogQLExpr' (bare expression), 'hog', or 'hogTemplate'. Pass 'connectionId' to validate against a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
         "category": "Insights & analytics",
         "summary": "Validate a HogQL query without executing it.",
         "feature": "insights",

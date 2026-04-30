@@ -2335,7 +2335,16 @@ class TestExternalDataSource(APIBaseTest):
                     "description": None,
                     "rows": None,
                     "incremental_fields": [
-                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                        {
+                            "label": "id",
+                            "type": "integer",
+                            "field": "id",
+                            "field_type": "integer",
+                            "nullable": True,
+                            # Index lookup raises against the mocked pg_connection (object())
+                            # and falls back to the no-warning default (is_indexed=True).
+                            "is_indexed": True,
+                        }
                     ],
                     "incremental_available": True,
                     "append_available": True,
@@ -2393,7 +2402,16 @@ class TestExternalDataSource(APIBaseTest):
                     "description": None,
                     "rows": None,
                     "incremental_fields": [
-                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                        {
+                            "label": "id",
+                            "type": "integer",
+                            "field": "id",
+                            "field_type": "integer",
+                            "nullable": True,
+                            # Index lookup raises against the mocked pg_connection (object())
+                            # and falls back to the no-warning default (is_indexed=True).
+                            "is_indexed": True,
+                        }
                     ],
                     "incremental_available": True,
                     "append_available": True,

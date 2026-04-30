@@ -487,7 +487,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "team_id": self.context.team_id,
                     },
                 )
-            await self._update_task_run_status("cancelled")
+            await self._update_task_run_status("cancelled", run_id=run_id)
             if current_sandbox_id:
                 await self._cleanup_sandbox(current_sandbox_id)
                 sandbox_id = None
@@ -527,13 +527,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         **self._activity_error_properties(e),
                     },
                 )
-                await self._update_task_run_status("failed", error_message=error_message)
+            await self._update_task_run_status("failed", error_message=error_message, run_id=run_id)
+            if self._context:
                 await self._post_slack_update()
 
             return ProcessTaskOutput(
                 success=False,
                 task_result=None,
-                error=str(e),
+                error=error_message,
                 sandbox_id=current_sandbox_id,
             )
 
@@ -766,11 +767,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 error=str(e),
             )
 
-    async def _update_task_run_status(self, status: str, error_message: Optional[str] = None) -> None:
+    async def _update_task_run_status(
+        self, status: str, error_message: Optional[str] = None, run_id: Optional[str] = None
+    ) -> None:
         await workflow.execute_activity(
             update_task_run_status,
             UpdateTaskRunStatusInput(
-                run_id=self.context.run_id,
+                run_id=run_id if run_id is not None else self.context.run_id,
                 status=status,
                 error_message=error_message,
             ),

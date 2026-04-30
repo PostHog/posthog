@@ -310,6 +310,23 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
     ctx.stroke()
 }
 
+export function drawCrosshair(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    x: number,
+    color: string
+): void {
+    // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
+    const lineX = Math.round(x) + 0.5
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(lineX, dimensions.plotTop)
+    ctx.lineTo(lineX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
+}
+
 export function drawHighlightPoint(
     ctx: CanvasRenderingContext2D,
     x: number,

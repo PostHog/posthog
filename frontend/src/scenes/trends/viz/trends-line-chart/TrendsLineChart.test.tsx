@@ -1,14 +1,15 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { createTooltipAccessor } from '~/test/insight-testing/tooltip-helpers'
-import { ChartDisplayType } from '~/types'
+import { AnnotationScope, ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
 
@@ -88,6 +89,28 @@ describe('TrendsLineChart', () => {
 
             expect(tooltip.row('Current')).toContain('134')
             expect(tooltip.row('Previous')).toContain('100')
+        })
+
+        it('uses context.formatCompareLabel to override Current/Previous in compare mode', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    compareFilter: { compare: true },
+                }),
+                context: {
+                    formatCompareLabel: (label) => (label === 'current' ? 'This week' : 'Last week'),
+                },
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            expect(tooltip.row('This week')).toContain('134')
+            expect(tooltip.row('Last week')).toContain('100')
+            expect(tooltip.element.textContent).not.toContain('Current')
         })
 
         it('formats values as percentages in percent stack view', async () => {
@@ -199,6 +222,226 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('annotations', () => {
+        it('renders an annotation badge when an annotation exists', async () => {
+            renderInsight({
+                query: buildTrendsQuery(),
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Hedgehog spotted',
+                            date_marker: '2024-06-12T12:00:00Z',
+                        }),
+                    ],
+                },
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                const badges = document.querySelectorAll('.AnnotationsBadge')
+                expect(badges.length).toBeGreaterThan(0)
+            })
+        })
+
+        it('does not render annotations when inSharedMode is true', async () => {
+            renderInsight({
+                query: buildTrendsQuery(),
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Hidden in shared mode',
+                            date_marker: '2024-06-12T12:00:00Z',
+                        }),
+                    ],
+                },
+                inSharedMode: true,
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
+        })
+    })
+
+    describe('tooltip date title', () => {
+        it('shows the hovered day in the tooltip title row', async () => {
+            renderInsight({
+                query: buildTrendsQuery({ interval: 'day' }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            // Wednesday is the third day (index 2) in our pageview fixture (2024-06-12).
+            expect(tooltip.title()).toMatch(/Wednesday/i)
+            expect(tooltip.title()).toMatch(/12.+Jun/)
+        })
+    })
+
+    describe('tooltip pin lifecycle', () => {
+        it.each([
+            {
+                trigger: 'Escape key press',
+                unpin: async () => {
+                    fireEvent.keyDown(document, { key: 'Escape' })
+                },
+            },
+            {
+                trigger: 'click outside the chart',
+                unpin: async () => {
+                    // The chart attaches its outside-click listener via setTimeout(0); flush
+                    // first so the listener actually intercepts the click.
+                    await new Promise((resolve) => setTimeout(resolve, 5))
+                    const outside = document.body.appendChild(document.createElement('div'))
+                    fireEvent.click(outside)
+                    outside.remove()
+                },
+            },
+        ])('unpins on $trigger', async ({ unpin }) => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+            expect(chart.getTooltip()).toBeInTheDocument()
+
+            await unpin()
+
+            await waitFor(() => {
+                expect(chart.getTooltip()).not.toBeInTheDocument()
+            })
+        })
+    })
+
+    describe('log y-scale', () => {
+        it('renders without crashing when series contain zero values', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    trendsFilter: { yAxisScaleType: 'log10' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+            expect(tooltip.row('ActiveSeries')).toContain('3')
+            expect(tooltip.row('EmptySeries')).toContain('0')
+        })
+    })
+
+    describe('confidence intervals overlay', () => {
+        beforeEach(() => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { showConfidenceIntervals: true, confidenceLevel: 95 },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+        })
+
+        it('adds a CI band series when enabled', async () => {
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+        })
+
+        it('omits the CI series from tooltip rows', async () => {
+            const tooltip = await chart.hoverTooltip(2)
+
+            expect(tooltip.row('Pageview')).toContain('134')
+            expect(tooltip.element.textContent).not.toContain('(CI)')
+        })
+    })
+
+    describe('trend lines overlay', () => {
+        beforeEach(() => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { showTrendLines: true },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+        })
+
+        it('adds a dashed trend-line series when enabled', async () => {
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+        })
+
+        it('omits the trend-line series from tooltip rows', async () => {
+            const tooltip = await chart.hoverTooltip(2)
+
+            expect(tooltip.row('Pageview')).toContain('134')
+            // The trend-line carries the same series label; only the main
+            // row should appear, so there must be exactly one row matching.
+            const rows = Array.from(tooltip.element.querySelectorAll('tr')).filter((r) =>
+                r.textContent?.includes('Pageview')
+            )
+            expect(rows).toHaveLength(1)
+        })
+    })
+
+    describe('trend lines + moving average', () => {
+        it('renders separate trend lines for the raw and moving-average series', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: {
+                        showTrendLines: true,
+                        showMovingAverage: true,
+                        movingAverageIntervals: 3,
+                    },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            // main + raw trendline + moving avg + moving-avg trendline = 4 series.
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+            })
+        })
+    })
+
+    describe('empty state', () => {
+        it('renders InsightEmptyState when all series are zero', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            })
+            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+        })
+
+        it('uses context.emptyStateHeading override when provided', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
+                }),
+                context: { emptyStateHeading: 'Nothing to see here, hedgehog' },
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Nothing to see here, hedgehog')).toBeInTheDocument()
+            })
+        })
+    })
+
     describe('click → persons modal', () => {
         it('single series: direct click shows the actors for the clicked day', async () => {
             renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
@@ -245,6 +488,42 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 expect(personsModal.actorNames()).toEqual(expectedActors)
             })
+        })
+
+        it('fires context.onDataPointClick instead of opening the persons modal', async () => {
+            const onDataPointClick = jest.fn()
+            renderInsight({
+                query: buildTrendsQuery(),
+                context: { onDataPointClick },
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+
+            await waitFor(() => {
+                expect(onDataPointClick).toHaveBeenCalledTimes(1)
+            })
+            const [seriesArg] = onDataPointClick.mock.calls[0]
+            expect(seriesArg.day).toBe('2024-06-12')
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
+
+        it('does nothing when there is no persons modal and no onDataPointClick', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { formula: 'A + B' },
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                    ],
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+
+            // Without a click handler the canvas still renders; clicking is a no-op.
+            expect(personsModal.get()).not.toBeInTheDocument()
         })
     })
 })

@@ -25,7 +25,7 @@ from pydantic import (
     ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
@@ -60,6 +60,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -1224,10 +1225,11 @@ class InsightViewSet(
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
 
+    def _is_basic_request(self) -> bool:
+        return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0")
-        ):
+        if self._is_basic_request():
             return InsightBasicSerializer
         if self.action in ("create", "partial_update") and self._is_mcp_request(self.request):
             return MCPInsightSerializer
@@ -1266,28 +1268,46 @@ class InsightViewSet(
         if not include_deleted:
             queryset = queryset.exclude(deleted=True)
 
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                # TODO deprecate this field entirely
-                "dashboards",
-                queryset=Dashboard.objects.all().select_related("team__organization"),
-            ),
-            Prefetch(
-                "dashboard_tiles",
-                queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
-            ),
-            Prefetch(
-                "alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
-                to_attr="_prefetched_alerts",
-            ),
-        )
+        # InsightBasicSerializer skips alerts and only needs PKs from dashboards plus
+        # (id, dashboard_id, deleted) from tiles, so the heavy team→organization joins
+        # the full serializer relies on are pure waste on the basic path.
+        is_basic = self._is_basic_request()
+
+        if is_basic:
+            queryset = queryset.prefetch_related(
+                Prefetch("dashboards", queryset=Dashboard.objects.only("id")),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
+                ),
+            )
+        else:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    # TODO deprecate this field entirely
+                    "dashboards",
+                    queryset=Dashboard.objects.all().select_related("team__organization"),
+                ),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
+                ),
+                Prefetch(
+                    "alertconfiguration_set",
+                    queryset=AlertConfiguration.objects.select_related("created_by"),
+                    to_attr="_prefetched_alerts",
+                ),
+            )
 
         # Add access level filtering for list actions if not sharing access token
         if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             queryset = self._filter_queryset_by_access_level(queryset)
 
-        queryset = queryset.select_related("created_by", "last_modified_by", "team")
+        if is_basic:
+            queryset = queryset.select_related("created_by", "team")
+        else:
+            queryset = queryset.select_related("created_by", "last_modified_by", "team")
+
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
@@ -1694,10 +1714,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         query_data = request.data.get("query")
         if not query_data:
-            return Response(
-                {"error": "Missing 'query' field in request body"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError("Missing 'query' field in request body")
 
         kind = query_data.get("kind")
 
@@ -1713,18 +1730,14 @@ When set, the specified dashboard's filters and date range override will be appl
             else:
                 validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
-            return Response(
-                {"error": "Invalid query format"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError("Invalid query format")
 
         try:
             metadata = generate_insight_metadata(validated_query, self.team)
-        except Exception:
-            return Response(
-                {"error": "Failed to generate insight metadata. Please try again."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception as e:
+            capture_exception(e)
+            raise APIException("Failed to generate insight metadata. Please try again.")
+
         return Response({"name": metadata.name, "description": metadata.description})
 
     def _run_legacy_query(

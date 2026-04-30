@@ -36,6 +36,13 @@ import {
     SurveyType,
 } from '~/types'
 
+import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
+
+jest.mock('products/surveys/frontend/generated/api', () => ({
+    __esModule: true,
+    surveysGenerateTranslationsCreate: jest.fn(),
+}))
+
 const MULTIPLE_CHOICE_SURVEY: Survey = {
     id: '018b22a3-09b1-0000-2f5b-1bd8352ceec9',
     name: 'Multiple Choice survey',
@@ -179,6 +186,7 @@ describe('translation validation', () => {
 
     beforeEach(() => {
         initKeaTests()
+        jest.clearAllMocks()
         logic = surveyLogic({ id: 'new' })
         logic.mount()
     })
@@ -261,6 +269,68 @@ describe('translation validation', () => {
                 (error) => error.questionIndex === -1 && error.field === 'description'
             )
         ).toBe(false)
+    })
+
+    it('deep merges generated translation drafts without dropping manual fields', async () => {
+        const generateTranslations = surveysGenerateTranslationsCreate as jest.MockedFunction<
+            typeof surveysGenerateTranslationsCreate
+        >
+        generateTranslations.mockResolvedValue({
+            translations: { es: { thankYouMessageHeader: 'Gracias' } },
+            questions: [{ id: '__draft_question_0', translations: { es: { buttonText: 'Enviar' } } }],
+            generated_field_paths: ['translations.es.thankYouMessageHeader'],
+            trace_id: 'trace-1',
+        })
+        const survey = {
+            ...createPersistedSurvey(),
+            translations: { es: { name: 'Manual name', thankYouMessageHeader: 'Thanks' } },
+            questions: [
+                {
+                    ...createPersistedSurvey().questions[0],
+                    id: undefined,
+                    translations: { es: { question: 'Manual question' } },
+                },
+            ],
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+            logic.actions.generateTranslationDrafts('es')
+        }).toFinishAllListeners()
+
+        const requestBody = generateTranslations.mock.calls[0][2]
+        const draftSurvey = requestBody.survey as Record<string, unknown>
+        expect(requestBody).toEqual(
+            expect.objectContaining({
+                target_language: 'es',
+                overwrite: true,
+            })
+        )
+        expect(draftSurvey).toEqual(
+            expect.objectContaining({
+                name: 'Saved survey',
+                appearance: expect.objectContaining({
+                    thankYouMessageHeader: 'Thank you for your feedback!',
+                }),
+                questions: [
+                    expect.objectContaining({
+                        id: '__draft_question_0',
+                        question: 'What do you think?',
+                    }),
+                ],
+            })
+        )
+        expect(draftSurvey).not.toHaveProperty('linked_flag')
+        expect(draftSurvey).not.toHaveProperty('targeting_flag')
+        expect(logic.values.survey.translations?.es).toEqual({
+            name: 'Manual name',
+            thankYouMessageHeader: 'Gracias',
+        })
+        expect(logic.values.survey.questions[0].translations?.es).toEqual({
+            question: 'Manual question',
+            buttonText: 'Enviar',
+        })
+        expect(logic.values.aiGeneratedTranslationFields).toEqual(['translations.es.thankYouMessageHeader'])
     })
 })
 
