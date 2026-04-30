@@ -76,13 +76,6 @@ describe('trendsChartTransforms', () => {
             expect(built.main.stroke).toBeUndefined()
         })
 
-        it('assigns yAxisIds [left, y1, y2] across three results when showMultipleYAxes is true', () => {
-            const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
-            const built = buildTrendsSeries(results, { getColor: () => RED, showMultipleYAxes: true })
-
-            expect(built.map((b) => b.main.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
-        })
-
         it('attaches an empty fill object for ActionsAreaGraph display', () => {
             const built = buildMainTrendsSeries(makeResult(), 0, {
                 getColor: () => RED,
@@ -115,6 +108,15 @@ describe('trendsChartTransforms', () => {
         it('falls back to empty string label when result has none', () => {
             const built = buildMainTrendsSeries(makeResult({ label: null }), 0, { getColor: () => RED })
             expect(built.main.label).toBe('')
+        })
+    })
+
+    describe('buildTrendsSeries', () => {
+        it('assigns yAxisIds [left, y1, y2] across three results when showMultipleYAxes is true', () => {
+            const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+            const built = buildTrendsSeries(results, { getColor: () => RED, showMultipleYAxes: true })
+
+            expect(built.map((b) => b.main.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
         })
     })
 
