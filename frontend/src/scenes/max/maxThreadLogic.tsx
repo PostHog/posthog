@@ -685,18 +685,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // Cancel any next iteration
                 actions.setForAnotherAgenticIteration(false)
 
-                // Retry logic
-                async function retry(): Promise<void> {
+                // Reconnect to the existing in-progress stream without resubmitting the user's
+                // message. The stream replays all events from the beginning, so the next pass
+                // must rebuild the thread from scratch — `clearThreadOnReplay` defers that clear
+                // to the first real event so the user keeps seeing the loading indicator.
+                async function reconnect(): Promise<void> {
+                    cache.clearThreadOnReplay = true
                     await breakpoint(1000 * (generationAttempt + 1))
-                    // Need to decrement the active streaming threads here, as we exit early.
                     actions.decrActiveStreamingThreads()
                     actions.streamConversation(
                         {
-                            content: streamData.content,
+                            content: null,
                             conversation: streamData.conversation,
-                            contextual_tools: streamData.contextual_tools,
-                            ui_context: streamData.ui_context,
                             agent_mode: agentMode,
+                            is_sandbox: isSandbox || undefined,
                         },
                         generationAttempt + 1
                     )
@@ -733,7 +735,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             if (generationAttempt > 15) {
                                 relevantErrorMessage.content = offlineMessage
                             } else {
-                                await retry()
+                                // The server is still working on the original turn; reconnecting
+                                // (instead of resending streamData.content) avoids racing the
+                                // server's still-running turn into a 409 and prevents the user
+                                // from perceiving their message as auto-resent.
+                                await reconnect()
                                 return
                             }
                         } else {
@@ -758,23 +764,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         // 409 means the conversation is already in progress.
                         // Reconnect to the existing stream instead of resending the message.
                         if (e.status === 409 && generationAttempt <= 5) {
-                            // Mark that the next stream replay should clear the thread on the
-                            // first real event. We defer the clear (rather than doing it now)
-                            // so the user keeps seeing the existing thread + loading indicator
-                            // while we reconnect. The stream replays all events from the
-                            // beginning so we must rebuild from scratch to avoid duplicates.
-                            cache.clearThreadOnReplay = true
-                            await breakpoint(1000 * (generationAttempt + 1))
-                            actions.decrActiveStreamingThreads()
-                            actions.streamConversation(
-                                {
-                                    content: null,
-                                    conversation: streamData.conversation,
-                                    agent_mode: agentMode,
-                                    is_sandbox: isSandbox || undefined,
-                                },
-                                generationAttempt + 1
-                            )
+                            await reconnect()
                             return
                         }
 
