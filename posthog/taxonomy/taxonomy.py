@@ -15,7 +15,7 @@ class CoreFilterDefinition(TypedDict):
     ignored_in_assistant: NotRequired[bool]
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
-    promoted_property: NotRequired[str]
+    primary_property: NotRequired[str]
 
 
 """
@@ -119,13 +119,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$pageview": {
             "label": "Pageview",
             "description": "When a user loads (or reloads) a page.",
-            "promoted_property": "$pathname",
+            "primary_property": "$pathname",
         },
         "$pageleave": {
             "label": "Pageleave",
             "description": "When a user leaves a page.",
             "ignored_in_assistant": True,  # Pageleave confuses the LLM, it just can't use this event in a sensible way
-            "promoted_property": "$pathname",
+            "primary_property": "$pathname",
         },
         "$autocapture": {
             "label": "Autocapture",
@@ -146,7 +146,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$screen": {
             "label": "Screen",
             "description": "When a user loads a screen in a mobile app.",
-            "promoted_property": "$screen_name",
+            "primary_property": "$screen_name",
         },
         "$set": {
             "label": "Set person properties",
@@ -165,7 +165,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
-            "promoted_property": "$feature_flag",
+            "primary_property": "$feature_flag",
         },
         "$feature_view": {
             "label": "Feature view",

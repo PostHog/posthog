@@ -245,8 +245,8 @@ tools:
     event-definitions-partial-update:
         operation: event_definitions_partial_update
         enabled: false
-    event-definitions-promoted-properties-retrieve:
-        operation: event_definitions_promoted_properties_retrieve
+    event-definitions-primary-properties-retrieve:
+        operation: event_definitions_primary_properties_retrieve
         enabled: false
     event-definitions-python-retrieve:
         operation: event_definitions_python_retrieve

@@ -21,7 +21,7 @@ import {
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
-import { getPromotedPropertyForEvent } from './utils/promotedEventProperty'
+import { getPrimaryPropertyForEvent } from './utils/primaryEventProperty'
 
 // WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
 // Preferably create a dedicated file in utils/..
@@ -1031,14 +1031,14 @@ export function eventToDescription(
     if (event.event === '$autocapture') {
         return autoCaptureEventToDescription(event, shortForm)
     }
-    // For events with a taxonomy-default promoted property (e.g. `$pageview` -> `$pathname`,
+    // For events with a taxonomy-default primary property (e.g. `$pageview` -> `$pathname`,
     // `$screen` -> `$screen_name`, `$feature_flag_called` -> `$feature_flag`), use the property's
     // value as the description so consumers (notebooks, save-as-action, funnel labels, ...) get
     // useful context instead of the bare event name. Returns the event name when the property
     // isn't present on the event so callers always get something to display.
-    const promotedKey = getPromotedPropertyForEvent(event.event)
-    if (promotedKey) {
-        const value = event.properties[promotedKey]
+    const primaryKey = getPrimaryPropertyForEvent(event.event)
+    if (primaryKey) {
+        const value = event.properties[primaryKey]
         if (value != null && value !== '') {
             return String(value)
         }

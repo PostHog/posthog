@@ -88,7 +88,7 @@ _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Insight": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.INSIGHT},
     "EndpointScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
-    # Data management surfaces fan out into ad-hoc queries (e.g. the promoted-property picker
+    # Data management surfaces fan out into ad-hoc queries (e.g. the primary-property picker
     # introspecting which keys exist on an event). Tagged with scene-specific features so query
     # usage analysis can attribute load to the originating product surface.
     "EventDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},

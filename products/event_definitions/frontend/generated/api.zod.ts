@@ -11,7 +11,7 @@ import * as zod from 'zod'
 
 export const eventDefinitionsCreateBodyNameMax = 400
 
-export const eventDefinitionsCreateBodyPromotedPropertyMax = 400
+export const eventDefinitionsCreateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsCreateBodyPostToSlackDefault = false
 
@@ -24,9 +24,9 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
-        promoted_property: zod
+        primary_property: zod
             .string()
-            .max(eventDefinitionsCreateBodyPromotedPropertyMax)
+            .max(eventDefinitionsCreateBodyPrimaryPropertyMax)
             .nullish()
             .describe(
                 "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
@@ -38,7 +38,7 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
 
 export const eventDefinitionsUpdateBodyNameMax = 400
 
-export const eventDefinitionsUpdateBodyPromotedPropertyMax = 400
+export const eventDefinitionsUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsUpdateBodyPostToSlackDefault = false
 
@@ -51,9 +51,9 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
-        promoted_property: zod
+        primary_property: zod
             .string()
-            .max(eventDefinitionsUpdateBodyPromotedPropertyMax)
+            .max(eventDefinitionsUpdateBodyPrimaryPropertyMax)
             .nullish()
             .describe(
                 "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
@@ -65,7 +65,7 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
 
 export const eventDefinitionsPartialUpdateBodyNameMax = 400
 
-export const eventDefinitionsPartialUpdateBodyPromotedPropertyMax = 400
+export const eventDefinitionsPartialUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsPartialUpdateBodyPostToSlackDefault = false
 
@@ -78,9 +78,9 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
-        promoted_property: zod
+        primary_property: zod
             .string()
-            .max(eventDefinitionsPartialUpdateBodyPromotedPropertyMax)
+            .max(eventDefinitionsPartialUpdateBodyPrimaryPropertyMax)
             .nullish()
             .describe(
                 "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event."
