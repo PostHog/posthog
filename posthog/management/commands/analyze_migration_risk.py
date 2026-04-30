@@ -7,7 +7,7 @@ from django.db import migrations
 
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.deprecated_field_filter import DeprecatedFieldFilter
-from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter
+from posthog.management.migration_analysis.formatters import ConsoleTreeFormatter, JsonFormatter
 from posthog.management.migration_analysis.models import MigrationRisk, RiskLevel
 
 
@@ -20,22 +20,31 @@ class Command(BaseCommand):
             action="store_true",
             help="Exit with code 1 if any blocked migrations found",
         )
+        parser.add_argument(
+            "--output-json",
+            metavar="PATH",
+            help="Also write structured analyzer output to PATH for programmatic consumers (CI, agents, etc.)",
+        )
 
     def handle(self, *args, **options):
+        json_path = options.get("output_json")
+
         # Check for missing migrations first
         missing_migrations_warning = self.check_missing_migrations()
 
         migrations = self.get_unapplied_migrations()
 
         if not migrations and not missing_migrations_warning:
-            # Return silently when no migrations to analyze and no missing migrations (for CI)
+            # No migrations to analyze. Still emit empty JSON so consumers can
+            # distinguish "analyzer ran, nothing to report" from "analyzer failed".
+            self.write_json_report([], json_path)
             return
 
         # Print missing migrations warning if present
         if missing_migrations_warning:
             print(missing_migrations_warning)
             if not migrations:
-                # If only missing migrations, exit early
+                self.write_json_report([], json_path)
                 return
 
         # Check batch-level policies (e.g., multiple migrations per app)
@@ -49,10 +58,11 @@ class Command(BaseCommand):
         results = self.analyze_loaded_migrations(migrations)
 
         if not results:
-            # Return silently when no results (for CI)
+            self.write_json_report([], json_path)
             return
 
         self.print_report(results)
+        self.write_json_report(results, json_path)
 
         if options.get("fail_on_blocked"):
             blocked = [r for r in results if r.level == RiskLevel.BLOCKED]
@@ -74,9 +84,7 @@ class Command(BaseCommand):
         try:
             executor = MigrationExecutor(connection)
             plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-        except Exception as e:
-            # Log error details for debugging (shows in stderr during CI)
-            print(f"## ⚠️ Error analyzing migrations: {e}", file=sys.stderr)
+        except Exception:
             # Return empty list if can't connect to DB or load migrations
             return []
 
@@ -96,21 +104,15 @@ class Command(BaseCommand):
         try:
             executor = MigrationExecutor(connection)
             loader = executor.loader
-        except Exception as e:
-            print(f"## ⚠️ Error getting migration loader: {e}", file=sys.stderr)
+        except Exception:
             loader = None
 
         for label, migration in migrations:
-            try:
-                if loader:
-                    risk = analyzer.analyze_migration_with_context(migration, label, loader)
-                else:
-                    risk = analyzer.analyze_migration(migration, label)
-                results.append(risk)
-            except Exception as e:
-                print(f"## ⚠️ Error analyzing migration {label}: {e}", file=sys.stderr)
-                # Skip this migration and continue
-                continue
+            if loader:
+                risk = analyzer.analyze_migration_with_context(migration, label, loader)
+            else:
+                risk = analyzer.analyze_migration(migration, label)
+            results.append(risk)
 
         return results
 
@@ -160,3 +162,10 @@ class Command(BaseCommand):
         formatter = ConsoleTreeFormatter()
         output = formatter.format_report(results)
         print(output)
+
+    def write_json_report(self, results: list[MigrationRisk], path: str | None) -> None:
+        """Write structured analyzer output for programmatic consumers."""
+        if not path:
+            return
+        with open(path, "w") as f:
+            f.write(JsonFormatter().format_report(results))

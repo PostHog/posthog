@@ -766,9 +766,11 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  # Get risk analysis for all unapplied migrations (including third-party)
+                  # Get risk analysis for all unapplied migrations (including third-party).
+                  # --output-json gives downstream consumers (the check-run step
+                  # below, and any other tool) a stable structured shape to read.
                   set +e  # Don't exit immediately on error
-                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked 2>/dev/null)
+                  RISK_ANALYSIS=$(python manage.py analyze_migration_risk --fail-on-blocked --output-json migration_analysis.json 2>/dev/null)
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
@@ -827,12 +829,63 @@ jobs:
                     exit $EXIT_CODE
                   fi
 
+            - name: Publish Migration risk check
+              # Migration risk classification is published as a GitHub check on
+              # the head commit so it shows up in the PR UI alongside CI checks
+              # and so any tool that already reads check_runs (review bots,
+              # branch-protection rules, dashboards) can consume it without
+              # parsing the comment. The check is a CI feature; consumers and
+              # the analyzer are decoupled.
+              if: always() && github.event_name == 'pull_request'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  if [ ! -f migration_analysis.json ]; then
+                    echo "No migration_analysis.json — analyzer didn't run; skipping check"
+                    exit 0
+                  fi
+
+                  MAX_LEVEL=$(jq -r '.max_level // "none"' migration_analysis.json)
+
+                  case "$MAX_LEVEL" in
+                    "Safe")          CONCLUSION=success; TITLE="✅ All migrations safe" ;;
+                    "Needs Review")  CONCLUSION=neutral; TITLE="⚠️ Needs review" ;;
+                    "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
+                    "none"|"null")
+                      echo "No migrations analyzed — skipping check"
+                      exit 0
+                      ;;
+                    *)
+                      echo "Unknown max_level '$MAX_LEVEL' — skipping check"
+                      exit 0
+                      ;;
+                  esac
+
+                  # Truncate summary to fit the check-run output limit (~64KB).
+                  # The full markdown is also posted as a PR comment for humans.
+                  SUMMARY=$(head -c 60000 migration_analysis.md 2>/dev/null || echo "See PR comment")
+
+                  jq -n \
+                    --arg name "Migration risk" \
+                    --arg head_sha "$HEAD_SHA" \
+                    --arg conclusion "$CONCLUSION" \
+                    --arg title "$TITLE" \
+                    --arg summary "$SUMMARY" \
+                    '{name: $name, head_sha: $head_sha, status: "completed",
+                      conclusion: $conclusion,
+                      output: {title: $title, summary: $summary}}' \
+                    | gh api "repos/$REPO/check-runs" --method POST --input -
+
             - name: Upload migration analysis artifact
               if: always() && github.event_name == 'pull_request'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
-                  path: migration_analysis.md
+                  path: |
+                      migration_analysis.md
+                      migration_analysis.json
                   if-no-files-found: ignore
 
             - name: Run migrations for this PR

@@ -1,5 +1,6 @@
 """Formatters for displaying migration risk analysis results."""
 
+import json
 import textwrap
 from abc import ABC, abstractmethod
 
@@ -200,3 +201,54 @@ class ConsoleTreeFormatter(RiskFormatter):
             lines.append("")
 
         return "\n".join(lines)
+
+
+class JsonFormatter(RiskFormatter):
+    """Machine-readable analyzer output.
+
+    Schema:
+        {
+          "summary": {"safe": int, "needs_review": int, "blocked": int},
+          "max_level": "Safe" | "Needs Review" | "Blocked" | null,
+          "migrations": [
+            {"label": "<app>.<name>", "level": "Safe" | "Needs Review" | "Blocked"}
+          ]
+        }
+
+    `max_level` is null only when there are no migrations to analyze. CI uses
+    this output to publish the Migration risk check; downstream tools can read
+    the same shape without scraping the console output.
+    """
+
+    def format_report(self, results: list[MigrationRisk]) -> str:
+        return json.dumps(self._report_dict(results), indent=2)
+
+    def format_migration(self, risk: MigrationRisk) -> str:
+        return json.dumps(self._migration_dict(risk), indent=2)
+
+    def _report_dict(self, results: list[MigrationRisk]) -> dict:
+        counts = {RiskLevel.SAFE: 0, RiskLevel.NEEDS_REVIEW: 0, RiskLevel.BLOCKED: 0}
+        for risk in results:
+            counts[risk.level] += 1
+
+        return {
+            "summary": {
+                "safe": counts[RiskLevel.SAFE],
+                "needs_review": counts[RiskLevel.NEEDS_REVIEW],
+                "blocked": counts[RiskLevel.BLOCKED],
+            },
+            "max_level": self._max_level(results),
+            "migrations": [self._migration_dict(r) for r in results],
+        }
+
+    def _migration_dict(self, risk: MigrationRisk) -> dict:
+        return {"label": f"{risk.app}.{risk.name}", "level": risk.category}
+
+    def _max_level(self, results: list[MigrationRisk]) -> str | None:
+        if not results:
+            return None
+        # Iterate by severity so Blocked > Needs Review > Safe.
+        for level in (RiskLevel.BLOCKED, RiskLevel.NEEDS_REVIEW, RiskLevel.SAFE):
+            if any(r.level == level for r in results):
+                return level.category
+        return None
