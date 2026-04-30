@@ -149,7 +149,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
-    [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
+    [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
     [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
     [ActivityScope.LOG]: { singular: 'Log', plural: 'Logs' },
 }
