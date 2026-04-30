@@ -252,7 +252,7 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="get_group_types_for_projects", source="django_orm", client_name=get_client_name()
     ).inc()
-    result: dict[int, list[dict[str, Any]]] = {pid: [] for pid in project_ids}
+    result = {pid: [] for pid in project_ids}
     try:
         for row in (
             GroupTypeMapping.objects.filter(project_id__in=project_ids)  # nosemgrep: no-direct-persons-db-orm
