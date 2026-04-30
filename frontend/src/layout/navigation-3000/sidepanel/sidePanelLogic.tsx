@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { sidePanelSettingsLogic } from './panels/settings/sidePanelSettingsLogic'
 import { sidePanelContextLogic } from './sidePanelContextLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -30,6 +31,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['selectedTab', 'sidePanelOpen'],
             sidePanelContextLogic,
             ['sceneSidePanelContext'],
+            sidePanelSettingsLogic,
+            ['isExplicitSettings'],
             teamLogic,
             ['currentTeam'],
             sceneLayoutLogic,
@@ -42,8 +45,14 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [s.sceneSidePanelContext, s.currentTeam, s.scenePanelIsPresent, s.isCloudOrDev],
-            (sceneSidePanelContext, currentTeam, scenePanelIsPresent, isCloudOrDev) => {
+            (s) => [
+                s.sceneSidePanelContext,
+                s.isExplicitSettings,
+                s.currentTeam,
+                s.scenePanelIsPresent,
+                s.isCloudOrDev,
+            ],
+            (sceneSidePanelContext, isExplicitSettings, currentTeam, scenePanelIsPresent, isCloudOrDev) => {
                 const tabs: SidePanelTab[] = []
 
                 if (scenePanelIsPresent) {
@@ -62,8 +71,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
-                // Exports and Settings are openable programmatically but not always shown in the nav bar
-                tabs.push(SidePanelTab.Settings)
+                // Exports are openable programmatically but not shown in the nav bar.
+                // Settings is openable via explicit openSettingsPanel calls.
+                if (sceneSidePanelContext.settings_section || isExplicitSettings) {
+                    tabs.push(SidePanelTab.Settings)
+                }
                 tabs.push(SidePanelTab.Exports)
 
                 if (isCloudOrDev) {
