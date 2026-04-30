@@ -1,7 +1,4 @@
-from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import pre_save
-from django.dispatch import receiver
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
@@ -136,25 +133,3 @@ class MaterializedColumnSlot(UUIDTModel):
 
     def __str__(self) -> str:
         return f"{self.property_definition.name} -> slot {self.slot_index} ({self.state})"
-
-
-@receiver(pre_save, sender=PropertyDefinition)
-def prevent_property_type_changes_with_materialized_slots(sender, instance, **kwargs):
-    """Block changing a PropertyDefinition's property_type while a slot exists for it.
-
-    HogQL uses `prop_def.property_type` to pick the read-time wrapper (`toFloat` /
-    `toBool` / `toDateTime`) it applies on top of the dmat_string_<idx> column. If the
-    type changed under us, the wrapper would no longer match what's stored — values
-    would silently start failing to parse — so the operator has to delete the slot first.
-    """
-    if instance.pk:  # Only for updates, not creates
-        try:
-            old_instance = PropertyDefinition.objects.get(pk=instance.pk)
-            if old_instance.property_type != instance.property_type:
-                if MaterializedColumnSlot.objects.filter(property_definition=instance).exists():
-                    raise ValidationError(
-                        f"Cannot change property_type for '{instance.name}' because it has materialized column slots. "
-                        "Delete the materialized slots first."
-                    )
-        except PropertyDefinition.DoesNotExist:
-            pass
