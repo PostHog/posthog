@@ -123,7 +123,7 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
     )
 }
 
-const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element | null => {
+const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { editingComment, commentsLoading, editingCommentRichContentEditor, isEditingCommentEmpty } =
         useValues(commentsLogic)
     const {
@@ -133,7 +133,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
         onEditingCommentRichContentEditorUpdate,
     } = useActions(commentsLogic)
 
-    return editingComment?.id === comment.id ? (
+    return (
         <div className="deprecated-space-y-2">
             <LemonRichContentEditor
                 placeholder="Edit comment"
@@ -174,7 +174,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 </LemonButton>
             </div>
         </div>
-    ) : null
+    )
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
