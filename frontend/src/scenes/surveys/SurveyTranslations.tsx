@@ -73,7 +73,6 @@ const REGION_DISPLAY_NAME_OVERRIDES: Record<string, string> = {
     US: 'US',
 }
 
-
 export function getSurveyLanguageLabel(languageCode: string): string {
     const hyphenIndex = languageCode.indexOf('-')
     if (hyphenIndex === -1) {
