@@ -527,9 +527,10 @@ function OutputActions({
 
 interface OutputPaneProps {
     tabId: string
+    showToolbar?: boolean
 }
 
-export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
+export function OutputPane({ tabId, showToolbar = true }: OutputPaneProps): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
@@ -739,7 +740,7 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         pollResponse,
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
-        showVisualizationSettings: isChartSettingsPanelOpen,
+        showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
     }
     const sharedActionsProps = {
         response,
@@ -761,29 +762,33 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
             >
-                <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto border-r">
-                    <div className="flex min-h-[41px] gap-2 ml-4">
-                        {splitToggle}
-                        <OutputTabLabel tab={outputTabs[0]} active />
+                {showToolbar ? (
+                    <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto border-r">
+                        <div className="flex min-h-[41px] gap-2 ml-4">
+                            {splitToggle}
+                            <OutputTabLabel tab={outputTabs[0]} active />
+                        </div>
+                        <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                            <OutputActions activeTab={OutputTab.Results} {...sharedActionsProps} />
+                        </div>
                     </div>
-                    <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                        <OutputActions activeTab={OutputTab.Results} {...sharedActionsProps} />
-                    </div>
-                </div>
+                ) : null}
                 <div className="flex flex-1 min-h-0 relative bg-dark border-r">
                     <Content activeTab={OutputTab.Results} {...sharedContentProps} />
                 </div>
                 <Resizer {...splitResizerProps} />
             </div>
             <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black">
-                <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
-                    <div className="flex min-h-[41px] gap-2 ml-4">
-                        <OutputTabLabel tab={outputTabs[1]} active />
+                {showToolbar ? (
+                    <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
+                        <div className="flex min-h-[41px] gap-2 ml-4">
+                            <OutputTabLabel tab={outputTabs[1]} active />
+                        </div>
+                        <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                            <OutputActions activeTab={OutputTab.Visualization} {...sharedActionsProps} />
+                        </div>
                     </div>
-                    <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                        <OutputActions activeTab={OutputTab.Visualization} {...sharedActionsProps} />
-                    </div>
-                </div>
+                ) : null}
                 <div className="flex flex-1 min-h-0 relative bg-dark">
                     <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
                 </div>
@@ -791,22 +796,24 @@ export function OutputPane({ tabId }: OutputPaneProps): JSX.Element {
         </div>
     ) : (
         <>
-            <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
-                <div className="flex min-h-[41px] gap-2 ml-4">
-                    {splitToggle}
-                    {outputTabs.map((tab) => (
-                        <OutputTabLabel
-                            key={tab.key}
-                            tab={tab}
-                            active={tab.key === activeTab}
-                            onClick={() => setActiveTab(tab.key)}
-                        />
-                    ))}
+            {showToolbar ? (
+                <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
+                    <div className="flex min-h-[41px] gap-2 ml-4">
+                        {splitToggle}
+                        {outputTabs.map((tab) => (
+                            <OutputTabLabel
+                                key={tab.key}
+                                tab={tab}
+                                active={tab.key === activeTab}
+                                onClick={() => setActiveTab(tab.key)}
+                            />
+                        ))}
+                    </div>
+                    <div className="flex gap-2 py-1 px-4 flex-shrink-0">
+                        <OutputActions activeTab={activeTab} {...sharedActionsProps} />
+                    </div>
                 </div>
-                <div className="flex gap-2 py-1 px-4 flex-shrink-0">
-                    <OutputActions activeTab={activeTab} {...sharedActionsProps} />
-                </div>
-            </div>
+            ) : null}
             <div className="flex flex-1 min-h-0 relative bg-dark">
                 <Content activeTab={activeTab} {...sharedContentProps} />
             </div>
