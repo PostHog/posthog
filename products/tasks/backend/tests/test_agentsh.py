@@ -134,6 +134,28 @@ class TestGeneratePolicyYaml(TestCase):
         self.assertIn(8000, allow_rule["ports"])
         self.assertIn(8010, allow_rule["ports"])
 
+    @override_settings(
+        DEBUG=True,
+        SANDBOX_LLM_GATEWAY_URL="http://host.docker.internal:3308",
+        SANDBOX_MCP_URL="http://host.docker.internal:8787/mcp",
+    )
+    def test_debug_mode_adds_ports_from_sandbox_url_settings(self):
+        # Local llm-gateway (3308) and MCP wrangler (8787) listen on non-standard
+        # ports — without including them in `allow-domains.ports`, agentsh denies
+        # the connect at the syscall layer even when the hostname is allowed.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn(3308, allow_rule["ports"])
+        self.assertIn(8787, allow_rule["ports"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://example.local:3308")
+    def test_non_debug_mode_does_not_add_url_ports(self):
+        # Outside DEBUG, only the cloud-routing ports (443, 80, 22) are allowed —
+        # custom ports from `.env` are local-dev-only.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
+
     def test_allow_all_policy_when_no_domains(self):
         policy = yaml.safe_load(generate_policy_yaml(None))
         rules = policy["network_rules"]

@@ -25,14 +25,35 @@ def _hostname_from_url(url: str | None) -> str | None:
     return parsed.hostname
 
 
+def _port_from_url(url: str | None) -> int | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.port is not None:
+        return parsed.port
+    if parsed.scheme == "https":
+        return 443
+    if parsed.scheme == "http":
+        return 80
+    return None
+
+
+# Sandbox-host URLs in `.env` that the agent must reach in DEBUG mode. Hostnames
+# feed `_get_infrastructure_domains`; ports feed `_get_debug_allowed_ports` so
+# non-standard local-dev ports (e.g. llm-gateway on 3308, MCP wrangler on 8787)
+# pass the agentsh syscall-layer firewall.
+_DEBUG_SANDBOX_URL_SETTINGS = (
+    "SANDBOX_API_URL",
+    "SANDBOX_LLM_GATEWAY_URL",
+    "SANDBOX_MCP_URL",
+)
+
+
 def _get_infrastructure_domains() -> list[str]:
     domains = list(INFRASTRUCTURE_DOMAINS)
 
-    for candidate in [
-        getattr(settings, "SANDBOX_API_URL", None),
-        getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None),
-    ]:
-        hostname = _hostname_from_url(candidate)
+    for setting_name in _DEBUG_SANDBOX_URL_SETTINGS:
+        hostname = _hostname_from_url(getattr(settings, setting_name, None))
         if hostname and hostname not in domains:
             domains.append(hostname)
 
@@ -42,6 +63,23 @@ def _get_infrastructure_domains() -> list[str]:
                 domains.append(hostname)
 
     return domains
+
+
+def _get_debug_allowed_ports() -> list[int]:
+    """Local-dev-only port allowlist additions.
+
+    The base allowlist (443, 80, 22) covers cloud routing. In DEBUG we also
+    expose Django (8000) and Caddy (8010), plus any non-standard ports parsed
+    from `SANDBOX_*_URL` settings — without this, locally-hosted services on
+    custom ports (llm-gateway 3308, MCP wrangler 8787) are denied at the
+    agentsh syscall layer even when their hostname is in the domain allowlist.
+    """
+    ports: list[int] = [8000, 8010]
+    for setting_name in _DEBUG_SANDBOX_URL_SETTINGS:
+        port = _port_from_url(getattr(settings, setting_name, None))
+        if port is not None and port not in ports:
+            ports.append(port)
+    return ports
 
 
 def generate_env_wrapper() -> str:
@@ -151,7 +189,9 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
 
         allowed_ports = [443, 80, 22]
         if getattr(settings, "DEBUG", False):
-            allowed_ports.extend([8000, 8010])
+            for port in _get_debug_allowed_ports():
+                if port not in allowed_ports:
+                    allowed_ports.append(port)
 
         network_rules: list[dict] = [
             {
