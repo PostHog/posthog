@@ -619,9 +619,20 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # or the task creator has linked GitHub from Settings so the server has stored
         # user-to-server tokens. No-repo runs skip this gate since they never touch GitHub.
         if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
+            if task.created_by_id != getattr(request.user, "id", None):
+                return Response(
+                    {
+                        "type": "validation_error",
+                        "code": "github_authorization_required",
+                        "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
+                        "attr": "pr_authorship_mode",
+                    },
+                    status=400,
+                )
             user_github_integration = get_user_github_integration(task.created_by)
             if (
                 user_github_integration is None
+                or not user_github_integration.user_access_token
                 or user_github_integration.user_refresh_token_expired()
                 or not user_github_integration.user_refresh_token
             ):

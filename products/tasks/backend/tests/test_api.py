@@ -1070,6 +1070,59 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.json()["code"] == "github_authorization_required"
         mock_workflow.assert_not_called()
 
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_when_requester_is_not_creator(self, mock_workflow: MagicMock) -> None:
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+        _grant_user_github_access(self.user)
+        requester = self.create_organization_user()
+        self.client.force_authenticate(requester)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "github_authorization_required",
+            "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
+            "attr": "pr_authorship_mode",
+        }
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_when_access_token_missing(self, mock_workflow: MagicMock) -> None:
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+        integration = _grant_user_github_access(self.user)
+        sensitive_config = dict(integration.sensitive_config)
+        sensitive_config.pop("user_access_token")
+        integration.sensitive_config = sensitive_config
+        integration.save(update_fields=["sensitive_config"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
+        mock_workflow.assert_not_called()
+
     @parameterized.expand(
         [
             ("missing_runtime_adapter", {"model": "gpt-5.3-codex"}, "runtime_adapter"),
