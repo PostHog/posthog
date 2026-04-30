@@ -297,7 +297,7 @@ export function InsightVizDisplay({
         if (isTrendsLikeView && isChartBasedDisplay(display) && hasNoVisibleTrendsData(insightData?.result)) {
             return (
                 <InsightEmptyState
-                    heading={context?.emptyStateHeading ?? 'No data to display'}
+                    heading={context?.emptyStateHeading}
                     detail={
                         context?.emptyStateDetail ??
                         'Try widening the date range, removing filters, or turning off "Filter test accounts" if it\'s set.'
