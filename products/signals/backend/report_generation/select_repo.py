@@ -11,8 +11,8 @@ from posthog.models.integration_repository_cache import GitHubRepositoryFullCach
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.models import Task
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
 if TYPE_CHECKING:
