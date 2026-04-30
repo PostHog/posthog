@@ -183,8 +183,9 @@ export function createErrorTrackingPipeline(
                                     // 10 tries with 100ms base sleep and 2x backoff (capped at 10s)
                                     // gives ~30s total budget to ride out a Cymbal restart.
                                     .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                        tries: 10,
+                                        tries: 3,
                                         sleepMs: 100,
+                                        splitOnTimeout: true,
                                     })
                                     // Enrich, prepare, create, and emit events
                                     // Batch fetch person (read-only, no updates)

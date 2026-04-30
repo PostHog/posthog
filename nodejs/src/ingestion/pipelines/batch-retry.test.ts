@@ -167,4 +167,107 @@ describe('withBatchRetry', () => {
         const wrapped = withBatchRetry(step)
         expect(wrapped.name).toBe(expectedName)
     })
+
+    describe('splitOnTimeout', () => {
+        class TimeoutError extends Error {
+            isRetriable = true
+            constructor() {
+                super('The operation was aborted due to timeout')
+                this.name = 'TimeoutError'
+            }
+        }
+
+        it('binary splits on timeout to isolate the poison pill and DLQ it', async () => {
+            jest.useRealTimers()
+
+            // The step fails with a timeout whenever 'poison' is in the batch
+            const step: BatchProcessingStep<string, string> = (values) => {
+                if (values.includes('poison')) {
+                    throw new TimeoutError()
+                }
+                return Promise.resolve(values.map((v) => ok(`processed:${v}`)))
+            }
+
+            const wrapped = withBatchRetry(step, { tries: 1, sleepMs: 1, splitOnTimeout: true })
+            const results = await wrapped(['good-1', 'good-2', 'poison', 'good-3'])
+
+            expect(results).toHaveLength(4)
+            expect(isOkResult(results[0]) && results[0].value).toBe('processed:good-1')
+            expect(isOkResult(results[1]) && results[1].value).toBe('processed:good-2')
+            expect(isDlqResult(results[2])).toBe(true)
+            expect(isOkResult(results[3]) && results[3].value).toBe('processed:good-3')
+        })
+
+        it('does not split on non-timeout retriable errors', async () => {
+            jest.useRealTimers()
+
+            const step: BatchProcessingStep<string, string> = () => {
+                throw new RetriableError('Server error')
+            }
+
+            const wrapped = withBatchRetry(step, { tries: 1, sleepMs: 1, splitOnTimeout: true })
+            await expect(wrapped(['a', 'b'])).rejects.toThrow('Server error')
+        })
+
+        it('does not split single-event batches', async () => {
+            jest.useRealTimers()
+
+            const step: BatchProcessingStep<string, string> = () => {
+                throw new TimeoutError()
+            }
+
+            const wrapped = withBatchRetry(step, { tries: 1, sleepMs: 1, splitOnTimeout: true })
+            await expect(wrapped(['single'])).rejects.toThrow()
+        })
+
+        it('DLQs multiple poison pills in the same batch', async () => {
+            jest.useRealTimers()
+
+            const step: BatchProcessingStep<string, string> = (values) => {
+                if (values.some((v) => v.startsWith('poison'))) {
+                    throw new TimeoutError()
+                }
+                return Promise.resolve(values.map((v) => ok(`ok:${v}`)))
+            }
+
+            const wrapped = withBatchRetry(step, { tries: 1, sleepMs: 1, splitOnTimeout: true })
+            const results = await wrapped(['good', 'poison-1', 'poison-2'])
+
+            expect(results).toHaveLength(3)
+            expect(isOkResult(results[0])).toBe(true)
+            expect(isDlqResult(results[1])).toBe(true)
+            expect(isDlqResult(results[2])).toBe(true)
+        })
+
+        it('preserves 1:1 input-to-result ordering across split boundaries', async () => {
+            jest.useRealTimers()
+
+            // 8 events with poison at index 3 and 6. The binary splits will
+            // slice across multiple boundaries, but every result must map
+            // back to its original input position.
+            const inputs = ['a', 'b', 'c', 'POISON-1', 'd', 'e', 'POISON-2', 'f']
+
+            const step: BatchProcessingStep<string, string> = (values) => {
+                if (values.some((v) => v.startsWith('POISON'))) {
+                    throw new TimeoutError()
+                }
+                // Embed the input value in the output so we can verify ordering
+                return Promise.resolve(values.map((v) => ok(`result:${v}`)))
+            }
+
+            const wrapped = withBatchRetry(step, { tries: 1, sleepMs: 1, splitOnTimeout: true })
+            const results = await wrapped(inputs)
+
+            expect(results).toHaveLength(8)
+            for (let i = 0; i < inputs.length; i++) {
+                const result = results[i]
+                if (inputs[i].startsWith('POISON')) {
+                    expect(isDlqResult(result)).toBe(true)
+                } else {
+                    expect(isOkResult(result)).toBe(true)
+                    expect(isOkResult(result) && result.value).toBe(`result:${inputs[i]}`)
+                }
+            }
+        })
+    })
 })
