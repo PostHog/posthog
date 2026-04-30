@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 
 import { clickAtIndex, hoverAtIndex } from 'lib/hog-charts/test-helpers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -86,6 +88,35 @@ export const display = {
                 const after = getQuerySource().trendsFilter?.display
                 expect(after).toBeTruthy()
                 expect(after).not.toBe(before)
+            },
+            { timeout: DEBOUNCE_TIMEOUT }
+        )
+    },
+}
+
+export const legend = {
+    /** Toggle a series' hidden state by matching its label. Drives `toggleResultHidden`
+     *  on trendsDataLogic so the chart's getTrendsHidden updates as if the user had
+     *  clicked the series in the legend / insights table. */
+    async toggle(label: string): Promise<void> {
+        const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
+        const logic = trendsDataLogic(props)
+        const dataset = (logic.values.indexedResults as IndexedTrendResult[]).find(
+            (d) => (d.label ?? d.action?.name) === label
+        )
+        if (!dataset) {
+            const available = (logic.values.indexedResults as IndexedTrendResult[])
+                .map((d) => `"${d.label ?? d.action?.name}"`)
+                .join(', ')
+            throw new Error(`No series labeled "${label}". Available: ${available}`)
+        }
+        const before = logic.values.getTrendsHidden(dataset)
+        logic.actions.toggleResultHidden(dataset)
+        // updateInsightFilter has a 300ms debounce; grant headroom to let the
+        // resulting querySource update propagate back to getTrendsHidden.
+        await waitFor(
+            () => {
+                expect(logic.values.getTrendsHidden(dataset)).toBe(!before)
             },
             { timeout: DEBOUNCE_TIMEOUT }
         )
