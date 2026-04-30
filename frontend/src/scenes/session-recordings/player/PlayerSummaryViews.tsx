@@ -478,7 +478,7 @@ function SessionSegmentView({
                 header={
                     <div className="py-2">
                         <div className="flex flex-row gap-2">
-                            <h3 className="mb-1">{segment.name}</h3>
+                            <h3 className="mb-1 select-text">{segment.name}</h3>
                             {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
                                 <div>
                                     {segmentOutcome.success ? null : (
@@ -493,7 +493,7 @@ function SessionSegmentView({
                         </div>
                         {segmentOutcome && (
                             <>
-                                <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
+                                <p className="text-sm font-normal mb-0 select-text">{segmentOutcome.summary}</p>
                             </>
                         )}
                         <SegmentMetaTable
