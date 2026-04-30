@@ -77,7 +77,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     const baseColor = opts.getColor(r, index)
     const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
-    const meta = opts.buildMeta ? opts.buildMeta(r, index) : (undefined as unknown as M)
+    const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     const main: Series<M> = {
         key: String(r.id),
         label: r.label ?? '',
