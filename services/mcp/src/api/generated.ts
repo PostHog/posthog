@@ -24021,6 +24021,8 @@ export namespace Schemas {
       readonly activity_score: number | null;
       readonly has_summary: boolean;
       readonly summary_outcome: Outcome | null;
+      /** Whether the AI session summary feature is enabled for the requesting user. Computed server-side so the player UI does not show the summarize button when the backend would reject it. */
+      readonly can_summarize: boolean;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
     }
@@ -29349,6 +29351,8 @@ export namespace Schemas {
       readonly activity_score?: number | null;
       readonly has_summary?: boolean;
       readonly summary_outcome?: Outcome | null;
+      /** Whether the AI session summary feature is enabled for the requesting user. Computed server-side so the player UI does not show the summarize button when the backend would reject it. */
+      readonly can_summarize?: boolean;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
     }
