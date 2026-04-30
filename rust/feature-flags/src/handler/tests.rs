@@ -97,6 +97,7 @@ fn test_geoip_enabled_with_person_properties() {
 
     let result = properties::get_person_property_overrides(
         false,
+        None,
         Some(person_props),
         &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
         &geoip_service,
@@ -115,6 +116,7 @@ fn test_geoip_enabled_without_person_properties() {
 
     let result = properties::get_person_property_overrides(
         false,
+        None,
         None,
         &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), // Google's public DNS, should be in the US
         &geoip_service,
@@ -135,6 +137,7 @@ fn test_geoip_disabled_with_person_properties() {
 
     let result = properties::get_person_property_overrides(
         true,
+        None,
         Some(person_props),
         &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
         &geoip_service,
@@ -153,6 +156,7 @@ fn test_geoip_disabled_without_person_properties() {
     let result = properties::get_person_property_overrides(
         true,
         None,
+        None,
         &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
         &geoip_service,
     );
@@ -166,6 +170,7 @@ fn test_geoip_enabled_local_ip() {
 
     let result = properties::get_person_property_overrides(
         true,
+        None,
         None,
         &IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         &geoip_service,
@@ -393,6 +398,7 @@ fn test_get_person_property_overrides_ipv4() {
     let geoip_service = create_test_geoip_service();
     let result = properties::get_person_property_overrides(
         false,
+        None,
         Some(HashMap::new()),
         &IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
         &geoip_service,
@@ -407,6 +413,7 @@ fn test_get_person_property_overrides_ipv6() {
     let geoip_service = create_test_geoip_service();
     let result = properties::get_person_property_overrides(
         false,
+        None,
         Some(HashMap::new()),
         &IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888)),
         &geoip_service,
