@@ -6467,6 +6467,50 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface BaselineSparklineDay {
+      clean: number;
+      tolerated: number;
+      changed: number;
+      quarantined: number;
+    }
+
+    export interface BaselineEntry {
+      sparkline: BaselineSparklineDay[];
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      tolerate_count_30d: number;
+      tolerate_count_90d: number;
+      is_quarantined: boolean;
+      last_run_at: string;
+      /** @nullable */
+      recent_diff_avg: number | null;
+    }
+
+    export type BaselineTotalsByRunType = {[key: string]: number};
+
+    export interface BaselineTotals {
+      by_run_type: BaselineTotalsByRunType;
+      all_snapshots: number;
+      recently_tolerated: number;
+      frequently_tolerated: number;
+      currently_quarantined: number;
+    }
+
+    export interface BaselineOverview {
+      entries: BaselineEntry[];
+      totals: BaselineTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
+
     /**
      * * `minimal` - minimal
     * `detailed` - detailed
@@ -24197,6 +24241,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `potential` - Potential
+    * `candidate` - Candidate
+    * `in_progress` - In Progress
+    * `pending_input` - Pending Input
+    * `ready` - Ready
+    * `failed` - Failed
+    * `deleted` - Deleted
+    * `suppressed` - Suppressed
+     */
+    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
+
+
+    export const SignalReportStatusEnum = {
+      Potential: 'potential',
+      Candidate: 'candidate',
+      InProgress: 'in_progress',
+      PendingInput: 'pending_input',
+      Ready: 'ready',
+      Failed: 'failed',
+      Deleted: 'deleted',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface SignalReport {
+      readonly id: string;
+      /** @nullable */
+      readonly title: string | null;
+      /** @nullable */
+      readonly summary: string | null;
+      readonly status: SignalReportStatusEnum;
+      readonly total_weight: number;
+      readonly signal_count: number;
+      readonly signals_at_run: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly artefact_count: number;
+      /**
+       * P0–P4 from the latest priority judgment artefact (when present).
+       * @nullable
+       */
+      readonly priority: string | null;
+      /**
+       * Actionability choice from the latest actionability judgment artefact (when present).
+       * @nullable
+       */
+      readonly actionability: string | null;
+      /**
+       * Whether the issue appears already fixed, from the actionability judgment artefact.
+       * @nullable
+       */
+      readonly already_addressed: boolean | null;
+      readonly is_suggested_reviewer: boolean;
+      /** Distinct source products contributing signals to this report (from ClickHouse). */
+      readonly source_products: readonly string[];
+      /**
+       * PR URL from the latest implementation task run, if available.
+       * @nullable
+       */
+      readonly implementation_pr_url: string | null;
+    }
+
+    export interface PaginatedSignalReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReport[];
+    }
+
+    /**
      * * `session_replay` - Session replay
     * `llm_analytics` - LLM analytics
     * `github` - GitHub
@@ -35465,6 +35580,31 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface SlackChannel {
+      /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
+      id: string;
+      /** Slack channel name without the leading '#'. */
+      name: string;
+      /** True if the channel is private. */
+      is_private: boolean;
+      /** True if the PostHog Slack app is a member of the channel and can post to it. */
+      is_member: boolean;
+      /** True if the channel is shared with another Slack workspace. */
+      is_ext_shared: boolean;
+      /** True if the channel is private and the PostHog Slack app cannot access it. */
+      is_private_without_access: boolean;
+    }
+
+    export interface SlackChannelsResponse {
+      /** Slack channels visible to the PostHog Slack app. */
+      channels: SlackChannel[];
+      /**
+       * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+       * @nullable
+       */
+      lastRefreshedAt?: string | null;
+    }
+
     /**
      * * `none` - none
     * `auto` - auto
@@ -44296,6 +44436,37 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring match against report title and summary.
+     */
+    search?: string;
+    /**
+     * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
+     */
+    source_product?: string;
+    /**
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     */
+    status?: string;
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string;
+    };
+
     export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -44586,18 +44757,7 @@ export namespace Schemas {
     run_type?: string;
     };
 
-    export type VisualReviewReposSnapshotsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type VisualReviewRunsListParams = {
+    export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -44610,6 +44770,17 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    };
+
+    export type VisualReviewReposSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
