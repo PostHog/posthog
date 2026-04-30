@@ -272,24 +272,32 @@ export class CymbalClient {
         url: string,
         items: { request: CymbalRequest; estimatedSize: number }[]
     ): Promise<(CymbalResponse | null)[]> {
-        const results = await Promise.all(
-            items.map(async (item): Promise<CymbalResponse | null> => {
-                try {
-                    const [result] = await this.processChunk(url, [item.request])
-                    return result
-                } catch (error) {
-                    if (error instanceof CymbalError && error.isTimeout) {
-                        cymbalPoisonPillCounter.inc()
-                        logger.error('🧪', 'cymbal_poison_pill_identified', {
-                            uuid: item.request.uuid,
-                            teamId: item.request.team_id,
-                        })
-                        return null
+        const results: (CymbalResponse | null)[] = []
+        const concurrency = 10
+
+        for (let i = 0; i < items.length; i += concurrency) {
+            const batch = items.slice(i, i + concurrency)
+            const batchResults = await Promise.all(
+                batch.map(async (item): Promise<CymbalResponse | null> => {
+                    try {
+                        const [result] = await this.processChunk(url, [item.request])
+                        return result
+                    } catch (error) {
+                        if (error instanceof CymbalError && error.isTimeout) {
+                            cymbalPoisonPillCounter.inc()
+                            logger.error('🧪', 'cymbal_poison_pill_identified', {
+                                uuid: item.request.uuid,
+                                teamId: item.request.team_id,
+                            })
+                            return null
+                        }
+                        throw error
                     }
-                    throw error
-                }
-            })
-        )
+                })
+            )
+            results.push(...batchResults)
+        }
+
         return results
     }
 
