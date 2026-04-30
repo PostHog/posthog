@@ -4,7 +4,6 @@ on:
     push:
         tags:
             - 'hogli-v*'
-    workflow_dispatch:
 
 permissions:
     contents: read
@@ -34,7 +33,6 @@ jobs:
                   version: '0.10.2'
 
             - name: Verify tag matches package version
-              if: github.event_name == 'push'
               shell: bash
               env:
                   TAG_REF: ${{ github.ref_name }}

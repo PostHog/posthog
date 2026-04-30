@@ -235,7 +235,14 @@ The workflow verifies the tag matches the `pyproject.toml` version, builds
 the sdist and wheel with `uv build`, and publishes via PyPI trusted
 publishing (OIDC) — no API tokens are involved.
 
-Manual re-runs are available via the Actions tab (`workflow_dispatch`).
+To re-trigger after a failed publish, delete and recreate the tag:
+
+```bash
+git push origin :hogli-v0.1.1
+git tag -d hogli-v0.1.1
+git tag hogli-v0.1.1
+git push origin hogli-v0.1.1
+```
 
 ## License
 
