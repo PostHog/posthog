@@ -35,7 +35,6 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
-    NESTED_RESOURCE_TO_PARENT,
     PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
@@ -85,26 +84,19 @@ class StripeResumeConfig:
     starting_after: str
 
 
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    account_id: Optional[str],
-    db_incremental_field_last_value: Optional[Any],
-    db_incremental_field_earliest_value: Optional[Any],
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
-    should_use_incremental_field: bool = False,
-):
-    client = StripeClient(
-        api_key,
-        stripe_account=account_id,
-        stripe_version="2024-09-30.acacia",
-        max_network_retries=2,
-        base_addresses=_stripe_base_addresses(),
-        http_client=_tracked_stripe_http_client(),
-    )
-    default_params = {"limit": DEFAULT_LIMIT}
-    resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
+def _build_resources(
+    client: StripeClient, logger: Optional[FilteringBoundLogger] = None
+) -> dict[str, Union[StripeResource, StripeNestedResource]]:
+    """Single source of truth for the resources we sync from Stripe and how they relate.
+
+    Used by both get_rows (for the actual sync) and validate_credentials (for permission
+    checks). Nested resources carry their parent on `.parent`, so callers can derive the
+    nested→parent linkage without restating it elsewhere.
+
+    `logger` is only consumed by InvoiceListWithAllLines; pass None when the caller doesn't
+    need the wrapped invoice expansion (e.g. validation, which just probes the list endpoint).
+    """
+    return {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
         BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(method=client.balance_transactions.list),
         CHARGE_RESOURCE_NAME: StripeResource(method=client.charges.list),
@@ -112,7 +104,11 @@ def get_rows(
         DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
         INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
         INVOICE_RESOURCE_NAME: StripeResource(
-            method=lambda params: InvoiceListWithAllLines(client, params, logger)  # type: ignore
+            method=(
+                (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
+                if logger is not None
+                else client.invoices.list
+            )
         ),
         PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
         PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
@@ -133,6 +129,28 @@ def get_rows(
             parent=StripeResource(method=client.customers.list),
         ),
     }
+
+
+def get_rows(
+    api_key: str,
+    endpoint: str,
+    account_id: Optional[str],
+    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_earliest_value: Optional[Any],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    should_use_incremental_field: bool = False,
+):
+    client = StripeClient(
+        api_key,
+        stripe_account=account_id,
+        stripe_version="2024-09-30.acacia",
+        max_network_retries=2,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
+    default_params = {"limit": DEFAULT_LIMIT}
+    resources = _build_resources(client, logger=logger)
 
     batcher = Batcher(logger=logger)
 
@@ -357,42 +375,43 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
 
-    # Test access to all resources we're pulling. Nested resources (e.g. /v1/customers/:id/payment_methods)
-    # can't be listed without a parent ID, so we resolve them to their parent via NESTED_RESOURCE_TO_PARENT
-    # below — same source of truth used by get_rows.
-    resources_to_check = [
-        {"name": ACCOUNT_RESOURCE_NAME, "method": client.accounts.list, "params": {"limit": 1}},
-        {"name": BALANCE_TRANSACTION_RESOURCE_NAME, "method": client.balance_transactions.list, "params": {"limit": 1}},
-        {"name": CHARGE_RESOURCE_NAME, "method": client.charges.list, "params": {"limit": 1}},
-        {"name": CUSTOMER_RESOURCE_NAME, "method": client.customers.list, "params": {"limit": 1}},
-        {"name": DISPUTE_RESOURCE_NAME, "method": client.disputes.list, "params": {"limit": 1}},
-        {"name": INVOICE_ITEM_RESOURCE_NAME, "method": client.invoice_items.list, "params": {"limit": 1}},
-        {"name": INVOICE_RESOURCE_NAME, "method": client.invoices.list, "params": {"limit": 1}},
-        {"name": PAYOUT_RESOURCE_NAME, "method": client.payouts.list, "params": {"limit": 1}},
-        {"name": PRICE_RESOURCE_NAME, "method": client.prices.list, "params": {"limit": 1}},
-        {"name": PRODUCT_RESOURCE_NAME, "method": client.products.list, "params": {"limit": 1}},
-        {"name": SUBSCRIPTION_RESOURCE_NAME, "method": client.subscriptions.list, "params": {"limit": 1}},
-        {"name": REFUND_RESOURCE_NAME, "method": client.refunds.list, "params": {"limit": 1}},
-        {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
-    ]
+    # Drive validation off the same resource definitions get_rows uses — single source of truth.
+    # Nested resources (e.g. /v1/customers/:id/payment_methods) can't be listed without a parent
+    # ID, so we resolve them to their parent via the StripeNestedResource.parent linkage that
+    # already exists on each entry.
+    all_resources = _build_resources(client, logger=None)
+    # Build a method→name reverse index so we can look up a nested resource's parent name from
+    # its `parent.method` reference, without restating the relationship in a separate constant.
+    flat_method_to_name = {id(r.method): name for name, r in all_resources.items() if isinstance(r, StripeResource)}
+
+    def _resolve_to_flat(name: str) -> tuple[str, StripeResource]:
+        entry = all_resources[name]
+        if isinstance(entry, StripeNestedResource):
+            parent_name = flat_method_to_name.get(id(entry.parent.method), name)
+            return parent_name, entry.parent
+        return name, entry
 
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}
 
-    # Resolve nested resource names to their parent before filtering — otherwise the filter
-    # produces an empty list and we wrongly conclude the table "does not exist".
-    effective_table_name = NESTED_RESOURCE_TO_PARENT.get(table_name, table_name) if table_name else None
+    if table_name is not None and table_name not in all_resources:
+        raise StripePermissionError({table_name: f"{table_name} does not exist"})
 
-    if effective_table_name:
-        resources_to_check = [r for r in resources_to_check if r.get("name") == effective_table_name]
+    if table_name is not None:
+        # Single-table validation: hit just that resource (or its parent for nested).
+        flat_name, flat_resource = _resolve_to_flat(table_name)
+        resources_to_check = [(flat_name, flat_resource)]
+    else:
+        # Full validation: probe every flat resource. Nested resources are covered by their
+        # parent's check, so no need to enumerate them separately.
+        resources_to_check = [
+            (name, resource) for name, resource in all_resources.items() if isinstance(resource, StripeResource)
+        ]
 
-    if effective_table_name and len(resources_to_check) == 0:
-        raise StripePermissionError({effective_table_name: f"{effective_table_name} does not exist"})
-
-    for resource in resources_to_check:
-        resource_name = str(resource["name"])
+    for resource_name, resource in resources_to_check:
         try:
-            resource["method"](params=resource["params"])  # type: ignore
+            # Override params to limit=1 for cheap permission probing — we don't need real data.
+            resource.method(params={"limit": 1})
         except stripe_lib.AuthenticationError as e:
             # 401 — key itself is bad; no point checking other resources, every call will 401 the same way.
             raise StripeAuthenticationError(str(e)) from e
