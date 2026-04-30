@@ -67,9 +67,9 @@ These appear in tool output and matter for interpretation:
 
 The single most common job. Map a PR number to its run state in two calls.
 
-1. `visual-review-runs-list { pr_number: <n>, limit: 5 }` — sort by `created_at` desc, take the latest non-stale one.
+1. `posthog:visual-review-runs-list { pr_number: <n>, limit: 5 }` — sort by `created_at` desc, take the latest non-stale one.
 2. If the run has `summary.changed > 0` or `summary.unresolved > 0`, drill in:
-   `visual-review-runs-snapshots-list { id: <run_id> }` and report the `changed` snapshots.
+   `posthog:visual-review-runs-snapshots-list { id: <run_id> }` and report the `changed` snapshots.
 
 Report back: PR number, run UUID, `review_state`, summary counts, and the `_posthogUrl` deep link so the
 user can click straight to the diff viewer.
@@ -80,7 +80,7 @@ The most useful judgment a code-aware agent can add. Combine three signals: **sc
 and **the actual rendered images**. The agent should look at the screenshots — not just describe metadata.
 
 1. **Scope check** — `git diff master...HEAD --stat` (or against the PR's base branch) → list of touched paths.
-   Cross-reference with `visual-review-runs-snapshots-list { id }` filtered to `result: changed` → story identifiers.
+   Cross-reference with `posthog:visual-review-runs-snapshots-list { id }` filtered to `result: changed` → story identifiers.
    Stories are namespaced like `<area>-<scene>--<story>--<theme>`; e.g. `scenes-app-settings-user--settings-user-profile--dark`
    maps to `frontend/src/scenes/settings/user/...`. Use this to translate story id → likely source path.
 
@@ -114,7 +114,7 @@ trust your verdict without opening the VR UI themselves.
 
 Once you have a suspect snapshot identifier:
 
-`visual-review-runs-snapshot-history-list { id: <snapshot_id> }` → returns prior outcomes for the same story.
+`posthog:visual-review-runs-snapshot-history-list { id: <snapshot_id> }` → returns prior outcomes for the same story.
 
 Verdicts:
 
@@ -126,8 +126,8 @@ Verdicts:
 
 When the user is doing housekeeping rather than asking about a specific PR:
 
-1. `visual-review-runs-counts-retrieve` → total queue size.
-2. `visual-review-runs-list { review_state: needs_review, limit: 50 }` (paginate if needed).
+1. `posthog:visual-review-runs-counts-retrieve` → total queue size.
+2. `posthog:visual-review-runs-list { review_state: needs_review, limit: 50 }` (paginate if needed).
 3. Group by `branch` author or `run_type` to surface clusters (e.g., "12 PRs blocked on the same shared
    component change" usually means a single underlying root cause to address).
 4. Prefer surfacing runs whose `summary.changed > 0` over runs that are only `new` — `new` means no baseline
