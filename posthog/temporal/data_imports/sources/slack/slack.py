@@ -13,6 +13,7 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
@@ -53,7 +54,7 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
-    response = requests.get(url, **kwargs)
+    response = make_tracked_session().get(url, **kwargs)
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
         logger.warning("Slack API rate limited", url=url, retry_after=retry_after)

@@ -4,6 +4,7 @@ from typing import Any, get_args
 
 from django.core.exceptions import ImproperlyConfigured
 
+from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
@@ -743,6 +744,10 @@ def _fix_pydantic_schema_for_openapi(schema):
     Pydantic v2 generates valid JSON Schema but not valid OpenAPI 3.0:
     - anyOf with {"type": "null"} -> nullable: true
     - const: "value" -> enum: ["value"]
+
+    OpenAPI 3.0 also forbids siblings on ``$ref`` (the spec says "$ref MUST be the only key").
+    When the non-null half of an Optional union is a ``$ref``, we wrap it in ``allOf`` so
+    ``nullable``/``default``/``description`` can sit alongside the reference legally.
     """
     if not isinstance(schema, dict):
         return schema
@@ -758,20 +763,37 @@ def _fix_pydantic_schema_for_openapi(schema):
         if has_null and non_null_schemas:
             del schema["anyOf"]
             if len(non_null_schemas) == 1:
-                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
+                single = _fix_pydantic_schema_for_openapi(non_null_schemas[0])
+                if "$ref" in single:
+                    # Wrap in allOf to keep $ref alone — siblings are illegal in OpenAPI 3.0.
+                    schema["allOf"] = [single]
+                else:
+                    schema.update(single)
                 schema["nullable"] = True
             else:
+                # Inside an ``anyOf`` array, a bare ``{"$ref": "..."}`` entry is legal — the
+                # sibling-restriction only applies when ``$ref`` shares a JSON object with
+                # other keys, which it doesn't here.
                 schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
                 schema["nullable"] = True
         elif non_null_schemas:
             if len(non_null_schemas) == 1:
                 del schema["anyOf"]
-                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
+                single = _fix_pydantic_schema_for_openapi(non_null_schemas[0])
+                if "$ref" in single and any(k in schema for k in ("default", "description", "title", "example")):
+                    # Have non-trivial siblings to preserve — wrap in allOf.
+                    schema["allOf"] = [single]
+                else:
+                    schema.update(single)
             else:
                 schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
         else:  # all schemas in anyOf are null types
+            # OpenAPI 3.0 doesn't have a JSON-Schema-style ``type: "null"`` — it expresses
+            # null exclusively via ``nullable: true`` alongside another type. For a "always
+            # null" field the cleanest valid emission is an enum constraining the only
+            # allowed value to ``null``, so consumers see precisely what they'll receive.
             schema.clear()
-            schema.update({"type": "null", "nullable": True})
+            schema.update({"enum": [None], "nullable": True})
 
     # Literals should be enums in OpenAPI 3.0
     if "const" in schema:
@@ -783,7 +805,12 @@ def _fix_pydantic_schema_for_openapi(schema):
         schema["properties"] = {k: _fix_pydantic_schema_for_openapi(v) for k, v in schema["properties"].items()}
 
     if "additionalProperties" in schema and isinstance(schema["additionalProperties"], dict):
-        schema["additionalProperties"] = _fix_pydantic_schema_for_openapi(schema["additionalProperties"])
+        # Empty ``{}`` here means "any type" but trips vacuum's ``oas-missing-type`` since the
+        # inner schema lacks a ``type``. Boolean ``true`` is the spec-blessed equivalent.
+        if schema["additionalProperties"] == {}:
+            schema["additionalProperties"] = True
+        else:
+            schema["additionalProperties"] = _fix_pydantic_schema_for_openapi(schema["additionalProperties"])
 
     if "items" in schema:
         if isinstance(schema["items"], dict):
@@ -797,7 +824,162 @@ def _fix_pydantic_schema_for_openapi(schema):
     if "oneOf" in schema:
         schema["oneOf"] = [_fix_pydantic_schema_for_openapi(s) for s in schema["oneOf"]]
 
+    # OpenAPI 3.0: ``$ref`` MUST be the only key. If we ended up with siblings (e.g. Pydantic
+    # emits ``{"$ref": "...", "description": "..."}`` for a non-Optional ref with a docstring),
+    # wrap the ref in ``allOf`` so the siblings live legally on the parent. If an ``allOf`` is
+    # already present (rare but valid in JSON Schema), prepend the ref rather than replace —
+    # otherwise we'd silently discard the existing combinator content.
+    if "$ref" in schema and len(schema) > 1:
+        ref_value = schema.pop("$ref")
+        if isinstance(schema.get("allOf"), list):
+            schema["allOf"] = [{"$ref": ref_value}, *schema["allOf"]]
+        else:
+            schema["allOf"] = [{"$ref": ref_value}]
+
+    # If the resulting schema has ref-only combinators (``allOf``/``oneOf``/``anyOf`` whose
+    # entries are all just $refs) plus numeric bounds but no ``type``, the bounds are
+    # meaningless — vacuum's ``oas-schema-check`` rightly flags them. drf-spectacular emits
+    # this for ``IntegerChoices`` fields (it includes the integer field bounds alongside the
+    # enum ref) and for nullable enums (``oneOf: [{$ref Enum}, {$ref NullEnum}]``). The ref'd
+    # components already encode the allowed values, so the field-level bounds are redundant.
+    if "type" not in schema:
+        ref_only_combinators = [
+            schema[k]
+            for k in ("allOf", "oneOf", "anyOf")
+            if isinstance(schema.get(k), list) and all(isinstance(s, dict) and "$ref" in s for s in schema[k])
+        ]
+        if ref_only_combinators:
+            for vestigial in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+                schema.pop(vestigial, None)
+
+    # Collapse single-entry ``allOf`` when there's nothing else worth wrapping for. Once we've
+    # stripped vestigial siblings above, ``{"allOf": [{"$ref": "..."}]}`` reduces to just the
+    # ref — vacuum's ``no-unnecessary-combinator`` rightly flags the longer form.
+    if (
+        list(schema.keys()) == ["allOf"]
+        and isinstance(schema["allOf"], list)
+        and len(schema["allOf"]) == 1
+        and isinstance(schema["allOf"][0], dict)
+    ):
+        return schema["allOf"][0]
+
     return schema
+
+
+def lint_spec_consistency_hook(result, generator, request, public):
+    """Postprocessing hook that emits drf-spectacular warnings for spec self-inconsistencies.
+
+    Runs as a regular postprocessing hook so the warnings flow through ``GENERATOR_STATS``
+    and are picked up by ``--fail-on-warn`` in CI. Catches the kind of bug where the spec
+    is internally syntactically valid but logically contradictory — e.g. a field declares
+    ``default="days"`` while its ``enum`` lists ``["DAY", ...]``. drf-spectacular itself
+    doesn't cross-validate these, and DRF doesn't either, so the inconsistency silently
+    propagates into the generated TypeScript / MCP definitions until something downstream
+    chokes on it.
+
+    Currently checks:
+
+    * ``default`` is a member of ``enum`` (when both are present, including across
+      ``$ref`` and ``allOf`` — the enum often lives in the referenced component).
+    * Every name in ``required`` is declared in ``properties`` — but only on flat
+      object schemas. Skipped when combinators (``allOf``/``oneOf``/``anyOf``) are
+      present, since composed schemas can satisfy ``required`` from a referenced
+      branch and a flat check would false-positive.
+    * ``$ref`` has no sibling keys (illegal in OpenAPI 3.0).
+    """
+
+    components_schemas = (result.get("components") or {}).get("schemas") or {}
+
+    def resolve_ref(ref: str) -> dict[str, Any] | None:
+        if not isinstance(ref, str) or not ref.startswith("#/components/schemas/"):
+            return None
+        return components_schemas.get(ref.replace("#/components/schemas/", ""))
+
+    def collect_enum(node: Any, seen: set[int] | None = None) -> list[Any] | None:
+        """Walk ``$ref`` and ``allOf`` branches looking for an ``enum``. Returns the first
+        enum found (refs and allOf branches in nested schemas almost always share the
+        same enum) or None. ``seen`` guards against cycles.
+        """
+        if not isinstance(node, dict):
+            return None
+        node_id = id(node)
+        if seen is None:
+            seen = set()
+        if node_id in seen:
+            return None
+        seen.add(node_id)
+        if isinstance(node.get("enum"), list):
+            return node["enum"]
+        if isinstance(node.get("$ref"), str):
+            target = resolve_ref(node["$ref"])
+            if target is not None:
+                found = collect_enum(target, seen)
+                if found is not None:
+                    return found
+        if isinstance(node.get("allOf"), list):
+            for branch in node["allOf"]:
+                found = collect_enum(branch, seen)
+                if found is not None:
+                    return found
+        return None
+
+    def emit(message: str, location: str) -> None:
+        spectacular_warn(f"spec consistency: {message} at {location}")
+
+    def is_effectively_nullable(node: dict[str, Any]) -> bool:
+        """``default: null`` is fine on a nullable schema even if ``null`` isn't in the enum —
+        OpenAPI 3.0 treats ``nullable: true`` as orthogonal to the enum constraint, and
+        ``oneOf: [..., NullEnum]`` is the other common nullable-enum idiom drf-spectacular
+        emits. Both should suppress the membership check.
+        """
+        if node.get("nullable") is True:
+            return True
+        for combinator in ("oneOf", "anyOf"):
+            entries = node.get(combinator)
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                ref = entry.get("$ref")
+                if isinstance(ref, str) and ref.endswith("NullEnum"):
+                    return True
+                if entry.get("type") == "null":
+                    return True
+        return False
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            if "default" in node:
+                # Look for enum locally, then through $ref/allOf — drf-spectacular's
+                # enum components sit behind a ref-or-allOf wrapper for nullable enums.
+                enum_values = collect_enum(node)
+                if enum_values is not None and node["default"] not in enum_values:
+                    if not (node["default"] is None and is_effectively_nullable(node)):
+                        emit(
+                            f"default={node['default']!r} is not a member of enum={enum_values!r}",
+                            path,
+                        )
+            if isinstance(node.get("required"), list) and isinstance(node.get("properties"), dict):
+                # Only check on flat object schemas. If the schema also uses allOf/oneOf/anyOf
+                # the required field may be satisfied by a referenced branch; a flat lookup
+                # would emit a false positive.
+                if not any(k in node for k in ("allOf", "oneOf", "anyOf")):
+                    missing = [r for r in node["required"] if r not in node["properties"]]
+                    if missing:
+                        emit(f"required field(s) {missing!r} not declared in properties", path)
+            if "$ref" in node and len(node) > 1:
+                # OpenAPI 3.0 forbids siblings on $ref. ``allOf`` wrapping is the workaround.
+                siblings = sorted(k for k in node if k != "$ref")
+                emit(f"$ref has illegal sibling keys {siblings!r}", path)
+            for k, v in node.items():
+                walk(v, f"{path}.{k}")
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, f"{path}[{i}]")
+
+    walk(result, "$")
+    return result
 
 
 def custom_postprocessing_hook(result, generator, request, public):
@@ -909,9 +1091,39 @@ def custom_postprocessing_hook(result, generator, request, public):
             name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
         }
 
+    # Also fix parameter, requestBody, and response schemas at the operation level — same
+    # shape issues surface there (single-entry allOf wrappers, $ref siblings, etc.) but the
+    # components-only walk above misses them. Today every response schema we emit is a
+    # ``$ref`` to a component, so the response walk is a defensive guarantee — if someone
+    # adds an inline response schema later, it gets fixed proactively instead of failing
+    # the consistency lint downstream.
+    def _fix_media_types(content: Any) -> None:
+        if not isinstance(content, dict):
+            return
+        for media_type in content.values():
+            if isinstance(media_type, dict) and isinstance(media_type.get("schema"), dict):
+                media_type["schema"] = _fix_pydantic_schema_for_openapi(media_type["schema"])
+
+    for path_methods in paths.values():
+        for definition in path_methods.values():
+            for parameter in definition.get("parameters", []):
+                if isinstance(parameter, dict) and isinstance(parameter.get("schema"), dict):
+                    parameter["schema"] = _fix_pydantic_schema_for_openapi(parameter["schema"])
+            request_body = definition.get("requestBody")
+            if isinstance(request_body, dict):
+                _fix_media_types(request_body.get("content"))
+            for response in (definition.get("responses") or {}).values():
+                if isinstance(response, dict):
+                    _fix_media_types(response.get("content"))
+
+    # Emit a root-level ``tags`` array listing every tag any operation references. Vacuum's
+    # ``operation-tag-defined`` rule requires this — operations that use undeclared tags
+    # produce a finding per (operation, tag) pair (was 2962 findings for us).
+    sorted_tags = sorted(set(all_tags))
     return {
         **result,
         "info": {"title": "PostHog API", "version": "1.0.0", "description": ""},
         "paths": paths,
-        "x-tagGroups": [{"name": "All endpoints", "tags": sorted(set(all_tags))}],
+        "tags": [{"name": tag} for tag in sorted_tags],
+        "x-tagGroups": [{"name": "All endpoints", "tags": sorted_tags}],
     }

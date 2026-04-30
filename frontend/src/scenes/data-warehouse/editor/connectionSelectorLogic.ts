@@ -2,8 +2,6 @@ import { afterMount, connect, kea, listeners, path, props, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import type { ExternalDataSourceConnectionOption } from '~/types'
@@ -45,7 +43,6 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'connectionSelectorLogic']),
     props({ selectedConnectionId: undefined } as ConnectionSelectorLogicProps),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
         actions: [sourcesDataLogic, ['loadSourcesSuccess']],
     })),
     loaders(() => ({
@@ -67,10 +64,6 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
         ],
     })),
     selectors({
-        isDirectQueryEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
-        ],
         connectionSelectOptions: [
             (s) => [s.connectionOptions, s.connectionOptionsLoading],
             (
@@ -133,15 +126,13 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
         ],
     }),
     afterMount(({ actions, values }) => {
-        if (values.isDirectQueryEnabled && values.connectionOptions === null && !values.connectionOptionsLoading) {
+        if (values.connectionOptions === null && !values.connectionOptionsLoading) {
             actions.loadConnectionOptions()
         }
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadSourcesSuccess: () => {
-            if (values.isDirectQueryEnabled) {
-                actions.loadConnectionOptions()
-            }
+            actions.loadConnectionOptions()
         },
     })),
 ])
