@@ -91,7 +91,7 @@ class Command(BaseCommand):
 
         PersonalAPIKey.objects.filter(user=user, label=DEV_KEY_LABEL).delete()
 
-        create_scopes = scopes or add_scopes or ["*"]
+        create_scopes = scopes if scopes is not None else add_scopes
 
         PersonalAPIKey.objects.create(
             user=user,
