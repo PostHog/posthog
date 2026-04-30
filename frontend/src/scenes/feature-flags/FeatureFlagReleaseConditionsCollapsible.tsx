@@ -518,7 +518,7 @@ const ConditionContent = ({
                                         <div>
                                             <LemonLabel
                                                 className="mb-1"
-                                                info="Pick the entity this condition matches against. Users targets individual people by their distinct ID. Each group type targets a custom group (organization, project, etc.) — every member of a matching group gets the same value, so the flag stays stable across that group's users."
+                                                info="Users targets individuals by distinct ID. Group types target a custom group (organization, project, etc.) — every member gets the same value, keeping the flag stable across the group."
                                             >
                                                 Target by
                                             </LemonLabel>
@@ -534,15 +534,28 @@ const ConditionContent = ({
                                                     setConditionAggregation(index, value === PERSON ? null : value)
                                                 }}
                                                 options={[
-                                                    { value: PERSON, label: 'Users' },
-                                                    ...Array.from(groupTypes.values()).map((gt) => ({
-                                                        value: gt.group_type_index as number,
-                                                        label:
-                                                            gt.name_plural ||
-                                                            gt.group_type.charAt(0).toUpperCase() +
-                                                                gt.group_type.slice(1) +
-                                                                's',
-                                                    })),
+                                                    {
+                                                        title: 'Individual users',
+                                                        options: [
+                                                            {
+                                                                value: PERSON,
+                                                                label: 'Users',
+                                                                icon: <IconPerson />,
+                                                            },
+                                                        ],
+                                                    },
+                                                    {
+                                                        title: 'Group types',
+                                                        options: Array.from(groupTypes.values()).map((gt) => ({
+                                                            value: gt.group_type_index as number,
+                                                            label:
+                                                                gt.name_plural ||
+                                                                gt.group_type.charAt(0).toUpperCase() +
+                                                                    gt.group_type.slice(1) +
+                                                                    's',
+                                                            icon: <IconPeople />,
+                                                        })),
+                                                    },
                                                 ]}
                                             />
                                         </div>
