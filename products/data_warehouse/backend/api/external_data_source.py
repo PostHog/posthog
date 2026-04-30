@@ -1436,7 +1436,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @extend_schema(request=DatabaseSchemaRequestSerializer)
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
+        import time as _time
+
+        endpoint_started_at = _time.monotonic()
         source_type = request.data.get("source_type", None)
+        logger.info("database_schema entry", source_type=source_type, team_id=self.team_id)
 
         if source_type is None:
             return Response(
@@ -1455,26 +1459,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        validate_started_at = _time.monotonic()
         if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        logger.info(
+            "database_schema validate_credentials returned",
+            source_type=source_type,
+            team_id=self.team_id,
+            credentials_valid=credentials_valid,
+            duration_ms=int((_time.monotonic() - validate_started_at) * 1000),
+        )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": credentials_error or "Invalid credentials"},
             )
 
+        get_schemas_started_at = _time.monotonic()
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
+            logger.warning(
+                "database_schema get_schemas failed",
+                source_type=source_type,
+                team_id=self.team_id,
+                exception_type=type(e).__name__,
+                exception_message=str(e),
+                duration_ms=int((_time.monotonic() - get_schemas_started_at) * 1000),
+            )
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
             )
+        logger.info(
+            "database_schema get_schemas complete",
+            source_type=source_type,
+            team_id=self.team_id,
+            schema_count=len(schemas),
+            duration_ms=int((_time.monotonic() - get_schemas_started_at) * 1000),
+            total_duration_ms=int((_time.monotonic() - endpoint_started_at) * 1000),
+        )
 
         data = [
             {

@@ -45,12 +45,25 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
+def _log_retry_attempt(retry_state: RetryCallState) -> None:
+    exception = retry_state.outcome and retry_state.outcome.exception()
+    if exception is None:
+        return
+    logger.warning(
+        "Slack API call failed, retrying",
+        attempt=retry_state.attempt_number,
+        exception_type=type(exception).__name__,
+        exception_message=str(exception),
+    )
+
+
 @retry(
     retry=retry_if_exception_type(
         (SlackRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
     ),
     stop=stop_after_attempt(5),
     wait=_wait_with_retry_after,
+    after=_log_retry_attempt,
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
@@ -74,7 +87,7 @@ def _slack_get(url: str, **kwargs: Any) -> requests.Response:
             request_duration_ms=request_duration_ms,
         )
         raise SlackRetryableError(f"Slack: server error {response.status_code}")
-    logger.debug(
+    logger.info(
         "Slack API request",
         url=url,
         status_code=response.status_code,
@@ -476,10 +489,24 @@ def validate_credentials(access_token: str) -> bool:
     url = "https://slack.com/api/auth.test"
     headers = {"Authorization": f"Bearer {access_token}"}
 
+    started_at = time.monotonic()
+    logger.info("Slack validate_credentials start")
     try:
         response = _slack_get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
-        return data.get("ok", False)
-    except Exception:
+        ok = data.get("ok", False)
+        logger.info(
+            "Slack validate_credentials complete",
+            ok=ok,
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
+        return ok
+    except Exception as e:
+        logger.warning(
+            "Slack validate_credentials failed",
+            exception_type=type(e).__name__,
+            exception_message=str(e),
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
         return False

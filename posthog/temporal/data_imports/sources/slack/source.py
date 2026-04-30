@@ -177,7 +177,14 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             for name, endpoint_config in ENDPOINTS.items()
         ]
 
+        integration_lookup_started_at = time.monotonic()
         integration = self.get_oauth_integration(config.slack_integration_id, team_id)
+        logger.info(
+            "Slack get_schemas integration loaded",
+            team_id=team_id,
+            integration_id=config.slack_integration_id,
+            duration_ms=int((time.monotonic() - integration_lookup_started_at) * 1000),
+        )
         access_token = integration.access_token
         if not access_token:
             raise ValueError("Slack access token not found")
