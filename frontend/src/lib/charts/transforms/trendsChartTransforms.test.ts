@@ -1,4 +1,4 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, type Series } from 'lib/hog-charts'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
@@ -18,6 +18,8 @@ const makeResult = (overrides: Partial<TrendsResultLike> = {}): TrendsResultLike
     data: [1, 2, 3, 4, 5],
     ...overrides,
 })
+
+const lowerDataOf = (s: Series): number[] => (s.fill as { lowerData: number[] }).lowerData
 
 describe('trendsChartTransforms', () => {
     describe('buildMainTrendsSeries', () => {
@@ -172,16 +174,14 @@ describe('trendsChartTransforms', () => {
                 })
                 expect(series[1].data?.length).toBe(5)
                 expect(series[1].fill).toMatchObject({ opacity: 0.2 })
-                expect((series[1].fill as { lowerData: number[] }).lowerData.length).toBe(5)
+                expect(lowerDataOf(series[1]).length).toBe(5)
             })
 
             it('passes confidenceLevel through to ciRanges as a fraction', () => {
                 const [s95] = buildTrendsSeries([makeResult()], { ...ciOpts, confidenceLevel: 95 }).slice(1)
                 const [s50] = buildTrendsSeries([makeResult()], { ...ciOpts, confidenceLevel: 50 }).slice(1)
 
-                expect((s95.fill as { lowerData: number[] }).lowerData[0]).not.toBe(
-                    (s50.fill as { lowerData: number[] }).lowerData[0]
-                )
+                expect(lowerDataOf(s95)[0]).not.toBe(lowerDataOf(s50)[0])
             })
 
             it('hides CI series when its main is excluded but keeps it visible from tooltip/value-labels', () => {
@@ -201,9 +201,7 @@ describe('trendsChartTransforms', () => {
                     getColor: () => RED,
                     showConfidenceIntervals: true,
                 })[1]
-                expect((defaulted.fill as { lowerData: number[] }).lowerData).toEqual(
-                    (explicit.fill as { lowerData: number[] }).lowerData
-                )
+                expect(lowerDataOf(defaulted)).toEqual(lowerDataOf(explicit))
             })
         })
 
