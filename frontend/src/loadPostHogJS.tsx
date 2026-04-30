@@ -58,6 +58,7 @@ export function loadPostHogJS(): void {
                     }
 
                     if (
+                        process.env.NODE_ENV === 'development' ||
                         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
                         !!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_DETACHED_ELEMENTS)
                     ) {

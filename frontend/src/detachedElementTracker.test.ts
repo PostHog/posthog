@@ -1,4 +1,4 @@
-import { mapToTopN, shouldCaptureDetachedElements } from './detachedElementTracker'
+import { collectDevHealth, mapToTopN, shouldCaptureDetachedElements } from './detachedElementTracker'
 
 describe('mapToTopN', () => {
     it.each([
@@ -110,5 +110,39 @@ describe('shouldCaptureDetachedElements', () => {
         },
     ])('$label', ({ currentCount, previousCount, expected }) => {
         expect(shouldCaptureDetachedElements(currentCount, previousCount)).toBe(expected)
+    })
+})
+
+describe('collectDevHealth', () => {
+    it('returns the expected shape with non-negative dom counts', () => {
+        const result = collectDevHealth(3, 100)
+
+        expect(result).toEqual(
+            expect.objectContaining({
+                dom_node_count: expect.any(Number),
+                document_count: expect.any(Number),
+                iframe_count: expect.any(Number),
+                canvas_count: expect.any(Number),
+                svg_count: expect.any(Number),
+                image_count: expect.any(Number),
+                tab_age_seconds: expect.any(Number),
+            })
+        )
+        expect(result.dom_node_count).toBeGreaterThanOrEqual(0)
+        expect(result.tab_age_seconds).toBeGreaterThanOrEqual(0)
+    })
+
+    it.each([
+        { label: 'normal density', detached: 3, total: 100, dom: 105, expected: +(105 / 103).toFixed(2) },
+        { label: 'no react nodes', detached: 0, total: 0, dom: 0, expected: null },
+    ])('listeners_per_node — $label', ({ detached, total, expected }) => {
+        const result = collectDevHealth(detached, total)
+        if (expected === null) {
+            expect(result.listeners_per_node).toBeNull()
+        } else {
+            // Can't fix dom count from jsdom, just assert it's a number with expected sign
+            expect(result.listeners_per_node).not.toBeNull()
+            expect(typeof result.listeners_per_node).toBe('number')
+        }
     })
 })

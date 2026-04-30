@@ -13,6 +13,8 @@ declare module '@memlab/lens/dist/memlens.lib.bundle.js' {
         start: () => void
         stop: () => void
         dispose: () => void
+        scan: () => Omit<MemLensScanResult, 'start' | 'end'>
+        getDetachedDOMInfo: () => Array<{ element: WeakRef<Element> }>
     }
 
     interface MemLensScanOptions {
