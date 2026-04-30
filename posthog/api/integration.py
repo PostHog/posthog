@@ -24,13 +24,14 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
+    SLACK_INTEGRATION_KINDS,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -187,6 +188,28 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
         help_text="The default branch of the repository", required=False, allow_null=True
     )
     has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
+
+
+class SlackChannelSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel.")
+    name = serializers.CharField(help_text="Slack channel name without the leading '#'.")
+    is_private = serializers.BooleanField(help_text="True if the channel is private.")
+    is_member = serializers.BooleanField(
+        help_text="True if the PostHog Slack app is a member of the channel and can post to it."
+    )
+    is_ext_shared = serializers.BooleanField(help_text="True if the channel is shared with another Slack workspace.")
+    is_private_without_access = serializers.BooleanField(
+        help_text="True if the channel is private and the PostHog Slack app cannot access it."
+    )
+
+
+class SlackChannelsResponseSerializer(serializers.Serializer):
+    channels = SlackChannelSerializer(many=True, help_text="Slack channels visible to the PostHog Slack app.")
+    lastRefreshedAt = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).",
+    )
 
 
 @extend_schema_serializer(component_name="IntegrationConfig")
@@ -508,6 +531,7 @@ class IntegrationViewSet(
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "channels",
         "github_repos",
         "github_branches",
     ]
@@ -546,7 +570,12 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            return defer_repository_cache_fields(queryset.filter(kind="github"))
+            # GitHub and Slack integrations are exposed via API-key / OAuth. The serializer
+            # only returns id, kind, config, errors, and display metadata — access tokens stay
+            # in sensitive_config and are never serialized. The channels action's kind guard
+            # (see `channels` below) is the actual gate against running Slack-only code on a
+            # non-Slack integration.
+            return defer_repository_cache_fields(queryset.filter(kind__in=["github", *SLACK_INTEGRATION_KINDS]))
         return queryset
 
     @action(methods=["GET"], detail=False)
@@ -581,12 +610,18 @@ class IntegrationViewSet(
 
         raise ValidationError("Kind not supported")
 
+    @extend_schema(responses={200: SlackChannelsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="channels")
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind not in SLACK_INTEGRATION_KINDS:
+            raise ValidationError("channels endpoint is only supported for Slack integrations")
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
-        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
+        # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
+        # callers always read through the 1h cache so an agent loop can't bypass it.
+        is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+        force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
         authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
@@ -612,7 +647,10 @@ class IntegrationViewSet(
             else:
                 return Response({"channels": []})
 
-        key = f"slack/{instance.integration_id}/{should_include_private_channels}/channels"
+        # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
+        # integration_id (the Slack workspace id, shared across teams). Two teams that
+        # install the same workspace must not share cached private-channel lists.
+        key = f"slack/{instance.id}/{should_include_private_channels}/channels"
         data = cache.get(key)
 
         if data is not None and not force_refresh:

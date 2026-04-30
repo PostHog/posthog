@@ -826,7 +826,12 @@
         },
         "HogQLSchemaInputSchema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
+                }
+            }
         },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
@@ -2494,6 +2499,10 @@
                                                     "type": "boolean"
                                                 }
                                             }
+                                        },
+                                        "connectionId": {
+                                            "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                            "type": "string"
                                         }
                                     },
                                     "required": ["kind", "query"]
@@ -2654,6 +2663,10 @@
                                             "type": "boolean"
                                         }
                                     }
+                                },
+                                "connectionId": {
+                                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, the query runs against that source instead of ClickHouse. Use external-data-sources-list to discover available connection ids.",
+                                    "type": "string"
                                 }
                             },
                             "required": ["kind", "query"]
@@ -2676,6 +2689,10 @@
                     "description": "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source.",
                     "type": "string",
                     "enum": ["hogQL", "hogQLExpr", "hog", "hogTemplate"]
+                },
+                "connectionId": {
+                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "type": "string"
                 }
             },
             "required": ["query"]

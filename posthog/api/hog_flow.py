@@ -40,7 +40,11 @@ from posthog.models.feature_flag.user_blast_radius import (
 )
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
+from posthog.plugins.plugin_server_api import (
+    bulk_replay_hog_flow_invocations,
+    create_hog_flow_invocation_test,
+    create_hog_flow_scheduled_invocation,
+)
 
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
@@ -553,6 +557,358 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
         return Response(res.json())
+
+    _ACTION_ID_PATTERN = re.compile(r"\[Action:([a-zA-Z0-9_-]+)\]")
+    _EVENT_UUID_PATTERN = re.compile(r"for event ([a-f0-9-]{36})")
+
+    # Restricted to the 2026-04 dedup incident fingerprint to avoid replaying legitimate
+    # dedup catches (ghost runs caused by Kafka rebalance re-deliveries). See inline
+    # comments on each clause for the reasoning.
+    BLOCKED_RUNS_SQL = r"""
+        SELECT instance_id, timestamp, message
+        FROM log_entries
+        WHERE team_id = %(team_id)s
+          AND log_source = 'hog_flow'
+          AND log_source_id = %(log_source_id)s
+          AND positionCaseInsensitiveUTF8(message, 'duplicate execution detected') > 0
+
+          -- Incident window: dedup shipped 2026-03-30 evening UTC and was reverted on
+          -- 2026-04-22 morning UTC. No bug-pattern blocks can exist outside this window.
+          AND timestamp >= toDateTime('2026-03-30 00:00:00')
+          AND timestamp <= toDateTime('2026-04-23 00:00:00')
+
+          -- Clause 1: action restricted to wait_until_condition, the only "hold-state"
+          -- action where the bug could fire dedup falsely. Other actions (delay, function
+          -- async, conditional_branch with delay) advance state.currentAction on resume,
+          -- so dedup never re-checks the same key. Blocks on those action types in this
+          -- window were legitimate ghost catches and must NOT be replayed.
+          AND positionUTF8(message, '[Action:action_wait_until_condition_') > 0
+
+          -- Clause 2: blocked instance_id must be uuidv7. The bug rewrote the original
+          -- UUIDT id to uuidv7 when the paused invocation was re-queued through
+          -- Cyclotron's V1 Postgres path. Position 15 (1-indexed) is the version nibble;
+          -- position 20 is the RFC-4122 variant nibble.
+          AND lower(substring(instance_id, 15, 1)) = '7'
+          AND lower(substring(instance_id, 20, 1)) IN ('8', '9', 'a', 'b')
+
+          -- Clause 3: if the message exposes 'Another invocation (<uuid>)' (post-2026-04-21
+          -- log format), that stored id must be UUIDT, not uuidv7. Pre-2026-04-21 messages
+          -- don't include this clause; the extract returns empty and the row stays in via
+          -- clause 2 alone.
+          AND (
+              extract(message, 'Another invocation \(([a-fA-F0-9-]{36})\)') = ''
+              OR lower(substring(extract(message, 'Another invocation \(([a-fA-F0-9-]{36})\)'), 15, 1)) != '7'
+          )
+
+          -- Clause 4: the uuidv7's embedded ms timestamp (first 12 hex chars) must fall
+          -- within 15 minutes before the block. Real bug rewrites mint a fresh uuidv7 at
+          -- re-queue time, and wait_until_condition's re-check interval
+          -- (DEFAULT_WAIT_DURATION_SECONDS = 600s = 10 min) bounds the gap. This
+          -- proximity check guards against any non-uuidv7 id that happens to share the
+          -- version + variant nibble pattern by coincidence.
+          AND fromUnixTimestamp64Milli(
+                  reinterpretAsInt64(reverse(unhex(substring(replaceAll(instance_id, '-', ''), 1, 12))))
+              ) >= subtractMinutes(timestamp, 15)
+          AND fromUnixTimestamp64Milli(
+                  reinterpretAsInt64(reverse(unhex(substring(replaceAll(instance_id, '-', ''), 1, 12))))
+              ) <= timestamp
+
+          -- Exclude rows already queued for replay. The Node CDP API writes this marker
+          -- when bulk_replay_invocations succeeds.
+          AND instance_id NOT IN (
+              SELECT instance_id
+              FROM log_entries
+              WHERE team_id = %(team_id)s
+                AND log_source = 'hog_flow'
+                AND log_source_id = %(log_source_id)s
+                AND positionCaseInsensitiveUTF8(message, '[Replay] Queued') > 0
+          )
+        ORDER BY timestamp DESC
+    """
+
+    REPLAY_EVENT_SQL = """
+        SELECT
+            uuid,
+            event,
+            properties,
+            timestamp,
+            team_id,
+            distinct_id,
+            elements_chain,
+            person_id,
+            person_properties,
+            group0_properties,
+            group1_properties,
+            group2_properties,
+            group3_properties,
+            group4_properties
+        FROM events
+        WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+    """
+
+    def _is_replay_feature_enabled(self) -> bool:
+        from posthog.models.feature_flag import FeatureFlag
+
+        return FeatureFlag.objects.filter(
+            team_id=self.team_id, key="workflows-replay-blocked-runs", active=True
+        ).exists()
+
+    def _parse_blocked_run_message(self, message: str) -> tuple[Optional[str], Optional[str]]:
+        action_match = self._ACTION_ID_PATTERN.search(message)
+        event_match = self._EVENT_UUID_PATTERN.search(message)
+        return (
+            action_match.group(1) if action_match else None,
+            event_match.group(1) if event_match else None,
+        )
+
+    def _fetch_clickhouse_event(self, event_uuid: str) -> Optional[dict]:
+        """Fetch a single event from ClickHouse and return it as a dict for the Node CDP API."""
+        from posthog.clickhouse.client.execute import sync_execute
+
+        event_results = sync_execute(
+            self.REPLAY_EVENT_SQL,
+            {"event_id": event_uuid, "team_id": self.team_id},
+            with_column_types=True,
+        )
+
+        rows, columns = event_results
+        if not rows:
+            return None
+
+        col_names = [col[0] for col in columns]
+        row = dict(zip(col_names, rows[0]))
+
+        return {
+            "uuid": str(row["uuid"]),
+            "event": row["event"],
+            "properties": row["properties"],
+            "timestamp": row["timestamp"].isoformat()
+            if hasattr(row["timestamp"], "isoformat")
+            else str(row["timestamp"]),
+            "team_id": row["team_id"],
+            "distinct_id": row["distinct_id"],
+            "elements_chain": row["elements_chain"] or "",
+            "person_id": str(row["person_id"]) if row.get("person_id") else None,
+            "person_properties": row.get("person_properties", ""),
+            "group0_properties": row.get("group0_properties", ""),
+            "group1_properties": row.get("group1_properties", ""),
+            "group2_properties": row.get("group2_properties", ""),
+            "group3_properties": row.get("group3_properties", ""),
+            "group4_properties": row.get("group4_properties", ""),
+        }
+
+    @action(detail=True, methods=["GET"], url_path="blocked_runs")
+    def blocked_runs(self, request: Request, *args, **kwargs):
+        """List workflow runs that were blocked by the dedup bug."""
+        from posthog.clickhouse.client.execute import sync_execute
+
+        if not self._is_replay_feature_enabled():
+            return Response({"results": []})
+
+        hog_flow = self.get_object()
+
+        try:
+            limit = min(int(request.query_params.get("limit", 100)), 1000)
+        except ValueError:
+            return Response({"error": "limit must be an integer"}, status=400)
+
+        try:
+            offset = max(int(request.query_params.get("offset", 0)), 0)
+        except ValueError:
+            return Response({"error": "offset must be an integer"}, status=400)
+
+        query = self.BLOCKED_RUNS_SQL + "\nLIMIT %(limit)s\nOFFSET %(offset)s"
+        results = sync_execute(
+            query,
+            {"team_id": self.team_id, "log_source_id": str(hog_flow.id), "limit": limit + 1, "offset": offset},
+        )
+
+        has_next = len(results) > limit
+        results = results[:limit]
+
+        blocked_runs = []
+        for instance_id, timestamp, message in results:
+            action_id, event_uuid = self._parse_blocked_run_message(message)
+            blocked_runs.append(
+                {
+                    "instance_id": instance_id,
+                    "timestamp": timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp),
+                    "action_id": action_id,
+                    "event_uuid": event_uuid,
+                    "message": message,
+                }
+            )
+
+        return Response({"results": blocked_runs, "has_next": has_next, "limit": limit, "offset": offset})
+
+    @action(detail=True, methods=["POST"], url_path="replay_blocked_run")
+    def replay_blocked_run(self, request: Request, *args, **kwargs):
+        """Replay a single blocked run. Django fetches the event, Node creates the invocation and writes the log."""
+        if not self._is_replay_feature_enabled():
+            return Response({"error": "This feature is not enabled"}, status=403)
+
+        hog_flow = self.get_object()
+
+        event_uuid = request.data.get("event_uuid")
+        action_id = request.data.get("action_id")
+        instance_id = request.data.get("instance_id")
+
+        if not event_uuid or not action_id or not instance_id:
+            return Response({"error": "event_uuid, action_id, and instance_id are required"}, status=400)
+
+        # Validate instance_id belongs to a blocked run for this workflow
+        from posthog.clickhouse.client.execute import sync_execute
+
+        validation_result = sync_execute(
+            """
+            SELECT message
+            FROM log_entries
+            WHERE team_id = %(team_id)s
+              AND log_source = 'hog_flow'
+              AND log_source_id = %(log_source_id)s
+              AND instance_id = %(instance_id)s
+              AND positionCaseInsensitiveUTF8(message, 'duplicate execution detected') > 0
+              AND timestamp >= toDate(NOW() - INTERVAL 30 DAY)
+            LIMIT 1
+            """,
+            {"team_id": self.team_id, "log_source_id": str(hog_flow.id), "instance_id": instance_id},
+        )
+        if not validation_result:
+            return Response({"error": f"Blocked run {instance_id} not found for this workflow"}, status=404)
+
+        _, logged_event_uuid = self._parse_blocked_run_message(validation_result[0][0])
+        if logged_event_uuid != event_uuid:
+            return Response({"error": "event_uuid does not match the blocked run"}, status=400)
+
+        clickhouse_event = self._fetch_clickhouse_event(event_uuid)
+        if not clickhouse_event:
+            return Response({"error": f"Event {event_uuid} not found"}, status=404)
+
+        res = bulk_replay_hog_flow_invocations(
+            team_id=self.team_id,
+            hog_flow_id=str(hog_flow.id),
+            items=[{"clickhouse_event": clickhouse_event, "action_id": action_id, "instance_id": instance_id}],
+        )
+
+        if res.status_code != 200:
+            return Response({"status": "error", "message": res.json().get("error")}, status=res.status_code)
+
+        result = res.json()
+        if result.get("succeeded", 0) > 0:
+            return Response({"status": "queued"})
+        return Response({"status": "error", "message": "Failed to replay run"}, status=400)
+
+    @action(detail=True, methods=["POST"], url_path="replay_all_blocked_runs")
+    def replay_all_blocked_runs(self, request: Request, *args, **kwargs):
+        """Replay all blocked runs in a single bulk call to Node."""
+        from posthog.clickhouse.client.execute import sync_execute
+
+        if not self._is_replay_feature_enabled():
+            return Response({"error": "This feature is not enabled"}, status=403)
+
+        hog_flow = self.get_object()
+
+        results = sync_execute(
+            self.BLOCKED_RUNS_SQL,
+            {"team_id": self.team_id, "log_source_id": str(hog_flow.id)},
+        )
+
+        # Parse blocked runs and collect event UUIDs
+        blocked_runs: list[tuple[str, str, str]] = []  # (instance_id, action_id, event_uuid)
+        skipped = 0
+        for instance_id, _timestamp, message in results:
+            action_id, event_uuid = self._parse_blocked_run_message(message)
+            if not action_id or not event_uuid:
+                skipped += 1
+                continue
+            blocked_runs.append((instance_id, action_id, event_uuid))
+
+        if not blocked_runs:
+            return Response({"succeeded": 0, "failed": 0, "skipped": skipped})
+
+        # Process in batches to avoid large ClickHouse IN clauses (uuid is not a primary key)
+        # and HTTP timeouts/memory pressure on the Node side
+        batch_size = 100
+        succeeded = 0
+        failed = 0
+        hog_flow_id = str(hog_flow.id)
+
+        batch_event_query = """
+            SELECT
+                uuid, event, properties, timestamp, team_id, distinct_id,
+                elements_chain, person_id, person_properties,
+                group0_properties, group1_properties, group2_properties,
+                group3_properties, group4_properties
+            FROM events
+            WHERE uuid IN %(event_ids)s AND team_id = %(team_id)s
+        """
+
+        for i in range(0, len(blocked_runs), batch_size):
+            batch = blocked_runs[i : i + batch_size]
+            unique_event_uuids = list({event_uuid for _, _, event_uuid in batch})
+
+            event_results = sync_execute(
+                batch_event_query,
+                {"event_ids": unique_event_uuids, "team_id": self.team_id},
+                with_column_types=True,
+            )
+
+            event_rows, event_columns = event_results
+            col_names = [col[0] for col in event_columns]
+            events_by_uuid: dict[str, dict] = {}
+            for row_data in event_rows:
+                row = dict(zip(col_names, row_data))
+                events_by_uuid[str(row["uuid"])] = {
+                    "uuid": str(row["uuid"]),
+                    "event": row["event"],
+                    "properties": row["properties"],
+                    "timestamp": row["timestamp"].isoformat()
+                    if hasattr(row["timestamp"], "isoformat")
+                    else str(row["timestamp"]),
+                    "team_id": row["team_id"],
+                    "distinct_id": row["distinct_id"],
+                    "elements_chain": row["elements_chain"] or "",
+                    "person_id": str(row["person_id"]) if row.get("person_id") else None,
+                    "person_properties": row.get("person_properties", ""),
+                    "group0_properties": row.get("group0_properties", ""),
+                    "group1_properties": row.get("group1_properties", ""),
+                    "group2_properties": row.get("group2_properties", ""),
+                    "group3_properties": row.get("group3_properties", ""),
+                    "group4_properties": row.get("group4_properties", ""),
+                }
+
+            items = []
+            for instance_id, action_id, event_uuid in batch:
+                clickhouse_event = events_by_uuid.get(event_uuid)
+                if not clickhouse_event:
+                    skipped += 1
+                    continue
+                items.append(
+                    {
+                        "clickhouse_event": clickhouse_event,
+                        "action_id": action_id,
+                        "instance_id": instance_id,
+                    }
+                )
+
+            if not items:
+                continue
+
+            res = bulk_replay_hog_flow_invocations(
+                team_id=self.team_id,
+                hog_flow_id=hog_flow_id,
+                items=items,
+            )
+
+            if res.status_code != 200:
+                failed += len(items)
+                continue
+
+            batch_result = res.json()
+            succeeded += batch_result.get("succeeded", 0)
+            failed += batch_result.get("failed", 0)
+
+        return Response({"succeeded": succeeded, "failed": failed, "skipped": skipped})
 
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)

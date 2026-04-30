@@ -247,3 +247,8 @@ export function autoFormatYTick(value: number, domainMax: number): string {
     }
     return value.toLocaleString('en-US', { maximumFractionDigits: 0 })
 }
+
+export function autoFormatterFor(ticks: number[]): (value: number) => string {
+    const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
+    return (v) => autoFormatYTick(v, domainMax)
+}

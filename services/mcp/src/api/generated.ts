@@ -24,6 +24,7 @@ export namespace Schemas {
       AiMetric: '$ai_metric',
       AiFeedback: '$ai_feedback',
       AiEvaluation: '$ai_evaluation',
+      AiTag: '$ai_tag',
       AiTraceSummary: '$ai_trace_summary',
       AiGenerationSummary: '$ai_generation_summary',
       AiTraceClusters: '$ai_trace_clusters',
@@ -6465,6 +6466,50 @@ export namespace Schemas {
       Zar: 'ZAR',
       Zmw: 'ZMW',
     } as const;
+
+    export interface BaselineSparklineDay {
+      clean: number;
+      tolerated: number;
+      changed: number;
+      quarantined: number;
+    }
+
+    export interface BaselineEntry {
+      sparkline: BaselineSparklineDay[];
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      tolerate_count_30d: number;
+      tolerate_count_90d: number;
+      is_quarantined: boolean;
+      last_run_at: string;
+      /** @nullable */
+      recent_diff_avg: number | null;
+    }
+
+    export type BaselineTotalsByRunType = {[key: string]: number};
+
+    export interface BaselineTotals {
+      by_run_type: BaselineTotalsByRunType;
+      all_snapshots: number;
+      recently_tolerated: number;
+      frequently_tolerated: number;
+      currently_quarantined: number;
+    }
+
+    export interface BaselineOverview {
+      entries: BaselineEntry[];
+      totals: BaselineTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
 
     /**
      * * `minimal` - minimal
@@ -15776,6 +15821,76 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    /**
+     * * `unknown` - Unknown
+    * `ok` - Ok
+    * `invalid` - Invalid
+    * `error` - Error
+     */
+    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
+
+
+    export const LLMProviderKeyStateEnum = {
+      Unknown: 'unknown',
+      Ok: 'ok',
+      Invalid: 'invalid',
+      Error: 'error',
+    } as const;
+
+    export interface LLMProviderKey {
+      readonly id: string;
+      provider: LLMProviderEnum;
+      /** @maxLength 255 */
+      name: string;
+      readonly state: LLMProviderKeyStateEnum;
+      /** @nullable */
+      readonly error_message: string | null;
+      api_key?: string;
+      readonly api_key_masked: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display: string | null;
+      set_as_active?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_used_at: string | null;
+    }
+
+    export interface EvaluationConfig {
+      /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+      readonly trial_eval_limit: number;
+      /** Number of llm_judge runs already consumed against the trial credit pool. */
+      readonly trial_evals_used: number;
+      /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+      readonly trial_evals_remaining: number;
+      /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+      readonly active_provider_key: LLMProviderKey | null;
+      /** Timestamp when the evaluation config row was created. */
+      readonly created_at: string;
+      /** Timestamp when the evaluation config row was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface EvaluationConfigSetActiveKeyRequest {
+      /** UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide. */
+      key_id: string;
+    }
+
     export interface EvaluationPattern {
       title: string;
       description: string;
@@ -16418,17 +16533,13 @@ export namespace Schemas {
      */
     export type _ExperimentApiMetricsList = ExperimentApiMetric[];
 
-    /**
-     * * `draft` - Draft
-    * `running` - Running
-    * `stopped` - Stopped
-     */
     export type ExperimentStatusEnum = typeof ExperimentStatusEnum[keyof typeof ExperimentStatusEnum];
 
 
     export const ExperimentStatusEnum = {
       Draft: 'draft',
       Running: 'running',
+      Paused: 'paused',
       Stopped: 'stopped',
     } as const;
 
@@ -16513,7 +16624,8 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
-      readonly status: ExperimentStatusEnum | NullEnum | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status: ExperimentStatusEnum;
       /**
        * The effective access level the user has for this object
        * @nullable
@@ -17804,6 +17916,78 @@ export namespace Schemas {
 
     export interface GenerateResponse {
       steps: GenerateStepResponse[];
+    }
+
+    /**
+     * Optional translation-only draft survey payload to translate instead of the last saved survey.
+     */
+    export type GenerateSurveyTranslationsRequestSurvey = {[key: string]: unknown | null};
+
+    export interface GenerateSurveyTranslationsRequest {
+      /** Language code to generate translations for, for example pt-BR. */
+      target_language: string;
+      /** Source language code for the existing survey copy. */
+      source_language?: string;
+      /** Whether to overwrite existing translations for this language. */
+      overwrite?: boolean;
+      /** Optional translation-only draft survey payload to translate instead of the last saved survey. */
+      survey?: GenerateSurveyTranslationsRequestSurvey;
+    }
+
+    export interface GeneratedSurveyRootTranslation {
+      /** Translated survey name. */
+      name?: string;
+      /** Translated thank-you header. */
+      thankYouMessageHeader?: string;
+      /** Translated thank-you description. */
+      thankYouMessageDescription?: string;
+      /** Translated thank-you close button text. */
+      thankYouMessageCloseButtonText?: string;
+    }
+
+    /**
+     * Survey-level translation patch keyed by language.
+     */
+    export type GenerateSurveyTranslationsResponseTranslations = {[key: string]: GeneratedSurveyRootTranslation};
+
+    export interface GeneratedSurveyQuestionTranslation {
+      /** Translated question text. */
+      question?: string;
+      /** Translated question description. */
+      description?: string;
+      /** Translated submit button text. */
+      buttonText?: string;
+      /** Translated choices in the same order as the source choices. */
+      choices?: string[];
+      /** Translated lower rating bound label. */
+      lowerBoundLabel?: string;
+      /** Translated upper rating bound label. */
+      upperBoundLabel?: string;
+      /** Translated link text or localized URL. */
+      link?: string;
+    }
+
+    /**
+     * Question translation patch keyed by target language.
+     */
+    export type GeneratedSurveyQuestionTranslationPatchTranslations = {[key: string]: GeneratedSurveyQuestionTranslation};
+
+    export interface GeneratedSurveyQuestionTranslationPatch {
+      /** Survey question id this patch applies to. */
+      id: string;
+      /** Question translation patch keyed by target language. */
+      translations: GeneratedSurveyQuestionTranslationPatchTranslations;
+    }
+
+    export interface GenerateSurveyTranslationsResponse {
+      /** Survey-level translation patch keyed by language. */
+      translations: GenerateSurveyTranslationsResponseTranslations;
+      /** Question-level translation patches keyed by question id and language. */
+      questions: GeneratedSurveyQuestionTranslationPatch[];
+      /** Editor field paths generated by AI and safe to highlight as draft content. */
+      generated_field_paths: string[];
+      /** LLM trace id for debugging and feedback. */
+      trace_id: string;
     }
 
     export interface GitHubBranchesResponse {
@@ -20562,6 +20746,18 @@ export namespace Schemas {
       '20': '2.0',
     } as const;
 
+    export interface LLMModelInfo {
+      /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
+      id: string;
+      /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+      posthog_available: boolean;
+    }
+
+    export interface LLMModelsListResponse {
+      /** Models supported for the requested provider. */
+      models: LLMModelInfo[];
+    }
+
     export interface LLMPromptOutlineEntry {
       /**
        * Markdown heading level (1-6).
@@ -20660,56 +20856,6 @@ export namespace Schemas {
       prompt: LLMPrompt;
       versions: LLMPromptVersionSummary[];
       has_more: boolean;
-    }
-
-    /**
-     * * `unknown` - Unknown
-    * `ok` - Ok
-    * `invalid` - Invalid
-    * `error` - Error
-     */
-    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
-
-
-    export const LLMProviderKeyStateEnum = {
-      Unknown: 'unknown',
-      Ok: 'ok',
-      Invalid: 'invalid',
-      Error: 'error',
-    } as const;
-
-    export interface LLMProviderKey {
-      readonly id: string;
-      provider: LLMProviderEnum;
-      /** @maxLength 255 */
-      name: string;
-      readonly state: LLMProviderKeyStateEnum;
-      /** @nullable */
-      readonly error_message: string | null;
-      api_key?: string;
-      readonly api_key_masked: string;
-      /** Azure OpenAI endpoint URL */
-      azure_endpoint?: string;
-      /**
-       * Azure OpenAI API version
-       * @maxLength 20
-       */
-      api_version?: string;
-      /**
-       * Azure endpoint (read-only, for display)
-       * @nullable
-       */
-      readonly azure_endpoint_display: string | null;
-      /**
-       * Azure API version (read-only, for display)
-       * @nullable
-       */
-      readonly api_version_display: string | null;
-      set_as_active?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly last_used_at: string | null;
     }
 
     /**
@@ -24095,6 +24241,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `potential` - Potential
+    * `candidate` - Candidate
+    * `in_progress` - In Progress
+    * `pending_input` - Pending Input
+    * `ready` - Ready
+    * `failed` - Failed
+    * `deleted` - Deleted
+    * `suppressed` - Suppressed
+     */
+    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
+
+
+    export const SignalReportStatusEnum = {
+      Potential: 'potential',
+      Candidate: 'candidate',
+      InProgress: 'in_progress',
+      PendingInput: 'pending_input',
+      Ready: 'ready',
+      Failed: 'failed',
+      Deleted: 'deleted',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface SignalReport {
+      readonly id: string;
+      /** @nullable */
+      readonly title: string | null;
+      /** @nullable */
+      readonly summary: string | null;
+      readonly status: SignalReportStatusEnum;
+      readonly total_weight: number;
+      readonly signal_count: number;
+      readonly signals_at_run: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly artefact_count: number;
+      /**
+       * P0–P4 from the latest priority judgment artefact (when present).
+       * @nullable
+       */
+      readonly priority: string | null;
+      /**
+       * Actionability choice from the latest actionability judgment artefact (when present).
+       * @nullable
+       */
+      readonly actionability: string | null;
+      /**
+       * Whether the issue appears already fixed, from the actionability judgment artefact.
+       * @nullable
+       */
+      readonly already_addressed: boolean | null;
+      readonly is_suggested_reviewer: boolean;
+      /** Distinct source products contributing signals to this report (from ClickHouse). */
+      readonly source_products: readonly string[];
+      /**
+       * PR URL from the latest implementation task run, if available.
+       * @nullable
+       */
+      readonly implementation_pr_url: string | null;
+    }
+
+    export interface PaginatedSignalReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReport[];
+    }
+
+    /**
      * * `session_replay` - Session replay
     * `llm_analytics` - LLM analytics
     * `github` - GitHub
@@ -24160,11 +24377,18 @@ export namespace Schemas {
     }
 
     export interface SnapshotHistoryEntry {
+      current_artifact?: Artifact | null;
       run_id: string;
+      snapshot_id: string;
       result: string;
       branch: string;
       commit_sha: string;
       created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+      /** @nullable */
+      diff_percentage?: number | null;
+      review_state?: string;
     }
 
     export interface PaginatedSnapshotHistoryEntryList {
@@ -24743,6 +24967,76 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaggedItem[];
+    }
+
+    /**
+     * * `llm` - LLM
+    * `hog` - Hog
+     */
+    export type TaggerTypeEnum = typeof TaggerTypeEnum[keyof typeof TaggerTypeEnum];
+
+
+    export const TaggerTypeEnum = {
+      Llm: 'llm',
+      Hog: 'hog',
+    } as const;
+
+    export type TaggerConditionPropertiesItem = { [key: string]: unknown };
+
+    export interface TaggerCondition {
+      /**
+       * Stable identifier for this condition
+       * @maxLength 100
+       */
+      id: string;
+      /**
+       * Percentage of matching events to apply this condition to
+       * @minimum 0
+       * @maximum 100
+       */
+      rollout_percentage?: number;
+      /** Property filters that scope when this condition fires */
+      properties?: TaggerConditionPropertiesItem[];
+    }
+
+    /**
+     * Nested serializer for model configuration.
+     */
+    export interface TaggerModelConfiguration {
+      provider: LLMProviderEnum;
+      /** @maxLength 100 */
+      model: string;
+      /** @nullable */
+      provider_key_id?: string | null;
+      /** @nullable */
+      readonly provider_key_name: string | null;
+    }
+
+    export interface Tagger {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration (varies by tagger_type) */
+      tagger_config: unknown;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
+      model_configuration?: TaggerModelConfiguration | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      deleted?: boolean;
+    }
+
+    export interface PaginatedTaggerList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Tagger[];
     }
 
     export interface TaskAutomation {
@@ -27029,7 +27323,8 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
-      readonly status?: ExperimentStatusEnum | NullEnum | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status?: ExperimentStatusEnum;
       /**
        * The effective access level the user has for this object
        * @nullable
@@ -30165,6 +30460,24 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
       options?: PatchedTableOptions;
+    }
+
+    export interface PatchedTagger {
+      readonly id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration (varies by tagger_type) */
+      tagger_config?: unknown;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
+      model_configuration?: TaggerModelConfiguration | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly created_by?: UserBasic;
+      deleted?: boolean;
     }
 
     /**
@@ -35267,6 +35580,31 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface SlackChannel {
+      /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
+      id: string;
+      /** Slack channel name without the leading '#'. */
+      name: string;
+      /** True if the channel is private. */
+      is_private: boolean;
+      /** True if the PostHog Slack app is a member of the channel and can post to it. */
+      is_member: boolean;
+      /** True if the channel is shared with another Slack workspace. */
+      is_ext_shared: boolean;
+      /** True if the channel is private and the PostHog Slack app cannot access it. */
+      is_private_without_access: boolean;
+    }
+
+    export interface SlackChannelsResponse {
+      /** Slack channels visible to the PostHog Slack app. */
+      channels: SlackChannel[];
+      /**
+       * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+       * @nullable
+       */
+      lastRefreshedAt?: string | null;
+    }
+
     /**
      * * `none` - none
     * `auto` - auto
@@ -39898,10 +40236,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown };
-
     export type LlmAnalyticsEvaluationReportsListParams = {
     /**
      * Number of results to return per page.
@@ -39932,7 +40266,29 @@ export namespace Schemas {
 
     export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown };
+    export type LlmAnalyticsModelsRetrieveParams = {
+    /**
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     */
+    key_id?: string;
+    /**
+     * LLM provider to list models for. Must be one of the supported providers.
+     */
+    provider: LlmAnalyticsModelsRetrieveProvider;
+    };
+
+    export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];
+
+
+    export const LlmAnalyticsModelsRetrieveProvider = {
+      Anthropic: 'anthropic',
+      AzureOpenai: 'azure_openai',
+      Fireworks: 'fireworks',
+      Gemini: 'gemini',
+      Openai: 'openai',
+      Openrouter: 'openrouter',
+      TogetherAi: 'together_ai',
+    } as const;
 
     export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 
@@ -40423,6 +40779,40 @@ export namespace Schemas {
       Skipped: 'skipped',
       Starting: 'starting',
     } as const;
+
+    export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
+    };
 
     export type UserInterviewsListParams = {
     /**
@@ -41935,6 +42325,18 @@ export namespace Schemas {
 
     export type ExperimentsListParams = {
     /**
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean;
+    /**
+     * Filter to experiments created by the given user ID.
+     */
+    created_by_id?: number;
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -41942,7 +42344,31 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string;
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsListStatus;
     };
+
+    export type ExperimentsListStatus = typeof ExperimentsListStatus[keyof typeof ExperimentsListStatus];
+
+
+    export const ExperimentsListStatus = {
+      All: 'all',
+      Complete: 'complete',
+      Draft: 'draft',
+      Paused: 'paused',
+      Running: 'running',
+      Stopped: 'stopped',
+    } as const;
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
@@ -44010,6 +44436,37 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring match against report title and summary.
+     */
+    search?: string;
+    /**
+     * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
+     */
+    source_product?: string;
+    /**
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     */
+    status?: string;
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string;
+    };
+
     export type SignalsSourceConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -44143,7 +44600,7 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
      */
     internal?: boolean;
     /**
@@ -44300,7 +44757,7 @@ export namespace Schemas {
     run_type?: string;
     };
 
-    export type VisualReviewRunsListParams = {
+    export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -44315,11 +44772,7 @@ export namespace Schemas {
     review_state?: string;
     };
 
-    export type VisualReviewRunsSnapshotHistoryListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string;
+    export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
      */
