@@ -134,9 +134,11 @@ describe('trendsChartTransforms', () => {
             })
         })
 
-        it('translates yScaleType "log10" to the hog-charts "log"', () => {
-            expect(buildTrendsChartConfig({ yScaleType: 'log10' }).yScaleType).toBe('log')
-            expect(buildTrendsChartConfig({ yScaleType: 'linear' }).yScaleType).toBe('linear')
+        it.each([
+            ['log10', 'log'],
+            ['linear', 'linear'],
+        ] as const)('translates yScaleType "%s" to hog-charts "%s"', (input, expected) => {
+            expect(buildTrendsChartConfig({ yScaleType: input }).yScaleType).toBe(expected)
         })
 
         it('builds a tooltip object only when pinnable or placement is set', () => {
