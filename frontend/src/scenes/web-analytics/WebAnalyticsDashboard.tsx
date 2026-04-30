@@ -450,8 +450,6 @@ const BotAnalyticsTiles = (): JSX.Element => {
     // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
     useMountedLogic(botAnalyticsLogic)
     const { tiles } = useValues(botAnalyticsLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const isInternalPosthogTeam = currentTeam?.id === 2
 
     return (
         <>
@@ -460,19 +458,6 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
-            {isInternalPosthogTeam && (
-                <LemonBanner type="info" dismissKey="bot-analytics-internal-sample-data" className="mb-4">
-                    You're only seeing this because you're in the internal PostHog project. While we're testing this,
-                    posthog.com bot traffic is being captured into a separate project.{' '}
-                    <Link
-                        to="/project/371937/web/bots?date_from=-7d&date_to=&interval=hour&filters=%5B%7B%22key%22%3A%22%24virt_bot_name%22%2C%22value%22%3A%5B%22Meta%20AI%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D"
-                        target="_blank"
-                    >
-                        Check out sample data on the Lucas AI Farm project
-                    </Link>
-                    .
-                </LemonBanner>
-            )}
             <Tiles tiles={tiles} />
         </>
     )
