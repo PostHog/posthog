@@ -71,6 +71,10 @@ logger = structlog.get_logger(__name__)
 LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
 
 
+def _file_extension(path: str) -> str:
+    return path.rsplit(".", 1)[1].lower() if "." in path else ""
+
+
 def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
     """Properties shared by every skill report_user_action event.
 
@@ -622,7 +626,7 @@ class LLMSkillViewSet(
             "path": path_value,
             "content_type": payload.validated_data.get("content_type", "text/plain"),
             "file_content_length": len(content_value),
-            "file_extension": path_value.rsplit(".", 1)[1].lower() if "." in path_value else "",
+            "file_extension": _file_extension(path_value),
         }
         logger.info(
             "llma_skill_file_created",
@@ -683,7 +687,7 @@ class LLMSkillViewSet(
         props = {
             **_skill_analytics_props(published_skill),
             "path": file_path,
-            "file_extension": file_path.rsplit(".", 1)[1].lower() if "." in file_path else "",
+            "file_extension": _file_extension(file_path),
         }
         logger.info(
             "llma_skill_file_deleted",
@@ -749,13 +753,15 @@ class LLMSkillViewSet(
 
         old_path_value = payload.validated_data["old_path"]
         new_path_value = payload.validated_data["new_path"]
+        old_extension = _file_extension(old_path_value)
+        new_extension = _file_extension(new_path_value)
         props = {
             **_skill_analytics_props(published_skill),
             "old_path": old_path_value,
             "new_path": new_path_value,
-            "old_file_extension": old_path_value.rsplit(".", 1)[1].lower() if "." in old_path_value else "",
-            "new_file_extension": new_path_value.rsplit(".", 1)[1].lower() if "." in new_path_value else "",
-            "extension_changed": (old_path_value.rsplit(".", 1)[1:] != new_path_value.rsplit(".", 1)[1:]),
+            "old_file_extension": old_extension,
+            "new_file_extension": new_extension,
+            "extension_changed": old_extension != new_extension,
         }
         logger.info(
             "llma_skill_file_renamed",
