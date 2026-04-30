@@ -265,6 +265,37 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_not_called()
 
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    def test_malformed_json_returns_400(self, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        body = b"not json{"
+        signature = generate_github_signature(body, self.webhook_secret)
+        response = self.client.post(
+            "/webhooks/github/pr/",
+            data=body,
+            content_type="application/json",
+            headers={"x-hub-signature-256": signature, "x-github-event": "pull_request"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    def test_type_mismatch_returns_400(self, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        # check_run.pull_requests must be a list — a string is uncoercible.
+        payload = {
+            "action": "completed",
+            "check_run": {"name": "lint", "conclusion": "failure", "pull_requests": "not a list"},
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        response = self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={"x-hub-signature-256": signature, "x-github-event": "check_run"},
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class TestFindTaskRun(TestCase):
     def setUp(self):

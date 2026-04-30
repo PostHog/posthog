@@ -1,5 +1,4 @@
 import hmac
-import json
 import uuid
 import asyncio
 import hashlib
@@ -11,12 +10,14 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 import posthoganalytics
+from pydantic import ValidationError
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.temporal.common.client import sync_connect
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+from products.tasks.backend.webhook_schemas import CheckRunEvent, CommentEvent, PullRequestEvent
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -119,61 +120,65 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         )
         return HttpResponse("Invalid signature", status=403)
 
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse("Invalid JSON", status=400)
-
     event_type = request.headers.get("X-GitHub-Event")
+    raw = request.body
 
-    if event_type == "pull_request":
-        return _handle_pull_request_event(payload)
-    elif event_type in ("issue_comment", "pull_request_review_comment", "pull_request_review"):
-        return _handle_comment_event(payload)
-    elif event_type == "check_run":
-        return _handle_check_run_event(payload)
-    else:
-        return HttpResponse(status=200)
+    try:
+        if event_type == "pull_request":
+            return _handle_pull_request_event(PullRequestEvent.model_validate_json(raw))
+        elif event_type in ("issue_comment", "pull_request_review_comment", "pull_request_review"):
+            return _handle_comment_event(CommentEvent.model_validate_json(raw))
+        elif event_type == "check_run":
+            return _handle_check_run_event(CheckRunEvent.model_validate_json(raw))
+        else:
+            return HttpResponse(status=200)
+    except ValidationError as e:
+        logger.warning(
+            "github_pr_webhook_invalid_payload",
+            event_type=event_type,
+            errors=e.errors(),
+        )
+        return HttpResponse("Invalid payload", status=400)
 
 
-def _handle_check_run_event(payload: dict) -> HttpResponse:
+def _handle_check_run_event(event: CheckRunEvent) -> HttpResponse:
+    check_run = event.check_run
     logger.info(
         "github_check_run_webhook_received",
-        action=payload.get("action"),
-        check_run_name=payload.get("check_run", {}).get("name"),
-        repository=payload.get("repository", {}).get("full_name"),
+        action=event.action,
+        check_run_name=check_run.name,
+        repository=event.repository.full_name,
     )
-    if payload.get("action") != "completed":
+    if event.action != "completed":
         return HttpResponse(status=200)
 
-    check_run = payload.get("check_run", {})
-    pr_url = check_run.get("pull_requests", [{}])[0].get("url")
-    conclusion = check_run.get("conclusion")
+    pr_url = check_run.pull_requests[0].url if check_run.pull_requests else None
+    conclusion = check_run.conclusion
     if conclusion not in CHECK_RUN_ACCEPTABLE_CONCLUSIONS:
         logger.info(
             "github_check_run_unacceptable_conclusion",
             conclusion=conclusion,
-            check_run_name=check_run.get("name"),
+            check_run_name=check_run.name,
         )
         if pr_url:
             task_run = find_task_run(pr_url=pr_url, branch=None)
             if task_run:
                 task_run.emit_console_event(
-                    "info", f"Check run '{check_run.get('name')}' completed with conclusion: {conclusion}"
+                    "info", f"Check run '{check_run.name}' completed with conclusion: {conclusion}"
                 )
                 task_run.capture_event(
-                    "check_run_completed", {"check_run_name": check_run.get("name"), "conclusion": conclusion}
+                    "check_run_completed", {"check_run_name": check_run.name, "conclusion": conclusion}
                 )
                 _forward_pr_activity_to_task(pr_url=pr_url, branch=None)
 
     return HttpResponse(status=200)
 
 
-def _handle_pull_request_event(payload: dict) -> HttpResponse:
-    action = payload.get("action")
-    pull_request = payload.get("pull_request", {})
-    pr_url = pull_request.get("html_url")
-    merged = pull_request.get("merged", False)
+def _handle_pull_request_event(event: PullRequestEvent) -> HttpResponse:
+    action = event.action
+    pull_request = event.pull_request
+    pr_url = pull_request.html_url
+    merged = pull_request.merged
 
     if not pr_url:
         logger.warning("github_pr_webhook_no_pr_url", action=action)
@@ -193,8 +198,8 @@ def _handle_pull_request_event(payload: dict) -> HttpResponse:
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return HttpResponse(status=200)
 
-    branch = pull_request.get("head", {}).get("ref")
-    repository_full_name = (payload.get("repository") or {}).get("full_name")
+    branch = pull_request.head.ref
+    repository_full_name = event.repository.full_name
     task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
 
     if not task_run:
@@ -225,20 +230,20 @@ def _handle_pull_request_event(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def _handle_comment_event(payload: dict) -> HttpResponse:
-    if payload.get("action") != "created":
+def _handle_comment_event(event: CommentEvent) -> HttpResponse:
+    if event.action != "created":
         return HttpResponse(status=200)
 
     # issue_comment fires for issues too — only PR comments have issue.pull_request
-    pull_request = payload.get("pull_request") or payload.get("issue", {}).get("pull_request")
+    pull_request = event.pull_request or (event.issue.pull_request if event.issue else None)
     if not pull_request:
         return HttpResponse(status=200)
 
-    pr_url = pull_request.get("html_url")
+    pr_url = pull_request.html_url
     if not pr_url:
         return HttpResponse(status=200)
 
-    branch = pull_request.get("head", {}).get("ref")
+    branch = pull_request.head.ref
     _forward_pr_activity_to_task(pr_url=pr_url, branch=branch)
     return HttpResponse(status=200)
 
