@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useMemo, type ErrorInfo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { createXAxisTickCallback, DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
@@ -14,6 +14,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { ChartDisplayType } from '~/types'
 
 import { InsightEmptyState } from '../../../insights/EmptyStates'
 import { openPersonsModal } from '../../persons-modal/PersonsModal'
@@ -75,6 +76,23 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+
+    const capturedRef = useRef(false)
+    useEffect(() => {
+        if (capturedRef.current) {
+            return
+        }
+        capturedRef.current = true
+        posthog.capture('hog chart rendered', {
+            chart_type: display ?? ChartDisplayType.ActionsLineGraph,
+            has_breakdown: !!breakdownFilter?.breakdown,
+            series_count: indexedResults?.length ?? 0,
+            insight_short_id: insight?.short_id,
+            dashboard_id: insightProps?.dashboardId,
+            in_shared_mode: inSharedMode,
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel =
