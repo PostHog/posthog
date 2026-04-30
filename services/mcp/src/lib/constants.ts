@@ -1,104 +1,5 @@
 import { env } from 'cloudflare:workers'
 
-<<<<<<< New base: refactor stuff, start adding client tests
-import type { CloudRegion } from '@/tools/types'
-
-<<<<<<< New base: update stuff to remove sse
-import packageJson from '../../package.json'
-
-export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
-
-export interface GetUserAgentOptions {
-    clientUserAgent?: string | undefined
-}
-
-export function getUserAgent(opts: GetUserAgentOptions = {}): string {
-    const { clientUserAgent } = opts
-
-    if (clientUserAgent) {
-        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
-        if (match) {
-            return `${USER_AGENT}; for ${match[0]}`
-        }
-    }
-
-    return USER_AGENT
-}
-
-// Region-specific PostHog API base URLs
-export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
-export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
-
-// Normalize a string to a valid CloudRegion, defaulting to 'us'
-export const toCloudRegion = (value: string | undefined | null): CloudRegion => {
-    const normalized = value?.toLowerCase()
-    if (normalized === 'eu') {
-        return 'eu'
-    }
-    return 'us'
-}
-
-// Get the PostHog base URL for a region
-export const getBaseUrlForRegion = (region: CloudRegion): string => {
-    return region === 'eu' ? POSTHOG_EU_BASE_URL : POSTHOG_US_BASE_URL
-}
-||||||| Common ancestor
-import type { CloudRegion } from '@/tools/types'
-
-import packageJson from '../../package.json'
-
-export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
-
-export interface GetUserAgentOptions {
-    clientUserAgent?: string | undefined
-    /** `x-posthog-mcp-consumer` — self-identifier of the wrapping app (e.g. `posthog-code`, `slack`). */
-    mcpConsumer?: string | undefined
-    /** MCP `clientInfo.name` — the wrapped client (e.g. `claude-code`). */
-    mcpClientName?: string | undefined
-}
-
-export function getUserAgent(opts: GetUserAgentOptions = {}): string {
-    const { clientUserAgent, mcpConsumer, mcpClientName } = opts
-    const parts: string[] = []
-
-    // When the caller self-identifies as a wrapping consumer app, emit
-    // `<consumer>/<wrapped-client>` as the leading UA token so downstream
-    // services can attribute traffic without parsing custom headers.
-    if (mcpConsumer) {
-        const wrappedClient = (mcpClientName || 'unknown').replace(/\s+/g, '-')
-        parts.push(`${mcpConsumer}/${wrappedClient}`)
-    }
-
-    parts.push(USER_AGENT)
-
-    if (clientUserAgent) {
-        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
-        if (match) {
-            parts[parts.length - 1] = `${USER_AGENT}; for ${match[0]}`
-        }
-    }
-
-    return parts.join(' ')
-}
-
-// Region-specific PostHog API base URLs
-export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
-export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
-
-// Normalize a string to a valid CloudRegion, defaulting to 'us'
-export const toCloudRegion = (value: string | undefined | null): CloudRegion => {
-    const normalized = value?.toLowerCase()
-    if (normalized === 'eu') {
-        return 'eu'
-    }
-    return 'us'
-}
-
-// Get the PostHog base URL for a region
-export const getBaseUrlForRegion = (region: CloudRegion): string => {
-    return region === 'eu' ? POSTHOG_EU_BASE_URL : POSTHOG_US_BASE_URL
-}
-=======
 export {
     USER_AGENT,
     type GetUserAgentOptions,
@@ -113,50 +14,7 @@ export {
 } from './oauth-constants'
 
 import { resolveAuthorizationServerUrl } from './oauth-constants'
->>>>>>> Current commit: refactor stuff, start adding client tests
 
-||||||| Common ancestor
-import packageJson from '../../package.json'
-
-export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
-
-export interface GetUserAgentOptions {
-    clientUserAgent?: string | undefined
-}
-
-export function getUserAgent(opts: GetUserAgentOptions = {}): string {
-    const { clientUserAgent } = opts
-
-    if (clientUserAgent) {
-        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
-        if (match) {
-            return `${USER_AGENT}; for ${match[0]}`
-        }
-    }
-
-    return USER_AGENT
-}
-
-// Region-specific PostHog API base URLs
-export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
-export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
-
-// Normalize a string to a valid CloudRegion, defaulting to 'us'
-export const toCloudRegion = (value: string | undefined | null): CloudRegion => {
-    const normalized = value?.toLowerCase()
-    if (normalized === 'eu') {
-        return 'eu'
-    }
-    return 'us'
-}
-
-// Get the PostHog base URL for a region
-export const getBaseUrlForRegion = (region: CloudRegion): string => {
-    return region === 'eu' ? POSTHOG_EU_BASE_URL : POSTHOG_US_BASE_URL
-}
-
-=======
->>>>>>> Current commit: update stuff to remove sse
 /**
  * Custom API base URL for self-hosted PostHog instances.
  *
@@ -166,6 +24,7 @@ export const getBaseUrlForRegion = (region: CloudRegion): string => {
  */
 export const CUSTOM_API_BASE_URL = env.POSTHOG_API_BASE_URL
 
+<<<<<<< New base: fix conflicts
 <<<<<<< New base: update stuff to remove sse
 <<<<<<< New base: refactor stuff, start adding client tests
 const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
@@ -383,5 +242,304 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'web_analytics:read',
 ] as const
 =======
+||||||| Common ancestor
+<<<<<<< New base: update stuff to remove sse
+<<<<<<< New base: refactor stuff, start adding client tests
+const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
+
+// Get the authorization server URL for OAuth
+// Uses the cross-region OAuth proxy for cloud, or CUSTOM_API_BASE_URL for self-hosted
+export const getAuthorizationServerUrl = (): string => {
+    if (CUSTOM_API_BASE_URL) {
+        return CUSTOM_API_BASE_URL
+    }
+
+    return OAUTH_PROXY_URL
+}
+
+// OAuth Authorization Server URL (where clients get tokens)
+// Defaults to CUSTOM_API_BASE_URL if not explicitly set
+export const OAUTH_AUTHORIZATION_SERVER_URL =
+    (env as unknown as Record<string, string | undefined>).OAUTH_AUTHORIZATION_SERVER_URL || CUSTOM_API_BASE_URL
+
+export const MCP_DOCS_URL = 'https://posthog.com/docs/model-context-protocol'
+
+// OAuth Protected Resource Metadata (RFC 9728)
+// Scopes that this resource server supports
+export const OAUTH_SCOPES_SUPPORTED = [
+    'openid',
+    'profile',
+    'email',
+    'alert:read',
+    'alert:write',
+    'annotation:read',
+    'annotation:write',
+    'action:read',
+    'action:write',
+    'activity_log:read',
+    'approvals:read',
+    'comment:read',
+    'cohort:read',
+    'cohort:write',
+    'dashboard:read',
+    'dashboard:write',
+    'early_access_feature:read',
+    'early_access_feature:write',
+    'endpoint:read',
+    'endpoint:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'event_definition:read',
+    'event_definition:write',
+    'evaluation:read',
+    'external_data_source:read',
+    'external_data_source:write',
+    'evaluation:write',
+    'experiment:read',
+    'experiment:write',
+    'feature_flag:read',
+    'feature_flag:write',
+    'group:read',
+    'hog_flow:read',
+    'hog_function:read',
+    'hog_function:write',
+    'insight:read',
+    'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
+    'integration:read',
+    'integration:write',
+    'llm_analytics:read',
+    'llm_analytics:write',
+    'llm_prompt:read',
+    'llm_prompt:write',
+    'llm_skill:read',
+    'llm_skill:write',
+    'logs:read',
+    'logs:write',
+    'notebook:read',
+    'notebook:write',
+    'organization:read',
+    'organization:write',
+    'organization_member:read',
+    'person:read',
+    'person:write',
+    'project:read',
+    'project:write',
+    'property_definition:read',
+    'query:read',
+    'session_recording:read',
+    'session_recording:write',
+    'session_recording_playlist:read',
+    'session_recording_playlist:write',
+    'subscription:read',
+    'subscription:write',
+    'survey:read',
+    'survey:write',
+    'task:read',
+    'ticket:read',
+    'ticket:write',
+    'usage_metric:read',
+    'usage_metric:write',
+    'user:read',
+    'user:write',
+    'warehouse_table:read',
+    'warehouse_view:read',
+    'warehouse_view:write',
+    'web_analytics:read',
+] as const
+||||||| Common ancestor
+const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
+
+// Get the authorization server URL for OAuth
+// Uses the cross-region OAuth proxy for cloud, or CUSTOM_API_BASE_URL for self-hosted
+export const getAuthorizationServerUrl = (): string => {
+    if (CUSTOM_API_BASE_URL) {
+        return CUSTOM_API_BASE_URL
+    }
+
+    return OAUTH_PROXY_URL
+}
+
+// OAuth Authorization Server URL (where clients get tokens)
+// Defaults to CUSTOM_API_BASE_URL if not explicitly set
+export const OAUTH_AUTHORIZATION_SERVER_URL =
+    (env as unknown as Record<string, string | undefined>).OAUTH_AUTHORIZATION_SERVER_URL || CUSTOM_API_BASE_URL
+
+export const MCP_DOCS_URL = 'https://posthog.com/docs/model-context-protocol'
+
+// OAuth Protected Resource Metadata (RFC 9728)
+// Scopes that this resource server supports
+export const OAUTH_SCOPES_SUPPORTED = [
+    'openid',
+    'profile',
+    'email',
+    'alert:read',
+    'alert:write',
+    'annotation:read',
+    'annotation:write',
+    'action:read',
+    'action:write',
+    'activity_log:read',
+    'approvals:read',
+    'comment:read',
+    'cohort:read',
+    'cohort:write',
+    'dashboard:read',
+    'dashboard:write',
+    'early_access_feature:read',
+    'early_access_feature:write',
+    'endpoint:read',
+    'endpoint:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'event_definition:read',
+    'event_definition:write',
+    'evaluation:read',
+    'external_data_source:read',
+    'external_data_source:write',
+    'evaluation:write',
+    'experiment:read',
+    'experiment:write',
+    'feature_flag:read',
+    'feature_flag:write',
+    'group:read',
+    'hog_flow:read',
+    'hog_function:read',
+    'hog_function:write',
+    'insight:read',
+    'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
+    'integration:read',
+    'integration:write',
+    'llm_analytics:read',
+    'llm_analytics:write',
+    'llm_prompt:read',
+    'llm_prompt:write',
+    'llm_skill:read',
+    'llm_skill:write',
+    'logs:read',
+    'logs:write',
+    'notebook:read',
+    'notebook:write',
+    'organization:read',
+    'organization:write',
+    'organization_member:read',
+    'person:read',
+    'person:write',
+    'project:read',
+    'project:write',
+    'property_definition:read',
+    'query:read',
+    'session_recording:read',
+    'session_recording:write',
+    'session_recording_playlist:read',
+    'session_recording_playlist:write',
+    'subscription:read',
+    'subscription:write',
+    'survey:read',
+    'survey:write',
+    'ticket:read',
+    'ticket:write',
+    'usage_metric:read',
+    'usage_metric:write',
+    'user:read',
+    'user:write',
+    'warehouse_table:read',
+    'warehouse_view:read',
+    'warehouse_view:write',
+    'web_analytics:read',
+] as const
+=======
 export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(CUSTOM_API_BASE_URL)
->>>>>>> Current commit: update stuff to remove sse
+>>>>>>> Current commit: refactor stuff, start adding client tests
+||||||| Common ancestor
+// OAuth Protected Resource Metadata (RFC 9728)
+// Scopes that this resource server supports
+export const OAUTH_SCOPES_SUPPORTED = [
+    'openid',
+    'profile',
+    'email',
+    'alert:read',
+    'alert:write',
+    'annotation:read',
+    'annotation:write',
+    'action:read',
+    'action:write',
+    'activity_log:read',
+    'approvals:read',
+    'comment:read',
+    'cohort:read',
+    'cohort:write',
+    'dashboard:read',
+    'dashboard:write',
+    'early_access_feature:read',
+    'early_access_feature:write',
+    'endpoint:read',
+    'endpoint:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'event_definition:read',
+    'event_definition:write',
+    'evaluation:read',
+    'external_data_source:read',
+    'external_data_source:write',
+    'evaluation:write',
+    'experiment:read',
+    'experiment:write',
+    'feature_flag:read',
+    'feature_flag:write',
+    'group:read',
+    'hog_flow:read',
+    'hog_function:read',
+    'hog_function:write',
+    'insight:read',
+    'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
+    'integration:read',
+    'integration:write',
+    'llm_analytics:read',
+    'llm_analytics:write',
+    'llm_prompt:read',
+    'llm_prompt:write',
+    'llm_skill:read',
+    'llm_skill:write',
+    'logs:read',
+    'logs:write',
+    'notebook:read',
+    'notebook:write',
+    'organization:read',
+    'organization:write',
+    'organization_member:read',
+    'person:read',
+    'person:write',
+    'project:read',
+    'project:write',
+    'property_definition:read',
+    'query:read',
+    'session_recording:read',
+    'session_recording:write',
+    'session_recording_playlist:read',
+    'session_recording_playlist:write',
+    'subscription:read',
+    'subscription:write',
+    'survey:read',
+    'survey:write',
+    'task:read',
+    'ticket:read',
+    'ticket:write',
+    'usage_metric:read',
+    'usage_metric:write',
+    'user:read',
+    'user:write',
+    'warehouse_table:read',
+    'warehouse_view:read',
+    'warehouse_view:write',
+    'web_analytics:read',
+] as const
+=======
+=======
+>>>>>>> Current commit: fix conflicts
+export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(CUSTOM_API_BASE_URL)

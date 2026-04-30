@@ -220,58 +220,6 @@ const handleRequest = async (
         return buildInvalidTokenFormatResponse()
     }
 
-<<<<<<< New base: update stuff to remove sse
-<<<<<<< New base: refactor stuff, start adding client tests
-    // Organization and project IDs can be provided via headers or query params.
-    // When set, they pin the MCP session to a specific org/project and remove the switch tools.
-    const organizationId =
-        request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
-    const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
-
-    const rawUserAgent = request.headers.get('User-Agent') || undefined
-    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
-
-    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
-    // Tasks sandbox, or an AI-tool plugin that auto-installs the MCP) when the
-    // wrapped MCP client's name is too generic to distinguish (e.g. both direct
-    // and sandboxed Claude Code send `claude-code`). Query-param fallback for
-    // clients that only let the user customize the URL, not headers.
-    const mcpConsumer = sanitizeHeaderValue(
-        request.headers.get('x-posthog-mcp-consumer') || url.searchParams.get('consumer') || undefined
-    )
-
-||||||| Common ancestor
-    // Organization and project IDs can be provided via headers or query params.
-    // When set, they pin the MCP session to a specific org/project and remove the switch tools.
-    const organizationId =
-        request.headers.get('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
-    const projectId = request.headers.get('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
-
-    const rawUserAgent = request.headers.get('User-Agent') || undefined
-    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
-
-    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
-    // Tasks sandbox) when the wrapped MCP client's name is too generic to
-    // distinguish (e.g. both direct and sandboxed Claude Code send `claude-code`).
-    const mcpConsumer = sanitizeHeaderValue(request.headers.get('x-posthog-mcp-consumer') || undefined)
-
-=======
->>>>>>> Current commit: refactor stuff, start adding client tests
-||||||| Common ancestor
-    const rawUserAgent = request.headers.get('User-Agent') || undefined
-    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
-
-    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
-    // Tasks sandbox, or an AI-tool plugin that auto-installs the MCP) when the
-    // wrapped MCP client's name is too generic to distinguish (e.g. both direct
-    // and sandboxed Claude Code send `claude-code`). Query-param fallback for
-    // clients that only let the user customize the URL, not headers.
-    const mcpConsumer = sanitizeHeaderValue(
-        request.headers.get('x-posthog-mcp-consumer') || url.searchParams.get('consumer') || undefined
-    )
-
-=======
->>>>>>> Current commit: update stuff to remove sse
     // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
     // request body (streamable-http only). The framework's async
     // `getInitializeRequest()` relies on Durable Object storage which is only
