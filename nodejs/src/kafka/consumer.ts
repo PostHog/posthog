@@ -168,6 +168,7 @@ export class KafkaConsumer {
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: { promise: Promise<void>; createdAt: number }[]
+    private currentBatchProcessing: Promise<void> | undefined
     private podName: string
     private lastBackgroundTaskCompletionTime: number
     private consumerId: string
@@ -441,53 +442,11 @@ export class KafkaConsumer {
                 })),
             })
 
-            // Handle background task coordination asynchronously
-            if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
+            if (this.config.waitForBackgroundTasksOnRebalance) {
                 // Don't block the rebalance callback, but coordinate in the background
-                Promise.all(this.backgroundTask.map((t) => t.promise))
-                    .then(() => {
-                        logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
-                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalUnassign(assignments)
-                        } else {
-                            this.rdKafkaConsumer.unassign()
-                        }
-                        this.updateMetricsAfterRevocation(assignments)
-                        try {
-                            if (this.assignments().length === 0) {
-                                this.resetRebalanceCoordination()
-                            }
-                        } catch (error) {
-                            // Consumer might be in an erroneous state, reset anyway to be safe
-                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                                error: String(error),
-                            })
-                            this.resetRebalanceCoordination()
-                        }
-                    })
-                    .catch((error) => {
-                        logger.error('🔁', 'background_task_error_during_revocation', { error })
-                        // Still proceed with revocation even if background tasks fail
-                        if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
-                            this.rdKafkaConsumer.incrementalUnassign(assignments)
-                        } else {
-                            this.rdKafkaConsumer.unassign()
-                        }
-                        this.updateMetricsAfterRevocation(assignments)
-                        try {
-                            if (this.assignments().length === 0) {
-                                this.resetRebalanceCoordination()
-                            }
-                        } catch (error) {
-                            // Consumer might be in an erroneous state, reset anyway to be safe
-                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
-                                error: String(error),
-                            })
-                            this.resetRebalanceCoordination()
-                        }
-                    })
+                void this.deferredUnassign(assignments)
             } else {
-                // No background tasks or feature disabled, proceed immediately
+                // Feature disabled, proceed immediately
                 if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
                     this.rdKafkaConsumer.incrementalUnassign(assignments)
                 } else {
@@ -504,6 +463,55 @@ export class KafkaConsumer {
                 logger.warn('🔥', 'kafka_consumer_rebalancing_error_while_not_connected', { err })
             }
         }
+    }
+
+    private async deferredUnassign(assignments: Assignment[]): Promise<void> {
+        const performUnassign = (): void => {
+            if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                this.rdKafkaConsumer.incrementalUnassign(assignments)
+            } else {
+                this.rdKafkaConsumer.unassign()
+            }
+            this.updateMetricsAfterRevocation(assignments)
+            try {
+                if (this.assignments().length === 0) {
+                    this.resetRebalanceCoordination()
+                }
+            } catch (error) {
+                // Consumer might be in an erroneous state, reset anyway to be safe
+                logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
+                    error: String(error),
+                })
+                this.resetRebalanceCoordination()
+            }
+        }
+
+        try {
+            // Wait for any in-flight eachBatch+push so that any task it pushes
+            // is in the queue before we snapshot it.
+            if (this.currentBatchProcessing) {
+                await this.currentBatchProcessing.catch(() => {})
+            }
+            // Wait for all queued tasks to fully complete (including offset storage).
+            await Promise.all(this.backgroundTask.map((t) => t.promise))
+            logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
+        } catch (error) {
+            logger.error('🔁', 'background_task_error_during_revocation', { error })
+            // Fall through and still attempt the unassign — but only if a
+            // recovery hasn't fired in the meantime (see check below).
+        }
+
+        // If the local recovery path fired (rebalanceTimeoutMs exceeded), do
+        // NOT unassign — partitions may have been re-assigned to us in the
+        // meantime (cooperative-sticky), and unassigning would strand them.
+        if (!this.rebalanceCoordination.isRebalancing) {
+            logger.info('🔁', 'rebalance_recovered_skipping_deferred_unassign', {
+                revokedPartitions: assignments.map((tp) => ({ topic: tp.topic, partition: tp.partition })),
+            })
+            return
+        }
+
+        performUnassign()
     }
 
     private updateMetricsAfterRevocation(assignments: Assignment[]): void {
@@ -713,76 +721,95 @@ export class KafkaConsumer {
                         continue
                     }
 
-                    const startProcessingTimeMs = new Date().valueOf()
-                    const result = await eachBatch(messages)
+                    // Track this iteration's "process + push" window so the
+                    // rebalance callback can wait for any task we're about to
+                    // enqueue. Resolved in `finally` so eachBatch errors don't
+                    // strand a rebalance waiting forever.
+                    let resolveProcessing: () => void = () => {}
+                    this.currentBatchProcessing = new Promise<void>((resolve) => {
+                        resolveProcessing = resolve
+                    })
 
-                    const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
-                    consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
+                    try {
+                        const startProcessingTimeMs = new Date().valueOf()
+                        const result = await eachBatch(messages)
 
-                    const logSummary = `Processed ${messages.length} events in ${
-                        Math.round(processingTimeMs / 10) / 100
-                    }s`
-                    if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                        logger.warn('🕒', `Slow batch: ${logSummary}, groupId: ${groupId}`)
+                        const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
+                        consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
+
+                        const logSummary = `Processed ${messages.length} events in ${
+                            Math.round(processingTimeMs / 10) / 100
+                        }s`
+                        if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
+                            logger.warn('🕒', `Slow batch: ${logSummary}, groupId: ${groupId}`)
+                        }
+
+                        // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
+                        // it would be hard to mix background work with non-background work.
+                        // So we just create pretend work to simplify the rest of the logic
+                        const rawBackgroundTask = result?.backgroundTask
+                        const backgroundTask = rawBackgroundTask
+                            ? instrumentFn(
+                                  {
+                                      key: 'consumer_background_task',
+                                      timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                                      sendException: false,
+                                  },
+                                  () => rawBackgroundTask
+                              )
+                            : Promise.resolve()
+                        const stopBackgroundTaskTimer = rawBackgroundTask
+                            ? consumedBatchBackgroundDuration.startTimer({
+                                  topic: this.config.topic,
+                                  groupId: this.config.groupId,
+                              })
+                            : undefined
+                        const taskCreatedAt = Date.now()
+                        // Pull out the offsets to commit from the messages so we can release the messages reference
+                        const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
+
+                        // Tracked completion: resolves only after offset storage,
+                        // so rebalance and downstream backpressure waits include it.
+                        // The .finally callback references its own wrapped promise via the
+                        // task entry, so we build the entry incrementally.
+                        const taskEntry: { promise: Promise<void>; createdAt: number } = {
+                            promise: undefined as unknown as Promise<void>,
+                            createdAt: taskCreatedAt,
+                        }
+                        taskEntry.promise = backgroundTask.finally(async () => {
+                            // Track that we made progress
+                            this.lastBackgroundTaskCompletionTime = Date.now()
+
+                            stopBackgroundTaskTimer?.()
+
+                            // First of all clear ourselves from the queue
+                            const index = this.backgroundTask.indexOf(taskEntry)
+
+                            // CRITICAL: If task not found, this indicates some bigger problem
+                            if (index < 0) {
+                                captureException(new Error('Background task not found in array during cleanup'))
+                            }
+
+                            // TRICKY: Wait for the tracked completion of earlier tasks (which
+                            // includes their offset storage) before storing ours. This guarantees
+                            // ordering even when raw tasks finish out of order.
+                            if (index >= 0) {
+                                const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
+                                this.backgroundTask.splice(index, 1)
+                                await Promise.all(promisesToWait)
+                            }
+
+                            if (this.config.autoCommit && this.config.autoOffsetStore) {
+                                this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
+                            }
+                        })
+
+                        // At first we just add the background work to the queue with metadata
+                        this.backgroundTask.push(taskEntry)
+                    } finally {
+                        resolveProcessing()
+                        this.currentBatchProcessing = undefined
                     }
-
-                    // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
-                    // it would be hard to mix background work with non-background work.
-                    // So we just create pretend work to simplify the rest of the logic
-                    const rawBackgroundTask = result?.backgroundTask
-                    const backgroundTask = rawBackgroundTask
-                        ? instrumentFn(
-                              {
-                                  key: 'consumer_background_task',
-                                  timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
-                                  sendException: false,
-                              },
-                              () => rawBackgroundTask
-                          )
-                        : Promise.resolve()
-                    const stopBackgroundTaskTimer = rawBackgroundTask
-                        ? consumedBatchBackgroundDuration.startTimer({
-                              topic: this.config.topic,
-                              groupId: this.config.groupId,
-                          })
-                        : undefined
-                    const taskCreatedAt = Date.now()
-                    // Pull out the offsets to commit from the messages so we can release the messages reference
-                    const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
-
-                    void backgroundTask.finally(async () => {
-                        // Track that we made progress
-                        this.lastBackgroundTaskCompletionTime = Date.now()
-
-                        stopBackgroundTaskTimer?.()
-
-                        // First of all clear ourselves from the queue
-                        const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
-
-                        // CRITICAL: If task not found, this indicates some bigger problem
-                        if (index < 0) {
-                            captureException(new Error('Background task not found in array during cleanup'))
-                        }
-
-                        // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
-                        // Important: capture the promises BEFORE removing the task, as the array changes after splice
-                        if (index >= 0) {
-                            // Task found - capture promises to wait for, then remove the task
-                            const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
-                            this.backgroundTask.splice(index, 1)
-                            await Promise.all(promisesToWait)
-                        }
-
-                        if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
-                        }
-                    })
-
-                    // At first we just add the background work to the queue with metadata
-                    this.backgroundTask.push({
-                        promise: backgroundTask,
-                        createdAt: taskCreatedAt,
-                    })
 
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
                     if (this.backgroundTask.length >= this.maxBackgroundTasks) {
