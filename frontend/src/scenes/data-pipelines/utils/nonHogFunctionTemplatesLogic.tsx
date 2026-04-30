@@ -3,7 +3,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -25,11 +25,23 @@ type SourceDisplayStatus = {
     descriptionEl: string | JSX.Element
 }
 
-function getSourceDisplayStatus(
-    connector: SourceConfig,
-    unreleased: boolean,
-    featureFlag: boolean | undefined
-): SourceDisplayStatus {
+// Returns whether a connector should appear in the source picker. A flagged source is hidden
+// when its flag is off, UNLESS the source is also marked `unreleasedSource` — in which case it
+// stays visible and renders as a "Notify me" / coming-soon entry via getSourceDisplayStatus.
+export function shouldShowConnector(
+    connector: Pick<SourceConfig, 'featureFlag' | 'unreleasedSource'>,
+    featureFlags: FeatureFlagsSet
+): boolean {
+    if (!connector.featureFlag) {
+        return true
+    }
+    if (featureFlags[connector.featureFlag as FeatureFlagKey]) {
+        return true
+    }
+    return !!connector.unreleasedSource
+}
+
+function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean | undefined): SourceDisplayStatus {
     const unreleasedDescriptionEl = 'Get notified when this source is available to connect'
     const releasedDescriptionEl = (
         <>
@@ -40,7 +52,7 @@ function getSourceDisplayStatus(
     // regardless of release status, those passing the feature flag should see a released source
     if (featureFlag === true) {
         return {
-            status: connector.betaSource ? 'beta' : 'stable',
+            status: 'stable',
             descriptionEl: releasedDescriptionEl,
         }
     }
@@ -51,9 +63,9 @@ function getSourceDisplayStatus(
             descriptionEl: unreleasedDescriptionEl,
         }
     }
-    // undefined feature flag should see whatever the release status is
+    // if the feature flag is undefined, fall back to the source's unreleased state
     return {
-        status: unreleased ? 'coming_soon' : connector.betaSource ? 'beta' : 'stable',
+        status: unreleased ? 'coming_soon' : 'stable',
         descriptionEl: unreleased ? unreleasedDescriptionEl : releasedDescriptionEl,
     }
 }
@@ -77,19 +89,24 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         hogFunctionTemplatesDataWarehouseSources: [
             (s) => [s.connectors, s.manualConnectors, s.featureFlags],
             (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
-                const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
-                    const featureFlagDefined = connector.featureFlag !== undefined
+                const visibleConnectors = connectors.filter((connector: SourceConfig) =>
+                    shouldShowConnector(connector, featureFlags)
+                )
+                const managed = visibleConnectors.map((connector: SourceConfig): HogFunctionTemplateType => {
+                    const featureFlagDefined = !!connector.featureFlag
                     const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
                     let featureFlagValue: boolean | undefined = undefined
                     if (featureFlagDefined && featureFlagRaw !== undefined) {
                         featureFlagValue = !!featureFlagRaw
                     }
                     const unreleasedValue = !!connector.unreleasedSource
-                    const { status, descriptionEl } = getSourceDisplayStatus(
-                        connector,
-                        unreleasedValue,
-                        featureFlagValue
-                    )
+                    const { status, descriptionEl } = getSourceDisplayStatus(unreleasedValue, featureFlagValue)
+                    // Only surface alpha/beta while the source is actually connectable — a source
+                    // that renders as "coming_soon" (Roadmap tag) shouldn't also advertise "Beta".
+                    const releaseStatus =
+                        status === 'stable' && connector.releaseStatus && connector.releaseStatus !== 'ga'
+                            ? connector.releaseStatus
+                            : undefined
 
                     return {
                         id: `managed-${connector.name}`,
@@ -106,6 +123,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         masking: null,
                         free: true,
                         featured: connector.featured ?? false,
+                        releaseStatus,
                     }
                 })
                 const selfManaged = manualConnectors.map(

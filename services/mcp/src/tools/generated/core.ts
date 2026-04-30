@@ -3,9 +3,9 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    PartialUpdate2Body,
-    PartialUpdate2Params,
-    Retrieve2Params,
+    OrganizationsProjectsPartialUpdateBody,
+    OrganizationsProjectsPartialUpdateParams,
+    OrganizationsProjectsRetrieveParams,
     SubscriptionsCreateBody,
     SubscriptionsDeliveriesListParams,
     SubscriptionsDeliveriesListQueryParams,
@@ -22,8 +22,10 @@ import {
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ProjectGetSchema = Retrieve2Params.omit({ organization_id: true }).extend({
-    id: Retrieve2Params.shape['id'].describe("Project ID, or `@current` to fetch the caller's active project."),
+const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
+    id: OrganizationsProjectsRetrieveParams.shape['id'].describe(
+        "Project ID, or `@current` to fetch the caller's active project."
+    ),
 })
 
 const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
@@ -45,10 +47,10 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
     },
 })
 
-const ProjectSettingsUpdateSchema = PartialUpdate2Params.omit({ organization_id: true })
-    .extend(PartialUpdate2Body.shape)
+const ProjectSettingsUpdateSchema = OrganizationsProjectsPartialUpdateParams.omit({ organization_id: true })
+    .extend(OrganizationsProjectsPartialUpdateBody.shape)
     .extend({
-        id: PartialUpdate2Params.shape['id'].describe(
+        id: OrganizationsProjectsPartialUpdateParams.shape['id'].describe(
             "Project ID, or `@current` to target the caller's active project."
         ),
     })
@@ -226,35 +228,6 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
     },
 })
 
-const SubscriptionsListSchema = SubscriptionsListQueryParams
-
-const subscriptionsList = (): ToolBase<
-    typeof SubscriptionsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSubscriptionList>
-> => ({
-    name: 'subscriptions-list',
-    schema: SubscriptionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSubscriptionList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/`,
-            query: {
-                created_by: params.created_by,
-                dashboard: params.dashboard,
-                insight: params.insight,
-                limit: params.limit,
-                offset: params.offset,
-                ordering: params.ordering,
-                resource_type: params.resource_type,
-                search: params.search,
-                target_type: params.target_type,
-            },
-        })
-        return await withPostHogUrl(context, result, '/')
-    },
-})
-
 const SubscriptionsCreateSchema = SubscriptionsCreateBody
 
 const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schemas.Subscription> => ({
@@ -326,18 +299,81 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
     },
 })
 
-const SubscriptionsRetrieveSchema = SubscriptionsRetrieveParams.omit({ project_id: true })
+const SubscriptionsDeliveriesListSchema = SubscriptionsDeliveriesListParams.omit({ project_id: true }).extend(
+    SubscriptionsDeliveriesListQueryParams.shape
+)
 
-const subscriptionsRetrieve = (): ToolBase<typeof SubscriptionsRetrieveSchema, Schemas.Subscription> => ({
-    name: 'subscriptions-retrieve',
-    schema: SubscriptionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsRetrieveSchema>) => {
+const subscriptionsDeliveriesList = (): ToolBase<
+    typeof SubscriptionsDeliveriesListSchema,
+    WithPostHogUrl<Schemas.PaginatedSubscriptionDeliveryList>
+> => ({
+    name: 'subscriptions-deliveries-list',
+    schema: SubscriptionsDeliveriesListSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Subscription>({
+        const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
+            query: {
+                cursor: params.cursor,
+                status: params.status,
+            },
         })
-        return result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
+    },
+})
+
+const SubscriptionsDeliveriesRetrieveSchema = SubscriptionsDeliveriesRetrieveParams.omit({ project_id: true })
+
+const subscriptionsDeliveriesRetrieve = (): ToolBase<
+    typeof SubscriptionsDeliveriesRetrieveSchema,
+    Schemas.SubscriptionDelivery
+> => ({
+    name: 'subscriptions-deliveries-retrieve',
+    schema: SubscriptionsDeliveriesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SubscriptionDelivery>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
+        return filtered
+    },
+})
+
+const SubscriptionsListSchema = SubscriptionsListQueryParams
+
+const subscriptionsList = (): ToolBase<
+    typeof SubscriptionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSubscriptionList>
+> => ({
+    name: 'subscriptions-list',
+    schema: SubscriptionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSubscriptionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/`,
+            query: {
+                created_by: params.created_by,
+                dashboard: params.dashboard,
+                insight: params.insight,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                resource_type: params.resource_type,
+                search: params.search,
+                target_type: params.target_type,
+            },
+        })
+        return await withPostHogUrl(context, result, '/')
     },
 })
 
@@ -409,6 +445,36 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
             body,
+        })
+        return result
+    },
+})
+
+const SubscriptionsRetrieveSchema = SubscriptionsRetrieveParams.omit({ project_id: true })
+
+const subscriptionsRetrieve = (): ToolBase<typeof SubscriptionsRetrieveSchema, Schemas.Subscription> => ({
+    name: 'subscriptions-retrieve',
+    schema: SubscriptionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Subscription>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const SubscriptionsTestDeliveryCreateSchema = SubscriptionsTestDeliveryCreateParams.omit({ project_id: true })
+
+const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDeliveryCreateSchema, unknown> => ({
+    name: 'subscriptions-test-delivery-create',
+    schema: SubscriptionsTestDeliveryCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsTestDeliveryCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/test-delivery/`,
         })
         return result
     },
@@ -511,80 +577,16 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
     },
 })
 
-const SubscriptionsTestDeliveryCreateSchema = SubscriptionsTestDeliveryCreateParams.omit({ project_id: true })
-
-const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDeliveryCreateSchema, unknown> => ({
-    name: 'subscriptions-test-delivery-create',
-    schema: SubscriptionsTestDeliveryCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsTestDeliveryCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/test-delivery/`,
-        })
-        return result
-    },
-})
-
-const SubscriptionsDeliveriesListSchema = SubscriptionsDeliveriesListParams.omit({ project_id: true }).extend(
-    SubscriptionsDeliveriesListQueryParams.shape
-)
-
-const subscriptionsDeliveriesList = (): ToolBase<
-    typeof SubscriptionsDeliveriesListSchema,
-    WithPostHogUrl<Schemas.PaginatedSubscriptionDeliveryList>
-> => ({
-    name: 'subscriptions-deliveries-list',
-    schema: SubscriptionsDeliveriesListSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
-            query: {
-                cursor: params.cursor,
-                status: params.status,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
-    },
-})
-
-const SubscriptionsDeliveriesRetrieveSchema = SubscriptionsDeliveriesRetrieveParams.omit({ project_id: true })
-
-const subscriptionsDeliveriesRetrieve = (): ToolBase<
-    typeof SubscriptionsDeliveriesRetrieveSchema,
-    Schemas.SubscriptionDelivery
-> => ({
-    name: 'subscriptions-deliveries-retrieve',
-    schema: SubscriptionsDeliveriesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SubscriptionDelivery>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
-        })
-        const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
-        return filtered
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
-    'subscriptions-list': subscriptionsList,
     'subscriptions-create': subscriptionsCreate,
-    'subscriptions-retrieve': subscriptionsRetrieve,
-    'subscriptions-partial-update': subscriptionsPartialUpdate,
-    'user-get': userGet,
-    'user-settings-update': userSettingsUpdate,
-    'subscriptions-test-delivery-create': subscriptionsTestDeliveryCreate,
     'subscriptions-deliveries-list': subscriptionsDeliveriesList,
     'subscriptions-deliveries-retrieve': subscriptionsDeliveriesRetrieve,
+    'subscriptions-list': subscriptionsList,
+    'subscriptions-partial-update': subscriptionsPartialUpdate,
+    'subscriptions-retrieve': subscriptionsRetrieve,
+    'subscriptions-test-delivery-create': subscriptionsTestDeliveryCreate,
+    'user-get': userGet,
+    'user-settings-update': userSettingsUpdate,
 }

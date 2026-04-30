@@ -1,0 +1,23 @@
+{
+    "name": "@posthog/products-legal-documents",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@posthog/lemon-ui": "*",
+        "@storybook/react": "*",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
+        "@types/react": "*",
+        "posthog-js": "catalog:",
+        "react": "*"
+    }
+}

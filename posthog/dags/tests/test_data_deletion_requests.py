@@ -131,12 +131,14 @@ def test_load_deletion_request_rejects_property_removal():
     ],
 )
 def test_finalize_deletion_request_transitions_status(execution_mode, expected_status):
+    start_time = datetime.now() - timedelta(days=7)
+    end_time = datetime.now()
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
         request_type=RequestType.EVENT_REMOVAL,
         events=["$pageview"],
-        start_time=datetime.now() - timedelta(days=7),
-        end_time=datetime.now(),
+        start_time=start_time,
+        end_time=end_time,
         status=RequestStatus.IN_PROGRESS,
         execution_mode=execution_mode,
     )
@@ -144,8 +146,8 @@ def test_finalize_deletion_request_transitions_status(execution_mode, expected_s
     deletion_ctx = DeletionRequestContext(
         request_id=str(request.pk),
         team_id=TEAM_ID,
-        start_time=request.start_time,
-        end_time=request.end_time,
+        start_time=start_time,
+        end_time=end_time,
         events=["$pageview"],
         execution_mode=execution_mode.value,
     )
@@ -188,6 +190,78 @@ def test_execute_event_deletion_deletes_matching_events(cluster: ClickhouseClust
     assert cluster.any_host(partial(_count_events_by_name, TEAM_ID, "$identify")).result() == 30
     # Other team's events should be untouched
     assert cluster.any_host(partial(_count_events, TEAM_ID + 1)).result() == 20
+
+
+@pytest.mark.django_db
+def test_execute_event_deletion_delete_all_events_drops_every_event_for_team(cluster: ClickhouseCluster):
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    team_events = [
+        (TEAM_ID, name, uuid4(), now - timedelta(hours=i))
+        for i in range(10)
+        for name in ("$pageview", "$identify", "$screen")
+    ]
+    other_team_events = [(TEAM_ID + 1, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(10)]
+    outside_range = [(TEAM_ID, "$pageview", uuid4(), now - timedelta(days=30)) for _ in range(5)]
+
+    cluster.any_host(partial(_insert_events, team_events + other_team_events + outside_range)).result()
+
+    assert cluster.any_host(partial(_count_events, TEAM_ID)).result() == 35
+
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        start_time=start_time,
+        end_time=end_time,
+        events=[],
+        delete_all_events=True,
+    )
+    context = build_op_context()
+    execute_event_deletion(context, cluster, deletion_ctx)
+
+    # Every event for the team within the time range is gone (only outside_range survives).
+    assert cluster.any_host(partial(_count_events, TEAM_ID)).result() == 5
+    # Other team untouched.
+    assert cluster.any_host(partial(_count_events, TEAM_ID + 1)).result() == 10
+
+
+@pytest.mark.django_db
+def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseCluster):
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-hogql")
+    team = Team.objects.create(organization=org, name="test-team-hogql")
+
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    chrome_events = [
+        (team.id, "$pageview", uuid4(), now - timedelta(hours=i), '{"$browser": "Chrome"}') for i in range(10)
+    ]
+    firefox_events = [
+        (team.id, "$pageview", uuid4(), now - timedelta(hours=i), '{"$browser": "Firefox"}') for i in range(5)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_properties, chrome_events + firefox_events)).result()
+    assert cluster.any_host(partial(_count_events_by_name, team.id, "$pageview")).result() == 15
+
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=team.id,
+        start_time=start_time,
+        end_time=end_time,
+        events=["$pageview"],
+        hogql_predicate="properties.$browser = 'Chrome'",
+    )
+    context = build_op_context()
+    execute_event_deletion(context, cluster, deletion_ctx)
+
+    # Only the Chrome events should be deleted; Firefox events remain.
+    assert cluster.any_host(partial(_count_events_by_name, team.id, "$pageview")).result() == 5
 
 
 @pytest.mark.django_db

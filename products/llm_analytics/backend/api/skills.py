@@ -3,6 +3,7 @@ from typing import Any, cast
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
@@ -32,6 +33,9 @@ from .skill_serializers import (
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
+    LLMSkillFileCreateSerializer,
+    LLMSkillFileDeleteQuerySerializer,
+    LLMSkillFileRenameSerializer,
     LLMSkillFileSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
@@ -43,19 +47,58 @@ from .skill_serializers import (
 )
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
+    LLMSkillEditError,
+    LLMSkillFileLimitError,
+    LLMSkillFileNotFoundError,
+    LLMSkillFilePathConflictError,
     LLMSkillNotFoundError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    create_skill_file,
+    delete_skill_file,
     duplicate_skill,
     get_active_skill_queryset,
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
+    rename_skill_file,
     resolve_versions_page,
 )
 
+logger = structlog.get_logger(__name__)
+
 LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
+
+
+def _file_extension(path: str) -> str:
+    return path.rsplit(".", 1)[1].lower() if "." in path else ""
+
+
+def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
+    """Properties shared by every skill report_user_action event.
+
+    These power the internal LLMA skills adoption/usage dashboards — keep stable
+    and additive (renaming a key here will rename it on every dashboard).
+    """
+    file_count = skill.files.count() if skill.pk else 0
+    body = skill.body or ""
+    description = skill.description or ""
+    allowed_tools = skill.allowed_tools or []
+    return {
+        "skill_id": str(skill.id),
+        "skill_name": skill.name,
+        "skill_version": skill.version,
+        "skill_is_latest": skill.is_latest,
+        "skill_body_length": len(body),
+        "skill_description_length": len(description),
+        "skill_file_count": file_count,
+        "skill_has_files": file_count > 0,
+        "skill_has_license": bool(skill.license),
+        "skill_has_compatibility": bool(skill.compatibility),
+        "skill_has_allowed_tools": bool(allowed_tools),
+        "skill_allowed_tools_count": len(allowed_tools),
+    }
 
 
 class LLMSkillFeatureFlagPermission(BasePermission):
@@ -126,6 +169,14 @@ class LLMSkillViewSet(
 
         if view.action in ["get_by_name", "update_by_name"]:
             return ["llm_skill:write"] if request.method == "PATCH" else ["llm_skill:read"]
+        # get_file and delete_file share a URL via @get_file.mapping.delete. We deliberately do
+        # NOT set required_scopes on get_file's @action — see the note there. Resolve per-method:
+        # GET (and HEAD, which DRF auto-routes to GET handlers) → read, DELETE → write.
+        if view.action in ["get_file", "delete_file"]:
+            if request.method == "DELETE":
+                return ["llm_skill:write"]
+            if request.method in ("GET", "HEAD"):
+                return ["llm_skill:read"]
         return None
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
@@ -144,6 +195,38 @@ class LLMSkillViewSet(
             {"detail": f"Skill with name '{skill_name}' not found."},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    def _handle_skill_write_error(self, err: Exception, skill_name: str) -> Response | None:
+        """Render the error responses shared by create_file / delete_file / rename_file.
+
+        Returns None if the error is not one of the shared ones — callers re-raise.
+        """
+        if isinstance(err, LLMSkillNotFoundError):
+            return self._skill_not_found_response(skill_name)
+        if isinstance(err, LLMSkillVersionConflictError):
+            return Response(
+                {
+                    "detail": "The skill changed since you opened it. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if isinstance(err, LLMSkillVersionLimitError):
+            return Response(
+                {
+                    "detail": (
+                        f"Skill has reached the maximum of {err.max_version} versions. "
+                        "Archive and recreate the skill to continue publishing."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(err, LLMSkillFileLimitError):
+            return Response(
+                {"detail": f"Skill has reached the maximum of {err.max_count} files."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
 
     def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
         return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
@@ -167,11 +250,17 @@ class LLMSkillViewSet(
         return serializer.validated_data
 
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
+        params = self._get_list_params(request)
+
         queryset = get_latest_skills_queryset(self.team)
 
-        search = request.query_params.get("search", "").strip()
+        search = params.get("search", "").strip()
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+
+        created_by_id = params.get("created_by_id")
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")
@@ -187,14 +276,17 @@ class LLMSkillViewSet(
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMSkill, serializer.save())
 
+        props = _skill_analytics_props(instance)
+        logger.info(
+            "llma_skill_created",
+            team_id=self.team.id,
+            user_id=cast(User, self.request.user).id,
+            **props,
+        )
         report_user_action(
             cast(User, self.request.user),
             "llma skill created",
-            {
-                "skill_id": str(instance.id),
-                "skill_name": instance.name,
-                "skill_version": instance.version,
-            },
+            props,
             team=self.team,
             request=self.request,
         )
@@ -233,12 +325,14 @@ class LLMSkillViewSet(
                 user=cast(User, request.user),
                 skill_name=skill_name,
                 body=payload.validated_data.get("body"),
+                edits=payload.validated_data.get("edits"),
                 description=payload.validated_data.get("description"),
                 license=payload.validated_data.get("license"),
                 compatibility=payload.validated_data.get("compatibility"),
                 allowed_tools=payload.validated_data.get("allowed_tools"),
                 metadata=payload.validated_data.get("metadata"),
                 files=payload.validated_data.get("files"),
+                file_edits=payload.validated_data.get("file_edits"),
                 base_version=payload.validated_data["base_version"],
             )
         except IntegrityError as err:
@@ -265,16 +359,43 @@ class LLMSkillViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except LLMSkillEditError as err:
+            error_body: dict[str, Any] = {"detail": err.message}
+            if err.edit_index is not None:
+                error_body["edit_index"] = err.edit_index
+            if err.file_path is not None:
+                error_body["file_path"] = err.file_path
+            return Response(error_body, status=status.HTTP_400_BAD_REQUEST)
 
+        edits_value = payload.validated_data.get("edits")
+        file_edits_value = payload.validated_data.get("file_edits")
+        files_value = payload.validated_data.get("files")
+        props = {
+            **_skill_analytics_props(published_skill),
+            "base_version": payload.validated_data["base_version"],
+            "body_changed": payload.validated_data.get("body") is not None or edits_value is not None,
+            "files_replaced": files_value is not None,
+            "files_replaced_count": len(files_value) if files_value is not None else 0,
+            "edits_used": edits_value is not None,
+            "edits_count": len(edits_value) if edits_value is not None else 0,
+            "file_edits_used": file_edits_value is not None,
+            "file_edits_count": len(file_edits_value) if file_edits_value is not None else 0,
+            "description_changed": payload.validated_data.get("description") is not None,
+            "license_changed": payload.validated_data.get("license") is not None,
+            "compatibility_changed": payload.validated_data.get("compatibility") is not None,
+            "allowed_tools_changed": payload.validated_data.get("allowed_tools") is not None,
+            "metadata_changed": payload.validated_data.get("metadata") is not None,
+        }
+        logger.info(
+            "llma_skill_version_published",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
         report_user_action(
             cast(User, request.user),
             "llma skill version published",
-            {
-                "skill_id": str(published_skill.id),
-                "skill_name": published_skill.name,
-                "skill_version": published_skill.version,
-                "base_version": payload.validated_data["base_version"],
-            },
+            props,
             team=self.team,
             request=request,
         )
@@ -343,13 +464,22 @@ class LLMSkillViewSet(
         except LLMSkillNotFoundError:
             return self._skill_not_found_response(skill_name)
 
+        props = {
+            "skill_name": skill_name,
+            "skill_versions": skill_versions,
+            "skill_version_count": len(skill_versions),
+            "skill_latest_version": max(skill_versions) if skill_versions else None,
+        }
+        logger.info(
+            "llma_skill_archived",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
         report_user_action(
             cast(User, request.user),
             "llma skill archived",
-            {
-                "skill_name": skill_name,
-                "skill_versions": skill_versions,
-            },
+            props,
             team=self.team,
             request=request,
         )
@@ -388,14 +518,20 @@ class LLMSkillViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        props = {
+            **_skill_analytics_props(new_skill),
+            "source_skill_name": skill_name,
+        }
+        logger.info(
+            "llma_skill_duplicated",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
         report_user_action(
             cast(User, request.user),
             "llma skill duplicated",
-            {
-                "skill_id": str(new_skill.id),
-                "skill_name": new_skill.name,
-                "source_skill_name": skill_name,
-            },
+            props,
             team=self.team,
             request=request,
         )
@@ -405,11 +541,15 @@ class LLMSkillViewSet(
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillFileSerializer},
     )
+    # NOTE: `required_scopes` is intentionally not set on @action here. delete_file is registered
+    # below via @get_file.mapping.delete and shares this URL pattern's initkwargs — setting
+    # required_scopes here would short-circuit ScopeBasePermission._get_required_scopes for DELETE
+    # too, granting llm_skill:read access to a destructive operation. Scopes are resolved per-method
+    # in dangerously_get_required_scopes instead.
     @action(
         methods=["GET"],
         detail=False,
         url_path=r"name/(?P<skill_name>[^/]+)/files/(?P<file_path>.+)",
-        required_scopes=["llm_skill:read"],
     )
     @llma_track_latency("llma_skills_get_file")
     @monitor(feature=None, endpoint="llma_skills_get_file", method="GET")
@@ -435,6 +575,208 @@ class LLMSkillViewSet(
             )
 
         return Response(LLMSkillFileSerializer(skill_file).data)
+
+    @extend_schema(request=LLMSkillFileCreateSerializer, responses={201: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/files",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_create_file")
+    @monitor(feature=None, endpoint="llma_skills_create_file", method="POST")
+    def create_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillFileCreateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            published_skill = create_skill_file(
+                self.team,
+                user=cast(User, request.user),
+                skill_name=skill_name,
+                path=payload.validated_data["path"],
+                content=payload.validated_data["content"],
+                content_type=payload.validated_data.get("content_type", "text/plain"),
+                base_version=payload.validated_data.get("base_version"),
+            )
+        except (
+            LLMSkillNotFoundError,
+            LLMSkillVersionConflictError,
+            LLMSkillVersionLimitError,
+            LLMSkillFileLimitError,
+        ) as err:
+            response = self._handle_skill_write_error(err, skill_name)
+            if response is None:
+                raise
+            return response
+        except LLMSkillFilePathConflictError as err:
+            return Response(
+                {"detail": f"File '{err.path}' already exists in skill '{skill_name}'."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        path_value = payload.validated_data["path"]
+        content_value = payload.validated_data["content"]
+        props = {
+            **_skill_analytics_props(published_skill),
+            "path": path_value,
+            "content_type": payload.validated_data.get("content_type", "text/plain"),
+            "file_content_length": len(content_value),
+            "file_extension": _file_extension(path_value),
+        }
+        logger.info(
+            "llma_skill_file_created",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill file created",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(published_skill), status=status.HTTP_201_CREATED)
+
+    @extend_schema(parameters=[LLMSkillFileDeleteQuerySerializer], responses={200: LLMSkillSerializer})
+    @get_file.mapping.delete
+    @llma_track_latency("llma_skills_delete_file")
+    @monitor(feature=None, endpoint="llma_skills_delete_file", method="DELETE")
+    def delete_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        file_path = file_path.rstrip("/")
+        normalized = file_path.replace("\\", "/")
+        if ".." in normalized.split("/") or normalized.startswith("/"):
+            return Response({"detail": "Invalid file path."}, status=status.HTTP_400_BAD_REQUEST)
+
+        query = LLMSkillFileDeleteQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+
+        try:
+            published_skill = delete_skill_file(
+                self.team,
+                user=cast(User, request.user),
+                skill_name=skill_name,
+                path=file_path,
+                base_version=query.validated_data.get("base_version"),
+            )
+        except (
+            LLMSkillNotFoundError,
+            LLMSkillVersionConflictError,
+            LLMSkillVersionLimitError,
+            LLMSkillFileLimitError,
+        ) as err:
+            response = self._handle_skill_write_error(err, skill_name)
+            if response is None:
+                raise
+            return response
+        except LLMSkillFileNotFoundError as err:
+            return Response(
+                {"detail": f"File '{err.path}' not found in skill '{skill_name}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        props = {
+            **_skill_analytics_props(published_skill),
+            "path": file_path,
+            "file_extension": _file_extension(file_path),
+        }
+        logger.info(
+            "llma_skill_file_deleted",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill file deleted",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(published_skill))
+
+    @extend_schema(request=LLMSkillFileRenameSerializer, responses={200: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/files-rename",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_rename_file")
+    @monitor(feature=None, endpoint="llma_skills_rename_file", method="POST")
+    def rename_file(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillFileRenameSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            published_skill = rename_skill_file(
+                self.team,
+                user=cast(User, request.user),
+                skill_name=skill_name,
+                old_path=payload.validated_data["old_path"],
+                new_path=payload.validated_data["new_path"],
+                base_version=payload.validated_data.get("base_version"),
+            )
+        except (
+            LLMSkillNotFoundError,
+            LLMSkillVersionConflictError,
+            LLMSkillVersionLimitError,
+            LLMSkillFileLimitError,
+        ) as err:
+            response = self._handle_skill_write_error(err, skill_name)
+            if response is None:
+                raise
+            return response
+        except LLMSkillFileNotFoundError as err:
+            return Response(
+                {"detail": f"File '{err.path}' not found in skill '{skill_name}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except LLMSkillFilePathConflictError as err:
+            return Response(
+                {"detail": f"File '{err.path}' already exists in skill '{skill_name}'."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        old_path_value = payload.validated_data["old_path"]
+        new_path_value = payload.validated_data["new_path"]
+        old_extension = _file_extension(old_path_value)
+        new_extension = _file_extension(new_path_value)
+        props = {
+            **_skill_analytics_props(published_skill),
+            "old_path": old_path_value,
+            "new_path": new_path_value,
+            "old_file_extension": old_extension,
+            "new_file_extension": new_extension,
+            "extension_changed": old_extension != new_extension,
+        }
+        logger.info(
+            "llma_skill_file_renamed",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill file renamed",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(published_skill))
 
     @extend_schema(parameters=[LLMSkillListQuerySerializer])
     @llma_track_latency("llma_skills_list")

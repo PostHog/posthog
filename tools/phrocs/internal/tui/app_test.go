@@ -345,7 +345,7 @@ func TestSearch_matchesHighlighted(t *testing.T) {
 	}
 }
 
-func TestSearch_enterCommitsToFilter(t *testing.T) {
+func TestSearch_tabCommitsToFilter(t *testing.T) {
 	m := readyModel(t, "backend")
 	p, _ := m.mgr.Get("backend")
 	for _, line := range []string{"foo", "bar", "foo again"} {
@@ -356,12 +356,12 @@ func TestSearch_enterCommitsToFilter(t *testing.T) {
 	m = update(m, keypress('f'))
 	m = update(m, keypress('o'))
 	m = update(m, keypress('o'))
-	m = update(m, specialKey(tea.KeyEnter))
+	m = update(m, specialKey(tea.KeyTab))
 	if m.searchMode {
-		t.Error("search mode should be off after enter (committed)")
+		t.Error("search mode should be off after tab (committed)")
 	}
 	if !m.filterMode {
-		t.Error("filter mode should be on after enter")
+		t.Error("filter mode should be on after tab")
 	}
 	if m.searchQuery != "foo" {
 		t.Errorf("query should be preserved after commit, got %q", m.searchQuery)
@@ -536,10 +536,10 @@ func TestSearch_dockerIncrementalLogLineUpdatesMatches(t *testing.T) {
 
 // ── Filter ────────────────────────────────────────────────────────────────────
 
-// enterFilterMode opens search via / and commits to filter via enter.
+// enterFilterMode opens search via / and commits to filter via tab.
 func enterFilterMode(m Model) Model {
 	m = update(m, keypress('/'))
-	m = update(m, specialKey(tea.KeyEnter))
+	m = update(m, specialKey(tea.KeyTab))
 	return m
 }
 

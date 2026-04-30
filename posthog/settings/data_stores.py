@@ -5,7 +5,6 @@ from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -289,6 +288,7 @@ CLICKHOUSE_SINGLE_SHARD_CLUSTER: str = os.getenv("CLICKHOUSE_SINGLE_SHARD_CLUSTE
 CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "posthog_writable")
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
+CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
@@ -305,6 +305,18 @@ QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIF
 
 CLICKHOUSE_CONN_POOL_MIN: int = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
+
+# Connection to the autoresearch test cluster, used by the query-performance
+# autoresearch proxy. Unset host fails closed at the call site.
+CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_HOST", "")
+CLICKHOUSE_TEST_CLUSTER_DATABASE: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_DATABASE", "")
+CLICKHOUSE_TEST_CLUSTER_USER: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_USER", "")
+CLICKHOUSE_TEST_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_PASSWORD", "")
+CLICKHOUSE_TEST_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_TEST_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
+)
+CLICKHOUSE_TEST_CLUSTER_CA: str | None = os.getenv("CLICKHOUSE_TEST_CLUSTER_CA", None)
+CLICKHOUSE_TEST_CLUSTER_VERIFY: bool = get_from_env("CLICKHOUSE_TEST_CLUSTER_VERIFY", True, type_cast=str_to_bool)
 
 CLICKHOUSE_STABLE_HOST: str = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
 # If enabled, some queries will use system.cluster table to query each shard
@@ -331,6 +343,12 @@ CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
 )
 CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_CALCULATED_EVENTS_NAMED_COLLECTION", "warpstream_calculated_events"
+)
+CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_REPLAY_NAMED_COLLECTION", "warpstream_replay"
+)
+CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION: str = os.getenv(
+    "CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION", "warpstream_shared"
 )
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
@@ -408,67 +426,6 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
-
-def _parse_kafka_hosts(hosts_string: str) -> list[str]:
-    hosts = []
-    for host in hosts_string.split(","):
-        if "://" in host:
-            hosts.append(urlparse(host).netloc)
-        else:
-            hosts.append(host)
-
-    # We don't want empty strings
-    return [host for host in hosts if host]
-
-
-# URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
-# We prefer KAFKA_HOSTS over KAFKA_URL (which used to be used)
-KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("KAFKA_HOSTS", "") or os.getenv("KAFKA_URL", "") or "kafka:9092")
-# Dedicated kafka hosts for session recordings
-SESSION_RECORDING_KAFKA_HOSTS = _parse_kafka_hosts(os.getenv("SESSION_RECORDING_KAFKA_HOSTS", "")) or KAFKA_HOSTS
-# Kafka broker host(s) that is used by clickhouse for ingesting messages.
-# Useful if clickhouse is hosted outside the cluster.
-KAFKA_HOSTS_FOR_CLICKHOUSE = _parse_kafka_hosts(os.getenv("KAFKA_URL_FOR_CLICKHOUSE", "")) or KAFKA_HOSTS
-
-# To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
-# Kafka Topics. See
-# https://devcenter.heroku.com/articles/multi-tenant-kafka-on-heroku#differences-to-dedicated-kafka-plans
-# for details.
-KAFKA_PREFIX = os.getenv("KAFKA_PREFIX", "")
-
-KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
-
-KAFKA_PRODUCER_SETTINGS = {
-    key: value
-    for key, value in {
-        "client_id": get_from_env("KAFKA_PRODUCER_CLIENT_ID", optional=True),
-        "metadata_max_age_ms": get_from_env("KAFKA_PRODUCER_METADATA_MAX_AGE_MS", optional=True, type_cast=int),
-        "batch_size": get_from_env("KAFKA_PRODUCER_BATCH_SIZE", optional=True, type_cast=int),
-        "max_request_size": get_from_env("KAFKA_PRODUCER_MAX_REQUEST_SIZE", optional=True, type_cast=int),
-        "linger_ms": get_from_env("KAFKA_PRODUCER_LINGER_MS", optional=True, type_cast=int),
-        "partitioner": get_from_env("KAFKA_PRODUCER_PARTITIONER", optional=True),
-        "max_in_flight_requests_per_connection": get_from_env(
-            "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
-        ),
-        "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
-        "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
-    }.items()
-    if value is not None
-}
-
-SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: int = get_from_env(
-    "SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES",
-    1024 * 1024,  # 1MB
-    type_cast=int,
-)
-
-KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", None)
-SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL = os.getenv(
-    "SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL", KAFKA_SECURITY_PROTOCOL
-)
-KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
-KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
-KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
 
 # A list of tokens for which events should be sent to the historical topic
 # TODO: possibly remove this and replace with something that provides the
