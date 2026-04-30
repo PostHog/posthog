@@ -750,7 +750,7 @@
         }
     },
     "dashboard-get": {
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params to apply one-off overrides without persisting changes.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params to preview the merged variable/filter state without persisting; use dashboard-insights-run to get results with those overrides applied.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get dashboard",
