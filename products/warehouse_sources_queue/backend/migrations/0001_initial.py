@@ -54,7 +54,7 @@ def _create_partitioned_tables(apps, schema_editor):
         ) PARTITION BY RANGE (created_at);
 
         CREATE INDEX sbs_batch_id_desc_state_idx
-            ON sourcebatchstatus (batch_id, id DESC, job_state);
+            ON sourcebatchstatus (batch_id, created_at DESC, id DESC, job_state);
 
         CREATE TABLE sourcebatchstatus_default PARTITION OF sourcebatchstatus DEFAULT;
     """)
@@ -93,7 +93,7 @@ def _create_latest_status_view(apps, schema_editor):
         CREATE VIEW v_latest_source_batch_status AS
         SELECT DISTINCT ON (batch_id) *
         FROM sourcebatchstatus
-        ORDER BY batch_id ASC, id DESC
+        ORDER BY batch_id ASC, created_at DESC, id DESC
     """)
 
 
@@ -222,7 +222,7 @@ class Migration(migrations.Migration):
                         "db_table": "sourcebatchstatus",
                         "indexes": [
                             models.Index(
-                                fields=["batch_id", "-id", "job_state"],
+                                fields=["batch_id", "-created_at", "-id", "job_state"],
                                 name="sbs_batch_id_desc_state_idx",
                             ),
                         ],

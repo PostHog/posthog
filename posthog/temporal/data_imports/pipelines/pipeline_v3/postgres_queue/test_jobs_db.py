@@ -63,7 +63,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         CREATE VIEW {STATUS_VIEW} AS
         SELECT DISTINCT ON (batch_id) *
         FROM {STATUS_TABLE}
-        ORDER BY batch_id ASC, id DESC
+        ORDER BY batch_id ASC, created_at DESC, id DESC
     """)
 
 

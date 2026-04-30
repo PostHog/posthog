@@ -77,7 +77,7 @@ class SourceBatchStatus(UUIDModel):
         db_table = "sourcebatchstatus"
         indexes = [
             models.Index(
-                fields=["batch_id", "-id", "job_state"],
+                fields=["batch_id", "-created_at", "-id", "job_state"],
                 name="sbs_batch_id_desc_state_idx",
             ),
         ]
