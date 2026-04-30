@@ -753,6 +753,18 @@ export type ExperimentSavedMetricsListParams = {
 
 export type ExperimentsListParams = {
     /**
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean
+    /**
+     * Filter to experiments created by the given user ID.
+     */
+    created_by_id?: number
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -760,7 +772,30 @@ export type ExperimentsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string
+    /**
+     * Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsListStatus
 }
+
+export type ExperimentsListStatus = (typeof ExperimentsListStatus)[keyof typeof ExperimentsListStatus]
+
+export const ExperimentsListStatus = {
+    All: 'all',
+    Complete: 'complete',
+    Draft: 'draft',
+    Paused: 'paused',
+    Running: 'running',
+    Stopped: 'stopped',
+} as const
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
