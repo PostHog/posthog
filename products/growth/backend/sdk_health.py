@@ -292,7 +292,7 @@ def sdks_within_freshness_grace_period() -> set[str]:
     """
     try:
         github_data = _load_github_sdk_data()
-    except RedisError:
+    except (RedisError, ValueError, TypeError):
         return set()
 
     fresh: set[str] = set()
