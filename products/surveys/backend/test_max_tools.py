@@ -733,21 +733,85 @@ class TestEditSurveyTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_edit_survey_targeting_clears_stale_keys(self):
+    async def test_edit_survey_linked_flag_variant_preserves_url_targeting(self):
         tool = self._setup_tool()
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="survey-targeting-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
         survey = await self._create_test_survey(
-            conditions={"url": "/old-page", "urlMatchType": "icontains", "seenSurveyWaitPeriodInDays": 7}
+            conditions={
+                "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                "urlMatchType": "regex",
+                "seenSurveyWaitPeriodInDays": 7,
+            }
         )
 
-        content, artifact = await tool._arun_impl(survey_id=str(survey.id), linked_flag_variant="control")
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id), linked_flag_id=flag.id, linked_flag_variant="control"
+        )
 
         assert "updated successfully" in content
+        assert "linked_flag_id" in artifact["updated_fields"]
+        assert "conditions" in artifact["updated_fields"]
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.linked_flag_id == flag.id
         assert updated_survey.conditions is not None
-        assert "url" not in updated_survey.conditions
-        assert "urlMatchType" not in updated_survey.conditions
-        assert "seenSurveyWaitPeriodInDays" not in updated_survey.conditions
+        assert updated_survey.conditions["url"] == "app.heygen.com/(home|projects|voices|templates|labs)"
+        assert updated_survey.conditions["urlMatchType"] == "regex"
+        assert updated_survey.conditions["seenSurveyWaitPeriodInDays"] == 7
         assert updated_survey.conditions["linkedFlagVariant"] == "control"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_can_explicitly_remove_targeting(self):
+        tool = self._setup_tool()
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="survey-targeting-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        survey = await self._create_test_survey(
+            linked_flag=flag,
+            conditions={
+                "url": "/old-page",
+                "urlMatchType": "icontains",
+                "seenSurveyWaitPeriodInDays": 7,
+                "linkedFlagVariant": "control",
+            },
+        )
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            remove_url_targeting=True,
+            remove_linked_flag=True,
+            remove_wait_period=True,
+        )
+
+        assert "updated successfully" in content
+        assert "linked_flag_id" in artifact["updated_fields"]
+        assert "conditions" in artifact["updated_fields"]
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.linked_flag_id is None
+        assert updated_survey.conditions == {}
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_remove_targeting_is_dangerous(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), remove_url_targeting=True)
+        preview = await tool.format_dangerous_operation_preview(
+            survey_id=str(survey.id), remove_url_targeting=True, remove_linked_flag=True
+        )
+
+        assert is_dangerous is True
+        assert "Remove URL targeting" in preview
+        assert "Remove linked feature flag targeting" in preview
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
