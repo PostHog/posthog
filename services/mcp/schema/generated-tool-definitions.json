@@ -4069,7 +4069,7 @@
         }
     },
     "usage-metrics-create": {
-        "description": "Create a new usage metric for the project. The metric will surface on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` takes the same shape as HogFunction filters (a dict with an `events` list and optional `properties` list). When `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. Pass `group_type_index: 0`.",
+        "description": "Create a new usage metric for the project. The metric surfaces on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` accepts two shapes:\n(1) Events (default) — HogFunction filter shape with an `events` array.\n(2) Data warehouse — set `source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`. Call `external-data-schemas-list` first to discover synced tables, and `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect column names. DW metrics currently render only on group profiles.\nWhen `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. For DW SUM metrics, `math_property` is the column name (or HogQL expression) to sum on the table. Pass `group_type_index: 0`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create usage metric",
@@ -4114,7 +4114,7 @@
         }
     },
     "usage-metrics-partial-update": {
-        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. `filters` accepts the events shape (default) or the data warehouse shape (`source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`). When switching to DW, call `external-data-schemas-list` to discover synced tables. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. For DW SUM metrics, `math_property` is the column name to sum. DW metrics currently render only on group profiles. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update usage metric",

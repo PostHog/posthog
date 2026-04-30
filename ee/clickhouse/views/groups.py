@@ -809,6 +809,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
+_DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")
+
+
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     name = serializers.CharField(
         max_length=255,
@@ -830,8 +833,14 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
     )
     filters = serializers.DictField(
         help_text=(
-            "HogQL filter definition used to compute the metric. Same shape as HogFunction filters: "
-            "a dict containing an `events` list and optional `properties` list."
+            "Filter definition for the metric. Two shapes are accepted, discriminated by an optional "
+            "`source` key.\n\n"
+            '**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — '
+            "`events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n"
+            '**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), '
+            "`timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value "
+            "matches the entity key). Currently DW metrics only render on group profiles — person profiles "
+            "are not yet supported."
         ),
     )
     math = serializers.ChoiceField(
@@ -847,7 +856,11 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.",
+        help_text=(
+            "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this "
+            "is an event property name. For data warehouse metrics this is the column name (or HogQL "
+            "expression) to sum on the DW table."
+        ),
     )
 
     class Meta:
@@ -859,13 +872,46 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
 
         math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
         math_property = data.get("math_property", self.instance.math_property if self.instance else None)
+        filters = data.get("filters", self.instance.filters if self.instance else None)
 
+        source = (filters or {}).get("source") if isinstance(filters, dict) else None
+
+        if source == GroupUsageMetric.Source.DATA_WAREHOUSE:
+            self._validate_data_warehouse(filters, math, math_property)
+        elif source in (None, GroupUsageMetric.Source.EVENTS):
+            self._validate_events(math, math_property)
+        else:
+            raise serializers.ValidationError({"filters": f"Unknown source: {source!r}"})
+
+        return data
+
+    def _validate_events(self, math, math_property):
         if math == GroupUsageMetric.Math.SUM and not math_property:
             raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
         if math == GroupUsageMetric.Math.COUNT and math_property:
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
-        return data
+    def _validate_data_warehouse(self, filters: dict, math, math_property):
+        from products.data_warehouse.backend.models import DataWarehouseTable
+
+        missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
+        if missing:
+            raise serializers.ValidationError(
+                {"filters": f"Data warehouse metrics require {', '.join(_DW_FILTER_REQUIRED_FIELDS)}."}
+            )
+
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError(
+                {"math_property": "math_property (column to sum) is required when math is 'sum'."}
+            )
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+        team = self.context["get_team"]()
+        if not DataWarehouseTable.objects.filter(team=team, name=filters["table_name"], deleted=False).exists():
+            raise serializers.ValidationError(
+                {"filters": f"Data warehouse table {filters['table_name']!r} does not exist."}
+            )
 
 
 @extend_schema_view(
