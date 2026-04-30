@@ -270,14 +270,23 @@ jobs:
                     docker compose -f docker-compose.dev.yml exec -T db \
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
-            - name: Restore pre-migrated Django schema
-              # PRs reuse the master migrated-schema artifact and pytest --reuse-db
-              # applies any new migrations on top via Django's keepdb=True path.
-              # Master falls through to pytest's fresh migrate (no artifact lookup).
+            - name: Restore pre-migrated Django schema (PR)
+              # On PRs, prime both test_posthog (used by pytest --reuse-db) and the
+              # prod-style posthog db (read by migrate_clickhouse → InstanceSetting).
+              # pytest's keepdb=True path layers any PR-added migrations on top.
               if: ${{ github.event_name == 'pull_request' }}
               env:
                   GH_TOKEN: ${{ github.token }}
-              run: ./bin/hogli db:prime-test-db
+              run: |
+                  ./bin/hogli db:prime-test-db
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | \
+                    docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
+
+            - name: Run Django migrations (master)
+              # Master pushes still take the full migrate path so we always have a
+              # canonical schema to feed migrate_clickhouse.
+              if: ${{ github.event_name != 'pull_request' }}
+              run: python manage.py migrate
 
             - name: Run persons migrations
               run: |
@@ -287,8 +296,7 @@ jobs:
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Run clickhouse migrations
-              run: |
-                  python manage.py migrate_clickhouse
+              run: python manage.py migrate_clickhouse
 
             - name: Run Dagster tests
               run: |
