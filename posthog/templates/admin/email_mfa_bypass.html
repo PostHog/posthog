@@ -2,7 +2,7 @@
 {% load i18n admin_urls static %}
 
 {% block extrastyle %}
-{{ super }}
+{{ block.super }}
 <style nonce="{{ request.csp_nonce }}">
     .form-row { margin-bottom: 15px; margin-top: 15px; }
     .help { font-size: 11px; color: #666; }

@@ -421,14 +421,11 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-signals
-    PRODUCT_CONVERSATIONS: 'product-conversations', // owner: @veryayskiy #team-conversations
     PRODUCT_SELECTION_SCREEN_VARIANT: 'product-selection-screen-variant', // owner: @fercgomes #team-growth multivariate=control,spotlight,multiproduct
     PRODUCT_SUPPORT: 'product-support-release', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_EMAIL_CHANNEL: 'product-support-email-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_TEAMS_ENABLED: 'product-support-teams-enabled', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_TICKET_VIEWS: 'product-support-ticket-views', // owner: @veryayskiy #team-conversations
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
     PROMOTED_EVENT_PROPERTIES_EDIT: 'promoted-event-properties-edit', // owner: @pauldambra #team-product-analytics, gates the promoted-property picker on the event definition edit page
