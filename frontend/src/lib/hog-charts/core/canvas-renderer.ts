@@ -354,8 +354,6 @@ export function drawHighlightPoint(
 type DrawHoverFn = (args: ChartDrawArgs) => void
 
 // Crosshair drawn first so the chart-type's highlight rings render on top.
-// The getter indirection lets the caller keep the returned fn referentially stable
-// while the underlying drawHover identity changes — see Chart.tsx for why.
 export function composeDrawHoverWithCrosshair(
     getDrawHover: () => DrawHoverFn,
     crosshairColor: string | undefined,

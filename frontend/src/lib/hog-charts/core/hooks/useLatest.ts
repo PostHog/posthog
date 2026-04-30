@@ -17,3 +17,12 @@ export function useLatest<T>(value: T): MutableRefObject<T> {
     }, [value])
     return ref
 }
+
+// Sibling of useLatest that writes during render. Use only when consumers read the
+// ref synchronously during their own render (e.g. context-bound overlays); otherwise
+// prefer useLatest, whose post-commit write is safer under concurrent rendering.
+export function useLatestSync<T>(value: T): MutableRefObject<T> {
+    const ref = useRef<T>(value)
+    ref.current = value
+    return ref
+}

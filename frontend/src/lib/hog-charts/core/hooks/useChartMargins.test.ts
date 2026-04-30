@@ -3,7 +3,6 @@ import { renderHook } from '@testing-library/react'
 import type { Series } from '../types'
 import { DEFAULT_MARGINS, useChartMargins } from './useChartMargins'
 
-// Make label widths deterministic and proportional to text length.
 jest.mock('../../overlays/AxisLabels', () => ({
     measureLabelWidth: (text: string) => text.length * 10,
 }))
@@ -48,7 +47,6 @@ describe('useChartMargins', () => {
     })
 
     it('uses the default right margin when only one y-axis is in use', () => {
-        // single-char labels keep xLabelHalfWidth small enough to fall through to DEFAULT_MARGINS.right.
         expect(render({ labels: ['a', 'b'] }).right).toBe(DEFAULT_MARGINS.right)
     })
 
@@ -57,7 +55,6 @@ describe('useChartMargins', () => {
             { key: 'a', label: 'A', data: [1, 2, 3] },
             { key: 'b', label: 'B', data: [4, 5, 6], yAxisId: 'right', visibility: { excluded: true } },
         ]
-        // Excluded right-axis series shouldn't trigger the dual-axis branch (which would push right to 48).
         expect(render({ series: oneVisible, labels: ['a', 'b'] }).right).toBeLessThan(48)
     })
 

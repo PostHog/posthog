@@ -25,8 +25,6 @@ import type {
     TooltipContext,
 } from './types'
 
-export { DEFAULT_MARGINS } from './hooks/useChartMargins'
-
 const OVERLAY_STYLE: React.CSSProperties = {
     position: 'absolute',
     top: 0,
@@ -144,9 +142,7 @@ export function Chart<Meta = unknown>({
         resolveValue,
     })
 
-    // drawHover held via a ref so composedDrawHover stays referentially stable across
-    // parent drawHover identity changes (e.g. stackedData) — otherwise useChartDraw's
-    // hover effect refires on every render and the rAF churn races with tooltip rendering.
+    // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useRef(drawHover)
     drawHoverRef.current = drawHover
     const composedDrawHover = useMemo(
