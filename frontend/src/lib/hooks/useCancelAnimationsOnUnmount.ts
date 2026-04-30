@@ -19,11 +19,15 @@ import { RefObject, useEffect, useRef } from 'react'
  */
 export function useCancelAnimationsOnUnmount<T extends Element>(): RefObject<T | null> {
     const ref = useRef<T>(null)
-    useEffect(
-        () => () => {
-            ref.current?.getAnimations({ subtree: true }).forEach((a) => a.cancel())
-        },
-        []
-    )
+    useEffect(() => {
+        // Capture the element when the effect runs (ref is populated). If we
+        // read ref.current inside the cleanup instead, React may have already
+        // nulled the ref by then in some commit orderings, leaving the cancel
+        // a no-op.
+        const element = ref.current
+        return () => {
+            element?.getAnimations({ subtree: true }).forEach((a) => a.cancel())
+        }
+    }, [])
     return ref
 }

@@ -14,6 +14,11 @@ export interface LemonSkeletonProps {
     active?: boolean
 }
 
+// Extracted as its own component so each `repeat={N}` instance gets its own
+// ref + `useCancelAnimationsOnUnmount` hook. Inlining this back into
+// `LemonSkeleton` would mean the same JSX is reused across N repeats, all
+// sharing one ref — only the last-mounted skeleton would have its animations
+// cancelled, silently disabling the leak fix for the repeat case.
 function LemonSkeletonItem({ className, active = true }: Pick<LemonSkeletonProps, 'className' | 'active'>): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
     return (

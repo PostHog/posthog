@@ -43,6 +43,11 @@ window.process = MOCK_NODE_PROCESS
 function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
     return (
+        // `className="contents"` is load-bearing: the wrapper must take a DOM
+        // node so the ref has something to attach to (we need an element to
+        // call `getAnimations({ subtree: true })` on), but it must also be
+        // transparent to layout. `display: contents` removes it from the box
+        // tree so children render as if there's no wrapper.
         <div ref={ref} className="contents">
             {children}
         </div>
