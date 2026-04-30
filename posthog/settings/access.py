@@ -82,7 +82,7 @@ SANDBOX_JWT_PRIVATE_KEY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY")
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 DEFAULT_SALT_KEY = "0123456789abcdefghijklmnopqrstuvwxyz"
 SALT_KEY = get_list(os.getenv("SALT_KEY", DEFAULT_SALT_KEY))
-# We provide a default as it is needed for hobby deployments
+# A default is provided so that non-production environments (DEBUG/TEST) can start without configuration.
 DEFAULT_ENCRYPTION_SALT_KEYS = "00beef0000beef0000beef0000beef00"
 ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", DEFAULT_ENCRYPTION_SALT_KEYS))
 
