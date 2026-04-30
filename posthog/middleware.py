@@ -449,7 +449,13 @@ class QueryTimeCountingMiddleware:
         response.headers["Server-Timing"] = self._construct_header(
             django=time.perf_counter() - start_time,
             pg=pg_query_counter.query_time_ms,
+            pg_count=pg_query_counter.count,
+            pg_max=pg_query_counter.max_query_time_ms,
+            pg_slow=pg_query_counter.slow_count,
             ch=ch_query_counter.query_time_ms,
+            ch_count=ch_query_counter.count,
+            ch_max=ch_query_counter.max_query_time_ms,
+            ch_slow=ch_query_counter.slow_count,
         )
         return response
 
