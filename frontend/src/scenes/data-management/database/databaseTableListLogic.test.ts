@@ -68,10 +68,6 @@ describe('databaseTableListLogic', () => {
     })
 
     it('does not let a stale schema response overwrite the selected connection schema', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-        })
-
         let resolvePosthogQuery:
             | ((value: { tables: Record<string, { name: string; type: 'posthog' }>; joins: never[] }) => void)
             | undefined

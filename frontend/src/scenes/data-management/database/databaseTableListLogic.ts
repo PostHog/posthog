@@ -69,9 +69,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
 
                     try {
                         const database = await request
-                        const currentConnectionId = isDirectQueryEnabled()
-                            ? (values.connectionId ?? undefined)
-                            : undefined
+                        const currentConnectionId = values.connectionId ?? undefined
 
                         if (currentConnectionId !== requestConnectionId) {
                             return values.database
