@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from products.logs.backend.models import LogsSamplingRule
+from products.logs.backend.models import LogsExclusionRule
 
 
 class TestLogsSamplingRulesAPI(APIBaseTest):
@@ -37,12 +37,12 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
     def test_list_scoped_to_team(self):
         self.client.post(self.base_url, self._payload(name="r1"), format="json")
         other_team = self.create_team_with_organization(organization=self.organization)
-        LogsSamplingRule.objects.create(
+        LogsExclusionRule.objects.create(
             team_id=other_team.id,
             name="other",
             enabled=False,
             priority=0,
-            rule_type=LogsSamplingRule.RuleType.PATH_DROP,
+            rule_type=LogsExclusionRule.RuleType.PATH_DROP,
             config={"patterns": []},
         )
 

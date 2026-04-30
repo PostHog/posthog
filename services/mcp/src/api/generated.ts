@@ -21491,8 +21491,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `severity_sampling` - Severity sampling
-    * `path_drop` - Path drop
+     * * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
     * `rate_limit` - Rate limit
      */
     export type RuleTypeEnum = typeof RuleTypeEnum[keyof typeof RuleTypeEnum];
@@ -21522,8 +21522,8 @@ export namespace Schemas {
       priority?: number | null;
       /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
 
-    * `severity_sampling` - Severity sampling
-    * `path_drop` - Path drop
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
     * `rate_limit` - Rate limit */
       rule_type: RuleTypeEnum;
       /**
@@ -28292,8 +28292,8 @@ export namespace Schemas {
       priority?: number | null;
       /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
 
-    * `severity_sampling` - Severity sampling
-    * `path_drop` - Path drop
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
     * `rate_limit` - Rate limit */
       rule_type?: RuleTypeEnum;
       /**

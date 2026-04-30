@@ -19,7 +19,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.logs.backend.models import LogsSamplingRule
+from products.logs.backend.models import LogsExclusionRule
 
 
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):
@@ -36,7 +36,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         help_text="Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.",
     )
     rule_type = serializers.ChoiceField(
-        choices=LogsSamplingRule.RuleType.choices,
+        choices=LogsExclusionRule.RuleType.choices,
         help_text="Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).",
     )
     scope_service = serializers.CharField(
@@ -67,7 +67,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     created_by = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
-        model = LogsSamplingRule
+        model = LogsExclusionRule
         fields = [
             "id",
             "name",
@@ -113,7 +113,7 @@ class LogsSamplingRuleSimulateResponseSerializer(serializers.Serializer):
 @extend_schema(tags=["logs"])
 class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
-    queryset = LogsSamplingRule.objects.all().order_by("priority", "created_at")
+    queryset = LogsExclusionRule.objects.all().order_by("priority", "created_at")
     serializer_class = LogsSamplingRuleSerializer
     lookup_field = "id"
     posthog_feature_flag = "logs-sampling-rules"
@@ -124,7 +124,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer: LogsSamplingRuleSerializer) -> None:
         user = cast(User, self.request.user)
-        max_priority = LogsSamplingRule.objects.filter(team_id=self.team_id).aggregate(m=Max("priority"))["m"] or -1
+        max_priority = LogsExclusionRule.objects.filter(team_id=self.team_id).aggregate(m=Max("priority"))["m"] or -1
         raw_priority = serializer.validated_data.pop("priority", None)
         priority = max_priority + 1 if raw_priority is None else int(raw_priority)
         instance = serializer.save(
@@ -143,8 +143,8 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer: LogsSamplingRuleSerializer) -> None:
         user = cast(User, self.request.user)
-        instance = cast(LogsSamplingRule, serializer.save())
-        LogsSamplingRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
+        instance = cast(LogsExclusionRule, serializer.save())
+        LogsExclusionRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
         instance.refresh_from_db(fields=["version", "updated_at"])
         report_user_action(
             user,
@@ -154,7 +154,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=self.request,
         )
 
-    def perform_destroy(self, instance: LogsSamplingRule) -> None:
+    def perform_destroy(self, instance: LogsExclusionRule) -> None:
         user = cast(User, self.request.user)
         report_user_action(
             user,
@@ -175,16 +175,16 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = LogsSamplingRuleReorderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         ordered_ids = serializer.validated_data["ordered_ids"]
-        team_rule_ids = set(LogsSamplingRule.objects.filter(team_id=self.team_id).values_list("id", flat=True))
+        team_rule_ids = set(LogsExclusionRule.objects.filter(team_id=self.team_id).values_list("id", flat=True))
         if set(ordered_ids) != team_rule_ids or len(ordered_ids) != len(team_rule_ids):
             raise ValidationError("ordered_ids must list every sampling rule for this team exactly once.")
         with transaction.atomic():
             for index, rid in enumerate(ordered_ids):
-                LogsSamplingRule.objects.filter(id=rid, team_id=self.team_id).update(
+                LogsExclusionRule.objects.filter(id=rid, team_id=self.team_id).update(
                     priority=index,
                     version=F("version") + 1,
                 )
-        qs = self.safely_get_queryset(LogsSamplingRule.objects.all()).order_by("priority", "created_at")
+        qs = self.safely_get_queryset(LogsExclusionRule.objects.all()).order_by("priority", "created_at")
         return Response(LogsSamplingRuleSerializer(qs, many=True).data, status=status.HTTP_200_OK)
 
     @extend_schema(
@@ -204,12 +204,12 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
 
-@mutable_receiver(model_activity_signal, sender=LogsSamplingRule)
+@mutable_receiver(model_activity_signal, sender=LogsExclusionRule)
 def handle_logs_sampling_rule_activity(
     sender: Any,
     scope: str,
-    before_update: LogsSamplingRule | None,
-    after_update: LogsSamplingRule | None,
+    before_update: LogsExclusionRule | None,
+    after_update: LogsExclusionRule | None,
     activity: str,
     user: User | None,
     was_impersonated: bool = False,

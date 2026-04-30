@@ -42,11 +42,11 @@ export class SamplingRulesCache {
             PostgresUse.COMMON_READ,
             `SELECT id::text AS id, rule_type, scope_service, scope_path_pattern,
                     scope_attribute_filters, config, version
-             FROM logs_logssamplingrule
+             FROM logs_logsexclusionrule
              WHERE team_id = $1 AND enabled = true
              ORDER BY priority ASC, created_at ASC`,
             [teamId],
-            'logs-sampling-rules-fetch'
+            'logs-exclusion-rules-fetch'
         )
         return res.rows.map((r) => ({
             id: r.id,

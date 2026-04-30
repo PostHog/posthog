@@ -8,16 +8,16 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
-from products.logs.backend.models import LogsSamplingRule
+from products.logs.backend.models import LogsExclusionRule
 
 
-def _sampling_rule_summary(rule: LogsSamplingRule) -> str:
-    if rule.rule_type == LogsSamplingRule.RuleType.PATH_DROP:
+def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
+    if rule.rule_type == LogsExclusionRule.RuleType.PATH_DROP:
         patterns = (rule.config or {}).get("patterns") or []
         return f"Path drop ({len(patterns)} pattern(s))"
-    if rule.rule_type == LogsSamplingRule.RuleType.SEVERITY_SAMPLING:
+    if rule.rule_type == LogsExclusionRule.RuleType.SEVERITY_SAMPLING:
         return "Severity sampling"
-    if rule.rule_type == LogsSamplingRule.RuleType.RATE_LIMIT:
+    if rule.rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
         return "Rate limit (planned)"
     return str(rule.rule_type)
 
@@ -52,7 +52,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         )
 
         enabled_rules = list(
-            LogsSamplingRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
+            LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
         )
 
         services = []
