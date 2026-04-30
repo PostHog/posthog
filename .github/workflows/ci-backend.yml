@@ -878,6 +878,25 @@ jobs:
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
+            - name: Render CH migration SQL per cloud environment
+              # CH migrations can build different `operations` lists at import time depending on
+              # `settings.CLOUD_DEPLOYMENT` (e.g. cloud-only Kafka tables). Print the rendered SQL
+              # each environment will execute so reviewers can spot per-env divergence and verify
+              # gated branches don't sneak in ON CLUSTER or other forbidden patterns.
+              if: github.event_name == 'pull_request'
+              run: |
+                  CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  if [ -z "$CHANGED" ]; then
+                      echo "No ClickHouse migrations changed."
+                      exit 0
+                  fi
+                  for deployment in '' US EU DEV; do
+                      label="${deployment:-<unset>}"
+                      echo "::group::CLOUD_DEPLOYMENT=${label}"
+                      CLOUD_DEPLOYMENT="${deployment}" python manage.py print_ch_migration_sql ${CHANGED} || true
+                      echo "::endgroup::"
+                  done
+
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 

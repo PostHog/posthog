@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -118,6 +118,11 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 name="dashboarditem_query_metadata",
                 fields=["query_metadata"],
                 opclasses=["jsonb_ops"],
+            ),
+            models.Index(
+                fields=["team_id", "-last_modified_at"],
+                name="dashboarditem_team_lmod_idx",
+                condition=Q(deleted=False),
             ),
         ]
 

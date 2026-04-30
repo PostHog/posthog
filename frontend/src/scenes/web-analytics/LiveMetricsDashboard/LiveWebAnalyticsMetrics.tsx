@@ -126,6 +126,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalBrowsers,
         botBreakdown,
         totalBotEvents,
+        totalBotEligibleEvents,
         liveUserCount,
         selectedHost,
         isLoading,
@@ -276,7 +277,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     <LiveBotTrafficCard
                         data={botBreakdown}
                         totalBotEvents={totalBotEvents}
-                        totalEvents={totalPageviews}
+                        totalEvents={totalBotEligibleEvents}
                         isLoading={isLoading}
                     />
                 )

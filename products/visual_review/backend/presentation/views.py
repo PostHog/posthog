@@ -236,6 +236,52 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
+class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Snapshot identities under a repo, keyed by (run_type, identifier).
+
+    A "snapshot identity" doesn't have a single canonical row — it's a series
+    of `RunSnapshot` rows over time. The retrieve-style endpoint returns the
+    deduped baseline timeline for that identity, which is the most useful view.
+
+    `identifier` is a path segment — clients must percent-encode before sending
+    (`encodeURIComponent`). Django/ASGI URL-decode the kwarg automatically.
+    """
+
+    scope_object = "visual_review"
+    scope_object_read_actions = ["timeline"]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("run_type", str, OpenApiParameter.PATH, description="Run type (storybook, playwright)"),
+            OpenApiParameter(
+                "identifier",
+                str,
+                OpenApiParameter.PATH,
+                description="Snapshot identifier; clients must percent-encode before sending",
+            ),
+        ],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"(?P<run_type>[^/]+)/(?P<identifier>[^/]+)",
+    )
+    def timeline(self, request: Request, run_type: str, identifier: str, **kwargs) -> Response:
+        """Deduped baseline timeline for a snapshot identity. Newest first."""
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        history = api.get_snapshot_history(repo_id, identifier, run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
+
+
+@extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Visual review runs.
@@ -359,25 +405,6 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(AddSnapshotsResultSerializer(instance=result).data)
-
-    @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
-        responses={200: SnapshotHistoryEntrySerializer(many=True)},
-    )
-    @action(detail=True, methods=["get"], url_path="snapshot-history")
-    def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
-        """Recent change history for a snapshot identifier across runs."""
-        identifier = request.query_params.get("identifier")
-        if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            run = api.get_run(UUID(pk), team_id=self.team_id)
-        except api.RunNotFoundError:
-            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        history = api.get_snapshot_history(run.repo_id, identifier)
-        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(request=None, responses={200: RunSerializer})
     @action(detail=True, methods=["post"])
