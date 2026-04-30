@@ -14,6 +14,12 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
+    evaluations-update:
+        operation: evaluations_update
+        enabled: false
+    llm-analytics-evaluation-reports-update:
+        operation: llm_analytics_evaluation_reports_update
+        enabled: false
     llma-clustering-config-retrieve:
         operation: llm_analytics_clustering_config_retrieve
         enabled: false
@@ -686,6 +692,9 @@ tools:
             of trace or generation IDs and an analysis_level ("trace" or "generation"). Returns per-ID sentiment labels
             with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute.
             Rate-limited.
+    llma-skill-archive:
+        operation: llm_skills_name_archive_create
+        enabled: false
     llma-skill-create:
         operation: llm_skills_create
         enabled: true
@@ -709,9 +718,6 @@ tools:
             - allowed_tools
             - metadata
             - files
-    llma-skill-archive:
-        operation: llm_skills_name_archive_create
-        enabled: false
     llma-skill-duplicate:
         operation: llm_skills_name_duplicate_create
         enabled: true
