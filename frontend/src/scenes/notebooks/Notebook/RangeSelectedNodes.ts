@@ -33,7 +33,7 @@ export const RangeSelectedNodes = Extension.create({
                                     })
                                 )
                             }
-                            return true
+                            return false
                         })
                         return DecorationSet.create(state.doc, decorations)
                     },
