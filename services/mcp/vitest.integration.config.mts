@@ -25,6 +25,9 @@ export default defineConfig({
         testTimeout: 30000,
         retry: 1, // Retry failed tests once to handle flaky integration tests
         setupFiles: ['tests/setup.ts'],
+        // Builds `public/ui-apps/*` once per test session if missing — required for
+        // the MCP-protocol integration tests that exercise UI app resources.
+        globalSetup: ['tests/integration/global-setup.ts'],
         include: ['tests/**/*.integration.test.ts'],
         exclude: ['node_modules/**', 'dist/**', 'tests/hono/**'],
         // Run test files sequentially to reduce parallel API load

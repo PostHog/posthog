@@ -108,6 +108,34 @@ export function defineMcpProtocolTests(
             }
         })
 
+        it('reads a registered resource end-to-end', async ({ skip }) => {
+            // Resources come from two sources at runtime: context-mill (a GitHub
+            // release fetched at init) and `registerUiAppResources`. If neither
+            // produced any registrations the protocol method is "not found" and
+            // there's nothing to read — skip rather than fail.
+            let resources: Awaited<ReturnType<Client['listResources']>>['resources']
+            try {
+                resources = (await client.listResources()).resources
+            } catch {
+                skip('No resources registered (resources/list returned -32601).')
+                return
+            }
+            if (resources.length === 0) {
+                skip('No resources registered.')
+                return
+            }
+            // Pick the first resource; assert listing shape, then exercise the
+            // resources/read JSON-RPC call which hits a different code path.
+            const first = resources[0]
+            expect(first.uri).toBeTruthy()
+            expect(first.mimeType).toBeTruthy()
+
+            const result = await client.readResource({ uri: first.uri })
+            expect(Array.isArray(result.contents)).toBe(true)
+            expect(result.contents.length).toBeGreaterThan(0)
+            expect(result.contents[0].uri).toBe(first.uri)
+        })
+
         it('calls a tool and returns content blocks', async () => {
             const result = await client.callTool({
                 name: 'organization-get',
@@ -172,6 +200,87 @@ export function defineMcpProtocolTests(
             } finally {
                 await Promise.all([safeClose(a.client), safeClose(b.client)])
             }
+        })
+    })
+}
+
+// MCP UI apps coverage (the `@modelcontextprotocol/ext-apps` extension).
+// Tools wrapped with `withUiApp(...)` advertise a `_meta.ui.resourceUri` on
+// every call result. Clients fetch that URI via `resources/read` to get an
+// HTML stub that loads the per-app JS+CSS bundle from `${MCP_APPS_BASE_URL}/ui-apps/<app>/`.
+//
+// Failures this catches:
+//   - Tool decorator stripped or not wired through registerTool (no `_meta`)
+//   - `registerUiAppResources` skipped (e.g. MCP_APPS_BASE_URL missing)
+//   - HTML stub generation produces wrong asset URLs
+//   - Static-asset serving broken (Hono `serveStatic` route, CF Workers Static Assets)
+export function defineUiAppProtocolTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP UI apps (${label})`, () => {
+        let client: Client
+        let harness: ProtocolTestHarness
+
+        beforeEach(async () => {
+            harness = await getHarness()
+            const built = buildStreamableClient(harness)
+            client = built.client
+            await client.connect(built.transport)
+        })
+
+        afterEach(async () => {
+            await safeClose(client)
+        })
+
+        // The UI metadata is on the *tool definition* (returned in `tools/list`),
+        // not on per-call results — that's how the ext-apps SDK + clients
+        // discover which UI app to render. We pull the URI here once and reuse
+        // it across the next two tests.
+        async function findDebugUiResourceUri(): Promise<string> {
+            const { tools } = await client.listTools()
+            const debug = tools.find((t) => t.name === 'debug-mcp-ui-apps')
+            if (!debug) {
+                throw new Error('debug-mcp-ui-apps tool not registered')
+            }
+            const meta = (debug as { _meta?: { ui?: { resourceUri?: string } } })._meta
+            const uri = meta?.ui?.resourceUri
+            if (!uri) {
+                throw new Error(
+                    `debug-mcp-ui-apps tool definition is missing _meta.ui.resourceUri (got ${JSON.stringify(meta)})`
+                )
+            }
+            return uri
+        }
+
+        it('advertises a UI resource URI on the debug-mcp-ui-apps tool', async () => {
+            const uri = await findDebugUiResourceUri()
+            expect(uri).toMatch(/^ui:\/\/|^mcp-ext-app:\/\//)
+        })
+
+        it('reads the ext-app resource and returns an HTML stub', async () => {
+            const uri = await findDebugUiResourceUri()
+            const resource = await client.readResource({ uri })
+            expect(resource.contents.length).toBeGreaterThan(0)
+            const first = resource.contents[0]
+            const text = String(first.text ?? '')
+            expect(text).toContain('<!DOCTYPE html>')
+            // Stub references the per-app bundle on whichever origin
+            // MCP_APPS_BASE_URL points at — the harness sets it to its own origin.
+            expect(text).toMatch(/\/ui-apps\/debug\/main\.js/)
+        })
+
+        it('serves the UI app static asset over HTTP', async () => {
+            // The asset URL is `${MCP_APPS_BASE_URL}/ui-apps/<app>/main.js`.
+            // Hono uses @hono/node-server's serveStatic; CF uses the Workers
+            // Static Assets binding configured in wrangler.jsonc.
+            const assetUrl = new URL('/ui-apps/debug/main.js', harness.baseUrl)
+            const response = await harness.fetch(assetUrl)
+            expect(response.status).toBe(200)
+            const ctype = response.headers.get('content-type') || ''
+            expect(ctype).toMatch(/javascript|ecmascript/)
+            const body = await response.text()
+            expect(body.length).toBeGreaterThan(0)
         })
     })
 }

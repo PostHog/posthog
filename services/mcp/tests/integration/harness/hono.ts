@@ -42,9 +42,15 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
     const app = createApp(createInMemoryRedis())
     const server = serve({ fetch: app.fetch, port: 0 })
     const address = server.address() as AddressInfo
+    const baseUrl = new URL(`http://127.0.0.1:${address.port}`)
+
+    // `getEnv()` reads MCP_APPS_BASE_URL on every HonoMcpServer init, so we can
+    // set it after the listener has its port. Pointing at the harness's own
+    // origin so `/ui-apps/<app>/main.js` resolves to this server's static route.
+    process.env.MCP_APPS_BASE_URL = baseUrl.toString().replace(/\/$/, '')
 
     return {
-        baseUrl: new URL(`http://127.0.0.1:${address.port}`),
+        baseUrl,
         stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
     }
 }

@@ -76,7 +76,8 @@ describe('RedisCache', () => {
     describe('set', () => {
         it('should store string values with scoped key', async () => {
             await cache.set('region', 'eu')
-            expect(mockRedis.set).toHaveBeenCalledWith('mcp:user:test-user-hash:region', 'eu', 'EX', 86400)
+            // 7-day default TTL (see DEFAULT_TTL_SECONDS in RedisCache.ts).
+            expect(mockRedis.set).toHaveBeenCalledWith('mcp:user:test-user-hash:region', 'eu', 'EX', 7 * 24 * 60 * 60)
         })
 
         it('should isolate different users', async () => {

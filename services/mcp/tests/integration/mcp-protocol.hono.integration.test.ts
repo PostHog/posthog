@@ -2,7 +2,11 @@ import { afterAll, beforeAll } from 'vitest'
 
 import { startHonoHarness } from './harness/hono'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
-import { defineMcpProtocolTests, defineSseProtocolTests } from './mcp-protocol-suite'
+import {
+    defineMcpProtocolTests,
+    defineSseProtocolTests,
+    defineUiAppProtocolTests,
+} from './mcp-protocol-suite'
 
 // End-to-end MCP protocol test against the Hono runtime.
 //   - Real `@hono/node-server` listener (TCP + HTTP semantics, not `app.request`)
@@ -34,3 +38,4 @@ const harnessFor = () => ({
 
 defineMcpProtocolTests('Hono (real stack)', harnessFor)
 defineSseProtocolTests('Hono (real stack)', harnessFor)
+defineUiAppProtocolTests('Hono (real stack)', harnessFor)

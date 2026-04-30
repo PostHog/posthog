@@ -7,7 +7,7 @@ export interface RedisLike {
     scan(cursor: string | number, ...args: (string | number)[]): Promise<[cursor: string, keys: string[]]>
 }
 
-const DEFAULT_TTL_SECONDS = 24 * 60 * 60 // 24 hours
+const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 
 export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     private redis: RedisLike
