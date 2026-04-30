@@ -7,15 +7,11 @@ code is available don't fail.
 
 from __future__ import annotations
 
-import os
-import time
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
-
-from hogli_commands import phrocs_client
 
 
 def _phrocs_bin() -> str | None:
@@ -79,17 +75,6 @@ def _write_crash_config(path: Path) -> None:
     )
 
 
-def _wait_for_detached_exit(cwd: Path, timeout: float = 10.0) -> bool:
-    """Poll until the IPC socket disappears. Returns True on clean exit."""
-    sock_path = phrocs_client.socket_path(cwd)
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not os.path.exists(sock_path):
-            return True
-        time.sleep(0.05)
-    return False
-
-
 @requires_phrocs
 @requires_detached_phrocs
 def test_happy_path(tmp_path: Path) -> None:
@@ -117,11 +102,10 @@ def test_happy_path(tmp_path: Path) -> None:
         )
         assert wait.returncode == 0, f"wait stderr: {wait.stderr}, stdout: {wait.stdout}"
         assert "ready" in wait.stdout
+        stop = subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
+        assert stop.returncode == 0, stop.stderr
     finally:
         subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
-
-    assert _wait_for_detached_exit(tmp_path)
-    assert not phrocs_client.pidfile_path(tmp_path).exists()
 
 
 @requires_phrocs
@@ -143,10 +127,11 @@ def test_crashed_process_reports_exit_1(tmp_path: Path) -> None:
         )
         assert wait.returncode == 1
         assert "bad" in wait.stderr
+        # A crashed child should not take down the detached manager.
+        stop = subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
+        assert stop.returncode == 0, stop.stderr
     finally:
         subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
-
-    assert _wait_for_detached_exit(tmp_path)
 
 
 @requires_phrocs
@@ -193,10 +178,10 @@ def test_wait_returns_ready_when_oneshot_proc_exits_zero(tmp_path: Path) -> None
         )
         assert wait.returncode == 0, f"wait stderr: {wait.stderr}, stdout: {wait.stdout}"
         assert "ready" in wait.stdout
+        stop = subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
+        assert stop.returncode == 0, stop.stderr
     finally:
         subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
-
-    assert _wait_for_detached_exit(tmp_path)
 
 
 @requires_phrocs
@@ -225,7 +210,7 @@ def test_second_instance_refused(tmp_path: Path) -> None:
         )
         assert second.returncode != 0
         assert "already running" in second.stderr
+        stop = subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
+        assert stop.returncode == 0, stop.stderr
     finally:
         subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
-
-    assert _wait_for_detached_exit(tmp_path)

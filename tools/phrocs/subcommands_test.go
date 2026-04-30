@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"reflect"
@@ -97,6 +99,86 @@ func TestRunWait_shortTimeoutBeforeBindIsNotReachable(t *testing.T) {
 	}
 	if !strings.Contains(output, `"verdict":"not_reachable"`) {
 		t.Fatalf("output missing not_reachable verdict: %q", output)
+	}
+}
+
+func TestRunStop_quitPathRemovesPidfile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(generatedDir(), 0o755); err != nil {
+		t.Fatalf("mkdir generated dir: %v", err)
+	}
+
+	lockFile, err := os.OpenFile(pidLockFilePath(), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock: %v", err)
+	}
+	defer func() { _ = lockFile.Close() }()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("flock: %v", err)
+	}
+
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	if err := os.WriteFile(pidFilePath(), []byte(fmt.Sprintf("%d\n", cmd.Process.Pid)), 0o644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	sock, err := detachedSocketPath()
+	if err != nil {
+		t.Fatalf("detached socket path: %v", err)
+	}
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ln.Close()
+		_ = os.Remove(sock)
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+
+		line, err := bufio.NewReader(conn).ReadString('\n')
+		if err != nil {
+			return
+		}
+		if !strings.Contains(line, `"cmd":"quit"`) {
+			return
+		}
+		_, _ = conn.Write([]byte(`{"ok":true}` + "\n"))
+		_ = ln.Close()
+		_ = os.Remove(sock)
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	}()
+
+	code, _ := captureStdout(t, func() int {
+		return runStop(1)
+	})
+
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if _, err := os.Stat(pidFilePath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pidfile should be removed, stat err=%v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("quit server did not finish")
 	}
 }
 
