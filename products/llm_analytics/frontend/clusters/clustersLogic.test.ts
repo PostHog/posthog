@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
 import { EvaluationItemAttributes } from './traceSummaryLoader'
-import { Cluster, ClusterMetrics, ClusteringRun } from './types'
+import { Cluster, ClusterMetrics, ClusteringLevel, ClusteringRun } from './types'
 
 describe('clustersLogic', () => {
     let logic: ReturnType<typeof clustersLogic.build>
@@ -674,17 +674,20 @@ describe('clustersLogic', () => {
                     },
                 ]
 
-                const loadClustersAsCurrentRun = (): void => {
+                const loadClustersAsCurrentRun = (level?: ClusteringLevel): void => {
                     // filteredSortedClusters reads off the currentRun; seed a run and hydrate the cache.
+                    // We pass the run's level so the level-mismatch guard in `sortedClusters` (which
+                    // exists to suppress stale cards during a level switch) treats the seed as live.
                     logic.actions.loadClusteringRunSuccess({
                         runId: 'test-run',
                         clusters: sampleClusters,
+                        level: level ?? logic.values.clusteringLevel,
                     } as ClusteringRun)
                 }
 
                 it('returns clusters unchanged when no filter is active', () => {
-                    loadClustersAsCurrentRun()
                     setEvalLevelAndAttrs()
+                    loadClustersAsCurrentRun()
 
                     const result = logic.values.filteredSortedClusters
                     expect(result).toHaveLength(2)
@@ -694,8 +697,8 @@ describe('clustersLogic', () => {
                 })
 
                 it('drops non-matching traces, rewrites size, and prunes clusters that empty out', () => {
-                    loadClustersAsCurrentRun()
                     setEvalLevelAndAttrs()
+                    loadClustersAsCurrentRun()
                     logic.actions.setEvalVerdictsFilter(['pass'])
 
                     // Cluster 0 keeps its two pass traces; cluster 1's items are all fail/n/a so it's pruned.
@@ -735,8 +738,8 @@ describe('clustersLogic', () => {
                 })
 
                 it('combines property and eval filters (intersection)', () => {
-                    loadClustersAsCurrentRun()
                     setEvalLevelAndAttrs()
+                    loadClustersAsCurrentRun()
                     // Property filter narrows to {id-pass-a, id-pass-b, id-fail-b}, eval verdict
                     // narrows to {id-pass-a, id-pass-b}; the intersection should be {id-pass-a,
                     // id-pass-b}, so cluster 1 (only id-fail-b survives the property filter,

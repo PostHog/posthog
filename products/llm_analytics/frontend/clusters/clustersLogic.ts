@@ -441,10 +441,22 @@ export const clustersLogic = kea<clustersLogicType>([
             },
         ],
 
+        // True while the loaded run still belongs to the level the user is currently
+        // looking at. Goes false the moment the user switches levels, until the new
+        // level's first run resolves — gates downstream selectors so we don't paint
+        // trace cards on the Generations tab during the load. kea-loaders preserves
+        // the previous loader value, so without this check `currentRun` would still
+        // be the trace-level run for a few hundred milliseconds.
+        currentRunMatchesLevel: [
+            (s) => [s.currentRun, s.clusteringLevel],
+            (currentRun: ClusteringRun | null, level: ClusteringLevel): boolean =>
+                !!currentRun && (currentRun.level || 'trace') === level,
+        ],
+
         sortedClusters: [
-            (s) => [s.currentRun],
-            (currentRun: ClusteringRun | null): Cluster[] => {
-                if (!currentRun?.clusters) {
+            (s) => [s.currentRun, s.currentRunMatchesLevel],
+            (currentRun: ClusteringRun | null, matches: boolean): Cluster[] => {
+                if (!matches || !currentRun?.clusters) {
                     return []
                 }
                 return [...currentRun.clusters].sort((a, b) => b.size - a.size)
