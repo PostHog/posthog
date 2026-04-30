@@ -39627,7 +39627,8 @@ export namespace Schemas {
 
     export type EnvironmentsIntegrationsListParams = {
     /**
-     * * `azure-blob` - Azure Blob
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
     * `customerio-app` - Customerio App
@@ -39676,6 +39677,7 @@ export namespace Schemas {
 
 
     export const EnvironmentsIntegrationsListKind = {
+      Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -44159,7 +44161,8 @@ export namespace Schemas {
 
     export type IntegrationsListParams = {
     /**
-     * * `azure-blob` - Azure Blob
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
     * `customerio-app` - Customerio App
@@ -44208,6 +44211,7 @@ export namespace Schemas {
 
 
     export const IntegrationsListKind = {
+      Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',

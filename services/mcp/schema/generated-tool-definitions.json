@@ -2100,7 +2100,7 @@
         }
     },
     "integration-get": {
-        "description": "Get a specific integration by ID. Returns the full integration details including kind, display name, non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.",
+        "description": "Get a specific integration by ID. Returns full integration details including kind, display name, error status, and creation metadata. Does not expose sensitive credentials or raw configuration.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "Get integration",

@@ -416,7 +416,8 @@ export type RoleExternalReferencesLookupRetrieveParams = {
 
 export type IntegrationsListParams = {
     /**
-     * * `azure-blob` - Azure Blob
+     * * `apns` - Apple Push
+     * `azure-blob` - Azure Blob
      * `bing-ads` - Bing Ads
      * `clickup` - Clickup
      * `customerio-app` - Customerio App
@@ -464,6 +465,7 @@ export type IntegrationsListParams = {
 export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof IntegrationsListKind]
 
 export const IntegrationsListKind = {
+    Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
