@@ -6,7 +6,7 @@
             groupArray(last_seen) AS last_seen_timestamps,
             groupArray(library) AS libraries
      FROM
-       (SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')) AS issue_id,
+       (SELECT if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')) AS issue_id,
                max(toTimeZone(events.timestamp, 'UTC')) AS last_seen,
                argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS library
         FROM events
@@ -17,8 +17,8 @@
            WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999)
            GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
            HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), events__exception_issue_override.fingerprint)
-        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.`$session_id`), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), equals(events.event, '$exception'))
-        GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))))
+        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.`$session_id`), isNotNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))), equals(events.event, '$exception'))
+        GROUP BY if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))))
   SELECT event AS event,
   
     (SELECT issues.ids AS ids
@@ -45,8 +45,8 @@
                ['$pageview'] AS events,
                minForEach(arrayMap(x -> if(ifNull(equals(events.event, x), isNull(events.event)
                                                   and isNull(x)), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL), ['$pageview'])) AS earliest_success_events,
-               minForEach(arrayMap(x -> if(ifNull(equals(x, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID'))), isNull(x)
-                                                  and isNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', ''), 'UUID')))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
+               minForEach(arrayMap(x -> if(ifNull(equals(x, if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID'))), isNull(x)
+                                                  and isNull(if(not(empty(events__exception_issue_override.issue_id)), events__exception_issue_override.issue_id, accurateCastOrNull(events.`mat_$exception_issue_id`, 'UUID')))), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL),
                                      (SELECT issues.ids AS ids
                                       FROM issues))) AS earliest_exceptions
         FROM events
