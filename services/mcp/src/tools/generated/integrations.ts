@@ -73,6 +73,7 @@ const integrationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/`,
             query: {
+                kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
             },
