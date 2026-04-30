@@ -533,7 +533,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                # The shared force_blocking gate downgrades to IF_STALE because the insight was
+                # just created — the InsightCachingState row's `created_at` is younger than
+                # `SHARED_FORCE_BLOCKING_MIN_AGE` and the throttle clock falls back to it.
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
                 filters_override={},

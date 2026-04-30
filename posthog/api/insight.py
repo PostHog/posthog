@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -88,6 +88,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
+from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -371,6 +372,37 @@ class QueryFieldSerializer(serializers.Serializer):
         if data is not None and not isinstance(data, dict):
             raise serializers.ValidationError("Query must be a valid JSON object")
         return data
+
+
+def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
+    """Throttle clock for `?refresh=force_blocking` on shared insights.
+
+    Returns ``last_refresh`` when set, otherwise ``created_at``. ``last_refresh`` is reset to
+    ``NULL`` whenever an insight's ``cache_key`` changes (filter edit, materialized config tweak —
+    see ``posthog/caching/insight_caching_state.py:62``), so a naive ``last_refresh``-only check
+    would let any ``cache_key`` rotation reopen the cache-bypass window. Falling back to
+    ``created_at`` makes the throttle clock monotonic against rotation.
+
+    Reads from the prefetched ``caching_states`` relation when a tile is in scope (added to
+    ``DashboardSerializer.get_tiles`` to avoid an N+1 on shared dashboards). For shared insights
+    without a tile, issues a single point-lookup against the unique ``(insight_id, NULL)`` row.
+    On any DB error, returns ``datetime.now(UTC)`` so the gate fails closed (downgrades) — a
+    Postgres outage must not become a 500 on the public shared-insight surface.
+    """
+    try:
+        if dashboard_tile is not None:
+            cs = next(iter(dashboard_tile.caching_states.all()), None)
+        else:
+            cs = (
+                InsightCachingState.objects.filter(insight=insight, dashboard_tile=None)
+                .only("last_refresh", "created_at")
+                .first()
+            )
+    except Exception:
+        return datetime.now(UTC)
+    if cs is None:
+        return None
+    return cs.last_refresh or cs.created_at
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -947,7 +979,10 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
                 if self.context.get("is_shared", False):
-                    execution_mode = shared_insights_execution_mode(execution_mode)
+                    execution_mode = shared_insights_execution_mode(
+                        execution_mode,
+                        last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
+                    )
 
                 return calculate_for_query_based_insight(
                     insight,

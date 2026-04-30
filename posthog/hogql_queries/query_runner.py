@@ -192,11 +192,32 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
+# Minimum age of the throttle clock (last_refresh OR created_at — see
+# `_last_refresh_for_shared_gate` in posthog/api/insight.py) before a shared insight may
+# honor `?refresh=force_blocking`. Bounds anonymous cache-bypass abuse on the public
+# sharing surface in the steady state. Limitations of the gate:
+#
+# - It is a soft, best-effort cap, not a hard rate limit. `last_refresh` only advances
+#   AFTER a recompute completes (`posthog/caching/calculate_results.py:108`), so several
+#   concurrent requests within the same window can all pass before any of them updates
+#   the row. The org-level 6-slot dashboard concurrency limiter (`DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES`)
+#   is the actual blast-radius cap.
+# - The downgrade target `RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE` still computes
+#   blocking on a cold/missing cache. The throttle attenuates load when the cache is
+#   warm-but-stale; cold-cache shared insights remain bounded by the same 6-slot cap.
+# - Mirrors the client-side `SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES` constant in
+#   `frontend/src/scenes/dashboard/dashboardUtils.ts`. Equality is asserted in
+#   `test_shared_force_blocking_min_age_matches_frontend` to catch silent drift.
+SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(minutes=60)
+
+
 _SHARED_MODE_WHITELIST = {
     # Cache only is default refresh mode - remap to async so shared insights stay fresh
     ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
-    # `refresh=force_blocking` (CALCULATE_BLOCKING_ALWAYS) must recalculate even when cache looks fresh,
-    # otherwise shared dashboard "Refresh" cannot move last_refresh / staleness (was mapped to IF_STALE only).
+    # `force_blocking` must recompute (otherwise shared `last_refresh` cannot advance, leaving
+    # dashboards stuck-stale). The gate in `shared_insights_execution_mode` downgrades back to
+    # IF_STALE when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`, capping
+    # anonymous viewers' ability to repeatedly bypass the cache.
     ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     # Allow regular async
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
@@ -204,7 +225,33 @@ _SHARED_MODE_WHITELIST = {
 }
 
 
-def shared_insights_execution_mode(execution_mode: ExecutionMode) -> ExecutionMode:
+def _is_force_blocking_eligible_for_shared(last_refresh: datetime | None) -> bool:
+    """Whether a shared insight may honor `?refresh=force_blocking` for the throttle clock.
+
+    `last_refresh is None` is treated as "no signal" and downgrades — combined with the
+    helper's fallback to `created_at`, the only way the value is None here is if the
+    `InsightCachingState` row itself is missing (typically a Celery sync race), in which
+    case the safe default is to throttle.
+    """
+    if last_refresh is None:
+        return False
+    return datetime.now(UTC) - last_refresh >= SHARED_FORCE_BLOCKING_MIN_AGE
+
+
+def shared_insights_execution_mode(
+    execution_mode: ExecutionMode,
+    *,
+    last_refresh: datetime | None = None,
+) -> ExecutionMode:
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS and not _is_force_blocking_eligible_for_shared(
+        last_refresh
+    ):
+        logger.info(
+            "shared_force_blocking_throttled",
+            last_refresh=last_refresh.isoformat() if last_refresh else None,
+            min_age_seconds=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+        )
+        return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
     return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
 
 

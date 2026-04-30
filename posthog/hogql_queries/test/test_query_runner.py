@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -37,7 +37,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, shared_insights_execution_mode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team, WeekStartDay
 
@@ -984,3 +984,99 @@ class TestApplySeriesCustomNames(BaseTest):
         _, was_modified = runner.apply_series_custom_names(cached_response)
 
         self.assertEqual(was_modified, expect_modified)
+
+
+class TestSharedInsightsExecutionMode(BaseTest):
+    @parameterized.expand(
+        [
+            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            (
+                "force_blocking_no_last_refresh_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_refreshed_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(seconds=10),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_just_under_threshold_downgrades",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=59, seconds=59),
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "force_blocking_at_threshold_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(minutes=60),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "force_blocking_long_stale_passes_through",
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                timedelta(hours=24),
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "cache_only_remaps_to_extended_async",
+                ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                timedelta(seconds=10),
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "recent_cache_async_passes_through",
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+            (
+                "unlisted_blocking_if_stale_falls_back_to_extended_async",
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                None,
+                ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+            ),
+        ]
+    )
+    def test_shared_insights_execution_mode(
+        self,
+        _name: str,
+        execution_mode: ExecutionMode,
+        last_refresh_offset: timedelta | None,
+        expected_mode: ExecutionMode,
+    ) -> None:
+        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
+        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
+        self.assertEqual(result, expected_mode)
+
+    def test_shared_force_blocking_min_age_matches_frontend(self) -> None:
+        """The shared-insight force_blocking throttle window is duplicated FE/BE because the
+        backend is the trust boundary while the frontend uses it to decide when to even fire
+        the request. They MUST agree — if they drift, the security comment in `query_runner.py`
+        becomes a lie. This test reads the frontend constant by regex and asserts equality so
+        either side moving the value will fail CI before the drift can ship.
+        """
+        import re
+        from pathlib import Path
+
+        from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_MIN_AGE
+
+        frontend_file = (
+            Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardUtils.ts"
+        )
+        source = frontend_file.read_text()
+        match = re.search(
+            r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*(\d+)\s*",
+            source,
+        )
+        assert match, f"Could not find SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES in {frontend_file}"
+        frontend_minutes = int(match.group(1))
+        backend_minutes = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds() // 60)
+        self.assertEqual(
+            backend_minutes,
+            frontend_minutes,
+            f"Backend SHARED_FORCE_BLOCKING_MIN_AGE ({backend_minutes}m) drifted from frontend "
+            f"SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES ({frontend_minutes}m). Update both.",
+        )
