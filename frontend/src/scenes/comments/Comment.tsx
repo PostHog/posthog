@@ -140,7 +140,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
                 initialContent={comment.rich_content}
                 onCreate={setEditingCommentRichContentEditor}
                 onUpdate={(isEmpty) => {
-                    if (editingCommentRichContentEditor) {
+                    if (editingCommentRichContentEditor && editingComment) {
                         setEditingComment({
                             ...editingComment,
                             rich_content: editingCommentRichContentEditor.getJSON(),
