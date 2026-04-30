@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseMcpMode } from '@/lib/utils'
+import { parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 
 function parseIdFromRequest(
     request: { headers: { get: (name: string) => string | null } },
@@ -218,6 +218,77 @@ describe('URL Routing', () => {
 
             // Mirrors the merge order in `src/index.ts` — header wins over query param.
             expect(parseMcpMode(headerValue || queryValue)).toBe(expected)
+        })
+    })
+
+    describe('MCP consumer parsing', () => {
+        const consumerTests = [
+            {
+                description: 'undefined when neither header nor query param provided',
+                headers: {} as Record<string, string>,
+                params: '',
+                expected: undefined,
+            },
+            {
+                description: 'plugin from header',
+                headers: { 'x-posthog-mcp-consumer': 'plugin' },
+                params: '',
+                expected: 'plugin',
+            },
+            {
+                description: 'posthog-code from header',
+                headers: { 'x-posthog-mcp-consumer': 'posthog-code' },
+                params: '',
+                expected: 'posthog-code',
+            },
+            {
+                description: 'plugin from query param fallback',
+                headers: {},
+                params: '?consumer=plugin',
+                expected: 'plugin',
+            },
+            {
+                description: 'arbitrary value from query param fallback',
+                headers: {},
+                params: '?consumer=slack',
+                expected: 'slack',
+            },
+            {
+                description: 'header takes precedence over query param',
+                headers: { 'x-posthog-mcp-consumer': 'plugin' },
+                params: '?consumer=other',
+                expected: 'plugin',
+            },
+            {
+                description: 'whitespace is trimmed from header value',
+                headers: { 'x-posthog-mcp-consumer': '  plugin  ' },
+                params: '',
+                expected: 'plugin',
+            },
+            {
+                description: 'whitespace is trimmed from query param value',
+                headers: {},
+                params: '?consumer=%20%20plugin%20%20',
+                expected: 'plugin',
+            },
+            {
+                description: 'control characters are stripped',
+                headers: { 'x-posthog-mcp-consumer': 'plugin\x00\x1b' },
+                params: '',
+                expected: 'plugin',
+            },
+        ]
+
+        it.each(consumerTests)('parses $description', ({ headers, params, expected }) => {
+            const url = new URL(`https://example.com/mcp${params}`)
+            const headerValue = headers['x-posthog-mcp-consumer'] ?? null
+            const queryValue = url.searchParams.get('consumer')
+
+            // Mirrors the merge order in `src/index.ts` — header wins over query param,
+            // and both flow through `sanitizeHeaderValue` (which strips control chars,
+            // trims whitespace, and collapses empty results to `undefined`).
+            const consumer = sanitizeHeaderValue(headerValue || queryValue || undefined)
+            expect(consumer).toBe(expected)
         })
     })
 })

@@ -16,7 +16,6 @@ import {
     visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
-    visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
     visualReviewRunsToleratedHashesList,
 } from '../generated/api'
@@ -25,7 +24,6 @@ import type {
     RepoApi,
     RunApi,
     SnapshotApi,
-    SnapshotHistoryEntryApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
@@ -132,21 +130,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         return null
                     }
                     return visualReviewReposRetrieve(String(values.currentProjectId), run.repo_id)
-                },
-            },
-        ],
-        snapshotHistory: [
-            [] as SnapshotHistoryEntryApi[],
-            {
-                loadSnapshotHistory: async (identifier: string) => {
-                    const response = await visualReviewRunsSnapshotHistoryList(
-                        String(values.currentProjectId),
-                        props.runId,
-                        {
-                            identifier,
-                        }
-                    )
-                    return response.results
                 },
             },
         ],
@@ -276,7 +259,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         setSelectedSnapshotId: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
-                actions.loadSnapshotHistory(snapshot.identifier)
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
@@ -287,7 +269,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         loadSnapshotsSuccess: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
-                actions.loadSnapshotHistory(snapshot.identifier)
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
@@ -304,7 +285,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.approveChangesSuccess()
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
-                actions.loadSnapshots()
+                // Patch in place — refetching all snapshots after a bulk approve made the whole
+                // grid flash and lost the user's selection. Server is the source of truth on
+                // next mount; we only need the UI to reflect the change immediately.
+                actions.loadSnapshotsSuccess(
+                    values.snapshots.map((s) =>
+                        s.review_state === 'pending' && s.result !== 'unchanged'
+                            ? { ...s, review_state: 'approved' }
+                            : s
+                    )
+                )
             } catch (e: any) {
                 actions.approveChangesFailure()
                 lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
@@ -336,7 +326,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.approveSnapshotSuccess()
                 lemonToast.success('Snapshot approved')
                 actions.loadRun()
-                actions.loadSnapshots()
+                // Patch only the approved snapshot — refetching the whole list flashed
+                // the entire viewer and dropped the user's place.
+                actions.loadSnapshotsSuccess(
+                    values.snapshots.map((s) => (s.id === snapshot.id ? { ...s, review_state: 'approved' } : s))
+                )
                 if (nextPending) {
                     actions.setSelectedSnapshotId(nextPending.id)
                 }
@@ -352,7 +346,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 })
                 lemonToast.success('Marked as tolerated')
                 actions.loadRun()
-                actions.loadSnapshots()
+                actions.loadSnapshotsSuccess(
+                    values.snapshots.map((s) => (s.id === snapshot.id ? { ...s, review_state: 'tolerated' } : s))
+                )
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
