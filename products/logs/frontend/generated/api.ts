@@ -32,6 +32,8 @@ import type {
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
     _LogsAttributesResponseApi,
+    _LogsCountRangesRequestApi,
+    _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
     _LogsQueryRequestApi,
@@ -464,6 +466,23 @@ export const logsCountCreate = async (
     })
 }
 
+export const getLogsCountRangesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/count-ranges/`
+}
+
+export const logsCountRangesCreate = async (
+    projectId: string,
+    _logsCountRangesRequestApi: _LogsCountRangesRequestApi,
+    options?: RequestInit
+): Promise<_LogsCountRangesResponseApi> => {
+    return apiMutator<_LogsCountRangesResponseApi>(getLogsCountRangesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsCountRangesRequestApi),
+    })
+}
+
 export const getLogsExportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/export/`
 }
@@ -600,7 +619,7 @@ export const pluginConfigsLogsList = async (
 }
 
 /**
- * Fetch the logs for a task run. Returns JSONL formatted log entries.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
  * @summary Get task run logs
  */
 export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {

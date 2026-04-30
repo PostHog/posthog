@@ -164,25 +164,18 @@ class TestEvaluationReportApi(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_create_without_frequency_enforces_trigger_threshold_max(self):
+    @parameterized.expand(
+        [
+            ("below_min", EvaluationReport.TRIGGER_THRESHOLD_MIN - 1),
+            ("above_max", EvaluationReport.TRIGGER_THRESHOLD_MAX + 1),
+        ]
+    )
+    def test_create_rejects_out_of_bounds_trigger_threshold(self, _name, trigger_threshold):
         response = self.client.post(
             self.base_url,
             {
                 "evaluation": str(self.evaluation.id),
-                "trigger_threshold": EvaluationReport.TRIGGER_THRESHOLD_MAX + 1,
-                "delivery_targets": [],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "trigger_threshold")
-
-    def test_create_without_frequency_enforces_trigger_threshold_min(self):
-        response = self.client.post(
-            self.base_url,
-            {
-                "evaluation": str(self.evaluation.id),
-                "trigger_threshold": EvaluationReport.TRIGGER_THRESHOLD_MIN - 1,
+                "trigger_threshold": trigger_threshold,
                 "delivery_targets": [],
             },
             format="json",
@@ -210,6 +203,27 @@ class TestEvaluationReportApi(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "cooldown_minutes")
+
+    @parameterized.expand(
+        [
+            ("below_min", EvaluationReport.DAILY_RUN_CAP_MIN - 1),
+            ("above_max", EvaluationReport.DAILY_RUN_CAP_MAX + 1),
+        ]
+    )
+    def test_create_rejects_out_of_bounds_daily_run_cap(self, _name, daily_run_cap):
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "daily_run_cap": daily_run_cap,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "daily_run_cap")
 
     def test_create_accepts_custom_cooldown_minutes(self):
         response = self.client.post(

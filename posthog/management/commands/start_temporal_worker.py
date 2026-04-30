@@ -131,6 +131,10 @@ from posthog.temporal.session_replay.replay_count_metrics import (
     WORKFLOWS as REPLAY_COUNT_METRICS_WORKFLOWS,
 )
 from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
+from posthog.temporal.session_replay.session_summary.cleanup_sweep import (
+    CLEANUP_SWEEP_ACTIVITIES,
+    CLEANUP_SWEEP_WORKFLOWS,
+)
 from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
@@ -273,7 +277,8 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        CLEANUP_SWEEP_WORKFLOWS
+        + COUNT_PLAYLIST_ITEMS_WORKFLOWS
         + DELETE_RECORDING_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + EXPORT_RECORDING_WORKFLOWS
@@ -282,7 +287,8 @@ _task_queue_specs = [
         + REPLAY_COUNT_METRICS_WORKFLOWS
         + SESSION_SUMMARY_WORKFLOWS
         + SUMMARIZATION_SWEEP_WORKFLOWS,
-        COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        CLEANUP_SWEEP_ACTIVITIES
+        + COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + DELETE_RECORDING_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + EXPORT_RECORDING_ACTIVITIES

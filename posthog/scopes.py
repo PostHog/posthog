@@ -78,10 +78,12 @@ APIScopeObject = Literal[
     "streamlit_app",
     "subscription",
     "survey",
+    "tagger",
     "ticket",
     "task",
     "tracing",
     "uploaded_media",
+    "usage_metric",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
     "visual_review",
