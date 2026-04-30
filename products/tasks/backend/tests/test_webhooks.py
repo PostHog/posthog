@@ -618,6 +618,31 @@ class TestGitHubCommentWebhook(TestCase):
         mock_capture.assert_not_called()
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks._create_resume_run")
+    @patch("products.tasks.backend.webhooks._signal_running_workflow", return_value=False)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_non_terminal_falls_through_to_resume_when_workflow_unreachable(
+        self, mock_capture, mock_signal, mock_resume, mock_get_secret
+    ):
+        # Regression for Josh's review note: TaskRun.is_terminal == False does not
+        # imply a live workflow exists. When _signal_running_workflow reports the
+        # workflow is gone, we must still create a resume run so the comment is
+        # not silently dropped.
+        mock_get_secret.return_value = self.webhook_secret
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": self.PR_URL},
+        )
+
+        response = self._make_webhook_request(self._make_issue_comment_payload())
+
+        self.assertEqual(response.status_code, 200)
+        mock_signal.assert_called_once()
+        mock_resume.assert_called_once()
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_resume_includes_pr_context(self, mock_capture, mock_execute, mock_get_secret):

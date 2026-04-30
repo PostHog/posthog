@@ -281,13 +281,25 @@ def _forward_pr_activity_to_task(
     task_run.emit_console_event("info", f"New comment on PR: {pr_url}")
     task_run.capture_event("pr_comment_received", {"pr_url": pr_url})
 
-    if not task_run.is_terminal:
-        _signal_running_workflow(task_run)
-    else:
-        _create_resume_run(task_run, pr_url)
+    # `is_terminal` only reflects TaskRun.status — the underlying Temporal
+    # workflow may have already exited (inactivity timeout, worker crash,
+    # status-update activity exhausted retries) while the row still says
+    # IN_PROGRESS. If the signal can't reach a live workflow, fall through
+    # and start a fresh run instead of silently dropping the comment.
+    if not task_run.is_terminal and _signal_running_workflow(task_run):
+        return
+    _create_resume_run(task_run, pr_url)
 
 
-def _signal_running_workflow(task_run: TaskRun) -> None:
+def _signal_running_workflow(task_run: TaskRun) -> bool:
+    """Signal the running workflow with a `pr_event`.
+
+    Returns True if the signal was delivered. Returns False if the workflow
+    is unreachable (not found, already completed, or Temporal errored) — the
+    caller should fall through to creating a new resume run.
+    """
+    from temporalio.service import RPCError, RPCStatusCode
+
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(task_run.workflow_id)
@@ -299,12 +311,31 @@ def _signal_running_workflow(task_run: TaskRun) -> None:
             run_id=str(task_run.id),
             workflow_id=task_run.workflow_id,
         )
+        return True
+    except RPCError as e:
+        # NOT_FOUND: workflow never started or already aged out of retention.
+        # FAILED_PRECONDITION: workflow already in a terminal execution state.
+        if e.status in (RPCStatusCode.NOT_FOUND, RPCStatusCode.FAILED_PRECONDITION):
+            logger.info(
+                "github_comment_workflow_unreachable",
+                run_id=str(task_run.id),
+                workflow_id=task_run.workflow_id,
+                rpc_status=e.status.name,
+            )
+            return False
+        logger.warning(
+            "github_comment_signal_failed",
+            run_id=str(task_run.id),
+            error=str(e),
+        )
+        return False
     except Exception as e:
         logger.warning(
             "github_comment_signal_failed",
             run_id=str(task_run.id),
             error=str(e),
         )
+        return False
 
 
 def _create_resume_run(task_run: TaskRun, pr_url: str) -> None:
