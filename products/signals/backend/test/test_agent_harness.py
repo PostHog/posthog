@@ -129,12 +129,15 @@ class TestPromptBuilder(BaseTest):
         )
         LLMSkillFile.objects.create(skill=skill, path="refs/playbook.md", content="x", content_type="text/plain")
         loaded = load_skill_for_run(self.team, "signals-agent-errors")
-        prompt = build_run_prompt(loaded)
+        prompt = build_run_prompt(loaded, run_id="00000000-0000-0000-0000-000000000abc", team_id=self.team.id)
         assert "signals-agent-errors" in prompt
         assert "watch for spikes" in prompt
         assert "refs/playbook.md" in prompt
-        # Phase 2 contract: scaffolding-only run, no signal emission.
-        assert "Do not emit any signals" in prompt
+        # The agent needs to know its own run id to attribute emits and memories.
+        assert "00000000-0000-0000-0000-000000000abc" in prompt
+        # The base prompt teaches the agent to call the harness MCP tools by name.
+        assert "signals-agent-harness-runs-findings-create" in prompt
+        assert "signals-agent-harness-memory-list" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

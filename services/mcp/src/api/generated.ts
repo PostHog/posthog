@@ -14587,6 +14587,89 @@ export namespace Schemas {
       design?: unknown;
     }
 
+    /**
+     * One citation attached to a finding. Mirrors `SignalsAgentEvidenceEntry`.
+     */
+    export interface EvidenceEntry {
+      /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
+      source_product: string;
+      /** One-sentence prose about why this evidence supports the finding. */
+      summary: string;
+      /**
+       * Optional ID of the cited entity (issue id, recording id, log query id).
+       * @nullable
+       */
+      entity_id?: string | null;
+    }
+
+    export interface TimeRange {
+      /** ISO-8601 inclusive lower bound for the finding's window. */
+      date_from: string;
+      /** ISO-8601 inclusive upper bound for the finding's window. */
+      date_to: string;
+    }
+
+    /**
+     * Request body for `emit-finding`. Run attribution is taken from the URL path.
+     */
+    export interface EmitFindingRequest {
+      /** Canonical evidence-bundle prose. Becomes the signal's `description`. */
+      description: string;
+      /**
+       * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+       * @minimum 0
+       * @maximum 1
+       */
+      weight: number;
+      /**
+       * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
+       * @minimum 0
+       * @maximum 1
+       */
+      confidence: number;
+      /**
+       * Citations supporting the finding. Capped at 20 entries.
+       * @maxItems 20
+       */
+      evidence: EvidenceEntry[];
+      /**
+       * Optional one-line hypothesis the finding tests.
+       * @nullable
+       */
+      hypothesis?: string | null;
+      /**
+       * Optional severity tag (`P0`-`P4`) — informational only.
+       * @nullable
+       */
+      severity?: string | null;
+      /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
+      dedupe_keys?: string[];
+      /** Optional time window the finding refers to. */
+      time_range?: TimeRange | null;
+      /**
+       * Optional MCP trace id for cross-system debugging.
+       * @nullable
+       */
+      mcp_trace_id?: string | null;
+      /**
+       * Idempotency key. Re-using the same id within a run short-circuits without re-emitting.
+       * @nullable
+       */
+      finding_id?: string | null;
+    }
+
+    export interface EmitFindingResponse {
+      /** Stable id for the finding (echoed back from request, or generated). */
+      finding_id: string;
+      /** Whether `emit_signal` was actually fired. */
+      emitted: boolean;
+      /**
+       * `shadow_mode` | `already_emitted` | null when emitted normally.
+       * @nullable
+       */
+      skipped_reason: string | null;
+    }
+
     export interface EndExperiment {
       /** The conclusion of the experiment.
 
@@ -17898,6 +17981,22 @@ export namespace Schemas {
     export interface FlagValueResponse {
       results: FlagValueItem[];
       refreshing: boolean;
+    }
+
+    /**
+     * Request body for `forget`. Only `agent_inference` keys can be deleted.
+     */
+    export interface ForgetRequest {
+      /**
+       * Memory key to delete.
+       * @maxLength 300
+       */
+      key: string;
+    }
+
+    export interface ForgetResponse {
+      /** Whether a row was actually removed (false if the key didn't exist). */
+      deleted: boolean;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -21870,6 +21969,40 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
 
+    /**
+     * `SignalMemory` projection used by `search-memory` and `remember`.
+     */
+    export interface MemoryEntry {
+      /** Agent-chosen semantic key, unique per team. */
+      key: string;
+      /** Prose content for prompt injection. */
+      content: string;
+      /** `agent_inference` (TTL'd, agent-writable) or `human_confirmed`. */
+      authority: string;
+      /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
+      tags: string[];
+      /**
+       * ISO-8601 creation timestamp.
+       * @nullable
+       */
+      created_at: string | null;
+      /**
+       * ISO-8601 last-write timestamp.
+       * @nullable
+       */
+      updated_at: string | null;
+      /**
+       * ISO-8601 expiry; null only on `human_confirmed` entries.
+       * @nullable
+       */
+      expires_at: string | null;
+      /**
+       * Run that wrote this entry, or null if human-authored.
+       * @nullable
+       */
+      created_by_run_id: string | null;
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -22504,6 +22637,7 @@ export namespace Schemas {
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
     * `signal_report` - Signal Report
+    * `signals_agent` - Signals Agent
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -22517,6 +22651,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
+      SignalsAgent: 'signals_agent',
     } as const;
 
     /**
@@ -23343,6 +23478,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MaxCoreMemory[];
+    }
+
+    export interface PaginatedMemoryEntryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MemoryEntry[];
     }
 
     export interface PaginatedMessageCategoryList {
@@ -24241,6 +24385,40 @@ export namespace Schemas {
     }
 
     /**
+     * Lightweight projection of a `SignalAgentRun` row used by `search-recent-runs`.
+     */
+    export interface SignalAgentRunSummary {
+      /** UUID of the run row. */
+      run_id: string;
+      /** Canonical skill name the run executed (e.g. `signals-agent-scout`). */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Run status: scheduled | running | completed | failed | abandoned. */
+      status: string;
+      /** ISO-8601 timestamp the run row was inserted. */
+      started_at: string;
+      /**
+       * ISO-8601 timestamp the run finalized; null while still running.
+       * @nullable
+       */
+      completed_at: string | null;
+      /** Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe. */
+      summary: string;
+      /** Number of finding entries persisted on the run row. */
+      findings_count: number;
+    }
+
+    export interface PaginatedSignalAgentRunSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalAgentRunSummary[];
+    }
+
+    /**
      * * `potential` - Potential
     * `candidate` - Candidate
     * `in_progress` - In Progress
@@ -24319,6 +24497,7 @@ export namespace Schemas {
     * `zendesk` - Zendesk
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
+    * `signals_agent` - Signals agent
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -24331,6 +24510,7 @@ export namespace Schemas {
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
+      SignalsAgent: 'signals_agent',
     } as const;
 
     /**
@@ -24341,6 +24521,7 @@ export namespace Schemas {
     * `issue_created` - Issue created
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
+    * `cross_source_issue` - Cross source issue
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -24353,6 +24534,7 @@ export namespace Schemas {
       IssueCreated: 'issue_created',
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
+      CrossSourceIssue: 'cross_source_issue',
     } as const;
 
     export interface SignalSourceConfig {
@@ -35152,6 +35334,32 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    /**
+     * Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.
+     */
+    export interface RememberRequest {
+      /**
+       * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+       * @maxLength 300
+       */
+      key: string;
+      /** Prose to write. Read verbatim into future prompts. */
+      content: string;
+      /** Tags for later search. Empty/whitespace tags are dropped. */
+      tags?: string[];
+      /**
+       * Days until expiry (default 7, hard cap 90).
+       * @minimum 1
+       * @maximum 90
+       */
+      ttl_days?: number;
+      /**
+       * Run that authored this memory; persisted as `created_by_run_id` for lineage.
+       * @nullable
+       */
+      run_id?: string | null;
+    }
+
     export interface ReorderTilesRequest {
       /**
        * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -35562,6 +35770,55 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** The key of the variant to ship to 100% of users. */
       variant_key: string;
+    }
+
+    export type SignalAgentRunDetailFindingsItem = { [key: string]: unknown };
+
+    export type SignalAgentRunDetailHypothesesConsideredItem = { [key: string]: unknown };
+
+    export type SignalAgentRunDetailToolCallLogItem = { [key: string]: unknown };
+
+    /**
+     * {tool_calls, cost_usd, runtime_s, findings} — actual usage.
+     */
+    export type SignalAgentRunDetailBudgetUsed = {[key: string]: number};
+
+    /**
+     * Run metadata snapshot (budget caps, skill id, allowed_tools resolution).
+     */
+    export type SignalAgentRunDetailMetadata = { [key: string]: unknown };
+
+    /**
+     * Full `SignalAgentRun` projection used by `get-run`. Includes structured payloads.
+     */
+    export interface SignalAgentRunDetail {
+      /** UUID of the run row. */
+      run_id: string;
+      /** Canonical skill name the run executed. */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Run status. */
+      status: string;
+      /** ISO-8601 timestamp the run row was inserted. */
+      started_at: string;
+      /**
+       * ISO-8601 timestamp the run finalized.
+       * @nullable
+       */
+      completed_at: string | null;
+      /** Prose summary of the run. */
+      summary: string;
+      /** Findings persisted to the run row, including pre-emit attribution. */
+      findings: SignalAgentRunDetailFindingsItem[];
+      /** Hypotheses the run considered, including ones it explicitly skipped. */
+      hypotheses_considered: SignalAgentRunDetailHypothesesConsideredItem[];
+      /** Per-tool-call log entries for this run. */
+      tool_call_log: SignalAgentRunDetailToolCallLogItem[];
+      /** {tool_calls, cost_usd, runtime_s, findings} — actual usage. */
+      budget_used: SignalAgentRunDetailBudgetUsed;
+      /** Run metadata snapshot (budget caps, skill id, allowed_tools resolution). */
+      metadata: SignalAgentRunDetailMetadata;
     }
 
     export interface _User {
@@ -44423,6 +44680,52 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsAgentHarnessMemoryListParams = {
+    /**
+     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
+     */
+    include_expired?: boolean;
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
+     */
+    tags?: string[];
+    /**
+     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     */
+    text?: string;
+    };
+
+    export type SignalsAgentHarnessRunsListParams = {
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * ISO-8601 lower bound on `started_at`. Use to scope to a recent window.
+     */
+    since?: string;
+    /**
+     * ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.
+     */
+    text?: string;
     };
 
     export type SignalsProcessingListParams = {

@@ -125,6 +125,7 @@ async def arun_signals_agent(
     try:
         last_message = await _spawn_and_run(
             team=team,
+            run=run,
             skill=skill,
             budget=budget,
             repository=repository,
@@ -169,6 +170,7 @@ async def arun_signals_agent(
 async def _spawn_and_run(
     *,
     team: Team,
+    run: SignalAgentRun,
     skill: LoadedSkill,
     budget: BudgetCaps,
     repository: str | None,
@@ -187,7 +189,7 @@ async def _spawn_and_run(
         sandbox_environment_id=sandbox_env_id,
         posthog_mcp_scopes="read_only",
     )
-    prompt = build_run_prompt(skill)
+    prompt = build_run_prompt(skill, run_id=str(run.id), team_id=team.id)
     logger.info(
         "signals_agent: spawning sandbox",
         extra={"team_id": team.id, "skill_name": skill.name, "skill_version": skill.version},
