@@ -1,19 +1,20 @@
 import datetime
-from typing import cast
 
 from django.core.exceptions import ValidationError
 
 from posthog.schema import (
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
+    FilterLogicalOperator,
     HogQLFilters,
-    PropertyGroupFilterValue,
     PropertyOperator,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
 
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     extract_aggregations,
@@ -33,8 +34,9 @@ class ErrorTrackingQueryV3Builder:
     This avoids Postgres and the old overrides table entirely.
     """
 
-    def __init__(self, query: ErrorTrackingQuery, date_from: datetime.datetime, date_to: datetime.datetime):
+    def __init__(self, query: ErrorTrackingQuery, team: Team, date_from: datetime.datetime, date_to: datetime.datetime):
         self.query = query
+        self.team = team
         self.date_from = date_from
         self.date_to = date_to
 
@@ -48,9 +50,11 @@ class ErrorTrackingQueryV3Builder:
         )
 
     def hogql_filters(self) -> HogQLFilters:
+        # User-supplied properties are handled directly in `_where_exprs` so the
+        # OR/AND operator on `filterGroup.values[0]` is respected. The `{filters}`
+        # placeholder is left in place to apply `filterTestAccounts` only.
         return HogQLFilters(
             filterTestAccounts=self.query.filterTestAccounts,
-            properties=cast(list, self._hogql_properties),
         )
 
     def process_results(self, columns: list[str], rows: list) -> list:
@@ -335,10 +339,9 @@ class ErrorTrackingQueryV3Builder:
                     )
                 )
 
-        for prop in self._issue_properties:
-            expr = self._issue_property_to_ast(prop)
-            if expr is not None:
-                exprs.append(expr)
+        user_expr = self._user_filter_expr()
+        if user_expr is not None:
+            exprs.append(user_expr)
 
         return exprs
 
@@ -356,12 +359,36 @@ class ErrorTrackingQueryV3Builder:
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
     @cached_property
-    def _issue_properties(self) -> list[ErrorTrackingIssueFilter]:
-        return [v for v in self._properties if isinstance(v, ErrorTrackingIssueFilter)]
+    def _inner_filter_operator(self) -> FilterLogicalOperator:
+        if not self.query.filterGroup or not self.query.filterGroup.values:
+            return FilterLogicalOperator.AND_
+        inner = self.query.filterGroup.values[0]
+        return getattr(inner, "type", None) or FilterLogicalOperator.AND_
 
-    @cached_property
-    def _hogql_properties(self):
-        return [v for v in self._properties if not isinstance(v, ErrorTrackingIssueFilter | PropertyGroupFilterValue)]
+    def _user_filter_expr(self) -> ast.Expr | None:
+        """Build a single AST expression for user-supplied filters from `filterGroup`,
+        respecting the OR/AND operator on the inner group. Issue-level filters and
+        event/person/etc. property filters are combined with the same operator so the
+        user's "Any/All" choice in the UI is preserved end-to-end.
+        """
+        sub_exprs: list[ast.Expr] = []
+        for prop in self._properties:
+            if isinstance(prop, ErrorTrackingIssueFilter):
+                expr = self._issue_property_to_ast(prop)
+                if expr is not None:
+                    sub_exprs.append(expr)
+            else:
+                # Includes nested PropertyGroupFilterValue groups, which `property_to_expr`
+                # handles recursively respecting their own type.
+                sub_exprs.append(property_to_expr(prop, self.team, scope="event"))
+
+        if not sub_exprs:
+            return None
+        if len(sub_exprs) == 1:
+            return sub_exprs[0]
+        if self._inner_filter_operator == FilterLogicalOperator.OR_:
+            return ast.Or(exprs=sub_exprs)
+        return ast.And(exprs=sub_exprs)
 
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
         key = "description" if prop.key == "issue_description" else prop.key

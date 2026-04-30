@@ -3,6 +3,14 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTestKeepIdentiti
 
 from parameterized import parameterized
 
+from posthog.schema import (
+    ErrorTrackingIssueFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
+
 from products.error_tracking.backend.hogql_queries.test.test_error_tracking_query_runner import (
     ErrorTrackingQueryRunnerTestsMixin,
 )
@@ -125,6 +133,52 @@ class TestErrorTrackingQueryRunnerV3(
         sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @parameterized.expand(
+        [
+            (
+                "or_returns_union",
+                FilterLogicalOperator.OR_,
+                # issue_one (TypeError) and issue_two (ReferenceError) both match
+                [True, True, False],
+            ),
+            (
+                "and_returns_intersection",
+                FilterLogicalOperator.AND_,
+                # No issue has both names — AND yields empty
+                [False, False, False],
+            ),
+        ]
+    )
+    @freeze_time("2022-01-10T12:11:00")
+    def test_filter_group_operator(self, _name, operator: FilterLogicalOperator, expected_membership: list[bool]):
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=operator,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_two], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+        result_ids = {r["id"] for r in results}
+        expected_ids = {
+            issue_id
+            for issue_id, included in zip(
+                [self.issue_id_one, self.issue_id_two, self.issue_id_three], expected_membership
+            )
+            if included
+        }
+        self.assertEqual(result_ids, expected_ids)
 
     @freeze_time("2022-01-10T12:11:00")
     def test_status(self):
