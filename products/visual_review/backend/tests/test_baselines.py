@@ -163,8 +163,14 @@ class TestBaselinesOverview(APIBaseTest):
         _mk_snapshot(completed, identifier="canon-b")
 
         # Real flow: PENDING run starts and supersedes the completed one
-        # before any RunSnapshots have been written for it.
-        pending = Run.objects.create(
+        # before any RunSnapshots have been written for it. The partial
+        # unique index `unique_latest_run_per_group` forbids two un-superseded
+        # rows per (repo, branch, run_type), so supersede the prior latest
+        # with the new id BEFORE inserting it.
+        pending_id = uuid4()
+        Run.objects.filter(id=completed.id).update(superseded_by_id=pending_id)
+        Run.objects.create(
+            id=pending_id,
             team_id=self.repo.team_id,
             repo=self.repo,
             run_type=RunType.STORYBOOK,
@@ -172,7 +178,6 @@ class TestBaselinesOverview(APIBaseTest):
             commit_sha=uuid4().hex[:12],
             status=RunStatus.PENDING,
         )
-        Run.objects.filter(id=completed.id).update(superseded_by=pending)
 
         result = vr_api.get_baselines_overview(self.repo.id)
 
