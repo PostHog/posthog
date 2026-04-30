@@ -4111,7 +4111,7 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
         )
         self.assertEqual(pause_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(pause_response.json()["status"], "running")
+        self.assertEqual(pause_response.json()["status"], "paused")
         self.assertFalse(pause_response.json()["feature_flag"]["active"])
 
         # Verify flag is now inactive
@@ -4127,6 +4127,7 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
         )
         self.assertEqual(pause_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(pause_response.json()["status"], "paused")
 
         # Resume
         resume_response = self.client.post(

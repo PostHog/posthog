@@ -184,10 +184,11 @@ tools:
             user's reference first.
 
 
-            Returns the full experiment object including: status (draft/running/stopped), start_date and end_date,
-            linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion
-            and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time),
-            stats_config, and type (web/product).
+            Returns the full experiment object including: status (draft/running/paused/stopped — "paused" is a virtual
+            value returned when the experiment is launched but its feature flag has been deactivated), start_date and
+            end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays,
+            conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and
+            recommended_running_time), stats_config, and type (web/product).
         ui_app: experiment
     experiment-holdouts-create:
         operation: experiment_holdouts_create
@@ -251,17 +252,17 @@ tools:
             the finding-experiments skill for guidance on searching by name, status, recency, or description.
 
 
-            Supports filtering by status ("draft", "running", "stopped", "complete" which maps to stopped, or "all"),
-            archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name.
-            Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and "status").
-            Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use
-            the returned ID for get/update/lifecycle tools.
+            Supports filtering by status ("draft", "running", "paused", "stopped", "complete" which maps to stopped, or
+            "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on
+            name. Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and
+            "status"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics
+            summary. Use the returned ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
-                    Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, no end date),
-                    "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived
-                    experiments.
+                    Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active),
+                    "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete"
+                    (both mean ended), "all" (no filter). Defaults to all non-archived experiments.
         ui_app: experiment-list
         response:
             include:

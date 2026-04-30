@@ -4,6 +4,12 @@ export type { ChartTheme }
 /** Default axis id used when a series doesn't specify one. */
 export const DEFAULT_Y_AXIS_ID = 'left'
 
+/** Series shape after the chart has applied its color fallback from `theme.colors`.
+ *  This is the type seen by overlays, draw functions, and interaction code — by the time
+ *  those run, `color` is guaranteed to be set. Public consumers should write {@link Series}
+ *  with color either supplied or omitted (chart picks one) and let the chart resolve it. */
+export type ResolvedSeries<Meta = unknown> = Series<Meta> & { color: string }
+
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
     key: string
@@ -11,8 +17,9 @@ export interface Series<Meta = unknown> {
     label: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
-    /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points. */
-    color: string
+    /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points.
+     *  When omitted (or empty), the chart picks a color from `theme.colors` by series index. */
+    color?: string
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
@@ -172,7 +179,7 @@ export interface ChartDrawArgs {
     /** Scale functions for mapping data to pixel coordinates. */
     scales: ChartScales
     /** Series with fallback colors already applied. */
-    series: Series[]
+    series: ResolvedSeries[]
     /** X-axis labels. */
     labels: string[]
     /** Index of the currently hovered data point, or -1. */
@@ -185,7 +192,7 @@ export interface ChartDrawArgs {
 export type ResolveValueFn = (series: Series, dataIndex: number) => number
 
 /** Factory function that chart types provide to create their scales from dimensions and data. */
-export type CreateScalesFn = (series: Series[], labels: string[], dimensions: ChartDimensions) => ChartScales
+export type CreateScalesFn = (series: ResolvedSeries[], labels: string[], dimensions: ChartDimensions) => ChartScales
 
 /** Per-axis scale: a mapping function and its tick values. */
 export interface YAxisScale {
@@ -208,4 +215,9 @@ export interface ChartScales {
     /** Per-axis y scales keyed by axis id. Present when dual axes are active.
      *  When absent, all series use `y` / `yTicks`. */
     yAxes?: Record<string, YAxisScale>
+    /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
+     *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
+     *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.
+     *  Typed as `unknown` so d3-style types don't leak through the public surface. */
+    _private?: unknown
 }

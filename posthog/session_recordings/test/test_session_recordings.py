@@ -1993,6 +1993,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 {"session_ids": [f"session_{i}" for i in range(101)]},
                 "Cannot check more than 100 session IDs at once",
             ),
+            (
+                "non_string_elements",
+                {"session_ids": ["valid_session", 123, None]},
+                "session_ids must contain only strings",
+            ),
         ]
     )
     def test_batch_check_exists_validation_errors(self, _test_name, request_data, expected_error_message):
@@ -2075,6 +2080,74 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Check cache was NOT set for negative result
         cached_value = cache.get(cache_key)
         assert cached_value is None
+
+    def test_batch_check_exists_with_outcomes_returns_persisted_outcomes(self):
+        """include_outcomes attaches the persisted session_outcome alongside existence results."""
+        from ee.models.session_summaries import SingleSessionSummary
+
+        outcome_session = "outcome_session_1"
+        no_outcome_session = "outcome_session_2"
+        unknown_session = "outcome_session_unknown"
+
+        SingleSessionSummary.objects.create(
+            team_id=self.team.id,
+            session_id=outcome_session,
+            summary={
+                "session_outcome": {"description": "User completed checkout", "success": True},
+            },
+        )
+        SingleSessionSummary.objects.create(
+            team_id=self.team.id,
+            session_id=no_outcome_session,
+            summary={"segments": []},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {
+                "session_ids": [outcome_session, no_outcome_session, unknown_session],
+                "include_outcomes": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "results" in body
+        outcomes = body["outcomes"]
+        assert outcomes[outcome_session] == {"description": "User completed checkout"}
+        assert no_outcome_session not in outcomes
+        assert unknown_session not in outcomes
+
+    def test_batch_check_exists_omits_outcomes_by_default(self):
+        """Existing callers that don't opt in must keep the historical response shape."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": ["any_session"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "outcomes" not in response.json()
+
+    def test_batch_check_exists_with_outcomes_doesnt_leak_teams(self):
+        """Outcomes from other teams must not be returned even when include_outcomes is set."""
+        from ee.models.session_summaries import SingleSessionSummary
+
+        other_team = Team.objects.create(organization=self.organization)
+        shared_session_id = "leak_check_session"
+
+        SingleSessionSummary.objects.create(
+            team_id=other_team.id,
+            session_id=shared_session_id,
+            summary={"session_outcome": {"description": "from other team", "success": False}},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/batch_check_exists",
+            {"session_ids": [shared_session_id], "include_outcomes": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert shared_session_id not in response.json()["outcomes"]
 
     @patch("posthog.session_recordings.session_recording_api.execute_summarize_session_video_stream")
     @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)

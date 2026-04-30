@@ -16,11 +16,15 @@ from products.logs.backend.temporal.metrics import (
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
+    record_alert_save_duration,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
+    record_clickhouse_duration,
+    record_pending_alerts,
     record_schedule_to_start_latency,
     record_scheduler_lag,
+    record_semaphore_wait,
 )
 
 
@@ -172,6 +176,55 @@ class TestRecordCheckDuration:
     def test_records_histogram_with_duration(self, mock_record: MagicMock):
         record_check_duration(150)
         mock_record.assert_called_once_with("logs_alerting_check_duration_ms", "Per-alert evaluation duration", 150)
+
+
+class TestRecordClickhouseDuration:
+    @patch("products.logs.backend.temporal.metrics._record_histogram")
+    def test_records_histogram_with_duration(self, mock_record: MagicMock):
+        record_clickhouse_duration(2_500)
+        mock_record.assert_called_once_with(
+            "logs_alerting_clickhouse_duration_ms",
+            "ClickHouse query wall time for a single alert evaluation",
+            2_500,
+        )
+
+
+class TestRecordSemaphoreWait:
+    @patch("products.logs.backend.temporal.metrics._record_histogram")
+    def test_records_histogram_with_wait(self, mock_record: MagicMock):
+        record_semaphore_wait(800)
+        mock_record.assert_called_once_with(
+            "logs_alerting_semaphore_wait_ms",
+            "Time an alert spent waiting on the per-cycle concurrency semaphore",
+            800,
+        )
+
+
+class TestRecordAlertSaveDuration:
+    @patch("products.logs.backend.temporal.metrics._record_histogram")
+    def test_records_histogram_with_duration(self, mock_record: MagicMock):
+        record_alert_save_duration(45)
+        mock_record.assert_called_once_with(
+            "logs_alerting_alert_save_ms",
+            "Postgres write time for the per-eval alert state update",
+            45,
+        )
+
+
+class TestRecordPendingAlerts:
+    @pytest.mark.parametrize("count", [42, 0])
+    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
+    def test_sets_gauge_value(self, mock_get_meter: MagicMock, count: int):
+        mock_meter = MagicMock()
+        mock_gauge = MagicMock()
+        mock_meter.create_gauge.return_value = mock_gauge
+        mock_get_meter.return_value = mock_meter
+
+        record_pending_alerts(count)
+
+        (name, _description), _ = mock_meter.create_gauge.call_args
+        assert name == "logs_alerting_pending_alerts"
+        mock_gauge.set.assert_called_once_with(count)
 
 
 class TestRecordScheduleToStartLatency:

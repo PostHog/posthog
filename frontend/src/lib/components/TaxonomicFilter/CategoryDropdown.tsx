@@ -68,6 +68,7 @@ export function CategoryDropdown({
             onVisibilityChange={onVisibilityChange}
             activeItemIndex={activeItemIndex >= 0 ? activeItemIndex : undefined}
             placement="bottom-start"
+            className="click-outside-block"
         >
             {renderTrigger(variant, activeLabel)}
         </LemonMenu>

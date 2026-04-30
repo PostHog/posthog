@@ -78,7 +78,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
         >
             {isOpen && <Resizer {...resizerProps} />}
             <div className="flex items-center justify-between h-11 px-3 shrink-0">
-                {hasSummary ? (
+                {hasSummary || sessionSummaryLoading ? (
                     <div className="flex items-center gap-2 font-semibold">
                         <IconMagicWand className="text-primary" />
                         AI summary
@@ -88,12 +88,9 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         size="small"
                         type="primary"
                         icon={<IconMagicWand />}
-                        loading={sessionSummaryLoading}
                         disabledReason={summaryDisabledReason}
                         onClick={() => {
-                            if (!sessionSummaryLoading) {
-                                summarizeSession()
-                            }
+                            summarizeSession()
                             setIsOpen(true)
                         }}
                         data-attr="load-session-summary"
