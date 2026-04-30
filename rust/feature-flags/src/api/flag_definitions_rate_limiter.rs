@@ -1,7 +1,9 @@
 use crate::api::{errors::FlagError, rate_parser::parse_rate_string};
 use common_metrics::inc;
 use common_types::TeamId;
-use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
+use governor::{
+    clock, middleware::NoOpMiddleware, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter,
+};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hash;
@@ -10,11 +12,17 @@ use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tracing::{info, warn};
 
-/// Type alias for a keyed rate limiter
-type KeyedRateLimiterInner<K> = Arc<RateLimiter<K, DefaultKeyedStateStore<K>, clock::DefaultClock>>;
+/// Type alias for a keyed rate limiter.
+///
+/// The middleware is parameterized over the clock's `Instant` so the alias works
+/// for any clock (real or fake) without falling back to the global default
+/// `NoOpMiddleware<QuantaInstant>`.
+type KeyedRateLimiterInner<K, C = clock::DefaultClock> =
+    Arc<RateLimiter<K, DefaultKeyedStateStore<K>, C, NoOpMiddleware<<C as clock::Clock>::Instant>>>;
 
 /// Type alias for the custom limiters map
-type CustomLimitersMap<K> = Arc<RwLock<HashMap<K, KeyedRateLimiterInner<K>>>>;
+type CustomLimitersMap<K, C = clock::DefaultClock> =
+    Arc<RwLock<HashMap<K, KeyedRateLimiterInner<K, C>>>>;
 
 /// Generic keyed rate limiter with default and per-key custom rate overrides
 ///
@@ -31,17 +39,18 @@ type CustomLimitersMap<K> = Arc<RwLock<HashMap<K, KeyedRateLimiterInner<K>>>>;
 /// Uses the GCRA (Generic Cell Rate Algorithm) via the `governor` crate,
 /// which is functionally equivalent to a leaky bucket but more efficient.
 #[derive(Clone)]
-pub struct KeyedRateLimiter<K>
+pub(crate) struct KeyedRateLimiter<K, C = clock::DefaultClock>
 where
     K: Hash + Eq + Clone + Display + Send + Sync + 'static,
+    C: clock::Clock + Clone,
 {
     /// Default rate limiter for keys without custom rates
-    default_limiter: KeyedRateLimiterInner<K>,
+    default_limiter: KeyedRateLimiterInner<K, C>,
 
     /// Custom rate limiters for specific keys
     /// Maps key → rate limiter
     /// Wrapped in RwLock for thread-safe access
-    custom_limiters: CustomLimitersMap<K>,
+    custom_limiters: CustomLimitersMap<K, C>,
 
     /// Keys that bypass rate limiting entirely.
     /// Wrapped in Arc<RwLock<>> so the request handler can update it from the database.
@@ -62,7 +71,7 @@ where
 }
 
 /// Type alias for flag definitions rate limiting (per-team)
-pub type FlagDefinitionsRateLimiter = KeyedRateLimiter<TeamId>;
+pub(crate) type FlagDefinitionsRateLimiter = KeyedRateLimiter<TeamId>;
 
 impl<K> KeyedRateLimiter<K>
 where
@@ -88,12 +97,39 @@ where
         limited_counter: &'static str,
         bypassed_counter: &'static str,
     ) -> Result<Self, String> {
+        Self::new_with_clock(
+            default_rate_per_minute,
+            custom_rates,
+            allowlist,
+            request_counter,
+            limited_counter,
+            bypassed_counter,
+            clock::DefaultClock::default(),
+        )
+    }
+}
+
+impl<K, C> KeyedRateLimiter<K, C>
+where
+    K: Hash + Eq + Clone + Display + Send + Sync + 'static,
+    C: clock::Clock + Clone,
+{
+    /// Same as [`Self::new`], but with an injected `Clock` for deterministic testing.
+    pub fn new_with_clock(
+        default_rate_per_minute: u32,
+        custom_rates: HashMap<K, String>,
+        allowlist: HashSet<K>,
+        request_counter: &'static str,
+        limited_counter: &'static str,
+        bypassed_counter: &'static str,
+        clock: C,
+    ) -> Result<Self, String> {
         // Create default limiter using configured rate
         let default_quota = Quota::per_minute(
             NonZeroU32::new(default_rate_per_minute)
                 .ok_or_else(|| "default_rate_per_minute must be non-zero".to_string())?,
         );
-        let default_limiter = Arc::new(RateLimiter::dashmap(default_quota));
+        let default_limiter = Arc::new(RateLimiter::dashmap_with_clock(default_quota, &clock));
 
         // Parse and create custom rate limiters
         let mut custom_limiters_map = HashMap::new();
@@ -101,7 +137,7 @@ where
         for (key, rate_string) in custom_rates {
             match parse_rate_string(&rate_string) {
                 Ok(quota) => {
-                    let limiter = Arc::new(RateLimiter::dashmap(quota));
+                    let limiter = Arc::new(RateLimiter::dashmap_with_clock(quota, &clock));
                     custom_limiters_map.insert(key.clone(), limiter);
                     info!(
                         key = %key,
@@ -199,11 +235,13 @@ where
     }
 
     /// Get the number of keys with custom rate limits configured
+    #[cfg(test)]
     pub fn custom_rate_count(&self) -> usize {
         self.custom_limiters.read().unwrap().len()
     }
 
     /// Get the number of keys in the rate limit allowlist
+    #[cfg(test)]
     pub fn allowlist_count(&self) -> usize {
         self.allowlist.read().unwrap().len()
     }
@@ -224,6 +262,7 @@ where
     }
 
     /// Returns true if the allowlist cache is stale and should be refreshed from the database.
+    #[cfg(test)]
     pub fn is_allowlist_stale(&self, ttl_secs: u64) -> bool {
         self.allowlist_last_refreshed
             .read()
@@ -248,11 +287,13 @@ where
 
     /// Mark the allowlist refresh timestamp without changing the allowlist contents.
     /// Used when the DB query fails — avoids retrying on every request.
+    #[cfg(test)]
     pub fn mark_allowlist_refreshed(&self) {
         *self.allowlist_last_refreshed.write().unwrap() = Instant::now();
     }
 
     /// Force the allowlist to be considered stale, triggering a DB refresh on the next request.
+    #[cfg(test)]
     pub fn invalidate_allowlist(&self) {
         *self.allowlist_last_refreshed.write().unwrap() =
             Instant::now() - std::time::Duration::from_secs(3600);
@@ -300,8 +341,27 @@ mod tests {
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
     };
+    use governor::clock::FakeRelativeClock;
     use std::collections::{HashMap, HashSet};
-    use tokio::time::{sleep, Duration};
+    use std::time::Duration;
+
+    fn make_limiter_with_clock(
+        default_rate: u32,
+        custom_rates: HashMap<TeamId, String>,
+        allowlist: HashSet<TeamId>,
+        clock: FakeRelativeClock,
+    ) -> KeyedRateLimiter<TeamId, FakeRelativeClock> {
+        KeyedRateLimiter::new_with_clock(
+            default_rate,
+            custom_rates,
+            allowlist,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+            clock,
+        )
+        .unwrap()
+    }
 
     fn make_limiter(
         default_rate: u32,
@@ -388,11 +448,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_resets_after_window() {
+        let clock = FakeRelativeClock::default();
         let mut custom_rates = HashMap::new();
         // 1 per second - should reset after 1 second
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = make_limiter(600, custom_rates, HashSet::new());
+        let limiter = make_limiter_with_clock(600, custom_rates, HashSet::new(), clock.clone());
 
         // First request succeeds
         assert!(limiter.check_rate_limit(123).is_ok());
@@ -401,7 +462,7 @@ mod tests {
         assert!(limiter.check_rate_limit(123).is_err());
 
         // Wait for rate limit window to reset
-        sleep(Duration::from_millis(1100)).await;
+        clock.advance(Duration::from_millis(1100));
 
         // Should succeed again after reset
         assert!(limiter.check_rate_limit(123).is_ok());
