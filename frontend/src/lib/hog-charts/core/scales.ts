@@ -238,6 +238,109 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
     return buildStackData(series, labels, d3.stackOffsetExpand)
 }
 
+export interface BarScaleSet {
+    /** Categorical band scale — maps a label to the leading edge of its band. */
+    band: d3.ScaleBand<string>
+    /** Value scale — maps a numeric data value to a pixel coordinate along the value axis. */
+    value: D3YScale
+    /** Per-axis value scales when multiple value axes are in use. */
+    valueAxes?: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
+    /** Within-band sub-scale for grouped layout — maps a series key to its offset inside a band. */
+    group?: d3.ScaleBand<string>
+}
+
+/** Builds bar-chart scales: a band scale on the categorical axis and a value scale on the value axis.
+ *
+ * `axisOrientation`:
+ *  - `'vertical'` (default): categories on x, values on y. The value scale's range is inverted (top = max).
+ *  - `'horizontal'`: categories on y, values on x. The value scale's range increases left-to-right.
+ *
+ * `barLayout`:
+ *  - `'stacked'` / `'percent'`: value-axis domain spans cumulative totals (or [0, 1]).
+ *  - `'grouped'`: value-axis domain spans individual series ranges; a sub-band scale is returned in `group`.
+ */
+export function createBarScales(
+    series: Series[],
+    labels: string[],
+    dimensions: ChartDimensions,
+    options: {
+        scaleType?: 'linear' | 'log'
+        barLayout?: 'stacked' | 'grouped' | 'percent'
+        axisOrientation?: 'vertical' | 'horizontal'
+        bandPadding?: number
+        groupPadding?: number
+        stackedSeries?: Series[]
+    } = {}
+): BarScaleSet {
+    const {
+        scaleType = 'linear',
+        barLayout = 'stacked',
+        axisOrientation = 'vertical',
+        bandPadding = 0.2,
+        groupPadding = 0.1,
+        stackedSeries,
+    } = options
+
+    const isHorizontal = axisOrientation === 'horizontal'
+    const tickCount = yTickCountForHeight(isHorizontal ? dimensions.plotWidth : dimensions.plotHeight)
+
+    const band = d3
+        .scaleBand<string>()
+        .domain(labels)
+        .range(
+            isHorizontal
+                ? [dimensions.plotTop, dimensions.plotTop + dimensions.plotHeight]
+                : [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
+        )
+        .paddingInner(bandPadding)
+        .paddingOuter(bandPadding / 2)
+
+    let group: d3.ScaleBand<string> | undefined
+    if (barLayout === 'grouped') {
+        const visibleKeys = series.filter((s) => !s.visibility?.excluded).map((s) => s.key)
+        group = d3.scaleBand<string>().domain(visibleKeys).range([0, band.bandwidth()]).padding(groupPadding)
+    }
+
+    const valueRange: [number, number] = isHorizontal
+        ? [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
+        : [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
+
+    if (barLayout === 'percent') {
+        const value = d3.scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)
+        return { band, value, group }
+    }
+
+    const seriesForRange = stackedSeries ?? series
+    const range = seriesValueRange(seriesForRange)
+
+    if (range.count === 0) {
+        const value = d3.scaleLinear().domain([0, 1]).range(valueRange)
+        return { band, value, group }
+    }
+
+    let { min, max } = range
+    if (min > 0) {
+        min = 0
+    } else if (max < 0) {
+        max = 0
+    }
+
+    if (scaleType === 'log') {
+        if (!isFinite(range.minPositive)) {
+            const value = d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
+            return { band, value, group }
+        }
+        const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
+        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
+        const niceMax = Math.ceil(max / maxDecade) * maxDecade
+        const value = d3.scaleLog().domain([niceMin, niceMax]).range(valueRange).clamp(true)
+        return { band, value, group }
+    }
+
+    const value = d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
+    return { band, value, group }
+}
+
 export function autoFormatYTick(value: number, domainMax: number): string {
     if (domainMax < 2) {
         return value.toFixed(2)

@@ -1,0 +1,144 @@
+import { dimensions, makeSeries } from '../test-helpers'
+import { createBarScales } from './scales'
+
+describe('hog-charts bar scales', () => {
+    describe('createBarScales — vertical orientation (default)', () => {
+        it('builds a band scale across the plot width', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const { band } = createBarScales(series, ['a', 'b', 'c'], dimensions)
+            const bandStart = band('a')!
+            expect(bandStart).toBeGreaterThanOrEqual(dimensions.plotLeft)
+            expect(bandStart + band.bandwidth()).toBeLessThanOrEqual(dimensions.plotLeft + dimensions.plotWidth + 1)
+        })
+
+        it('produces a bandwidth proportional to the number of labels', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 2, 3, 4] })]
+            const four = createBarScales(series, ['a', 'b', 'c', 'd'], dimensions)
+            const two = createBarScales(series, ['a', 'b'], dimensions)
+            expect(four.band.bandwidth()).toBeLessThan(two.band.bandwidth())
+        })
+
+        it('inverts the value scale so larger values map to smaller y pixels', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions)
+            expect(value(100)).toBeLessThan(value(0))
+        })
+
+        // Both signs must extend the value domain to include zero so the bar baselines align
+        // with the plot edge rather than floating mid-plot.
+        it.each([
+            { sign: 'positive', data: [40, 60, 80], extreme: 80 },
+            { sign: 'negative', data: [-40, -60, -80], extreme: -80 },
+        ])(
+            'extends the value domain to include zero when all data is $sign (zero at the baseline)',
+            ({ data, extreme }) => {
+                const series = [makeSeries({ key: 's1', data })]
+                const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions)
+                const yAtZero = value(0)
+                const yAtExtreme = value(extreme)
+                // zero must sit within the plot area, with the extreme value on the far side
+                expect(yAtZero).toBeGreaterThanOrEqual(dimensions.plotTop - 1)
+                expect(yAtZero).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
+                if (extreme > 0) {
+                    expect(yAtExtreme).toBeLessThan(yAtZero)
+                } else {
+                    expect(yAtExtreme).toBeGreaterThan(yAtZero)
+                }
+            }
+        )
+
+        it('returns a group scale only for grouped layout', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 2] }), makeSeries({ key: 's2', data: [3, 4] })]
+            const stacked = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'stacked' })
+            const grouped = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'grouped' })
+            expect(stacked.group).toBeUndefined()
+            expect(grouped.group).not.toBeUndefined()
+            // Two series so each gets ~half the band, minus padding
+            expect(grouped.group!.bandwidth()).toBeLessThan(grouped.band.bandwidth())
+        })
+
+        it('uses [0, 1] for the value domain in percent layout', () => {
+            const series = [makeSeries({ key: 's1', data: [50, 100, 150] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { barLayout: 'percent' })
+            // Linear nice() over [0,1] keeps the domain at [0, 1]
+            const yAt1 = value(1)
+            const yAt0 = value(0)
+            expect(yAt1).toBeLessThan(yAt0)
+            expect(value.domain()[0]).toBeCloseTo(0)
+            expect(value.domain()[1]).toBeCloseTo(1)
+        })
+    })
+
+    describe('createBarScales — horizontal orientation', () => {
+        it('places bands across the plot height', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const { band } = createBarScales(series, ['a', 'b', 'c'], dimensions, { axisOrientation: 'horizontal' })
+            const bandStart = band('a')!
+            expect(bandStart).toBeGreaterThanOrEqual(dimensions.plotTop)
+            expect(bandStart + band.bandwidth()).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
+        })
+
+        it('produces a value scale that increases left-to-right', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { axisOrientation: 'horizontal' })
+            expect(value(100)).toBeGreaterThan(value(0))
+        })
+    })
+
+    describe('createBarScales — pixel positioning', () => {
+        // Vertical: y-axis inverts, so larger value → smaller pixel.
+        // Horizontal: x-axis runs left→right, so larger value → larger pixel.
+        it.each([
+            { orientation: 'vertical' as const, expected: 'less' as const },
+            { orientation: 'horizontal' as const, expected: 'greater' as const },
+        ])('places a positive value $expected than value(0) in $orientation mode', ({ orientation, expected }) => {
+            const series = [makeSeries({ key: 's1', data: [0, 50] })]
+            const { value } = createBarScales(series, ['a', 'b'], dimensions, { axisOrientation: orientation })
+            if (expected === 'less') {
+                expect(value(50)).toBeLessThan(value(0))
+            } else {
+                expect(value(50)).toBeGreaterThan(value(0))
+            }
+        })
+
+        it('makes consecutive band starts equally spaced', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 2, 3, 4] })]
+            const { band } = createBarScales(series, ['a', 'b', 'c', 'd'], dimensions)
+            const a = band('a')!
+            const b = band('b')!
+            const c = band('c')!
+            expect(b - a).toBeCloseTo(c - b, 5)
+        })
+
+        it('group bandwidth times series count plus padding does not exceed band bandwidth', () => {
+            const seriesArr = [
+                makeSeries({ key: 's1', data: [1] }),
+                makeSeries({ key: 's2', data: [2] }),
+                makeSeries({ key: 's3', data: [3] }),
+            ]
+            const grouped = createBarScales(seriesArr, ['a'], dimensions, { barLayout: 'grouped' })
+            const totalGroupSpan = grouped.group!.bandwidth() * 3
+            expect(totalGroupSpan).toBeLessThanOrEqual(grouped.band.bandwidth())
+        })
+    })
+
+    describe('createBarScales — empty / edge inputs', () => {
+        it('returns a [0, 1] value domain when no series are provided', () => {
+            const { value } = createBarScales([], ['a', 'b'], dimensions)
+            expect(value.domain()).toEqual([0, 1])
+        })
+
+        it('uses stackedSeries values for the value domain when provided', () => {
+            const rawSeries = [makeSeries({ key: 's1', data: [10] }), makeSeries({ key: 's2', data: [20] })]
+            const stackedSeries = [makeSeries({ key: 's1', data: [10] }), makeSeries({ key: 's2', data: [30] })]
+            const { value } = createBarScales(rawSeries, ['a'], dimensions, {
+                barLayout: 'stacked',
+                stackedSeries,
+            })
+            // The "30" stack top should map within the plot area
+            const yAtStackTop = value(30)
+            expect(yAtStackTop).toBeGreaterThanOrEqual(dimensions.plotTop - 1)
+            expect(yAtStackTop).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
+        })
+    })
+})
