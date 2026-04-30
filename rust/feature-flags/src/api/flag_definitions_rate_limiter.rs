@@ -33,7 +33,7 @@ type CustomLimitersMap<K, C = clock::DefaultClock> =
 /// Uses the GCRA (Generic Cell Rate Algorithm) via the `governor` crate,
 /// which is functionally equivalent to a leaky bucket but more efficient.
 #[derive(Clone)]
-pub struct KeyedRateLimiter<K, C = clock::DefaultClock>
+pub(crate) struct KeyedRateLimiter<K, C = clock::DefaultClock>
 where
     K: Hash + Eq + Clone + Display + Send + Sync + 'static,
     C: clock::Clock + Clone,
@@ -65,7 +65,7 @@ where
 }
 
 /// Type alias for flag definitions rate limiting (per-team)
-pub type FlagDefinitionsRateLimiter = KeyedRateLimiter<TeamId>;
+pub(crate) type FlagDefinitionsRateLimiter = KeyedRateLimiter<TeamId>;
 
 impl<K> KeyedRateLimiter<K>
 where
@@ -108,6 +108,7 @@ where
     K: Hash + Eq + Clone + Display + Send + Sync + 'static,
     C: clock::Clock + Clone,
 {
+    /// Same as [`Self::new`], but with an injected `Clock` for deterministic testing.
     pub fn new_with_clock(
         default_rate_per_minute: u32,
         custom_rates: HashMap<K, String>,

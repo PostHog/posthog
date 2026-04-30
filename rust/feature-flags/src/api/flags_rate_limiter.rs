@@ -266,7 +266,7 @@ fn redact_token(token: &str) -> String {
 ///
 /// Supports optional per-token custom rate overrides via `custom_limiters`.
 #[derive(Clone, Debug)]
-pub struct FlagsRateLimiter<C = clock::DefaultClock> {
+pub(crate) struct FlagsRateLimiter<C = clock::DefaultClock> {
     inner: KeyedRateLimiter<C>,
     /// Per-token custom rate limiters (enforce-only, no warn tier).
     /// Wrapped in Arc for O(1) clone since the map is immutable after construction.
@@ -318,6 +318,7 @@ impl<C> FlagsRateLimiter<C>
 where
     C: clock::Clock + Clone,
 {
+    /// Same as [`Self::new`], but with an injected `Clock` for deterministic testing.
     pub fn new_with_clock(
         enabled: bool,
         replenish_rate: f64,
@@ -720,7 +721,7 @@ mod tests {
 /// Similar to FlagsRateLimiter but rate limits by IP address instead of token.
 /// This provides defense-in-depth against DDoS attacks with rotating fake tokens.
 #[derive(Clone, Debug)]
-pub struct IpRateLimiter<C = clock::DefaultClock> {
+pub(crate) struct IpRateLimiter<C = clock::DefaultClock> {
     inner: KeyedRateLimiter<C>,
 }
 
@@ -765,6 +766,7 @@ impl<C> IpRateLimiter<C>
 where
     C: clock::Clock + Clone,
 {
+    /// Same as [`Self::new`], but with an injected `Clock` for deterministic testing.
     pub fn new_with_clock(
         enabled: bool,
         replenish_rate: f64,
@@ -875,6 +877,7 @@ mod ip_rate_limiter_tests {
         clock.advance(Duration::from_millis(1100));
 
         assert_eq!(limiter.allow_request(ip), RateLimitResult::Allowed);
+        assert_eq!(limiter.allow_request(ip), RateLimitResult::Blocked);
     }
 
     #[test]
