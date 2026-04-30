@@ -20,7 +20,7 @@ def _make_response(json_body: Any, status_code: int = 200) -> Response:
 
 
 class TestRESTClient:
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_single_page(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -33,7 +33,7 @@ class TestRESTClient:
         assert len(pages) == 1
         assert pages[0] == [{"id": 1}, {"id": 2}]
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_multiple_pages(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -64,7 +64,7 @@ class TestRESTClient:
         assert pages[0] == [{"id": 1}]
         assert pages[1] == [{"id": 2}]
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_with_hooks(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -88,7 +88,7 @@ class TestRESTClient:
 
         assert len(hook_called) == 1
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_ignore_response_breaks_loop(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -119,7 +119,7 @@ class TestRESTClient:
         client = RESTClient(base_url="https://api.example.com")
         assert client._join_url("https://other.com/items") == "https://other.com/items"
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_invokes_resume_hook_after_each_page(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -155,7 +155,7 @@ class TestRESTClient:
         # once on the terminal page with None (no more pages to resume to).
         assert saved == [{"page": 1}, None]
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_seeds_initial_paginator_state(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -195,7 +195,7 @@ class TestRESTClient:
         # The request URL should be the resumed URL, not the base "/items" path.
         assert prepared_request.url == "https://api.example.com/resume-here"
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_drops_none_params(self, MockSession) -> None:
         """``None`` values in ``params`` must be dropped before the request is
         prepared — otherwise ``requests`` serializes them as the literal string
@@ -217,7 +217,7 @@ class TestRESTClient:
         prepared_request = mock_session.prepare_request.call_args.args[0]
         assert prepared_request.params == {"limit": 100, "name": "alice"}
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_send_request_retries_on_429(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -235,7 +235,7 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_send_request_retries_on_500(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -253,7 +253,7 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_send_request_raises_after_max_retries(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
@@ -267,7 +267,7 @@ class TestRESTClient:
         with pytest.raises(RESTClientRetryableError):
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_send_request_respects_retry_after_header(self, MockSession) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}

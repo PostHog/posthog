@@ -446,6 +446,17 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
     .describe('Serializer for clustering workflow request parameters.')
 
 /**
+ * Set the active provider key for evaluations
+ */
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
+    key_id: zod
+        .uuid()
+        .describe(
+            "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide."
+        ),
+})
+
+/**
  * CRUD for evaluation report configurations + report run history.
  */
 export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64
@@ -1282,7 +1293,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(llmAnalyticsTraceReviewsCreateBodyTraceIdMax)
         .describe('Trace ID for the review. Only one active review can exist per trace and team.'),
-    comment: zod.string().nullish().describe('Optional human comment or reasoning for the review.'),
+    comment: zod.string().nullish().describe('Optional comment or reasoning for the review.'),
     scores: zod
         .array(
             zod.object({
@@ -1328,7 +1339,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsTraceReviewsPartialUpdateBodyTraceIdMax)
         .optional()
         .describe('Trace ID for the review. Only one active review can exist per trace and team.'),
-    comment: zod.string().nullish().describe('Optional human comment or reasoning for the review.'),
+    comment: zod.string().nullish().describe('Optional comment or reasoning for the review.'),
     scores: zod
         .array(
             zod.object({
@@ -1685,9 +1696,9 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),
@@ -1745,9 +1756,9 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(taggersTestHogCreateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),

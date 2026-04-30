@@ -18,12 +18,15 @@ import type {
     DatasetItemsListParams,
     DatasetsListParams,
     EvaluationApi,
+    EvaluationConfigApi,
+    EvaluationConfigSetActiveKeyRequestApi,
     EvaluationReportApi,
     EvaluationRunRequestApi,
     EvaluationRunsCreate200,
     EvaluationSummaryRequestApi,
     EvaluationSummaryResponseApi,
     EvaluationsListParams,
+    LLMModelsListResponseApi,
     LLMPromptApi,
     LLMPromptDuplicateApi,
     LLMPromptPublicApi,
@@ -39,11 +42,9 @@ import type {
     LlmAnalyticsClusteringConfigRetrieve200,
     LlmAnalyticsClusteringConfigSetEventFiltersCreate200,
     LlmAnalyticsClusteringJobsListParams,
-    LlmAnalyticsEvaluationConfigRetrieve200,
-    LlmAnalyticsEvaluationConfigSetActiveKeyCreate200,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
-    LlmAnalyticsModelsRetrieve200,
+    LlmAnalyticsModelsRetrieveParams,
     LlmAnalyticsProviderKeyValidationsCreate200,
     LlmAnalyticsProviderKeysListParams,
     LlmAnalyticsReviewQueueItemsListParams,
@@ -477,8 +478,8 @@ export const getLlmAnalyticsEvaluationConfigRetrieveUrl = (projectId: string) =>
 export const llmAnalyticsEvaluationConfigRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<LlmAnalyticsEvaluationConfigRetrieve200> => {
-    return apiMutator<LlmAnalyticsEvaluationConfigRetrieve200>(getLlmAnalyticsEvaluationConfigRetrieveUrl(projectId), {
+): Promise<EvaluationConfigApi> => {
+    return apiMutator<EvaluationConfigApi>(getLlmAnalyticsEvaluationConfigRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -493,15 +494,15 @@ export const getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl = (projectId: 
 
 export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     projectId: string,
+    evaluationConfigSetActiveKeyRequestApi: EvaluationConfigSetActiveKeyRequestApi,
     options?: RequestInit
-): Promise<LlmAnalyticsEvaluationConfigSetActiveKeyCreate200> => {
-    return apiMutator<LlmAnalyticsEvaluationConfigSetActiveKeyCreate200>(
-        getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
+): Promise<EvaluationConfigApi> => {
+    return apiMutator<EvaluationConfigApi>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationConfigSetActiveKeyRequestApi),
+    })
 }
 
 /**
@@ -727,15 +728,28 @@ export const llmAnalyticsEvaluationSummaryCreate = async (
 /**
  * List available models for a provider.
  */
-export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/llm_analytics/models/`
+export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmAnalyticsModelsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/llm_analytics/models/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/models/`
 }
 
 export const llmAnalyticsModelsRetrieve = async (
     projectId: string,
+    params: LlmAnalyticsModelsRetrieveParams,
     options?: RequestInit
-): Promise<LlmAnalyticsModelsRetrieve200> => {
-    return apiMutator<LlmAnalyticsModelsRetrieve200>(getLlmAnalyticsModelsRetrieveUrl(projectId), {
+): Promise<LLMModelsListResponseApi> => {
+    return apiMutator<LLMModelsListResponseApi>(getLlmAnalyticsModelsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

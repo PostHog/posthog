@@ -2765,6 +2765,19 @@ class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGN_GROUPS = "campaign_groups"
 
 
+class LlmEvalReportSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    evaluation_description: str
+    evaluation_id: str
+    evaluation_name: str
+    period_end: str
+    period_start: str
+    report_id: str
+    report_run_id: str
+
+
 class LlmEvalSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2775,6 +2788,18 @@ class LlmEvalSignalExtra(BaseModel):
     target_event_id: str | None = None
     target_event_type: str | None = None
     trace_id: str
+
+
+class LlmEvaluationReportSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalReportSignalExtra
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation_report"] = "evaluation_report"
+    weight: float
 
 
 class LlmEvaluationSignalInput(BaseModel):
@@ -4403,6 +4428,7 @@ class SignalSourceType(StrEnum):
     SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
     SESSION_PROBLEM = "session_problem"
     EVALUATION = "evaluation"
+    EVALUATION_REPORT = "evaluation_report"
     ISSUE = "issue"
     TICKET = "ticket"
     ISSUE_CREATED = "issue_created"
@@ -8208,6 +8234,7 @@ class SignalInput(
     RootModel[
         SessionProblemSignalInput
         | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
@@ -8219,13 +8246,14 @@ class SignalInput(
     root: (
         SessionProblemSignalInput
         | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
-    ) = Field(..., discriminator="source_product")
+    )
 
 
 class SourceFieldFileUploadConfig(BaseModel):

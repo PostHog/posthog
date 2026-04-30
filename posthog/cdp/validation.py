@@ -15,6 +15,9 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE, TYPES_WITH_TRANSPILED_FILTERS
 
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +34,23 @@ register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
 
 
+# Globals that the realtime transformer actually populates at runtime.
+# Keep in sync with HogTransformerService.createInvocationGlobals
+# (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
+TRANSFORMATION_AVAILABLE_GLOBALS = {"project", "event", "inputs"}
+
+# Helper functions that the transformer exposes via getTransformationFunctions
+# (nodejs/src/cdp/hog-transformations/transformation-functions.ts). These resolve
+# via GET_GLOBAL when referenced as a closure rather than called inline.
+# postHogCapture is intentionally omitted — it lives in CORE_SUPPORTED_FUNCTIONS.
+TRANSFORMATION_RUNTIME_FUNCTIONS = {
+    "geoipLookup",
+    "cleanNullValues",
+    "isKnownBotUserAgent",
+    "isKnownBotIp",
+}
+
+
 class InputCollector(TraversingVisitor):
     inputs: set[str]
 
@@ -43,6 +63,36 @@ class InputCollector(TraversingVisitor):
         if node.chain[0] == "inputs":
             if len(node.chain) > 1:
                 self.inputs.add(str(node.chain[1]))
+
+
+class TransformationGlobalsValidator(TraversingVisitor):
+    """Reject input templates that reference globals unavailable to the realtime
+    transformer (e.g. `person`, `groups`, `source`). Without this check, the bytecode
+    compiles fine and the failure surfaces only at ingestion time as
+    "Could not execute bytecode for input field" / "Global variable not found".
+    """
+
+    invalid_globals: set[str]
+
+    def __init__(self):
+        super().__init__()
+        self.invalid_globals = set()
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if not node.chain:
+            return
+        root = str(node.chain[0])
+        if (
+            root in TRANSFORMATION_AVAILABLE_GLOBALS
+            or root in TRANSFORMATION_RUNTIME_FUNCTIONS
+            or root in CORE_SUPPORTED_FUNCTIONS
+            or root in PRODUCT_ASYNC_FUNCTIONS
+            or root in STL
+            or root in BYTECODE_STL
+        ):
+            return
+        self.invalid_globals.add(root)
 
 
 class HyphenatedPropertyDetector(TraversingVisitor):
@@ -85,15 +135,19 @@ def collect_inputs(node: ast.Expr) -> set[str]:
     return input_collector.inputs
 
 
-def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
+def generate_template_bytecode(
+    obj: Any,
+    input_collector: set[str],
+    function_type: Optional[str] = None,
+) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
     """
 
     if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value, input_collector) for key, value in obj.items()}
+        return {key: generate_template_bytecode(value, input_collector, function_type) for key, value in obj.items()}
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector) for item in obj]
+        return [generate_template_bytecode(item, input_collector, function_type) for item in obj]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
         input_collector.update(collect_inputs(node))
@@ -101,6 +155,15 @@ def generate_template_bytecode(obj: Any, input_collector: set[str]) -> Any:
         detector.visit(node)
         if detector.errors:
             raise Exception(detector.errors[0])
+        if function_type == "transformation":
+            transformation_validator = TransformationGlobalsValidator()
+            transformation_validator.visit(node)
+            if transformation_validator.invalid_globals:
+                names = ", ".join(sorted(transformation_validator.invalid_globals))
+                raise Exception(
+                    f"Variable not available in transformations: {names}. "
+                    f"Transformations only have access to project, event, and inputs."
+                )
         return create_bytecode(node).bytecode
     else:
         return obj
@@ -273,7 +336,9 @@ class InputsItemSerializer(serializers.Serializer):
                                 del attrs["bytecode"]
                         else:
                             input_collector: set[str] = set()
-                            attrs["bytecode"] = generate_template_bytecode(value, input_collector)
+                            attrs["bytecode"] = generate_template_bytecode(
+                                value, input_collector, function_type=function_type
+                            )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]

@@ -3,7 +3,7 @@ import React from 'react'
 
 import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
 import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
-import type { ChartTheme, ResolveValueFn, Series } from '../core/types'
+import type { ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { ValueLabels } from './ValueLabels'
 
 const DIMENSIONS = {
@@ -25,7 +25,7 @@ const yScale = (v: number): number => 368 - (v / 100) * 352
 const DEFAULT_THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
 const DEFAULT_RESOLVE: ResolveValueFn = (s, i) => s.data[i] ?? 0
 
-function makeContext(series: Series[], overrides: Partial<BaseChartContext> = {}): BaseChartContext {
+function makeContext(series: ResolvedSeries[], overrides: Partial<BaseChartContext> = {}): BaseChartContext {
     return {
         dimensions: DIMENSIONS,
         labels: LABELS,
@@ -64,7 +64,7 @@ describe('ValueLabels', () => {
     afterEach(() => cleanup())
 
     it('renders one label per non-zero data point in a single series', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30, 40, 50] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30, 40, 50] }]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(5)
@@ -75,7 +75,7 @@ describe('ValueLabels', () => {
         ['no formatter → toLocaleString', undefined, [1234, 5678], [(1234).toLocaleString(), (5678).toLocaleString()]],
         ['custom formatter', (v) => `$${(v / 1000).toFixed(1)}k`, [1000, 2000], ['$1.0k', '$2.0k']],
     ])('formats labels: %s', (_name, formatter, data, expected) => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
         const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
         const { container } = renderInChart(ctx, <ValueLabels valueFormatter={formatter} />)
         const divs = labelDivs(container)
@@ -83,19 +83,19 @@ describe('ValueLabels', () => {
     })
 
     it('skips zero values', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 0, 30, 0, 50] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 0, 30, 0, 50] }]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '30', '50'])
     })
 
     it('skips non-finite values (NaN, Infinity)', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [10, NaN, 30, Infinity, 50] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, NaN, 30, Infinity, 50] }]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '30', '50'])
     })
 
     it('skips series where visibility.excluded is true', () => {
-        const series: Series[] = [
+        const series: ResolvedSeries[] = [
             { key: 'a', label: 'A', color: '#f00', data: [10, 20, 30, 40, 50] },
             { key: 'b', label: 'B', color: '#0f0', data: [60, 70, 80, 90, 100], visibility: { excluded: true } },
         ]
@@ -106,7 +106,7 @@ describe('ValueLabels', () => {
     })
 
     it('positions negative values below the point and positive values above', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [50, -50, 25, -25, 75] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, -50, 25, -25, 75] }]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(5)
@@ -130,7 +130,7 @@ describe('ValueLabels', () => {
         longData.forEach((_, i) => {
             longXPositions[`L${i}`] = 60 + (i / (longData.length - 1)) * 640
         })
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: longData }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: longData }]
         const ctx = makeContext(series, {
             labels: longLabels,
             scales: {
@@ -145,7 +145,7 @@ describe('ValueLabels', () => {
 
     it('honours a custom maxPointsPerSeries override', () => {
         const data = Array.from({ length: 6 }, (_, i) => 10 + i * 10)
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
         // default (100) renders all; override to 3 should render none
         const ctx = makeContext(series)
         const { container } = renderInChart(ctx, <ValueLabels maxPointsPerSeries={3} />)
@@ -154,7 +154,7 @@ describe('ValueLabels', () => {
 
     it('drops overlapping labels via greedy collision avoidance', () => {
         // Two points at the same x: only one should survive.
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]
         const ctx = makeContext(series, {
             labels: ['A', 'B'],
             scales: {
@@ -171,7 +171,7 @@ describe('ValueLabels', () => {
     it('uses the matching yAxes scale when a series has a yAxisId', () => {
         // Right axis maps 0-1000; left axis maps 0-100.
         const rightScale = (v: number): number => 368 - (v / 1000) * 352
-        const series: Series[] = [{ key: 'right', label: 'R', color: '#00f', data: [500], yAxisId: 'y1' }]
+        const series: ResolvedSeries[] = [{ key: 'right', label: 'R', color: '#00f', data: [500], yAxisId: 'y1' }]
         const ctx = makeContext(series, {
             labels: ['Mon'],
             scales: {
@@ -192,7 +192,7 @@ describe('ValueLabels', () => {
     })
 
     it('falls back to the primary y-scale when yAxisId is unknown', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [50], yAxisId: 'missing' }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50], yAxisId: 'missing' }]
         const ctx = makeContext(series, { labels: ['Mon'] })
         const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
@@ -202,7 +202,7 @@ describe('ValueLabels', () => {
     })
 
     it('renders one label per series at the same x, each with its own color', () => {
-        const series: Series[] = [
+        const series: ResolvedSeries[] = [
             { key: 'a', label: 'A', color: '#112233', data: [10] },
             { key: 'b', label: 'B', color: '#445566', data: [20] },
         ]
@@ -216,7 +216,7 @@ describe('ValueLabels', () => {
     })
 
     it('renders null when nothing survives filtering', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [NaN, NaN, NaN] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [NaN, NaN, NaN] }]
         const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
         const { container } = renderInChart(ctx, <ValueLabels />)
         expect(labelDivs(container)).toHaveLength(0)
@@ -225,7 +225,7 @@ describe('ValueLabels', () => {
     it('positions labels at the resolved (e.g. stacked) y, not the raw series.data y', () => {
         // Raw value 25 sits at y=278 on the left axis; stacking lifts it to top-of-stack=75 → y=104.
         // The resolveValue closure mimics what LineChart provides for stacked series.
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [25] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [25] }]
         const stackedTops: Record<string, number[]> = { s: [75] }
         const resolveValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
         const ctx = makeContext(series, { labels: ['Mon'], resolveValue })
@@ -239,7 +239,7 @@ describe('ValueLabels', () => {
     })
 
     it('uses theme.backgroundColor for the label border (dark-mode safe)', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [50] }]
+        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50] }]
         const darkTheme: ChartTheme = { colors: ['#f00'], backgroundColor: '#222222' }
         const ctx = makeContext(series, { labels: ['Mon'], theme: darkTheme })
         const { container } = renderInChart(ctx, <ValueLabels />)

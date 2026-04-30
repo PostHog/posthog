@@ -195,6 +195,112 @@ def _get_rows_to_sync(
         return 0
 
 
+def _parse_clustering_key_leading_column(clustering_key: str | None) -> str | None:
+    """Extract the leading column from a Snowflake CLUSTERING_KEY string.
+
+    Snowflake stores clustering keys as expressions like ``LINEAR(col1, col2)``.
+    We unwrap the optional ``LINEAR(...)`` envelope, take the first comma-
+    separated entry, and return its identifier in the same case Snowflake uses
+    for ``INFORMATION_SCHEMA.COLUMNS.COLUMN_NAME`` so the caller can compare
+    directly: unquoted identifiers are uppercased (matching Snowflake's
+    identifier resolution rules), quoted identifiers have the quotes stripped
+    and their case preserved. Returns None if the entry is empty or appears to
+    be a function expression rather than a plain column reference (we can't
+    tell whether `DATE_TRUNC('day', x)` accelerates predicate pruning the same
+    way).
+    """
+    if not clustering_key:
+        return None
+    expr = clustering_key.strip()
+    if expr.upper().startswith("LINEAR("):
+        if not expr.endswith(")"):
+            return None
+        expr = expr[len("LINEAR(") : -1]
+    leading = expr.split(",", 1)[0].strip()
+    if not leading or "(" in leading:
+        return None
+    if leading.startswith('"') and leading.endswith('"') and len(leading) >= 2:
+        return leading[1:-1]
+    return leading.upper()
+
+
+def get_leading_clustering_columns_for_schemas(
+    config: SnowflakeSourceConfig,
+    table_names: list[str],
+) -> dict[str, set[str]] | None:
+    """Return the leading column of the clustering key per table.
+
+    Snowflake doesn't have B-tree indexes; clustering keys are the structure that
+    enables partition pruning for `WHERE col >= …` predicates. Tables without a
+    clustering key map to an empty set so the UI warning fires.
+
+    Returns None when discovery fails so the caller defaults to no warning.
+    """
+    if not table_names:
+        return {}
+
+    result: dict[str, set[str]] = {table: set() for table in table_names}
+    file_name: str | None = None
+
+    try:
+        auth_connect_args: dict[str, str | None] = {}
+
+        if config.auth_type.selection == "keypair" and config.auth_type.private_key is not None:
+            with tempfile.NamedTemporaryFile(delete=False) as tf:
+                tf.write(config.auth_type.private_key.encode("utf-8"))
+                file_name = tf.name
+
+            auth_connect_args = {
+                "user": config.auth_type.user,
+                "private_key_file": file_name,
+                "private_key_file_pwd": config.auth_type.passphrase
+                if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
+                else None,
+            }
+        else:
+            auth_connect_args = {
+                "password": config.auth_type.password,
+                "user": config.auth_type.user,
+            }
+
+        with snowflake.connector.connect(
+            account=config.account_id,
+            warehouse=config.warehouse,
+            database=config.database,
+            schema=config.schema,
+            role=config.role,
+            **auth_connect_args,
+        ) as connection:
+            with connection.cursor() as cursor:
+                if cursor is None:
+                    raise Exception("Can't create cursor to Snowflake")
+
+                placeholders = ",".join(["%s"] * len(table_names))
+                cursor.execute(
+                    f"""
+                    SELECT TABLE_NAME, CLUSTERING_KEY
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_CATALOG = %s
+                      AND TABLE_SCHEMA = %s
+                      AND TABLE_NAME IN ({placeholders})
+                    """,
+                    (config.database, config.schema, *table_names),
+                )
+
+                for table_name, clustering_key in cursor:
+                    leading = _parse_clustering_key_leading_column(clustering_key)
+                    if leading is not None:
+                        result.setdefault(table_name, set()).add(leading)
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect clustering keys for Snowflake schemas", exc_info=e)
+        return None
+    finally:
+        if file_name is not None:
+            os.unlink(file_name)
+
+    return result
+
+
 def get_primary_keys_for_schemas(
     config: SnowflakeSourceConfig,
     table_names: list[str],
