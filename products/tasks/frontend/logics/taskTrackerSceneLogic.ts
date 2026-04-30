@@ -10,13 +10,14 @@ import { Params } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import type { RepositoryConfig } from '../components/RepositorySelector'
-import { OriginProduct, Task, TaskRunStatus, TaskUpsertProps } from '../types'
+import { OriginProduct, TaskListParams, TaskRunStatus, TaskUpsertProps } from '../types'
 import { tasksLogic } from './tasksLogic'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
 const DEFAULT_SEARCH_QUERY = ''
 const DEFAULT_REPOSITORY = 'all'
-const DEFAULT_STATUS = 'all'
+const DEFAULT_STATUS: 'all' | TaskRunStatus = 'all'
+const SEARCH_DEBOUNCE_MS = 300
 
 export type TaskCreateForm = {
     description: string
@@ -27,8 +28,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'tasks', 'frontend', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [router, ['location'], userLogic, ['user'], tasksLogic, ['tasks']],
-        actions: [tasksLogic, ['loadTasks', 'deleteTask']],
+        values: [router, ['location'], userLogic, ['user'], tasksLogic, ['tasks', 'repositories']],
+        actions: [tasksLogic, ['loadTasks', 'loadRepositories', 'deleteTask']],
     })),
 
     actions({
@@ -114,43 +115,52 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     selectors({
-        filteredTasks: [
-            (s) => [s.tasks, s.searchQuery, s.repository, s.status, s.createdBy],
-            (tasks, searchQuery, repository, status, createdBy): Task[] => {
-                let filtered = [...tasks]
-
-                if (searchQuery) {
-                    const query = searchQuery.toLowerCase()
-                    filtered = filtered.filter(
-                        (task) =>
-                            task.title.toLowerCase().includes(query) ||
-                            task.description?.toLowerCase().includes(query) ||
-                            task.slug.toLowerCase().includes(query)
-                    )
+        // All filters are pushed down to the backend via `loadTasks(listParams)` so results are
+        // not limited by list pagination. The scene renders `tasks` (the loader output) directly.
+        listParams: [
+            (s) => [s.searchQuery, s.repository, s.status, s.createdBy],
+            (searchQuery, repository, status, createdBy): TaskListParams => {
+                const params: TaskListParams = {}
+                if (searchQuery.trim()) {
+                    params.search = searchQuery.trim()
                 }
-
                 if (repository && repository !== 'all') {
-                    filtered = filtered.filter((task) =>
-                        (task.repository ?? '').toLowerCase().includes(repository.toLowerCase())
-                    )
+                    params.repository = repository
                 }
-
                 if (status !== 'all') {
-                    filtered = filtered.filter((task) => task.latest_run?.status === status)
+                    params.status = status
                 }
-
                 if (createdBy !== null) {
-                    filtered = filtered.filter((task) => task.created_by?.id === createdBy)
+                    params.created_by = createdBy
                 }
-
-                filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
-                return filtered
+                return params
             },
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        setSearchQuery: () => {
+            cache.listLoadRequested = true
+            // Debounce search keystrokes to avoid a request per character.
+            if (cache.searchDebounce) {
+                clearTimeout(cache.searchDebounce)
+            }
+            cache.searchDebounce = setTimeout(() => {
+                actions.loadTasks(values.listParams)
+            }, SEARCH_DEBOUNCE_MS)
+        },
+        setRepository: () => {
+            cache.listLoadRequested = true
+            actions.loadTasks(values.listParams)
+        },
+        setStatus: () => {
+            cache.listLoadRequested = true
+            actions.loadTasks(values.listParams)
+        },
+        setCreatedBy: () => {
+            cache.listLoadRequested = true
+            actions.loadTasks(values.listParams)
+        },
         submitNewTask: async () => {
             const { description, repositoryConfig } = values.newTaskData
 
@@ -185,7 +195,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
                 actions.closeCreateModal()
-                actions.loadTasks()
+                actions.loadTasks(values.listParams)
+                actions.loadRepositories()
             } catch (error) {
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
@@ -259,7 +270,22 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
-        afterMount: [actions.loadTasks],
+    events(({ actions, values, cache }) => ({
+        afterMount: () => {
+            actions.loadRepositories()
+            // `urlToAction` may dispatch filter setters synchronously on mount, and the
+            // `user` subscription may dispatch `setCreatedBy` to set the default filter.
+            // Each of those listeners triggers `loadTasks` and sets `cache.listLoadRequested`,
+            // so we only need to fire here when nothing else did.
+            if (!cache.listLoadRequested) {
+                actions.loadTasks(values.listParams)
+            }
+        },
+        beforeUnmount: () => {
+            if (cache.searchDebounce) {
+                clearTimeout(cache.searchDebounce)
+            }
+            cache.listLoadRequested = false
+        },
     })),
 ])

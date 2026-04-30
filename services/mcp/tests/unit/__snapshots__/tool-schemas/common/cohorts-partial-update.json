@@ -152,6 +152,16 @@
                                                             }
                                                         ]
                                                     },
+                                                    "explicit_datetime_to": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
                                                     "key": {
                                                         "anyOf": [
                                                             {

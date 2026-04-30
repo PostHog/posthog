@@ -2,7 +2,9 @@ from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
 
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice
+from pydantic import BaseModel
+
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
@@ -89,7 +91,7 @@ def get_hogql_metadata(
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
-                    hogql_ast = replace_filters(hogql_ast, query.filters, team)
+                    hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
                 if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = replace_variables(
                         hogql_ast, list(query.variables.values()) if query.variables else [], team
@@ -145,6 +147,50 @@ def get_hogql_metadata(
                 err.end -= 2
 
     return response
+
+
+def enrich_hogql_validation_error(
+    query: BaseModel | None,
+    team: Team,
+    user: Optional[User],
+    original_detail: str,
+) -> tuple[str, dict | None]:
+    """When a HogQLQuery fails, run it through metadata resolution to collect
+    structured error positions, table references, and any fix hints. Returns a
+    (possibly enriched) detail string and a dict suitable for exceptions_hog's
+    ``extra`` attribute — or ``(original_detail, None)`` when enrichment isn't
+    applicable or fails.
+    """
+    if not isinstance(query, HogQLQuery) or not query.query:
+        return original_detail, None
+
+    try:
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query=query.query,
+                modifiers=query.modifiers,
+                filters=query.filters,
+                connectionId=query.connectionId,
+            ),
+            team=team,
+            user=user,
+        )
+    except Exception:
+        return original_detail, None
+
+    lines: list[str] = [original_detail]
+
+    for notice in [*metadata.errors, *metadata.warnings, *metadata.notices]:
+        if notice.fix and notice.fix not in lines:
+            lines.append(f"Hint: {notice.fix}")
+
+    if metadata.table_names:
+        lines.append(f"Tables referenced: {', '.join(metadata.table_names)}")
+
+    extra = {"hogql_metadata": metadata.model_dump(mode="json", exclude_none=True)}
+    return "\n".join(lines), extra
 
 
 def process_expr_on_table(

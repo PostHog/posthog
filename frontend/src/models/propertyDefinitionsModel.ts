@@ -413,7 +413,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             { endpoint, type, newInput, propertyKey, eventNames, properties, refresh },
             breakpoint
         ) => {
-            if (['cohort', 'log', 'span', 'workflow_variable'].includes(type)) {
+            if (!endpoint && ['cohort', 'log', 'span', 'workflow_variable'].includes(type)) {
                 return
             }
             if (!propertyKey || values.currentTeamId === null) {

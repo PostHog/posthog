@@ -15,7 +15,8 @@ import {
 } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -27,7 +28,7 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { slugify } from 'lib/utils'
+import { objectsEqual, slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -152,6 +153,26 @@ export function describeCron(expr: string | null): string | null {
     } catch {
         return 'Invalid cron expression'
     }
+}
+
+/**
+ * Schedule pickers operate on the browser's wall clock, but users expect the time they enter
+ * to be interpreted in the project's timezone (shown via `ScheduleTimezoneHint`).
+ *
+ * These helpers convert between the browser-local Dayjs used by the calendar and the
+ * project-timezone UTC ISO string stored on the backend, keeping the displayed wall clock
+ * identical in both directions.
+ */
+export function scheduleDateToProjectTzISO(localDayjs: Dayjs, timezone: string): string {
+    // Reinterpret the wall clock as being in the project timezone, then emit as UTC.
+    return localDayjs.tz(timezone, true).toISOString()
+}
+
+export function scheduleDateFromStoredISO(isoString: string, timezone: string): Dayjs {
+    // Convert the stored UTC moment to the project timezone, then present that wall clock
+    // as a browser-local Dayjs so the calendar renders the same values the user picked.
+    // Sub-second precision is preserved so end-of-day sentinels (.999 ms) round-trip unchanged.
+    return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
@@ -316,27 +337,21 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
+// Reverse of `variantKeyToIndexFeatureFlagPayloads`: converts form-state payloads
+// (keyed by variant index) back to API-shape payloads (keyed by variant key).
+// Inputs MUST be index-keyed — passing variant-key-keyed payloads here will drop them.
+// This matters when variant keys are numeric strings (e.g. "0", "1"), which would
+// otherwise collide with index keys.
 export const convertIndexBasedPayloadsToVariantKeys = (
     variants: MultivariateFlagVariant[] = [],
-    payloads?: Record<string | number, JsonType>
+    payloads?: Record<number, JsonType>
 ): Record<string, JsonType> => {
     const newPayloads: Record<string, JsonType> = {}
-    const variantKeys = new Set(variants.map(({ key }) => key))
 
-    Object.entries(payloads || {}).forEach(([payloadKey, payloadValue]) => {
-        if (variantKeys.has(payloadKey)) {
-            newPayloads[payloadKey] = payloadValue
-            return
-        }
-
-        const payloadIndex = Number(payloadKey)
-        if (!Number.isInteger(payloadIndex) || String(payloadIndex) !== payloadKey) {
-            return
-        }
-
-        const variantKey = variants[payloadIndex]?.key
-        if (variantKey && newPayloads[variantKey] === undefined) {
-            newPayloads[variantKey] = payloadValue
+    variants.forEach((variant, index) => {
+        const payload = payloads?.[index]
+        if (payload !== undefined && variant.key) {
+            newPayloads[variant.key] = payload
         }
     })
 
@@ -579,6 +594,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
+        setDisableCopiedFlag: (disableCopiedFlag: boolean) => ({ disableCopiedFlag }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
@@ -651,8 +667,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                 }
             },
-            submit: async (featureFlag) => {
-                await actions.submitFeatureFlagWithValidation(featureFlag)
+            submit: async () => {
+                // Validation/save uses reducer state in submitFeatureFlagWithValidation; kea-forms can omit nested updates from setFeatureFlagFilters.
+                await actions.submitFeatureFlagWithValidation({} as Partial<FeatureFlagType>)
             },
         },
     })),
@@ -914,6 +931,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false as boolean,
             {
                 setCopySchedule: (_, { copySchedule }) => copySchedule,
+            },
+        ],
+        disableCopiedFlag: [
+            false as boolean,
+            {
+                setDisableCopiedFlag: (_, { disableCopiedFlag }) => disableCopiedFlag,
             },
         ],
         scheduleDateMarker: [
@@ -1488,7 +1511,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             copyFlag: async () => {
                 const orgId = values.currentOrganizationId
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentProjectId, copySchedule } = values
+                const { copyDestinationProject, currentProjectId, copySchedule, disableCopiedFlag } = values
 
                 if (currentProjectId && copyDestinationProject) {
                     return await api.organizationFeatureFlags.copy(orgId, {
@@ -1496,6 +1519,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         from_project: currentProjectId,
                         target_project_ids: [copyDestinationProject],
                         copy_schedule: copySchedule,
+                        disable_copied_flag: disableCopiedFlag,
                     })
                 }
             },
@@ -1536,6 +1560,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         payloadValue = schedulePayload[fields[scheduledChangeOperation]]
                     }
 
+                    const timezone = values.currentTeam?.timezone || 'UTC'
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
@@ -1543,18 +1568,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             operation: scheduledChangeOperation,
                             value: payloadValue,
                         },
-                        scheduled_at: scheduleDateMarker.toISOString(),
+                        // The calendar emits a browser-local Dayjs; reinterpret the wall clock
+                        // in the project's timezone so everyone sees the same scheduled moment.
+                        scheduled_at: scheduleDateToProjectTzISO(scheduleDateMarker, timezone),
                         is_recurring: values.isRecurring,
                         recurrence_interval: values.recurrenceInterval,
                         cron_expression: values.cronExpression,
                         // Use end-of-day in project timezone to ensure consistent behavior
                         // across all users in the project
-                        end_date: values.endDate
-                            ? values.endDate
-                                  .tz(values.currentTeam?.timezone || 'UTC')
-                                  .endOf('day')
-                                  .toISOString()
-                            : null,
+                        end_date: values.endDate ? values.endDate.tz(timezone, true).endOf('day').toISOString() : null,
                     }
 
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)
@@ -1613,12 +1635,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             try {
-                const baseDate = values.scheduleDateMarker?.toDate() ?? new Date()
+                const timezone = values.currentTeam?.timezone || 'UTC'
+                // scheduleDateMarker is a browser-local Dayjs whose wall clock matches the
+                // project timezone. Reinterpret it in the project timezone before passing to
+                // cron-parser so the cron fields (e.g. "0 9") are evaluated in the project's
+                // timezone rather than the browser's.
+                const baseDate = values.scheduleDateMarker?.tz(timezone, true).toDate() ?? new Date()
                 const interval = CronExpressionParser.parse(cronExpression, {
                     currentDate: baseDate,
+                    tz: timezone,
                 })
                 const nextDate = interval.next().toDate()
-                actions.setScheduleDateMarker(dayjs(nextDate))
+                actions.setScheduleDateMarker(scheduleDateFromStoredISO(nextDate.toISOString(), timezone))
             } catch {
                 // Invalid expression — don't update the date picker
             }
@@ -1682,23 +1710,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 disableCron = def.disableCron
             }
 
+            const timezone = values.currentTeam?.timezone || 'UTC'
             const basePayload = {
                 record_id: values.featureFlag.id,
                 model_name: 'FeatureFlag',
                 is_recurring: true,
                 recurrence_interval: null,
-                end_date: values.endDate
-                    ? values.endDate
-                          .tz(values.currentTeam?.timezone || 'UTC')
-                          .endOf('day')
-                          .toISOString()
-                    : null,
+                end_date: values.endDate ? values.endDate.tz(timezone, true).endOf('day').toISOString() : null,
             }
 
-            // Compute scheduled_at from the enable cron's next run
+            // Compute scheduled_at from the enable cron's next run, evaluated in project timezone.
             let enableScheduledAt: string
             try {
-                const interval = CronExpressionParser.parse(enableCron, { currentDate: new Date() })
+                const interval = CronExpressionParser.parse(enableCron, { currentDate: new Date(), tz: timezone })
                 enableScheduledAt = interval.next().toDate().toISOString()
             } catch {
                 lemonToast.error('Invalid enable cron expression')
@@ -1707,7 +1731,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             let disableScheduledAt: string
             try {
-                const interval = CronExpressionParser.parse(disableCron, { currentDate: new Date() })
+                const interval = CronExpressionParser.parse(disableCron, { currentDate: new Date(), tz: timezone })
                 disableScheduledAt = interval.next().toDate().toISOString()
             } catch {
                 lemonToast.error('Invalid disable cron expression')
@@ -1930,6 +1954,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadProjectsWithCurrentFlag()
             actions.setCopyDestinationProject(null)
             actions.setCopySchedule(false)
+            actions.setDisableCopiedFlag(false)
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {
@@ -2078,7 +2103,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadFeatureFlag()
             }
         },
-        submitFeatureFlagWithValidation: async ({ featureFlag }, breakpoint, action, previousState) => {
+        submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
+            const featureFlag = values.featureFlag
             const originalFlag = values.originalFeatureFlag
             const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
 
@@ -2148,6 +2174,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        hasUnsavedChanges: [
+            (s) => [s.featureFlag, s.originalFeatureFlag],
+            (featureFlag, originalFeatureFlag): boolean => {
+                if (!originalFeatureFlag) {
+                    // New flag — compare against form defaults via featureFlagChanged instead
+                    return false
+                }
+                const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
+                return !objectsEqual(currentCleaned, originalFeatureFlag)
+            },
+        ],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         flagType: [
             (s) => [s.featureFlag],
@@ -2525,6 +2562,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
     })),
+
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            // For existing flags, compare against server state to avoid false positives.
+            // featureFlagChanged (from kea-forms) compares against form defaults (NEW_FLAG),
+            // which is always true for loaded flags.
+            const isDirty = logic.values.originalFeatureFlag
+                ? logic.values.hasUnsavedChanges
+                : logic.values.featureFlagChanged
+
+            if (!isDirty) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
+        message: 'Leave feature flag?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            logic.actions.resetFeatureFlag((logic.values.originalFeatureFlag as any) ?? undefined)
+        },
+    })),
+
     afterMount(({ props, actions }) => {
         // Open the History tab when deep-linking to a specific activity item on initial page load
         if (router.values.searchParams.activity != null) {

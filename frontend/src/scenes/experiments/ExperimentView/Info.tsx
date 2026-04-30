@@ -82,7 +82,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                         placement="bottom"
                                         title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                     >
-                                        <StatusTag status={status} isPaused={isPaused} />
+                                        <StatusTag status={status} />
                                     </Tooltip>
                                 ) : (
                                     <StatusTag status={status} />

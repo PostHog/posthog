@@ -27,6 +27,10 @@ import {
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
 
+import type {
+    SchemaConfigurationSection,
+    SchemaSceneTab,
+} from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
@@ -63,6 +67,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
+    DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -100,6 +105,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsClusters: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClustersScene'),
     LLMAnalyticsCluster: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClusterScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
+    LogsAlertNew: () => import('../../products/logs/frontend/scenes/LogsAlertNewScene/LogsAlertNewScene'),
+    LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
@@ -114,6 +121,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
     VisualReviewSettings: () => import('../../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
+    VisualReviewSnapshotHistory: () =>
+        import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
@@ -139,6 +148,15 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
+    '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
+    '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
+        'DataWarehouseSourceSchema',
+        'dataWarehouseSourceSchema',
+    ],
+    '/data-management/sources/:sourceId/schemas/:schemaId/configuration/:section': [
+        'DataWarehouseSourceSchema',
+        'dataWarehouseSourceSchema',
+    ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
@@ -188,6 +206,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     '/logs': ['Logs', 'logs'],
+    '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
+    '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     '/metrics': ['Metrics', 'metrics'],
@@ -202,6 +222,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
     '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+    '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
+        'VisualReviewSnapshotHistory',
+        'visualReviewSnapshotHistory',
+    ],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -319,6 +343,7 @@ export const productConfiguration: Record<string, any> = {
     },
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
+    DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -461,6 +486,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
     },
+    LogsAlertNew: { projectBased: true, name: 'New alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
+    LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
     Metrics: {
@@ -523,6 +550,11 @@ export const productConfiguration: Record<string, any> = {
     VisualReviewRuns: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
     VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
+    VisualReviewSnapshotHistory: {
+        name: 'Visual review snapshot history',
+        projectBased: true,
+        iconType: 'visual_review',
+    },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -575,6 +607,18 @@ export const productUrls = {
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceSchema: (
+        sourceId: string,
+        schemaId: string,
+        tab?: SchemaSceneTab,
+        section?: SchemaConfigurationSection
+    ): string => {
+        const base = `/data-management/sources/${sourceId}/schemas/${schemaId}`
+        if (tab === 'configuration' && section) {
+            return `${base}/configuration/${section}`
+        }
+        return tab ? `${base}/${tab}` : base
+    },
     dataWarehouseSourceNew: (
         kind?: string,
         returnUrl?: string,
@@ -767,6 +811,9 @@ export const productUrls = {
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>
         `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     logs: (): string => '/logs',
+    logsAlertNew: (): string => '/logs/alerts/new',
+    logsAlertDetail: (id: string, tab?: string): string =>
+        tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
@@ -887,6 +934,8 @@ export const productUrls = {
     visualReviewRuns: (): string => '/visual_review',
     visualReviewSettings: (): string => '/visual_review/settings',
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+    visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
+        `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -1268,6 +1317,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceSchema',
         ],
     },
     {
@@ -1321,7 +1371,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['beta'],
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
@@ -1467,7 +1516,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
-        sceneKeys: ['Logs'],
+        sceneKeys: ['Logs', 'LogsAlertNew', 'LogsAlertDetail'],
     },
     {
         path: 'Marketing analytics',
@@ -1728,7 +1777,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.VISUAL_REVIEW,
         tags: ['alpha'],
         sceneKey: 'VisualReviewRuns',
-        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],
+        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings', 'VisualReviewSnapshotHistory'],
     },
     {
         path: 'Web analytics',
@@ -1821,7 +1870,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['beta'],
         sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
@@ -1854,6 +1902,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceSchema',
         ],
     },
     {

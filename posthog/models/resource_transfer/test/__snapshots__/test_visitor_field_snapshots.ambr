@@ -148,6 +148,7 @@
     'kind',
     'last_backfill_person_properties_at',
     'last_calculation_duration_ms',
+    'last_realtime_cohort_calculation_at',
     'name',
     'query',
   ])
@@ -636,6 +637,7 @@
     'id',
     'is_draft',
     'is_launched',
+    'is_paused',
     'is_running',
     'is_stopped',
     'save',

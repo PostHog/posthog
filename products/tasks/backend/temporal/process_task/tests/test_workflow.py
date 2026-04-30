@@ -12,6 +12,7 @@ from django.conf import settings
 
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -27,6 +28,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     cleanup_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
+    emit_progress_activity,
     forward_pending_user_message,
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
@@ -62,6 +64,31 @@ def _build_context(
         state=state or {},
         _branch="feature-branch",
     )
+
+
+@pytest.mark.django_db
+def test_activity_error_properties_includes_failed_activity_context():
+    error = ActivityError(
+        "Activity task timed out",
+        scheduled_event_id=10,
+        started_event_id=11,
+        identity="worker-1",
+        activity_type="get_pr_context",
+        activity_id="activity-1",
+        retry_state=RetryState.TIMEOUT,
+    )
+    error.__cause__ = TimeoutError("start-to-close timeout")
+
+    assert ProcessTaskWorkflow._activity_error_properties(error) == {
+        "temporal_activity_id": "activity-1",
+        "temporal_activity_type": "get_pr_context",
+        "temporal_activity_identity": "worker-1",
+        "temporal_activity_retry_state": "TIMEOUT",
+        "temporal_activity_scheduled_event_id": 10,
+        "temporal_activity_started_event_id": 11,
+        "cause_error_type": "TimeoutError",
+        "cause_error_message": "start-to-close timeout",
+    }
 
 
 @pytest.mark.django_db(transaction=True)
@@ -286,6 +313,7 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_read_sandbox_logs", read_sandbox_logs_mock)
         monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
         monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
 
         async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
             workflow._sandbox_id_for_cleanup = "sandbox-123"
@@ -300,6 +328,31 @@ class TestProcessTaskWorkflowUnit:
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+
+    async def test_run_marks_failed_when_context_load_fails(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        get_task_processing_context_mock = AsyncMock(side_effect=RuntimeError("database connection closed"))
+        update_task_run_status_mock = AsyncMock()
+        track_workflow_event_mock = AsyncMock()
+        post_slack_update_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is False
+        assert result.error == "database connection closed"
+        assert result.sandbox_id is None
+        update_task_run_status_mock.assert_awaited_once_with(
+            "failed",
+            error_message="database connection closed",
+            run_id="run-id",
+        )
+        track_workflow_event_mock.assert_not_awaited()
+        post_slack_update_mock.assert_not_awaited()
 
     async def test_get_sandbox_for_repository_skips_clone_and_checkout_for_private_repo_without_github_integration(
         self, monkeypatch
@@ -334,6 +387,8 @@ class TestProcessTaskWorkflowUnit:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
                 return created
+            if activity_fn is emit_progress_activity:
+                return None
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
@@ -383,6 +438,8 @@ class TestProcessTaskWorkflowUnit:
             if activity_fn is inject_fresh_tokens_on_resume:
                 inject_call_args["input"] = args[0]
                 return None
+            if activity_fn is emit_progress_activity:
+                return None
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
@@ -392,10 +449,7 @@ class TestProcessTaskWorkflowUnit:
         assert result.sandbox_id == "sandbox-123"
         assert inject_fresh_tokens_on_resume in activity_calls
         # Should run after create, before any clone/checkout
-        assert (
-            activity_calls.index(inject_fresh_tokens_on_resume)
-            == activity_calls.index(create_sandbox_for_repository) + 1
-        )
+        assert activity_calls.index(inject_fresh_tokens_on_resume) > activity_calls.index(create_sandbox_for_repository)
         assert clone_repository_in_sandbox not in activity_calls
         assert checkout_branch_in_sandbox not in activity_calls
         assert inject_call_args["input"].sandbox_id == "sandbox-123"
@@ -432,6 +486,8 @@ class TestProcessTaskWorkflowUnit:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
                 return created
+            if activity_fn is emit_progress_activity:
+                return None
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)

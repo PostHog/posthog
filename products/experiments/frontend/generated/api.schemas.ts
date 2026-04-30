@@ -249,6 +249,11 @@ export interface ExperimentParametersApi {
      * @nullable
      */
     minimum_detectable_effect?: number | null
+    /**
+     * Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.
+     * @nullable
+     */
+    rollout_percentage?: number | null
 }
 
 export interface ExperimentToSavedMetricApi {
@@ -483,16 +488,12 @@ export const ConclusionEnumApi = {
     Invalid: 'invalid',
 } as const
 
-/**
- * * `draft` - Draft
- * `running` - Running
- * `stopped` - Stopped
- */
 export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
 
 export const ExperimentStatusEnumApi = {
     Draft: 'draft',
     Running: 'running',
+    Paused: 'paused',
     Stopped: 'stopped',
 } as const
 
@@ -527,7 +528,7 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+    /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
     parameters?: ExperimentParametersApi | null
     secondary_metrics?: unknown | null
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
@@ -577,7 +578,8 @@ export interface ExperimentApi {
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
-    readonly status: ExperimentStatusEnumApi | NullEnumApi | null
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    readonly status: ExperimentStatusEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -625,7 +627,7 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Variant definitions and statistical configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+    /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
     parameters?: ExperimentParametersApi | null
     secondary_metrics?: unknown | null
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
@@ -675,7 +677,8 @@ export interface PatchedExperimentApi {
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
-    readonly status?: ExperimentStatusEnumApi | NullEnumApi | null
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    readonly status?: ExperimentStatusEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -757,4 +760,15 @@ export type ExperimentsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ExperimentsTimeseriesResultsRetrieveParams = {
+    /**
+     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     */
+    fingerprint: string
+    /**
+     * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
+     */
+    metric_uuid: string
 }

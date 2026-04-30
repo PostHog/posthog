@@ -66,7 +66,7 @@ import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
+import { getExperimentStatusColor, getExperimentStatusLabel, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getVariantColor, isLegacyExperiment } from '../utils'
 
@@ -210,6 +210,7 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         launchExperiment,
         archiveExperiment,
+        unarchiveExperiment,
         createExposureCohort,
         createExperimentDashboard,
         updateExperiment,
@@ -390,7 +391,15 @@ export function PageHeaderCustom(): JSX.Element {
 
                                 {isExperimentRunning &&
                                     experiment.feature_flag &&
-                                    (experiment.feature_flag.active ? (
+                                    (isExperimentPaused(experiment) ? (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            data-attr="resume-experiment"
+                                            onClick={() => openResumeExperimentModal()}
+                                        >
+                                            <IconPlay /> Resume experiment
+                                        </ButtonPrimitive>
+                                    ) : (
                                         <ButtonPrimitive
                                             variant="danger"
                                             menuItem
@@ -398,14 +407,6 @@ export function PageHeaderCustom(): JSX.Element {
                                             onClick={() => openPauseExperimentModal()}
                                         >
                                             <IconPause /> Pause experiment
-                                        </ButtonPrimitive>
-                                    ) : (
-                                        <ButtonPrimitive
-                                            menuItem
-                                            data-attr="resume-experiment"
-                                            onClick={() => openResumeExperimentModal()}
-                                        >
-                                            <IconPlay /> Resume experiment
                                         </ButtonPrimitive>
                                     ))}
 
@@ -418,6 +419,15 @@ export function PageHeaderCustom(): JSX.Element {
                         {canArchive && (
                             <ButtonPrimitive menuItem data-attr="archive-experiment" onClick={handleArchive}>
                                 <IconArchive /> Archive experiment
+                            </ButtonPrimitive>
+                        )}
+                        {canEdit && experiment.archived && (
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="unarchive-experiment"
+                                onClick={() => unarchiveExperiment()}
+                            >
+                                <IconArchive /> Unarchive experiment
                             </ButtonPrimitive>
                         )}
 
@@ -823,10 +833,10 @@ export const ResetButton = (): JSX.Element => {
     )
 }
 
-export function StatusTag({ status, isPaused = false }: { status: ExperimentStatus; isPaused?: boolean }): JSX.Element {
+export function StatusTag({ status }: { status: ExperimentStatus }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status, isPaused)} className="cursor-default">
-            <b className="uppercase">{getExperimentStatusLabel(status, isPaused)}</b>
+        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
+            <b className="uppercase">{getExperimentStatusLabel(status)}</b>
         </LemonTag>
     )
 }

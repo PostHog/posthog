@@ -39,6 +39,8 @@ interface DashboardProps {
     backTo?: { url: string; name: string }
 }
 
+const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
 function DashboardSceneWrapper(): JSX.Element {
@@ -48,10 +50,7 @@ function DashboardSceneWrapper(): JSX.Element {
 export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardSceneWrapper,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }) => ({
-        id: parseInt(id as string),
-        placement,
-    }),
+    paramsToProps: ({ params: { id, placement } }) => ({ id: parseDashboardId(id), placement }),
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
@@ -59,7 +58,7 @@ export function Dashboard({ id, dashboard, placement, themes, backTo }: Dashboar
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
             <DashboardScene backTo={backTo} />
         </BindLogic>
     )

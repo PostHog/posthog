@@ -13,6 +13,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.duckdb_table_functions import build_opaque_function_call_table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -28,6 +29,7 @@ from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.functions.traffic_type import (
     get_bot_name,
+    get_bot_operator,
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
@@ -35,7 +37,12 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
+from posthog.hogql.resolver_utils import (
+    expand_hogqlx_query,
+    lookup_field_by_name,
+    lookup_table_by_name,
+    suggest_field_names,
+)
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -45,6 +52,8 @@ from posthog.models.utils import UUIDT
 
 # To quickly disable global joins, switch this to False
 USE_GLOBAL_JOINS = False
+
+_SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 EMPTY_SCOPE = ast.SelectQueryType()
 
@@ -57,6 +66,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtime": ast.DateTimeType,
     "localtimestamp": ast.DateTimeType,
 }
+
+# Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
+# DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
+# takes the PG code path in the resolver.
+_POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -173,9 +187,6 @@ class Resolver(CloningVisitor):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
-
         initial = self.visit(node.initial_select_query)
 
         # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
@@ -233,7 +244,7 @@ class Resolver(CloningVisitor):
         return result
 
     def visit_unpivot_expr(self, node: ast.UnpivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.UnpivotExpr, clone_expr(node))
@@ -420,7 +431,7 @@ class Resolver(CloningVisitor):
             self.scopes.pop()
 
     def visit_pivot_expr(self, node: ast.PivotExpr):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
         node = cast(ast.PivotExpr, clone_expr(node))
@@ -594,8 +605,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-        if node.limit_with_ties and self.dialect == "postgres":
-            raise QueryError("WITH TIES is not supported in postgres dialect")
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -633,7 +642,7 @@ class Resolver(CloningVisitor):
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
 
-        if node.limit_percent and self.dialect != "postgres":
+        if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
             if self.dialect == "clickhouse":
                 if not (isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, (int, float))):
                     raise QueryError("LIMIT percent with expressions is not supported in clickhouse dialect")
@@ -1030,7 +1039,17 @@ class Resolver(CloningVisitor):
 
                 return node
 
-            database_table = cast(Database, self.database).get_table(table_name_chain)
+            try:
+                database_table = cast(Database, self.database).get_table(table_name_chain)
+            except QueryError:
+                # Direct Postgres/DuckDB sources expose introspected table-valued functions
+                # (range, generate_series, unnest, …) via connection metadata. If the lookup
+                # failed but the name matches one of those, synthesize an opaque single-column
+                # table so the call resolves and the printer emits it as a passthrough.
+                opaque_table = self._build_opaque_table_function(table_name_chain, node)
+                if opaque_table is None:
+                    raise
+                database_table = opaque_table
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -1197,7 +1216,7 @@ class Resolver(CloningVisitor):
                 # For non-postgres dialects, bake column aliases into the inner
                 # SELECT as AS aliases so ClickHouse/HogQL (which don't support
                 # the ``AS t(col1, col2)`` syntax) get correct column names.
-                if self.dialect != "postgres":
+                if self.dialect not in _POSTGRES_FAMILY:
                     inner_query = cast(ast.SelectQuery, inner_select)
                     new_select: list[ast.Expr] = []
                     for i, expr in enumerate(inner_query.select):
@@ -1447,6 +1466,8 @@ class Resolver(CloningVisitor):
                 return self.visit(get_bot_type(node=node, args=node.args))
             if node.name == "__preview_getBotName":
                 return self.visit(get_bot_name(node=node, args=node.args))
+            if node.name == "__preview_getBotOperator":
+                return self.visit(get_bot_operator(node=node, args=node.args))
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -1526,21 +1547,21 @@ class Resolver(CloningVisitor):
         return new_node
 
     def visit_try_cast(self, node: ast.TryCast):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
         node = cast(ast.TryCast, clone_expr(node))
         node.expr = self.visit(node.expr)
         return node
 
     def visit_positional_ref(self, node: ast.PositionalRef):
-        if self.dialect != "postgres":
+        if self.dialect not in _POSTGRES_FAMILY:
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
         node = cast(ast.PositionalRef, clone_expr(node))
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
-        if self.dialect not in {"postgres", "clickhouse"}:
+        if self.dialect not in _POSTGRES_FAMILY and self.dialect != "clickhouse":
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
         node = cast(ast.ArraySlice, clone_expr(node))
         node.array = self.visit(node.array)
@@ -1558,7 +1579,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect == "postgres" and len(node.chain) == 1:
+        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1601,7 +1622,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect == "postgres"
+            and self.dialect in _POSTGRES_FAMILY
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):
@@ -1671,6 +1692,8 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
+            suggestions = suggest_field_names(scope, name, self.context)
+            suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -1680,13 +1703,13 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}")
+                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
                     end=node.end,
-                    message=f"Unable to resolve field: {name}",
+                    message=f"Unable to resolve field: {name}{suggestion_suffix}",
                 )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
@@ -2027,6 +2050,36 @@ class Resolver(CloningVisitor):
             return isinstance(table.table, S3Table)
 
         return False
+
+    def _build_opaque_table_function(
+        self, table_name_chain: list[str], node: ast.JoinExpr
+    ) -> Optional[FunctionCallTable]:
+        # Only meaningful when the FROM looks like a function call (`FROM foo(args)`),
+        # not a plain table reference. `table_args` is always set on a function call,
+        # even if empty.
+        if node.table_args is None:
+            return None
+
+        # Multi-segment names (`schema.func`) aren't supported by the opaque path.
+        if len(table_name_chain) != 1:
+            return None
+
+        metadata = self.context.direct_postgres_connection_metadata
+        if not isinstance(metadata, dict):
+            return None
+
+        available_table_functions = metadata.get("available_table_functions")
+        if not isinstance(available_table_functions, list):
+            return None
+
+        function_name = table_name_chain[0].lower()
+        if function_name not in {entry.lower() for entry in available_table_functions if isinstance(entry, str)}:
+            return None
+
+        if not _SAFE_TABLE_FUNCTION_NAME_RE.match(function_name):
+            return None
+
+        return build_opaque_function_call_table(function_name)
 
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:

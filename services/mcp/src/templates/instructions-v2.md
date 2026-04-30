@@ -57,7 +57,7 @@ Available domains (the list is incomplete):
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example regex for search: execute-sql or experiment.
 
-{group_types}
+{defined_groups}
 
 {metadata}
 
@@ -74,13 +74,7 @@ Prefer query wrappers when the user's question maps to a supported insight type.
 
 #### Available insight query tools
 
-`query-trends` | Time series, aggregations, formulas, comparisons | Default: last 30d, supports multiple series
-`query-funnel` | Conversion rates, drop-off analysis, time to convert | Requires at least 2 steps
-`query-retention` | User return patterns over time | Requires target (start) and returning events
-`query-stickiness` | Engagement frequency (how many days users do X) | No breakdowns supported
-`query-paths` | User navigation flows and sequences | Specify includeEventTypes
-`query-lifecycle` | New, returning, resurrecting, dormant user composition | Single event only, no math aggregation
-`query-traces-list` | LLM/AI trace listing and inspection | For AI observability data
+{query_tools}
 
 #### Choosing the right query tool
 
@@ -109,9 +103,17 @@ If the required events or properties do not exist, inform the user immediately i
 2. Choose the appropriate query wrapper tool based on the user's question.
 3. Construct the query schema. Each tool's description includes detailed schema documentation with examples. Be minimalist: only include filters, breakdowns, and settings essential to answer the question.
 4. Execute the query and analyze the results.
-5. Optionally save as an insight with `insight-create-from-query` or add to a dashboard.
+5. Optionally save as an insight with `insight-create` or add to a dashboard.
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
+
+### Session replay enrichment
+
+Session recordings provide visual context for errors and user behavior. When investigating issues, look for associated recordings:
+
+- If you have a **session recording ID** (from `$session_id` in event properties, or from other tool results), call `session-recording-get` with that ID. If the recording exists, present it to the user. A 404 means the session was not recorded.
+- If you have a **person or distinct_id** but no session ID, use `query-session-recordings-list` to find recordings filtered by person UUID or properties.
+- For **error tracking issues**, the issue itself does not include session IDs. To find related recordings, use `query-session-recordings-list` with an event filter for `$exception` matching the error. If a specific person is involved, also filter by `person_uuid` to see all their sessions. If no person context is available, filter by `$exception` alone to find all sessions with that error. Use `date_from` to match the issue's time range — e.g., if the error was first seen 10 days ago, set `date_from` accordingly so recordings from that period are included.
 
 ### URL patterns
 
@@ -126,7 +128,7 @@ Key URL patterns:
 
 ### Examples
 
-Before writing any queries, read the PostHog's skill `query-examples` to see if there are any relevant query examples and follow them.
+Before writing any queries, read the PostHog's skill `querying-posthog-data` to see if there are any relevant query examples and follow them.
 
 #### Creating an insight with segmentation
 
