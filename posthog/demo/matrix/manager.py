@@ -1,26 +1,22 @@
 # ruff: noqa: T201 allow print statements
 
-import json
 import datetime as dt
 from time import sleep
 from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.core import exceptions
-from django.db import IntegrityError, transaction
+from django.db import transaction
 
-from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
-from posthog.models import (
-    Group,
-    GroupTypeMapping,
-    Organization,
-    OrganizationMembership,
-    Person,
-    PersonDistinctId,
-    Team,
-    User,
+from posthog.clickhouse.client import sync_execute
+from posthog.demo.matrix.persons_db_sync import (
+    bulk_create_group_type_mappings,
+    copy_group_type_mappings,
+    delete_group_type_mappings,
+    sync_persons_to_postgres,
 )
+from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.utils import UUIDT, generate_random_token_project
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -166,18 +162,16 @@ class MatrixManager:
         if self.print_steps:
             print(f"Saving simulated data...")
         sim_persons = self.matrix.people
-        bulk_group_type_mappings = []
+        group_type_mapping_dicts = []
         if len(self.matrix.groups.keys()) + self.matrix.group_type_index_offset > 5:
             raise ValueError("Too many group types! The maximum for a project is 5.")
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             group_type_index += self.matrix.group_type_index_offset  # Adjust
-            bulk_group_type_mappings.append(
-                GroupTypeMapping(
-                    team_id=data_team.id,
-                    project_id=data_team.project_id,
-                    group_type_index=group_type_index,
-                    group_type=group_type,
-                )
+            group_type_mapping_dicts.append(
+                {
+                    "group_type_index": group_type_index,
+                    "group_type": group_type,
+                }
             )
             for group_key, group in groups.items():
                 self._save_sim_group(
@@ -187,10 +181,7 @@ class MatrixManager:
                     group,
                     self.matrix.now,
                 )
-        try:
-            GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)  # nosemgrep: no-direct-persons-db-orm
-        except IntegrityError as e:
-            print(f"SKIPPING GROUP TYPE MAPPING CREATION: {e}")
+        bulk_create_group_type_mappings(data_team.id, data_team.project_id, group_type_mapping_dicts)
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
         # We need to wait a bit for data just queued into Kafka to show up in CH
@@ -224,7 +215,7 @@ class MatrixManager:
         #         )
         #     ]
         # )
-        GroupTypeMapping.objects.filter(project_id=cls.MASTER_TEAM_ID).delete()  # nosemgrep: no-direct-persons-db-orm
+        delete_group_type_mappings(cls.MASTER_TEAM_ID)
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
@@ -242,93 +233,11 @@ class MatrixManager:
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
-        GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            project_id=target_team.project_id
-        ).delete()  # nosemgrep: no-direct-persons-db-orm
-        GroupTypeMapping.objects.bulk_create(  # nosemgrep: no-direct-persons-db-orm
-            (
-                GroupTypeMapping(team_id=target_team.id, project_id=target_team.project_id, **record)
-                for record in GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                    project_id=self.MASTER_TEAM_ID
-                ).values(  # nosemgrep: no-direct-persons-db-orm
-                    "group_type", "group_type_index", "name_singular", "name_plural"
-                )
-            ),
-        )
+        copy_group_type_mappings(self.MASTER_TEAM_ID, target_team.id, target_team.project_id)
 
     @classmethod
     def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
-        from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
-        from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
-
-        list_params = {"source_team_id": source_team_id}
-        # Persons
-        clickhouse_persons = query_with_columns(
-            SELECT_PERSONS_OF_TEAM,
-            list_params,
-            columns_to_rename={"id": "uuid"},
-        )
-        bulk_persons: dict[str, Person] = {}
-        person_fields = {f.name for f in Person._meta.get_fields()}
-        for row in clickhouse_persons:
-            filtered_row = {k: v for k, v in row.items() if k in person_fields}
-            properties = json.loads(filtered_row.pop("properties", "{}"))
-            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **filtered_row)
-        # This sets the pk in the bulk_persons dict so we can use them later
-        Person.objects.bulk_create(bulk_persons.values())  # nosemgrep: no-direct-persons-db-orm
-        # Person distinct IDs
-        pre_existing_id_count = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            team_id=target_team_id
-        ).count()  # nosemgrep: no-direct-persons-db-orm
-        clickhouse_distinct_ids = query_with_columns(
-            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
-            list_params,
-            ["team_id", "is_deleted", "_timestamp", "_offset", "_partition"],
-            {"person_id": "person_uuid"},
-        )
-        bulk_person_distinct_ids = []
-        person_distinct_id_fields = {f.name for f in PersonDistinctId._meta.get_fields()}
-        for row in clickhouse_distinct_ids:
-            person_uuid = row.pop("person_uuid")
-            try:
-                filtered_row = {k: v for k, v in row.items() if k in person_distinct_id_fields}
-                bulk_person_distinct_ids.append(
-                    PersonDistinctId(
-                        team_id=target_team_id,
-                        person_id=bulk_persons[person_uuid].pk,
-                        **filtered_row,
-                    )
-                )
-            except KeyError:
-                pre_existing_id_count -= 1
-        if pre_existing_id_count > 0:
-            print(f"{pre_existing_id_count} IDS UNACCOUNTED FOR")
-        PersonDistinctId.objects.bulk_create(  # nosemgrep: no-direct-persons-db-orm
-            bulk_person_distinct_ids, ignore_conflicts=True
-        )  # nosemgrep: no-direct-persons-db-orm
-        # Groups
-        clickhouse_groups = query_with_columns(
-            SELECT_GROUPS_OF_TEAM,
-            list_params,
-            ["team_id", "_timestamp", "_offset", "is_deleted"],
-        )
-        bulk_groups = []
-        group_fields = {f.name for f in Group._meta.get_fields()}
-        for row in clickhouse_groups:
-            filtered_row = {k: v for k, v in row.items() if k in group_fields}
-            group_properties = json.loads(filtered_row.pop("group_properties", "{}"))
-            bulk_groups.append(
-                Group(
-                    team_id=target_team_id,
-                    version=0,
-                    group_properties=group_properties,
-                    **filtered_row,
-                )
-            )
-        try:
-            Group.objects.bulk_create(bulk_groups)  # nosemgrep: no-direct-persons-db-orm
-        except IntegrityError as e:
-            print(f"SKIPPING GROUP CREATION: {e}")
+        sync_persons_to_postgres(source_team_id, target_team_id, person_table_name=settings.PERSON_TABLE_NAME)
 
     def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
