@@ -1230,13 +1230,14 @@ class InsightViewSet(
     def _is_basic_request(self) -> bool:
         return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
 
+    @tracer.start_as_current_span("insight_api_list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        with tracer.start_as_current_span("insight_api_list") as span:
-            span.set_attribute("posthog.team_id", self.team_id)
-            span.set_attribute("posthog.basic", self._is_basic_request())
-            span.set_attribute("posthog.saved", request.query_params.get("saved", ""))
-            span.set_attribute("posthog.order", request.query_params.get("order", ""))
-            return super().list(request, *args, **kwargs)
+        span = trace.get_current_span()
+        span.set_attribute("posthog.team_id", self.team_id)
+        span.set_attribute("posthog.basic", self._is_basic_request())
+        span.set_attribute("posthog.saved", request.query_params.get("saved", ""))
+        span.set_attribute("posthog.order", request.query_params.get("order", ""))
+        return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self._is_basic_request():
