@@ -1,12 +1,13 @@
 # Web app specific settings/middleware/apps setup
 import os
+import sys
 from datetime import timedelta
 
 import structlog
 from corsheaders.defaults import default_headers
 
 from posthog.scopes import get_scope_descriptions
-from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
+from posthog.settings.base_variables import BASE_DIR, DEBUG, STATIC_COLLECTION, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
@@ -258,7 +259,17 @@ SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
-LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
+DEFAULT_LICENSE_SECRET_KEY = "license-so-secret"
+LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", DEFAULT_LICENSE_SECRET_KEY)
+
+if not DEBUG and not TEST and not STATIC_COLLECTION and LICENSE_SECRET_KEY == DEFAULT_LICENSE_SECRET_KEY:
+    logger.critical(
+        """
+You are using the default LICENSE_SECRET_KEY in a production environment!
+For the safety of your instance, you must set LICENSE_SECRET_KEY to a unique value.
+"""
+    )
+    sys.exit("[ERROR] Default LICENSE_SECRET_KEY in production. Stopping Django server…\n")
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
