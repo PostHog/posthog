@@ -1432,6 +1432,12 @@ async fn handoff_delete_drains_stash_to_current_owner() {
     })
     .await;
 
+    // Snapshot drain count *before* the Delete. The router has
+    // already observed any drain_stash calls produced by the
+    // bootstrap (each initial handoff completes via the Complete
+    // path, which calls drain_stash with target=writer-0), so a
+    // strict count comparison — not an event-existence check — is
+    // required to attribute the next drain to the Delete event.
     let drains_before = router
         .events
         .lock()
@@ -1443,29 +1449,44 @@ async fn handoff_delete_drains_stash_to_current_owner() {
     // Now delete the handoff to simulate cleanup_stale_handoffs firing.
     store.delete_handoff(0).await.unwrap();
 
-    // The router should observe the Delete event and drain its stash
-    // back to the current routing-table owner (writer-0).
+    // Wait for the drain *count* to grow past `drains_before`. An
+    // event-existence check would race the bootstrap drains: those
+    // already record `StashDrained{partition: 0, target: writer-0}`,
+    // so any "does an event matching this exist" predicate would
+    // return true immediately without waiting for the Delete-driven
+    // drain to fire.
     let check_router = Arc::clone(&router.events);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let events = Arc::clone(&check_router);
         async move {
-            events.lock().await.iter().any(|e| matches!(
-                e,
-                common::CutoverEvent::StashDrained { partition: 0, target } if target == "writer-0"
-            ))
+            let count = events
+                .lock()
+                .await
+                .iter()
+                .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
+                .count();
+            count > drains_before
         }
     })
     .await;
 
+    // Sanity-check that the latest drain landed on the right target.
+    // Because the count is now strictly larger than the bootstrap
+    // baseline, at least one additional `StashDrained` must exist;
+    // the Delete branch always targets the routing-table's current
+    // owner, which is `writer-0` for partition 0.
     let events = router.events.lock().await;
-    let drains_after = events
+    let post_delete_drain = events
         .iter()
-        .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
-        .count();
-    assert!(
-        drains_after > drains_before,
-        "router should have drained at least once on handoff Delete"
-    );
+        .rev()
+        .find(|e| matches!(e, common::CutoverEvent::StashDrained { partition: 0, .. }))
+        .expect("a Delete-triggered drain for partition 0 must exist");
+    match post_delete_drain {
+        common::CutoverEvent::StashDrained { target, .. } => {
+            assert_eq!(target, "writer-0", "drain must target the current owner");
+        }
+        _ => unreachable!(),
+    }
 
     cancel.cancel();
 }
@@ -1778,6 +1799,11 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
     })
     .await;
 
+    // Snapshot drain count *before* the Delete. The bootstrap's
+    // initial handoffs each completed via the Complete path, which
+    // calls drain_stash with target=writer-0 for every partition —
+    // including 0. A strict count comparison (not event-existence)
+    // is required to attribute the next drain to the Delete event.
     let drains_before = router
         .events
         .lock()
@@ -1795,25 +1821,29 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let events = Arc::clone(&check_router);
         async move {
-            events.lock().await.iter().any(|e| matches!(
-                e,
-                common::CutoverEvent::StashDrained { partition: 0, target } if target == "writer-0"
-            ))
+            let count = events
+                .lock()
+                .await
+                .iter()
+                .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
+                .count();
+            count > drains_before
         }
     })
     .await;
 
-    let drains_after = router
-        .events
-        .lock()
-        .await
+    let events = router.events.lock().await;
+    let post_delete_drain = events
         .iter()
-        .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
-        .count();
-    assert!(
-        drains_after > drains_before,
-        "router should have drained at least once on Delete from Warming"
-    );
+        .rev()
+        .find(|e| matches!(e, common::CutoverEvent::StashDrained { partition: 0, .. }))
+        .expect("a Delete-triggered drain for partition 0 must exist");
+    match post_delete_drain {
+        common::CutoverEvent::StashDrained { target, .. } => {
+            assert_eq!(target, "writer-0", "drain must target the current owner");
+        }
+        _ => unreachable!(),
+    }
 
     cancel.cancel();
 }
@@ -2505,6 +2535,9 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
     })
     .await;
 
+    // Snapshot drain count before the Delete (see the Freezing
+    // variant's comment for why a strict count, not event-existence,
+    // is required).
     let drains_before = router
         .events
         .lock()
@@ -2518,29 +2551,38 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
     // independent of the phase the handoff was in when deleted.
     store.delete_handoff(0).await.unwrap();
 
+    // Wait for the drain *count* to grow past `drains_before`.
+    // Bootstrap drains for partition 0 already exist (each initial
+    // handoff completes via Complete and calls drain_stash with
+    // target=writer-0), so an event-existence predicate would race
+    // and return true before the Delete-triggered drain fires.
     let check_router = Arc::clone(&router.events);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let events = Arc::clone(&check_router);
         async move {
-            events.lock().await.iter().any(|e| matches!(
-                e,
-                common::CutoverEvent::StashDrained { partition: 0, target } if target == "writer-0"
-            ))
+            let count = events
+                .lock()
+                .await
+                .iter()
+                .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
+                .count();
+            count > drains_before
         }
     })
     .await;
 
-    let drains_after = router
-        .events
-        .lock()
-        .await
+    let events = router.events.lock().await;
+    let post_delete_drain = events
         .iter()
-        .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
-        .count();
-    assert!(
-        drains_after > drains_before,
-        "router should have drained at least once on Delete from Draining"
-    );
+        .rev()
+        .find(|e| matches!(e, common::CutoverEvent::StashDrained { partition: 0, .. }))
+        .expect("a Delete-triggered drain for partition 0 must exist");
+    match post_delete_drain {
+        common::CutoverEvent::StashDrained { target, .. } => {
+            assert_eq!(target, "writer-0", "drain must target the current owner");
+        }
+        _ => unreachable!(),
+    }
 
     cancel.cancel();
 }
