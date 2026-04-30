@@ -157,6 +157,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "has_description": bool(self.description),
             "variant_count": len(variants),
             "created_at": self.created_at,
+            "conclusion": self.conclusion,
         }
 
     def get_stats_config(self, key: str):
