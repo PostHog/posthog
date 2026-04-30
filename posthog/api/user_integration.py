@@ -240,6 +240,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
     @extend_schema(
         summary="Refresh repositories for a personal GitHub installation",
+        request=None,
         responses={200: GitHubReposRefreshResponseSerializer},
     )
     @action(methods=["POST"], detail=False, url_path=r"github/(?P<installation_id>\d+)/repos/refresh")
