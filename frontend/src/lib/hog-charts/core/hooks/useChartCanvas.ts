@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { ChartDimensions, ChartMargins } from '../types'
+import { useLatest } from './useLatest'
 
 interface UseChartCanvasOptions {
     margins: ChartMargins
@@ -47,10 +48,9 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null)
 
     // Keep margins behind a ref so the ResizeObserver effect can read the latest values
-    // without re-binding when only margins change. Re-binding the observer on every margin
-    // tweak risks a feedback loop when y-tick-width measurement triggers margin recompute.
-    const marginsRef = useRef(margins)
-    marginsRef.current = margins
+    // without re-binding when only margins change — re-binding risks a feedback loop with
+    // y-tick-width measurement.
+    const marginsRef = useLatest(margins)
     const rectRef = useRef<DOMRect | null>(null)
 
     // Attach the ResizeObserver once. updateSize reads margins from the ref; when margins

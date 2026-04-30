@@ -18071,7 +18071,11 @@ export namespace Schemas {
     }
 
     /**
-     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
      */
     export type GroupUsageMetricFilters = { [key: string]: unknown };
 
@@ -18130,7 +18134,11 @@ export namespace Schemas {
     * `number` - number
     * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
       filters: GroupUsageMetricFilters;
       /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
@@ -18138,7 +18146,7 @@ export namespace Schemas {
     * `sum` - sum */
       math?: MathEnum;
       /**
-       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
+       * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
        * @maxLength 255
        * @nullable
        */
@@ -20645,7 +20653,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `azure-blob` - Azure Blob
+     * * `apns` - Apple Push
+    * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
     * `customerio-app` - Customerio App
@@ -20683,6 +20692,7 @@ export namespace Schemas {
 
 
     export const IntegrationKindEnum = {
+      Apns: 'apns',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -27579,7 +27589,11 @@ export namespace Schemas {
     }
 
     /**
-     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
      */
     export type PatchedGroupUsageMetricFilters = { [key: string]: unknown };
 
@@ -27602,7 +27616,11 @@ export namespace Schemas {
     * `number` - number
     * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+    **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+    **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
       filters?: PatchedGroupUsageMetricFilters;
       /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
@@ -27610,7 +27628,7 @@ export namespace Schemas {
     * `sum` - sum */
       math?: MathEnum;
       /**
-       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
+       * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
        * @maxLength 255
        * @nullable
        */
@@ -35578,6 +35596,31 @@ export namespace Schemas {
       autostart_priority?: AutostartPriorityEnum | BlankEnum | NullEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface SlackChannel {
+      /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
+      id: string;
+      /** Slack channel name without the leading '#'. */
+      name: string;
+      /** True if the channel is private. */
+      is_private: boolean;
+      /** True if the PostHog Slack app is a member of the channel and can post to it. */
+      is_member: boolean;
+      /** True if the channel is shared with another Slack workspace. */
+      is_ext_shared: boolean;
+      /** True if the channel is private and the PostHog Slack app cannot access it. */
+      is_private_without_access: boolean;
+    }
+
+    export interface SlackChannelsResponse {
+      /** Slack channels visible to the PostHog Slack app. */
+      channels: SlackChannel[];
+      /**
+       * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+       * @nullable
+       */
+      lastRefreshedAt?: string | null;
     }
 
     /**
@@ -44748,6 +44791,48 @@ export namespace Schemas {
     };
 
     export type VisualReviewReposSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisualReviewRunsListParams = {
+    /**
+     * Filter by branch name
+     */
+    branch?: string;
+    /**
+     * Filter by full commit SHA
+     */
+    commit_sha?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by GitHub PR number
+     */
+    pr_number?: number;
+    /**
+     * Filter by review state
+     */
+    review_state?: string;
+    };
+
+    export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
     /**
      * Number of results to return per page.
      */

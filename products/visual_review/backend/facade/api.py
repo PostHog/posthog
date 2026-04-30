@@ -247,8 +247,22 @@ def _build_sparkline_day_keys(now) -> list[str]:
 # --- Run API ---
 
 
-def list_runs(team_id: int, review_state: str | None = None, repo_id: UUID | None = None) -> list[contracts.Run]:
-    runs = logic.list_runs_for_team(team_id, review_state=review_state, repo_id=repo_id)
+def list_runs(
+    team_id: int,
+    review_state: str | None = None,
+    repo_id: UUID | None = None,
+    pr_number: int | None = None,
+    commit_sha: str | None = None,
+    branch: str | None = None,
+) -> list[contracts.Run]:
+    runs = logic.list_runs_for_team(
+        team_id,
+        review_state=review_state,
+        repo_id=repo_id,
+        pr_number=pr_number,
+        commit_sha=commit_sha,
+        branch=branch,
+    )
     return [_to_run(r) for r in runs]
 
 
