@@ -33,6 +33,15 @@ RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
 }
 
+# Maps nested resource (e.g. CustomerPaymentMethod for /v1/customers/:id/payment_methods) to its
+# top-level parent (Customer). Used by validate_credentials to validate via the parent endpoint
+# since nested resources cannot be listed without a parent ID. Keep in sync with the
+# StripeNestedResource entries in get_rows.
+NESTED_RESOURCE_TO_PARENT: dict[str, str] = {
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: CUSTOMER_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: CUSTOMER_RESOURCE_NAME,
+}
+
 RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     ACCOUNT_RESOURCE_NAME: "account",
     BALANCE_TRANSACTION_RESOURCE_NAME: "transfer",

@@ -35,6 +35,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    NESTED_RESOURCE_TO_PARENT,
     PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
@@ -356,20 +357,9 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
 
-    # Nested resources (e.g. /v1/customers/:id/payment_methods) can't be listed without a parent
-    # customer ID, so we can't validate them with a top-level list call. Validate against the
-    # parent endpoint instead — it covers the customer scope they all share and avoids the
-    # "<resource> does not exist" branch below, which otherwise surfaces in the UI as a fake
-    # permission error every time someone toggles the sync method on one of these tables. The
-    # nested resource may still need additional scopes at sync time (e.g. rak_payment_method_read
-    # for /v1/customers/:id/payment_methods), but those will surface with a real 403 from the
-    # actual sync run instead of a misleading toast at setup.
-    NESTED_RESOURCE_PROXIES = {
-        CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: CUSTOMER_RESOURCE_NAME,
-        CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: CUSTOMER_RESOURCE_NAME,
-    }
-
-    # Test access to all resources we're pulling
+    # Test access to all resources we're pulling. Nested resources (e.g. /v1/customers/:id/payment_methods)
+    # can't be listed without a parent ID, so we resolve them to their parent via NESTED_RESOURCE_TO_PARENT
+    # below — same source of truth used by get_rows.
     resources_to_check = [
         {"name": ACCOUNT_RESOURCE_NAME, "method": client.accounts.list, "params": {"limit": 1}},
         {"name": BALANCE_TRANSACTION_RESOURCE_NAME, "method": client.balance_transactions.list, "params": {"limit": 1}},
@@ -391,7 +381,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
 
     # Resolve nested resource names to their parent before filtering — otherwise the filter
     # produces an empty list and we wrongly conclude the table "does not exist".
-    effective_table_name = NESTED_RESOURCE_PROXIES.get(table_name, table_name) if table_name else None
+    effective_table_name = NESTED_RESOURCE_TO_PARENT.get(table_name, table_name) if table_name else None
 
     if effective_table_name:
         resources_to_check = [r for r in resources_to_check if r.get("name") == effective_table_name]
