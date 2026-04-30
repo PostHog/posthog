@@ -500,7 +500,7 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
         if self.expires_at is None:
             raise ValueError("Cannot determine if object is expired: `expires_at` missing.")
 
-        return dt.datetime.now(dt.utc) > self.expires_at
+        return dt.datetime.now(dt.UTC) > self.expires_at
 
     def is_expired_or_close(self, threshold: dt.timedelta | int = dt.timedelta(hours=1)) -> bool:
         if self.is_expired():
