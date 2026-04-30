@@ -18,6 +18,7 @@ from hogli_commands.workflow_lint.checks import CHECKS, get_check
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
+from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, WorkflowReader
 
 
@@ -192,6 +193,24 @@ class TestPrConcurrencyCheck:
         )
         assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
 
+    def test_string_concurrency_counts_as_present(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "ci-foo.yml",
+            """
+            name: CI Foo
+            on: [pull_request]
+            concurrency: "${{ github.workflow }}-${{ github.head_ref || github.ref }}"
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
+
     def test_fails_without_concurrency(self, tmp_path: Path) -> None:
         _write(
             tmp_path,
@@ -210,6 +229,29 @@ class TestPrConcurrencyCheck:
         [issue] = PrConcurrencyCheck().run(_read_all(tmp_path)).issues
         assert issue.workflow == "ci-foo.yml"
         assert "concurrency" in issue.message
+
+    def test_fails_with_run_id_fallback(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "ci-foo.yml",
+            """
+            name: CI Foo
+            on: [pull_request]
+            concurrency:
+              group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+              cancel-in-progress: true
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        [issue] = PrConcurrencyCheck().run(_read_all(tmp_path)).issues
+        assert issue.workflow == "ci-foo.yml"
+        assert "github.run_id" in issue.message
+        assert "github.ref" in issue.message
 
     def test_skips_non_ci_prefix(self, tmp_path: Path) -> None:
         _write(
@@ -357,6 +399,75 @@ class TestDornyNegationCheck:
             """,
         )
         assert DornyNegationCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# SemgrepServicesCoverageCheck
+# ---------------------------------------------------------------------------
+
+
+class TestSemgrepServicesCoverageCheck:
+    def test_passes_when_all_services_are_covered(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        repo_root = tmp_path
+        (repo_root / "hogli.yaml").write_text("quality: {}\n")
+        (repo_root / "services" / "api").mkdir(parents=True)
+        (repo_root / "services" / "worker").mkdir()
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-security.yaml",
+            """
+            name: Security
+            on: [pull_request]
+            jobs:
+              semgrep-python:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: |
+                      semgrep scan services/api/
+                      semgrep scan services/worker/
+              semgrep-js:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        monkeypatch.setenv("HOGLI_MANIFEST", str(repo_root / "hogli.yaml"))
+        assert SemgrepServicesCoverageCheck().run(_read_all(workflows_dir)).issues == []
+
+    def test_fails_when_a_service_is_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        repo_root = tmp_path
+        (repo_root / "hogli.yaml").write_text("quality: {}\n")
+        (repo_root / "services" / "api").mkdir(parents=True)
+        (repo_root / "services" / "worker").mkdir()
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-security.yaml",
+            """
+            name: Security
+            on: [pull_request]
+            jobs:
+              semgrep-python:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: semgrep scan services/api/
+              semgrep-js:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        monkeypatch.setenv("HOGLI_MANIFEST", str(repo_root / "hogli.yaml"))
+        [issue] = SemgrepServicesCoverageCheck().run(_read_all(workflows_dir)).issues
+        assert issue.workflow == "ci-security.yaml"
+        assert "services/worker/" in issue.message
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ Docs: https://github.com/dorny/paths-filter#advanced-options
 from __future__ import annotations
 
 from ..check import CheckResult, Issue, WorkflowCheck
-from ..model import Workflow, _parse_filters
+from ..model import Workflow, parse_filters
 
 DORNY_PREFIX = "dorny/paths-filter@"
 DOCS_URL = "https://github.com/dorny/paths-filter#advanced-options"
@@ -39,7 +39,7 @@ class DornyNegationCheck(WorkflowCheck):
                         continue
                     if step.with_ is None:
                         continue
-                    filters = _parse_filters(step.with_.get("filters"))
+                    filters = parse_filters(step.with_.get("filters"))
                     if filters is None:
                         continue
                     quantifier = step.with_.get("predicate-quantifier")

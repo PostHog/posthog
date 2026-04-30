@@ -89,7 +89,7 @@ class Workflow:
     path: Path
     name: str
     on: object  # str | list | dict — original form, with the True-key quirk normalized away
-    concurrency: dict | None
+    concurrency: dict | str | None
     jobs: list[Job] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
@@ -115,7 +115,7 @@ def _normalize_on(data: dict) -> object:
     return data.get("on")
 
 
-def _parse_filters(raw: object) -> dict | None:
+def parse_filters(raw: object) -> dict | None:
     """Parse `dorny/paths-filter` `with.filters`. Returns None for non-dict / external-path strings."""
     if isinstance(raw, dict):
         return raw
@@ -194,7 +194,7 @@ def _build_workflow(path: Path) -> Workflow | None:
         path=path,
         name=str(data.get("name") or path.name),
         on=_normalize_on(data),
-        concurrency=concurrency if isinstance(concurrency, dict) else None,
+        concurrency=concurrency if isinstance(concurrency, (dict, str)) else None,
         jobs=jobs,
         raw=data,
     )
@@ -224,6 +224,6 @@ __all__ = [
     "Workflow",
     "WorkflowParseError",
     "WorkflowReader",
-    "_parse_filters",
+    "parse_filters",
     "find_repo_root",
 ]
