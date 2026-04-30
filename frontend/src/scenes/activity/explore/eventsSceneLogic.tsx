@@ -15,6 +15,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
@@ -62,6 +63,10 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                     iconType: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({ settings_section: 'project-product-analytics' }),
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({

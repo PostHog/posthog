@@ -26,20 +26,6 @@ export const activityFiltersForScene = (sceneConfig: SceneConfig | null): SidePa
     return null
 }
 
-export const settingsSectionForScene = (context: SidePanelSceneContext | null): SidePanelSceneContext | null => {
-    if (context?.settings_section) {
-        return null
-    }
-
-    const path = removeProjectIdIfPresent(router.values.currentLocation.pathname)
-
-    if (path.startsWith('/activity/')) {
-        return { settings_section: 'project-product-analytics' }
-    }
-
-    return null
-}
-
 export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelContextLogic']),
     connect(() => ({
@@ -72,7 +58,6 @@ export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
                 return {
                     ...context,
                     ...(!context?.activity_scope ? activityFiltersForScene(sceneConfig) : {}),
-                    ...settingsSectionForScene(context),
                 }
             },
             { resultEqualityCheck: objectsEqual },

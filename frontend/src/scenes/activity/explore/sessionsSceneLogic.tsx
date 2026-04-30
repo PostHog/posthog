@@ -14,6 +14,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, Breadcrumb } from '~/types'
 
@@ -44,6 +45,10 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
                     iconType: sceneConfigurations[Scene.ExploreSessions].iconType || 'default_icon_type',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({ settings_section: 'project-product-analytics' }),
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({
