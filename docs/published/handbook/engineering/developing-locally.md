@@ -158,7 +158,7 @@ By default, `hogli start` runs interactively with a terminal UI (phrocs) that di
 hogli up -d
 ```
 
-`hogli up -d` is the preferred command for detached mode (`hogli start -d` is an equivalent alias). It starts all services in the background and returns once the IPC socket is bound. Detached mode is useful for:
+This starts all services in the background and returns once the IPC socket is bound. `hogli start -d` is also available as an equivalent. Detached mode is useful for:
 
 - Coder workspaces and remote development environments
 - CI pipelines and automated testing
@@ -167,7 +167,7 @@ hogli up -d
 **Companion commands:**
 
 - `hogli wait` – blocks until all services are ready (useful in scripts)
-- `hogli down` – gracefully stops the detached stack (preferred; `hogli stop` is an equivalent alias)
+- `hogli down` – gracefully stops the detached stack (`hogli stop` is also available as an equivalent)
 
 ### Manual setup
 

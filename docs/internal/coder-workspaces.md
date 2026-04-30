@@ -29,12 +29,12 @@ See the upstream [Coder Tasks docs](https://coder.com/docs/ai-coder/tasks) for t
 Start the PostHog dev stack in the background without an interactive terminal:
 
 ```bash
-hogli up -d          # start in detached mode (preferred)
+hogli up -d          # start in detached mode
 hogli wait           # block until all services are ready
-hogli down           # gracefully stop the stack (preferred)
+hogli down           # gracefully stop the stack
 ```
 
-`hogli up -d` and `hogli down` are the preferred commands for detached workflows; `hogli start -d` and `hogli stop` are equivalent aliases. This is useful when you want to run the dev stack as a background process while using your terminal for other work, or when launching from scripts and automation.
+`hogli start -d` and `hogli stop` are also available as equivalents. This is useful when you want to run the dev stack as a background process while using your terminal for other work, or when launching from scripts and automation.
 
 **Sharing a workspace** —
 Grant a teammate access for pair debugging or to pick up where you left off:
