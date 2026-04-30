@@ -19,6 +19,8 @@ Design notes:
   test patches the narrowest layer it needs.
 """
 
+from collections.abc import Mapping
+
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -163,7 +165,7 @@ class _FakeFetch:
     Each value is either a FetchResult or an exception instance.
     """
 
-    def __init__(self, behaviours: dict[str, url_fetch.FetchResult | Exception]) -> None:
+    def __init__(self, behaviours: Mapping[str, url_fetch.FetchResult | Exception]) -> None:
         self.behaviours = behaviours
         self.etags_seen: dict[str, str | None] = {}
 
@@ -186,7 +188,7 @@ def _ok(url: str, body: bytes) -> url_fetch.FetchResult:
 class TestCreateCrawlSource(APIBaseTest):
     def test_happy_path_indexes_all_discovered_pages(self) -> None:
         sitemap = _sitemap_xml(["https://example.com/a", "https://example.com/b", "https://example.com/c"])
-        behaviours: dict[str, object] = {
+        behaviours: dict[str, url_fetch.FetchResult | Exception] = {
             "https://example.com/a": _ok("https://example.com/a", b"<html><body>Alpha paragraph.</body></html>"),
             "https://example.com/b": _ok("https://example.com/b", b"<html><body>Beta paragraph.</body></html>"),
             "https://example.com/c": _ok("https://example.com/c", b"<html><body>Gamma paragraph.</body></html>"),
@@ -231,7 +233,7 @@ class TestCreateCrawlSource(APIBaseTest):
 class TestRefreshCrawlSource(APIBaseTest):
     def _seed(self, sitemap_urls: list[str]) -> KnowledgeSource:
         sitemap = _sitemap_xml(sitemap_urls)
-        behaviours: dict[str, object] = {
+        behaviours: dict[str, url_fetch.FetchResult | Exception] = {
             url: _ok(url, f"<html><body>body of {url}</body></html>".encode()) for url in sitemap_urls
         }
         with (
@@ -387,8 +389,8 @@ class TestChunkIdIsolation(APIBaseTest):
         # Same URL, same body → same chunker output. Pre-fix: PRIMARY KEY
         # collision on the second source's bulk_create.
         body = b"<html><body>Shared paragraph content.</body></html>"
-        behaviours_a: dict[str, object] = {"https://example.com/shared": _ok("https://example.com/shared", body)}
-        behaviours_b: dict[str, object] = {"https://example.com/shared": _ok("https://example.com/shared", body)}
+        behaviours_a = {"https://example.com/shared": _ok("https://example.com/shared", body)}
+        behaviours_b = {"https://example.com/shared": _ok("https://example.com/shared", body)}
 
         with (
             patch.object(discover, "_http_get_text", return_value=sitemap_a),
