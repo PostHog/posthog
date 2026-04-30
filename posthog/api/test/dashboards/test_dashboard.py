@@ -770,6 +770,191 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert body["id"] == dashboard_id
         assert DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted is True
 
+    def test_layout_patch_succeeds_on_dashboard_with_mixed_tile_state(self):
+        """
+        Coverage for layout edits on a dashboard with a realistic mix of tile states:
+        alive insight tiles with proper sm layouts, alive insight tiles whose layouts
+        are still ``{}``, tiles whose underlying insight has been soft-deleted (cascade
+        soft-deletes the tile row), tiles soft-deleted directly, plus a text and button
+        tile with empty layouts.
+
+        The frontend's saveEditModeChanges sends ``{id, layouts: {sm: ...}}`` for every
+        VISIBLE tile (i.e. tiles returned by GET, which excludes soft-deleted rows and
+        rows pointing at soft-deleted insights). The PATCH must succeed AND the new
+        layouts must actually be persisted.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "mixed-tile-state"})
+
+        # 5 alive insight tiles that we will give proper sm layouts.
+        with_layout_insight_ids: list[int] = []
+        for i in range(5):
+            insight_id, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": f"test-{i}"}, "dashboards": [dashboard_id], "name": f"with-layout-{i}"}
+            )
+            with_layout_insight_ids.append(insight_id)
+
+        # 3 alive insight tiles whose layouts stay {} (creation default).
+        for i in range(3):
+            self.dashboard_api.create_insight(
+                {"filters": {"hello": f"empty-{i}"}, "dashboards": [dashboard_id], "name": f"empty-layout-{i}"}
+            )
+
+        # 2 tiles whose insight gets soft-deleted -> tile cascades to deleted=True
+        for i in range(2):
+            insight_id, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": f"cascade-{i}"}, "dashboards": [dashboard_id], "name": f"cascade-{i}"}
+            )
+            self.dashboard_api.soft_delete(insight_id, "insights")
+
+        # 2 tiles soft-deleted directly via PATCH (insight stays alive)
+        for i in range(2):
+            insight_id, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": f"direct-{i}"}, "dashboards": [dashboard_id], "name": f"direct-{i}"}
+            )
+            tile_to_remove = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+            self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_to_remove.id, "deleted": True}]})
+
+        # 1 text tile and 1 button tile, both with empty layouts
+        self.dashboard_api.create_text_tile(dashboard_id, text="hello")
+        self.dashboard_api.create_button_tile(dashboard_id, url="https://example.com", text="click")
+
+        # Sanity: persist {} layouts on the empty-layout insight tiles (creation default is {})
+        for tile in DashboardTile.objects.filter(dashboard_id=dashboard_id):
+            assert isinstance(tile.layouts, dict)
+
+        # Set realistic sm layouts on the first 5 insight tiles
+        for y, insight_id in enumerate(with_layout_insight_ids):
+            tile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+            tile.layouts = {
+                "sm": {
+                    "h": 5,
+                    "i": str(tile.id),
+                    "w": 6,
+                    "x": 0,
+                    "y": y * 5,
+                    "minH": 2,
+                    "minW": 2,
+                    "moved": False,
+                    "static": False,
+                }
+            }
+            tile.save()
+
+        # Fetch the dashboard like the frontend does, then send the same shape PATCH
+        dashboard_response = self.dashboard_api.get_dashboard(dashboard_id)
+        visible_tiles = dashboard_response["tiles"]
+        assert len(visible_tiles) == 5 + 3 + 1 + 1, "GET should hide soft-deleted and cascade-deleted tiles"
+
+        # Mirror frontend saveEditModeChanges: layouts: tile.layouts?.sm ? {sm: tile.layouts.sm} : {}
+        layouts_payload = []
+        expected_layouts_by_tile_id: dict[int, dict] = {}
+        for idx, tile in enumerate(visible_tiles):
+            sm = (tile.get("layouts") or {}).get("sm")
+            if sm:
+                # Move it slightly to simulate a real edit
+                new_sm = {**sm, "y": sm["y"] + 1}
+            else:
+                # Frontend just resized this previously-empty tile
+                new_sm = {
+                    "h": 5,
+                    "i": str(tile["id"]),
+                    "w": 6,
+                    "x": 0,
+                    "y": 100 + idx,
+                    "minH": 2,
+                    "minW": 2,
+                    "moved": False,
+                    "static": False,
+                }
+            new_layouts = {"sm": new_sm}
+            layouts_payload.append({"id": tile["id"], "layouts": new_layouts})
+            expected_layouts_by_tile_id[tile["id"]] = new_layouts
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": layouts_payload},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, (
+            f"expected 200, got {response.status_code} body={response.content[:500]}"
+        )
+
+        # Crucial: assert the helper actually wrote the new layouts. Without this, the test
+        # would still pass if `_update_existing_tile_display_fields` silently no-op'd everything.
+        for tile_id, expected_layouts in expected_layouts_by_tile_id.items():
+            persisted = DashboardTile.objects.get(id=tile_id)
+            assert persisted.layouts == expected_layouts, (
+                f"tile {tile_id} layouts not persisted — expected {expected_layouts}, got {persisted.layouts}"
+            )
+
+    @parameterized.expand(
+        [
+            ("tile_belongs_to_another_dashboard",),
+            ("tile_id_does_not_exist_anywhere",),
+        ]
+    )
+    def test_layout_patch_silently_skips_unknown_tile_id(self, scenario: str) -> None:
+        """
+        Regression: the layout-only branch of ``_update_tiles`` was using ``update_or_create``,
+        which silently fell through to INSERT when the (id, dashboard) pair didn't match an
+        existing row. The INSERT carried no insight/text/button_tile FK and tripped the partial
+        CHECK constraint ``dash_tile_exactly_one_related_object``, returning a generic 500.
+
+        Two real-world ways this triggers in production:
+          - ``tile_belongs_to_another_dashboard``: cross-dashboard kea state contamination —
+            the frontend posts a tile id that exists, but on a different dashboard.
+          - ``tile_id_does_not_exist_anywhere``: the tile was hard-deleted or never existed.
+
+        In both cases the bad id must be silently skipped while the rest of the payload saves.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "target"})
+        valid_insight, _ = self.dashboard_api.create_insight(
+            {"filters": {"hello": "valid"}, "dashboards": [dashboard_id], "name": "valid"}
+        )
+        valid_tile = DashboardTile.objects.get(insight_id=valid_insight, dashboard_id=dashboard_id)
+
+        stranger_tile: DashboardTile | None = None
+        stranger_layouts_before: dict | None = None
+        stranger_dashboard_before: int | None = None
+        if scenario == "tile_belongs_to_another_dashboard":
+            other_dashboard, _ = self.dashboard_api.create_dashboard({"name": "other"})
+            stranger_insight, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": "stranger"}, "dashboards": [other_dashboard], "name": "stranger"}
+            )
+            stranger_tile = DashboardTile.objects.get(insight_id=stranger_insight, dashboard_id=other_dashboard)
+            unknown_tile_id = stranger_tile.id
+            stranger_layouts_before = dict(stranger_tile.layouts)
+            stranger_dashboard_before = stranger_tile.dashboard_id
+        else:
+            unknown_tile_id = 99_999_999
+
+        new_layouts = {"sm": {"h": 7, "i": str(valid_tile.id), "w": 8, "x": 1, "y": 2, "minH": 2, "minW": 2}}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {
+                "tiles": [
+                    {"id": valid_tile.id, "layouts": new_layouts},
+                    {"id": unknown_tile_id, "layouts": {"sm": {"x": 99, "y": 99, "w": 1, "h": 1}}},
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content[:500]
+
+        valid_tile.refresh_from_db()
+        assert valid_tile.layouts == new_layouts, "valid tile layouts should have been saved"
+
+        if stranger_tile is not None:
+            stranger_tile.refresh_from_db()
+            assert stranger_tile.layouts == stranger_layouts_before, "stranger tile must NOT be touched"
+            assert stranger_tile.dashboard_id == stranger_dashboard_before, (
+                "stranger tile must NOT be moved to the target dashboard"
+            )
+        else:
+            assert not DashboardTile.objects_including_soft_deleted.filter(id=unknown_tile_id).exists(), (
+                "unknown id must not have created a new row"
+            )
+
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
         insight_id, _ = self.dashboard_api.create_insight(

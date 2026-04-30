@@ -461,6 +461,63 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('beforeUnmount disposes tracked Monaco models', () => {
+        function createTrackedModel(): { model: any; dispose: jest.Mock } {
+            const dispose = jest.fn()
+            const model = {
+                dispose,
+                isDisposed: () => false,
+                codeEditorLogic: { sentinel: true },
+            }
+            return { model, dispose }
+        }
+
+        it('clears codeEditorLogic and calls dispose on every tracked model when the logic unmounts', () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            const tracked = [createTrackedModel(), createTrackedModel()]
+            logic.cache.createdModels = tracked.map((t) => t.model)
+
+            logic.unmount()
+            logic = undefined as any
+
+            for (const { model, dispose } of tracked) {
+                expect(model.codeEditorLogic).toBeUndefined()
+                expect(dispose).toHaveBeenCalledTimes(1)
+            }
+        })
+
+        it('clears codeEditorLogic even when model.dispose throws', () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            const dispose = jest.fn(() => {
+                throw new Error('already disposed')
+            })
+            const model: any = {
+                dispose,
+                isDisposed: () => false,
+                codeEditorLogic: { sentinel: true },
+            }
+            logic.cache.createdModels = [model]
+
+            logic.unmount()
+            logic = undefined as any
+
+            expect(model.codeEditorLogic).toBeUndefined()
+            expect(dispose).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('getDisplayTypeToSaveInsight', () => {
         it.each([
             {

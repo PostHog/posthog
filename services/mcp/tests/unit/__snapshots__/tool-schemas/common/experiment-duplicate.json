@@ -111,50 +111,44 @@
                                                         ]
                                                     },
                                                     "operator": {
-                                                        "anyOf": [
-                                                            {
-                                                                "enum": [
-                                                                    "exact",
-                                                                    "is_not",
-                                                                    "icontains",
-                                                                    "not_icontains",
-                                                                    "regex",
-                                                                    "not_regex",
-                                                                    "gt",
-                                                                    "gte",
-                                                                    "lt",
-                                                                    "lte",
-                                                                    "is_set",
-                                                                    "is_not_set",
-                                                                    "is_date_exact",
-                                                                    "is_date_before",
-                                                                    "is_date_after",
-                                                                    "between",
-                                                                    "not_between",
-                                                                    "min",
-                                                                    "max",
-                                                                    "in",
-                                                                    "not_in",
-                                                                    "is_cleaned_path_exact",
-                                                                    "flag_evaluates_to",
-                                                                    "semver_eq",
-                                                                    "semver_neq",
-                                                                    "semver_gt",
-                                                                    "semver_gte",
-                                                                    "semver_lt",
-                                                                    "semver_lte",
-                                                                    "semver_tilde",
-                                                                    "semver_caret",
-                                                                    "semver_wildcard",
-                                                                    "icontains_multi",
-                                                                    "not_icontains_multi"
-                                                                ],
-                                                                "type": "string"
-                                                            },
-                                                            {
-                                                                "type": "null"
-                                                            }
-                                                        ]
+                                                        "default": "exact",
+                                                        "enum": [
+                                                            "exact",
+                                                            "is_not",
+                                                            "icontains",
+                                                            "not_icontains",
+                                                            "regex",
+                                                            "not_regex",
+                                                            "gt",
+                                                            "gte",
+                                                            "lt",
+                                                            "lte",
+                                                            "is_set",
+                                                            "is_not_set",
+                                                            "is_date_exact",
+                                                            "is_date_before",
+                                                            "is_date_after",
+                                                            "between",
+                                                            "not_between",
+                                                            "min",
+                                                            "max",
+                                                            "in",
+                                                            "not_in",
+                                                            "is_cleaned_path_exact",
+                                                            "flag_evaluates_to",
+                                                            "semver_eq",
+                                                            "semver_neq",
+                                                            "semver_gt",
+                                                            "semver_gte",
+                                                            "semver_lt",
+                                                            "semver_lte",
+                                                            "semver_tilde",
+                                                            "semver_caret",
+                                                            "semver_wildcard",
+                                                            "icontains_multi",
+                                                            "not_icontains_multi"
+                                                        ],
+                                                        "type": "string"
                                                     },
                                                     "type": {
                                                         "default": "event",
@@ -307,50 +301,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -413,7 +401,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For retention metrics: completion event."
                             },
                             "conversion_window": {
                                 "anyOf": [
@@ -475,50 +464,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -581,7 +564,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For ratio metrics: denominator source."
                             },
                             "goal": {
                                 "anyOf": [
@@ -592,7 +576,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "Whether higher or lower values indicate success."
                             },
                             "kind": {
                                 "default": "ExperimentMetric",
@@ -663,50 +648,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -769,7 +748,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For ratio metrics: numerator source."
                             },
                             "retention_window_end": {
                                 "anyOf": [
@@ -852,50 +832,44 @@
                                                                         ]
                                                                     },
                                                                     "operator": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "enum": [
-                                                                                    "exact",
-                                                                                    "is_not",
-                                                                                    "icontains",
-                                                                                    "not_icontains",
-                                                                                    "regex",
-                                                                                    "not_regex",
-                                                                                    "gt",
-                                                                                    "gte",
-                                                                                    "lt",
-                                                                                    "lte",
-                                                                                    "is_set",
-                                                                                    "is_not_set",
-                                                                                    "is_date_exact",
-                                                                                    "is_date_before",
-                                                                                    "is_date_after",
-                                                                                    "between",
-                                                                                    "not_between",
-                                                                                    "min",
-                                                                                    "max",
-                                                                                    "in",
-                                                                                    "not_in",
-                                                                                    "is_cleaned_path_exact",
-                                                                                    "flag_evaluates_to",
-                                                                                    "semver_eq",
-                                                                                    "semver_neq",
-                                                                                    "semver_gt",
-                                                                                    "semver_gte",
-                                                                                    "semver_lt",
-                                                                                    "semver_lte",
-                                                                                    "semver_tilde",
-                                                                                    "semver_caret",
-                                                                                    "semver_wildcard",
-                                                                                    "icontains_multi",
-                                                                                    "not_icontains_multi"
-                                                                                ],
-                                                                                "type": "string"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ]
+                                                                        "default": "exact",
+                                                                        "enum": [
+                                                                            "exact",
+                                                                            "is_not",
+                                                                            "icontains",
+                                                                            "not_icontains",
+                                                                            "regex",
+                                                                            "not_regex",
+                                                                            "gt",
+                                                                            "gte",
+                                                                            "lt",
+                                                                            "lte",
+                                                                            "is_set",
+                                                                            "is_not_set",
+                                                                            "is_date_exact",
+                                                                            "is_date_before",
+                                                                            "is_date_after",
+                                                                            "between",
+                                                                            "not_between",
+                                                                            "min",
+                                                                            "max",
+                                                                            "in",
+                                                                            "not_in",
+                                                                            "is_cleaned_path_exact",
+                                                                            "flag_evaluates_to",
+                                                                            "semver_eq",
+                                                                            "semver_neq",
+                                                                            "semver_gt",
+                                                                            "semver_gte",
+                                                                            "semver_lt",
+                                                                            "semver_lte",
+                                                                            "semver_tilde",
+                                                                            "semver_caret",
+                                                                            "semver_wildcard",
+                                                                            "icontains_multi",
+                                                                            "not_icontains_multi"
+                                                                        ],
+                                                                        "type": "string"
                                                                     },
                                                                     "type": {
                                                                         "default": "event",
@@ -1012,50 +986,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -1118,7 +1086,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For mean metrics: event source."
                             },
                             "start_event": {
                                 "anyOf": [
@@ -1169,50 +1138,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -1275,7 +1238,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For retention metrics: start event."
                             },
                             "start_handling": {
                                 "anyOf": [
@@ -1366,50 +1330,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -1472,7 +1430,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For retention metrics: completion event."
                             },
                             "conversion_window": {
                                 "anyOf": [
@@ -1534,50 +1493,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -1640,7 +1593,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For ratio metrics: denominator source."
                             },
                             "goal": {
                                 "anyOf": [
@@ -1651,7 +1605,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "Whether higher or lower values indicate success."
                             },
                             "kind": {
                                 "default": "ExperimentMetric",
@@ -1722,50 +1677,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -1828,7 +1777,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For ratio metrics: numerator source."
                             },
                             "retention_window_end": {
                                 "anyOf": [
@@ -1911,50 +1861,44 @@
                                                                         ]
                                                                     },
                                                                     "operator": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "enum": [
-                                                                                    "exact",
-                                                                                    "is_not",
-                                                                                    "icontains",
-                                                                                    "not_icontains",
-                                                                                    "regex",
-                                                                                    "not_regex",
-                                                                                    "gt",
-                                                                                    "gte",
-                                                                                    "lt",
-                                                                                    "lte",
-                                                                                    "is_set",
-                                                                                    "is_not_set",
-                                                                                    "is_date_exact",
-                                                                                    "is_date_before",
-                                                                                    "is_date_after",
-                                                                                    "between",
-                                                                                    "not_between",
-                                                                                    "min",
-                                                                                    "max",
-                                                                                    "in",
-                                                                                    "not_in",
-                                                                                    "is_cleaned_path_exact",
-                                                                                    "flag_evaluates_to",
-                                                                                    "semver_eq",
-                                                                                    "semver_neq",
-                                                                                    "semver_gt",
-                                                                                    "semver_gte",
-                                                                                    "semver_lt",
-                                                                                    "semver_lte",
-                                                                                    "semver_tilde",
-                                                                                    "semver_caret",
-                                                                                    "semver_wildcard",
-                                                                                    "icontains_multi",
-                                                                                    "not_icontains_multi"
-                                                                                ],
-                                                                                "type": "string"
-                                                                            },
-                                                                            {
-                                                                                "type": "null"
-                                                                            }
-                                                                        ]
+                                                                        "default": "exact",
+                                                                        "enum": [
+                                                                            "exact",
+                                                                            "is_not",
+                                                                            "icontains",
+                                                                            "not_icontains",
+                                                                            "regex",
+                                                                            "not_regex",
+                                                                            "gt",
+                                                                            "gte",
+                                                                            "lt",
+                                                                            "lte",
+                                                                            "is_set",
+                                                                            "is_not_set",
+                                                                            "is_date_exact",
+                                                                            "is_date_before",
+                                                                            "is_date_after",
+                                                                            "between",
+                                                                            "not_between",
+                                                                            "min",
+                                                                            "max",
+                                                                            "in",
+                                                                            "not_in",
+                                                                            "is_cleaned_path_exact",
+                                                                            "flag_evaluates_to",
+                                                                            "semver_eq",
+                                                                            "semver_neq",
+                                                                            "semver_gt",
+                                                                            "semver_gte",
+                                                                            "semver_lt",
+                                                                            "semver_lte",
+                                                                            "semver_tilde",
+                                                                            "semver_caret",
+                                                                            "semver_wildcard",
+                                                                            "icontains_multi",
+                                                                            "not_icontains_multi"
+                                                                        ],
+                                                                        "type": "string"
                                                                     },
                                                                     "type": {
                                                                         "default": "event",
@@ -2071,50 +2015,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -2177,7 +2115,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For mean metrics: event source."
                             },
                             "start_event": {
                                 "anyOf": [
@@ -2228,50 +2167,44 @@
                                                                     ]
                                                                 },
                                                                 "operator": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "enum": [
-                                                                                "exact",
-                                                                                "is_not",
-                                                                                "icontains",
-                                                                                "not_icontains",
-                                                                                "regex",
-                                                                                "not_regex",
-                                                                                "gt",
-                                                                                "gte",
-                                                                                "lt",
-                                                                                "lte",
-                                                                                "is_set",
-                                                                                "is_not_set",
-                                                                                "is_date_exact",
-                                                                                "is_date_before",
-                                                                                "is_date_after",
-                                                                                "between",
-                                                                                "not_between",
-                                                                                "min",
-                                                                                "max",
-                                                                                "in",
-                                                                                "not_in",
-                                                                                "is_cleaned_path_exact",
-                                                                                "flag_evaluates_to",
-                                                                                "semver_eq",
-                                                                                "semver_neq",
-                                                                                "semver_gt",
-                                                                                "semver_gte",
-                                                                                "semver_lt",
-                                                                                "semver_lte",
-                                                                                "semver_tilde",
-                                                                                "semver_caret",
-                                                                                "semver_wildcard",
-                                                                                "icontains_multi",
-                                                                                "not_icontains_multi"
-                                                                            ],
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "null"
-                                                                        }
-                                                                    ]
+                                                                    "default": "exact",
+                                                                    "enum": [
+                                                                        "exact",
+                                                                        "is_not",
+                                                                        "icontains",
+                                                                        "not_icontains",
+                                                                        "regex",
+                                                                        "not_regex",
+                                                                        "gt",
+                                                                        "gte",
+                                                                        "lt",
+                                                                        "lte",
+                                                                        "is_set",
+                                                                        "is_not_set",
+                                                                        "is_date_exact",
+                                                                        "is_date_before",
+                                                                        "is_date_after",
+                                                                        "between",
+                                                                        "not_between",
+                                                                        "min",
+                                                                        "max",
+                                                                        "in",
+                                                                        "not_in",
+                                                                        "is_cleaned_path_exact",
+                                                                        "flag_evaluates_to",
+                                                                        "semver_eq",
+                                                                        "semver_neq",
+                                                                        "semver_gt",
+                                                                        "semver_gte",
+                                                                        "semver_lt",
+                                                                        "semver_lte",
+                                                                        "semver_tilde",
+                                                                        "semver_caret",
+                                                                        "semver_wildcard",
+                                                                        "icontains_multi",
+                                                                        "not_icontains_multi"
+                                                                    ],
+                                                                    "type": "string"
                                                                 },
                                                                 "type": {
                                                                     "default": "event",
@@ -2334,7 +2267,8 @@
                                     {
                                         "type": "null"
                                     }
-                                ]
+                                ],
+                                "description": "For retention metrics: start event."
                             },
                             "start_handling": {
                                 "anyOf": [
