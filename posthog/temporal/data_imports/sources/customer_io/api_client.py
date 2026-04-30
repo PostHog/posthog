@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
 )
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.customer_io.constants import (
     CIO_AUTO_WEBHOOK_NAME,
     CIO_EU_BASE_URL,
@@ -42,6 +43,16 @@ def _auth_headers(api_key: str) -> dict[str, str]:
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+
+
+def _session(api_key: str) -> requests.Session:
+    """Tracked `requests.Session` with auth headers pre-bound.
+
+    The session inherits HTTP logging, OTel metrics, and opt-in sample
+    capture from `make_tracked_session` — everything the warehouse-source
+    transport gives us.
+    """
+    return make_tracked_session(headers=_auth_headers(api_key))
 
 
 def _events_for_resources(resource_names: list[str]) -> list[str]:
@@ -86,7 +97,7 @@ def validate_credentials(api_key: str, region: str | None) -> tuple[bool, str | 
     """
     url = f"{_base_url(region)}{WORKSPACES_PATH}"
     try:
-        response = requests.get(url, headers=_auth_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
+        response = _session(api_key).get(url, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
     except requests.HTTPError as e:
         return False, _format_http_error(e)
@@ -107,13 +118,15 @@ def iterate_list_endpoint(
     """
 
     base = f"{_base_url(region)}{endpoint.path}"
-    headers = _auth_headers(api_key)
+    # One tracked session for the whole pagination loop so urllib3 keeps the
+    # TLS connection warm across cursor pages.
+    session = _session(api_key)
     params: dict[str, Any] = {}
     if endpoint.cursor_param and endpoint.page_size is not None:
         params["limit"] = endpoint.page_size
 
     while True:
-        response = requests.get(base, headers=headers, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(base, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
         payload = response.json() or {}
 
@@ -135,7 +148,7 @@ def iterate_list_endpoint(
 
 def _list_webhooks(api_key: str, region: str | None) -> list[dict[str, Any]]:
     url = f"{_base_url(region)}{REPORTING_WEBHOOKS_PATH}"
-    response = requests.get(url, headers=_auth_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
+    response = _session(api_key).get(url, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
     payload = response.json() or {}
     raw = payload.get("reporting_webhooks") or []
@@ -193,9 +206,8 @@ def create_webhook(
             # finish setup by entering the signing key.
             return WebhookCreationResult(success=True, pending_inputs=["signing_secret"])
 
-        response = requests.post(
+        response = _session(api_key).post(
             url,
-            headers=_auth_headers(api_key),
             json=body,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
@@ -229,7 +241,7 @@ def delete_webhook(api_key: str, region: str | None, webhook_url: str) -> Webhoo
             )
 
         url = f"{_base_url(region)}{REPORTING_WEBHOOKS_PATH}/{webhook_id}"
-        response = requests.delete(url, headers=_auth_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
+        response = _session(api_key).delete(url, timeout=REQUEST_TIMEOUT_SECONDS)
         if response.status_code == 404:
             return WebhookDeletionResult(success=True)
         response.raise_for_status()
