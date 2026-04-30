@@ -60,7 +60,6 @@ class _DocsSearchUnavailable(APIException):
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
     serializer_class = _FallbackSerializer
-    scope_object_read_actions = ["docs_search"]
 
     renderer_classes = [SafeJSONRenderer]
 
@@ -87,7 +86,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         ),
         operation_id="docs_search",
     )
-    @action(detail=False, methods=["POST"], url_path="docs_search")
+    @action(detail=False, methods=["POST"], url_path="docs_search", required_scopes=["project:read"])
     def docs_search(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         if not settings.INKEEP_API_KEY:
             raise _DocsSearchUnavailable()
