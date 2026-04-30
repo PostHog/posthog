@@ -109,6 +109,27 @@ describe('trendsChartTransforms', () => {
             const built = buildMainTrendsSeries(makeResult({ label: null }), 0, { getColor: () => RED })
             expect(built.main.label).toBe('')
         })
+
+        it('keeps index 0 on the default y-axis even when showMultipleYAxes is true', () => {
+            const built = buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED, showMultipleYAxes: true })
+            expect(built.main.yAxisId).toBe(DEFAULT_Y_AXIS_ID)
+        })
+
+        it('skips the dashed tail when incompletenessOffsetFromEnd is 0', () => {
+            const built = buildMainTrendsSeries(makeResult({ data: [1, 2, 3] }), 0, {
+                getColor: () => RED,
+                incompletenessOffsetFromEnd: 0,
+            })
+            expect(built.dashedFromIndex).toBeUndefined()
+        })
+
+        it('passes the result index through to getColor and buildMeta', () => {
+            const getColor = jest.fn(() => RED)
+            const buildMeta = jest.fn(() => ({}))
+            buildMainTrendsSeries(makeResult(), 7, { getColor, buildMeta })
+            expect(getColor).toHaveBeenCalledWith(expect.anything(), 7)
+            expect(buildMeta).toHaveBeenCalledWith(expect.anything(), 7)
+        })
     })
 
     describe('buildTrendsSeries', () => {
