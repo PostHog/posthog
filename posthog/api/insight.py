@@ -1225,10 +1225,11 @@ class InsightViewSet(
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
 
+    def _is_basic_request(self) -> bool:
+        return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0")
-        ):
+        if self._is_basic_request():
             return InsightBasicSerializer
         if self.action in ("create", "partial_update") and self._is_mcp_request(self.request):
             return MCPInsightSerializer
@@ -1267,28 +1268,46 @@ class InsightViewSet(
         if not include_deleted:
             queryset = queryset.exclude(deleted=True)
 
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                # TODO deprecate this field entirely
-                "dashboards",
-                queryset=Dashboard.objects.all().select_related("team__organization"),
-            ),
-            Prefetch(
-                "dashboard_tiles",
-                queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
-            ),
-            Prefetch(
-                "alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
-                to_attr="_prefetched_alerts",
-            ),
-        )
+        # InsightBasicSerializer skips alerts and only needs PKs from dashboards plus
+        # (id, dashboard_id, deleted) from tiles, so the heavy team→organization joins
+        # the full serializer relies on are pure waste on the basic path.
+        is_basic = self._is_basic_request()
+
+        if is_basic:
+            queryset = queryset.prefetch_related(
+                Prefetch("dashboards", queryset=Dashboard.objects.only("id")),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
+                ),
+            )
+        else:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    # TODO deprecate this field entirely
+                    "dashboards",
+                    queryset=Dashboard.objects.all().select_related("team__organization"),
+                ),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
+                ),
+                Prefetch(
+                    "alertconfiguration_set",
+                    queryset=AlertConfiguration.objects.select_related("created_by"),
+                    to_attr="_prefetched_alerts",
+                ),
+            )
 
         # Add access level filtering for list actions if not sharing access token
         if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             queryset = self._filter_queryset_by_access_level(queryset)
 
-        queryset = queryset.select_related("created_by", "last_modified_by", "team")
+        if is_basic:
+            queryset = queryset.select_related("created_by", "team")
+        else:
+            queryset = queryset.select_related("created_by", "last_modified_by", "team")
+
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
