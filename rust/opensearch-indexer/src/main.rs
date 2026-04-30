@@ -1,12 +1,11 @@
-use std::sync::Arc;
 use std::time::Duration;
 
+use lifecycle::{ComponentOptions, Manager};
 use opensearch_indexer::{api::root_router, app_context::AppContext, config::Config};
 use serve_metrics::setup_metrics_routes;
 use tokio::net::TcpListener;
-use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -28,78 +27,36 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::init_with_defaults()?;
     let bind = format!("{}:{}", config.host, config.port);
 
-    let context = Arc::new(AppContext::new(config).await?);
+    let _context = AppContext::new(config).await?;
 
-    info!(
-        "Subscribed to topic: {}",
-        context.config.consumer.kafka_consumer_topic
+    let mut manager = Manager::builder("opensearch-indexer")
+        .with_global_shutdown_timeout(Duration::from_secs(60))
+        .build();
+
+    let http_handle = manager.register(
+        "http_server",
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(10))
+            .is_observability(true),
     );
 
-    let shutdown = CancellationToken::new();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
 
-    // Stage A placeholder: keep the indexer health component fresh until Stage B's
-    // work loop takes over reporting. The HealthHandle deadline is 60s; we tick
-    // well inside that.
-    let heartbeat_ctx = context.clone();
-    let heartbeat_shutdown = shutdown.clone();
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(15));
-        loop {
-            tokio::select! {
-                _ = ticker.tick() => heartbeat_ctx.indexer_handle.report_healthy().await,
-                _ = heartbeat_shutdown.cancelled() => break,
-            }
-        }
-    });
+    let guard = manager.monitor_background();
 
-    let app = root_router(context.liveness.clone());
+    let app = root_router(readiness, liveness);
     let app = setup_metrics_routes(app);
 
     info!(address = %bind, "HTTP server starting");
     let listener = TcpListener::bind(&bind).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(http_handle.shutdown_signal())
+        .await?;
+    http_handle.work_completed();
 
-    let server_shutdown = shutdown.clone();
-    let server = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                server_shutdown.cancelled().await;
-            })
-            .await
-        {
-            warn!("HTTP server exited with error: {e}");
-        }
-    });
-
-    // Stage A: no work loop yet. Just wait for SIGINT/SIGTERM and exit.
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            info!("Received SIGINT, shutting down");
-        }
-        _ = wait_for_sigterm() => {
-            info!("Received SIGTERM, shutting down");
-        }
-    }
-
-    shutdown.cancel();
-    if let Err(e) = server.await {
-        warn!("HTTP server task join error: {e}");
-    }
+    guard.wait().await?;
 
     info!("opensearch-indexer stopped");
     Ok(())
-}
-
-#[cfg(unix)]
-async fn wait_for_sigterm() {
-    use tokio::signal::unix::{signal, SignalKind};
-    if let Ok(mut term) = signal(SignalKind::terminate()) {
-        term.recv().await;
-    } else {
-        std::future::pending::<()>().await;
-    }
-}
-
-#[cfg(not(unix))]
-async fn wait_for_sigterm() {
-    std::future::pending::<()>().await;
 }

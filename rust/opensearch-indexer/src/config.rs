@@ -34,7 +34,7 @@ pub struct Config {
     #[envconfig(default = "50")]
     pub metric_team_label_topn: usize,
 
-    // Daily-floor sampling defaults (overridable per-team via Redis at runtime; see Stage D).
+    // Daily-floor sampling defaults; overridable per-team via Redis at runtime.
     #[envconfig(default = "10000")]
     pub default_floor: u64,
 
@@ -47,29 +47,37 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct TeamIdSet(pub HashSet<i32>);
+pub struct TeamIdSet {
+    pub teams: HashSet<i32>,
+}
+
+impl TeamIdSet {
+    pub fn contains(&self, id: i32) -> bool {
+        self.teams.contains(&id)
+    }
+}
 
 impl FromStr for TeamIdSet {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut set = HashSet::new();
+        let mut teams = HashSet::new();
         for raw in s.split(',') {
             let trimmed = raw.trim();
             if trimmed.is_empty() {
                 continue;
             }
-            set.insert(trimmed.parse()?);
+            teams.insert(trimmed.parse()?);
         }
-        Ok(TeamIdSet(set))
+        Ok(TeamIdSet { teams })
     }
 }
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        // Default to clickhouse_events_json with a `event LIKE '$ai_*'` filter applied
-        // at parse time. Stage 5 of the POC swaps this to clickhouse_ai_events_json
-        // by overriding KAFKA_CONSUMER_TOPIC at deploy time — no code change needed.
+        // Defaults to clickhouse_events_json with an `event LIKE '$ai_*'` filter applied
+        // at parse time. Override KAFKA_CONSUMER_TOPIC at deploy time to switch topics
+        // without a code change.
         ConsumerConfig::set_defaults("opensearch-indexer", "clickhouse_events_json", true);
         Config::init_from_env()
     }
@@ -82,12 +90,25 @@ mod tests {
     #[test]
     fn parses_team_id_set() {
         let set: TeamIdSet = "1,2, 3 ,,42".parse().unwrap();
-        assert_eq!(set.0, HashSet::from([1, 2, 3, 42]));
+        assert_eq!(set.teams, HashSet::from([1, 2, 3, 42]));
+        assert!(set.contains(3));
+        assert!(!set.contains(99));
     }
 
     #[test]
     fn empty_team_id_set() {
         let set: TeamIdSet = "".parse().unwrap();
-        assert!(set.0.is_empty());
+        assert!(set.teams.is_empty());
+    }
+
+    #[test]
+    fn whitespace_only_team_id_set() {
+        let set: TeamIdSet = " , , ".parse().unwrap();
+        assert!(set.teams.is_empty());
+    }
+
+    #[test]
+    fn rejects_non_numeric_team_id() {
+        assert!("1,abc,3".parse::<TeamIdSet>().is_err());
     }
 }
