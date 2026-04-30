@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { canonicalizeUiHost, toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -199,6 +200,34 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.uiHost).toBe('http://localhost:8000')
         })
+
+        it.each([
+            ['https://eu.i.posthog.com', 'https://eu.posthog.com'],
+            ['https://us.i.posthog.com', 'https://us.posthog.com'],
+        ])(
+            'strips the ingestion infix when requestRouter.uiHost leaks `.i.` (legacy posthog-js)',
+            (requestRouterUiHost, expected) => {
+                // Older posthog-js bundles passed the ingestion host through unchanged,
+                // sending the toolbar reachability HEAD to an endpoint that has no chance
+                // of succeeding.
+                const logic = toolbarConfigLogic.build({
+                    posthog: { requestRouter: { uiHost: requestRouterUiHost }, config: {} } as any,
+                } as any)
+                logic.mount()
+                expect(logic.values.uiHost).toBe(expected)
+            }
+        )
+
+        it('treats a stripped ingestion host as a trusted Cloud host', () => {
+            // After stripping, `eu.i.posthog.com` resolves to `eu.posthog.com`, which is
+            // in the trusted Cloud set — so we should skip the confirm modal AND the HEAD.
+            const logic = toolbarConfigLogic.build({
+                posthog: { requestRouter: { uiHost: 'https://eu.i.posthog.com' }, config: {} } as any,
+            } as any)
+            logic.mount()
+            expect(logic.values.uiHost).toBe('https://eu.posthog.com')
+            expect(logic.values.isTrustedUiHost).toBe(true)
+        })
     })
 
     describe('authenticate confirm modal gating', () => {
@@ -348,6 +377,16 @@ describe('toolbar toolbarConfigLogic', () => {
             ['https://us.posthog.com:443', 'https://us.posthog.com'], // default port stripped
             ['https://us.posthog.com/some/path?q=1#hash', 'https://us.posthog.com'], // origin only
             ['http://localhost:8000', 'http://localhost:8000'],
+            // PostHog Cloud ingestion infix stripped — these are misconfigured uiHosts
+            // pointing at the ingestion endpoint instead of the app.
+            ['https://eu.i.posthog.com', 'https://eu.posthog.com'],
+            ['https://us.i.posthog.com', 'https://us.posthog.com'],
+            ['https://us.i.posthog.com/', 'https://us.posthog.com'],
+            ['HTTPS://EU.I.POSTHOG.COM', 'https://eu.posthog.com'],
+            // Not an ingestion-host pattern — leave untouched.
+            ['https://i.posthog.com', 'https://i.posthog.com'], // no region label
+            ['https://eu.i.posthog.com.evil.com', 'https://eu.i.posthog.com.evil.com'], // different domain
+            ['https://customer.i.posthog.example.com', 'https://customer.i.posthog.example.com'],
             // rejected (returns null)
             ['', null],
             [undefined, null],
@@ -360,6 +399,74 @@ describe('toolbar toolbarConfigLogic', () => {
             ['//protocol-relative.example.com', null],
         ])('canonicalizeUiHost(%p) === %p', (input, expected) => {
             expect(canonicalizeUiHost(input as any)).toBe(expected)
+        })
+    })
+
+    describe('uiHost reachability check error capture', () => {
+        let captureExceptionSpy: jest.SpyInstance
+
+        // Filter to only the captureException calls that came from verifyUiHostReachability.
+        // Unrelated callers (e.g. token-exchange paths fired by earlier tests' lingering
+        // microtasks) also funnel through toolbarPosthogJS.captureException and would
+        // otherwise pollute these assertions.
+        function uiHostCheckCalls(): unknown[][] {
+            return captureExceptionSpy.mock.calls.filter(
+                (c) => (c[1] as Record<string, unknown> | undefined)?.toolbar_context === 'ui_host_check'
+            )
+        }
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        it('does not capture an exception for network/CORS failures (expected misconfiguration)', async () => {
+            // TypeError covers both network unreachable and CORS rejection — the most
+            // common failure mode and the entire reason this skip exists.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(uiHostCheckCalls()).toHaveLength(0)
+        })
+
+        it('does not capture an exception for timeouts (expected for slow/unreachable hosts)', async () => {
+            const abortError = new DOMException('aborted', 'AbortError')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(abortError))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(uiHostCheckCalls()).toHaveLength(0)
+        })
+
+        it('captures an exception for HTTP errors (likelier to indicate a real PostHog-side issue)', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 500 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            const calls = uiHostCheckCalls()
+            expect(calls).toHaveLength(1)
+            expect(calls[0][1]).toMatchObject({
+                toolbar_context: 'ui_host_check',
+                error_type: 'http_error',
+            })
+        })
+
+        it('captures an exception for unknown error shapes', async () => {
+            // Plain Error (not a TypeError, AbortError, or HTTP-shaped Error) hits the unknown bucket.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('something weird')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            const calls = uiHostCheckCalls()
+            expect(calls).toHaveLength(1)
+            expect(calls[0][1]).toMatchObject({
+                toolbar_context: 'ui_host_check',
+                error_type: 'unknown',
+            })
         })
     })
 

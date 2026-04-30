@@ -369,6 +369,13 @@ export function isPostHogCloudHost(uiHost: string): boolean {
  * - URLs with userinfo like `https://us.posthog.com@evil.com` — these display
  *   misleadingly in confirmation dialogs where a hurried user may skim for "us.posthog.com"
  *
+ * Also strips the `.i.` ingestion infix from PostHog Cloud hostnames
+ * (`{region}.i.posthog.com` → `{region}.posthog.com`). The ingestion endpoint
+ * does not host the toolbar app and CORS-rejects the reachability HEAD, so any
+ * candidate that resolves to it is a misconfiguration. Modern posthog-js strips
+ * the infix in `requestRouter.uiHost`; older bundles or explicit `ui_host` /
+ * `apiURL` props can still leak it through.
+ *
  * Using `.origin` ensures stored-vs-current comparisons are normalization-insensitive
  * (handles trailing slashes, case differences, default ports).
  */
@@ -384,11 +391,20 @@ export function canonicalizeUiHost(candidate: string | undefined | null): string
         if (parsed.username || parsed.password) {
             return null
         }
+        if (POSTHOG_INGESTION_HOST_PATTERN.test(parsed.hostname)) {
+            parsed.hostname = parsed.hostname.replace(/\.i\.posthog\.com$/, '.posthog.com')
+        }
         return parsed.origin
     } catch {
         return null
     }
 }
+
+// Matches PostHog Cloud ingestion hosts like `eu.i.posthog.com` / `us.i.posthog.com`
+// (a single non-empty region label, no extra subdomains). Bare `i.posthog.com` and
+// nested forms like `foo.i.posthog.com.evil.com` are intentionally not matched —
+// the latter is a different domain entirely and the former isn't an ingestion host.
+const POSTHOG_INGESTION_HOST_PATTERN = /^[a-z0-9-]+\.i\.posthog\.com$/
 
 // ---------------------------------------------------------------------------
 // afterMount helpers — extracted to keep the mount handler readable
@@ -589,13 +605,24 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // network_or_cors and timeout are expected for misconfigured uiHosts —
+            // the openUiHostConfigModal flow already recovers from them and the
+            // `toolbar ui host check` event with status='error' records them for
+            // analysis. Capturing them as $exceptions floods error tracking with
+            // self-inflicted noise (thousands per week from a long tail of customer
+            // reverse-proxies and stale ingestion-host configs) without surfacing a
+            // real bug. http_error and unknown stay captured because they typically
+            // indicate a real PostHog-side or unexpected failure mode.
+            if (errorType === 'http_error' || errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
