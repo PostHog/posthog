@@ -179,6 +179,15 @@ export interface ExperimentLogicProps {
 
 export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
 
+export type LastRefreshState = 'in_progress' | 'completed' | 'errored'
+
+export interface LastRefreshSnapshot {
+    refresh_id: string
+    triggered_by: ExperimentTriggeredBy
+    started_at: number
+    state: LastRefreshState
+}
+
 function generateRefreshId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
@@ -694,6 +703,14 @@ export const experimentLogic = kea<experimentLogicType>([
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
         }),
+        markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
+            refreshId,
+            triggeredBy,
+        }),
+        markRefreshCompleted: (refreshId: string, hasErrors: boolean) => ({
+            refreshId,
+            hasErrors,
+        }),
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
@@ -857,6 +874,23 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        lastRefresh: [
+            null as LastRefreshSnapshot | null,
+            {
+                markRefreshStarted: (_, { refreshId, triggeredBy }) => ({
+                    refresh_id: refreshId,
+                    triggered_by: triggeredBy,
+                    started_at: Date.now(),
+                    state: 'in_progress',
+                }),
+                markRefreshCompleted: (state, { refreshId, hasErrors }) => {
+                    if (!state || state.refresh_id !== refreshId) {
+                        return state
+                    }
+                    return { ...state, state: hasErrors ? 'errored' : 'completed' }
+                },
             },
         ],
         experiment: [
@@ -1630,18 +1664,24 @@ export const experimentLogic = kea<experimentLogicType>([
             cache.refreshSummariesById = cache.refreshSummariesById ?? {}
             cache.refreshSummariesById[refreshId] = summaries
 
+            actions.markRefreshStarted(refreshId, triggeredBy)
+
             // Start 10s timer to offer browser notifications
             clearTimeout(cache.notificationOfferTimer)
             cache.notificationOfferTimer = setTimeout(() => {
                 actions.setShowNotificationOffer(true)
             }, 10_000)
 
+            let caughtError = false
             try {
                 await Promise.all([
                     asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
                     asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
                     asyncActions.loadExposures(forceRefresh),
                 ])
+            } catch (error) {
+                caughtError = true
+                throw error
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
                 const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
@@ -1686,6 +1726,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
                     }
                 )
+
+                actions.markRefreshCompleted(refreshId, caughtError || erroredCount > 0)
 
                 // Clear notification offer timer
                 clearTimeout(cache.notificationOfferTimer)
@@ -2334,6 +2376,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             triggered_by: 'auto-refresh',
                             auto_refresh_enabled: values.autoRefresh.enabled,
                             auto_refresh_interval: values.autoRefresh.interval,
+                            previous_refresh: values.lastRefresh,
                         })
                         actions.refreshExperimentResults(true, 'auto_refresh')
                     }, values.autoRefresh.interval * 1000)

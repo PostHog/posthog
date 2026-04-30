@@ -38,6 +38,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         isSingleVariantShipped,
         shippedVariantKey,
         autoRefresh,
+        lastRefresh: lastRefreshSnapshot,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
@@ -222,6 +223,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             triggered_by: 'manual',
                                             auto_refresh_enabled: autoRefresh.enabled,
                                             auto_refresh_interval: autoRefresh.interval,
+                                            previous_refresh: lastRefreshSnapshot,
                                         })
                                         refreshExperimentResults(true, 'manual')
                                     }}

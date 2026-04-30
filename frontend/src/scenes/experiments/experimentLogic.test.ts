@@ -307,6 +307,58 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('lastRefresh tracking', () => {
+        beforeEach(() => {
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: experimentMetricResultsSuccessJson.query_status,
+                        },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+        })
+
+        it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
+            logic.actions.setExperiment(experiment)
+
+            const promise = logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            await expectLogic(logic).toDispatchActions(['markRefreshStarted'])
+            expect(logic.values.lastRefresh).toMatchObject({
+                state: 'in_progress',
+                triggered_by: 'manual',
+            })
+            expect(logic.values.lastRefresh?.refresh_id).toEqual(expect.any(String))
+
+            await promise
+
+            expect(logic.values.lastRefresh).toMatchObject({
+                state: 'completed',
+                triggered_by: 'manual',
+            })
+        })
+
+        it('keeps refresh_id stable across the start/complete transition', async () => {
+            logic.actions.setExperiment(experiment)
+
+            const promise = logic.asyncActions.refreshExperimentResults(true, 'manual')
+            await expectLogic(logic).toDispatchActions(['markRefreshStarted'])
+            const startedId = logic.values.lastRefresh?.refresh_id
+
+            await promise
+
+            expect(logic.values.lastRefresh?.refresh_id).toBe(startedId)
+            expect(logic.values.lastRefresh?.state).toBe('completed')
+        })
+    })
+
     describe('removeSharedMetricFromExperiment', () => {
         beforeEach(() => {
             jest.spyOn(api, 'update')
