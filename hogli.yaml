@@ -210,7 +210,7 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Main entry point that launches all dev services via phrocs/mprocs
+        description: Launch all dev services via phrocs (interactive TUI, or `-d` for detached mode)
         services:
             - phrocs
             - mprocs
@@ -225,6 +225,21 @@ start:
             - kafka
             - clickhouse
             - temporal
+    up:
+        bin_script: start
+        description: Alias for `hogli start`; use `-d` for optional detached mode
+    wait:
+        cmd: phrocs wait
+        description: Block until the detached dev stack is ready
+        preserve_exit_code: true
+    stop:
+        cmd: phrocs stop
+        description: Stop the detached dev stack gracefully
+        preserve_exit_code: true
+    down:
+        cmd: phrocs stop
+        description: Alias for `hogli stop`
+        preserve_exit_code: true
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload

@@ -105,9 +105,90 @@
             ],
             "description": "Survey appearance customization."
         },
+        "conditions": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "deviceTypes": {
+                            "description": "Device types that should match for this survey to be shown.",
+                            "items": {
+                                "description": "* `Desktop` - Desktop\n* `Mobile` - Mobile\n* `Tablet` - Tablet",
+                                "enum": ["Desktop", "Mobile", "Tablet"],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "deviceTypesMatchType": {
+                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
+                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+                            "type": "string"
+                        },
+                        "events": {
+                            "properties": {
+                                "repeatedActivation": {
+                                    "description": "Whether to show the survey every time one of the events is triggered (true), or just once (false).",
+                                    "type": "boolean"
+                                },
+                                "values": {
+                                    "description": "Array of event names that trigger the survey.",
+                                    "items": {
+                                        "properties": {
+                                            "name": {
+                                                "description": "Event name that triggers the survey.",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["name"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "linkedFlagVariant": {
+                            "description": "The variant of the feature flag linked to this survey.",
+                            "type": "string"
+                        },
+                        "seenSurveyWaitPeriodInDays": {
+                            "description": "Don't show this survey to users who saw any survey in the last x days.",
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        "selector": {
+                            "type": "string"
+                        },
+                        "url": {
+                            "type": "string"
+                        },
+                        "urlMatchType": {
+                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).\n\n* `regex` - regex\n* `not_regex` - not_regex\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains",
+                            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Display and targeting conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms."
+        },
         "description": {
             "description": "Survey description.",
             "type": "string"
+        },
+        "enable_iframe_embedding": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks for iframe embedding."
         },
         "enable_partial_responses": {
             "anyOf": [
@@ -119,6 +200,15 @@
                 }
             ],
             "description": "When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false)."
+        },
+        "form_content": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional hosted-form content configuration for external_survey forms. Only include this when the user explicitly asks to customize the hosted form content beyond the standard question flow."
         },
         "iteration_count": {
             "anyOf": [
@@ -155,7 +245,7 @@
                     "type": "null"
                 }
             ],
-            "description": "The feature flag linked to this survey."
+            "description": "Feature flag ID linked to this survey. Use only when the user explicitly wants the survey linked to a feature flag. Resolve the flag ID first, preferably with SQL in v2."
         },
         "name": {
             "description": "Survey name.",
@@ -550,7 +640,7 @@
                     "type": "null"
                 }
             ],
-            "description": "\n        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.\n\n        Basic (open-ended question)\n        - `id`: The question ID\n        - `type`: `open`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Link (a question with a link)\n        - `id`: The question ID\n        - `type`: `link`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `link`: The URL associated with the question.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Rating (a question with a rating scale)\n        - `id`: The question ID\n        - `type`: `rating`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `display`: Display style of the rating (`number` or `emoji`).\n        - `scale`: The scale of the rating (`number`).\n        - `lowerBoundLabel`: Label for the lower bound of the scale.\n        - `upperBoundLabel`: Label for the upper bound of the scale.\n        - `isNpsQuestion`: Whether the question is an NPS rating.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Multiple choice\n        - `id`: The question ID\n        - `type`: `single_choice` or `multiple_choice`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `choices`: An array of choices for the question.\n        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).\n        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Branching logic can be one of the following types:\n\n        Next question: Proceeds to the next question\n        ```json\n        {\n            \"type\": \"next_question\"\n        }\n        ```\n\n        End: Ends the survey, optionally displaying a confirmation message.\n        ```json\n        {\n            \"type\": \"end\"\n        }\n        ```\n\n        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.\n        ```json\n        {\n            \"type\": \"response_based\",\n            \"responseValues\": {\n                \"responseKey\": \"value\"\n            }\n        }\n        ```\n\n        Specific question: Proceeds to a specific question by index.\n        ```json\n        {\n            \"type\": \"specific_question\",\n            \"index\": 2\n        }\n        ```\n\n        Translations: Each question can include inline translations.\n        - `translations`: Object mapping language codes to translated fields.\n        - Language codes: Any string - allows customers to use their own language keys (e.g., \"es\", \"es-MX\", \"english\", \"french\")\n        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`\n\n        Example with translations:\n        ```json\n        {\n            \"id\": \"uuid\",\n            \"type\": \"rating\",\n            \"question\": \"How satisfied are you?\",\n            \"lowerBoundLabel\": \"Not satisfied\",\n            \"upperBoundLabel\": \"Very satisfied\",\n            \"translations\": {\n                \"es\": {\n                    \"question\": \"¿Qué tan satisfecho estás?\",\n                    \"lowerBoundLabel\": \"No satisfecho\",\n                    \"upperBoundLabel\": \"Muy satisfecho\"\n                },\n                \"fr\": {\n                    \"question\": \"Dans quelle mesure êtes-vous satisfait?\"\n                }\n            }\n        }\n        ```\n        "
+            "description": "Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the user wants structured answers. Questions can include inline translations on each question."
         },
         "responses_limit": {
             "anyOf": [
@@ -563,6 +653,27 @@
             ],
             "description": "The maximum number of responses before automatically stopping the survey."
         },
+        "schedule": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `once` - once\n* `recurring` - recurring\n* `always` - always",
+                            "enum": ["once", "recurring", "always"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Survey scheduling behavior. Omit this to use the default once behavior. Use recurring only when the user explicitly asks for a repeated schedule."
+        },
         "start_date": {
             "anyOf": [
                 {
@@ -574,7 +685,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so."
+            "description": "Setting this launches the survey immediately. Leave unset unless the user explicitly asks to launch now."
         },
         "targeting_flag_filters": {
             "anyOf": [
@@ -1055,10 +1166,19 @@
                     "type": "null"
                 }
             ],
-            "description": "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}"
+            "description": "User targeting rules for in-app surveys. Use only when the user wants the survey shown to a subset of users. Do not use this for external_survey forms."
+        },
+        "translations": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional survey-level translations keyed by language code. Use for translated survey name, description, and thank-you message fields. Question text translations belong inside each question's translations object."
         },
         "type": {
-            "description": "Survey type.\n\n* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api",
+            "description": "Survey type. Use popover for most in-app surveys, widget for always-available feedback entrypoints, external_survey for hosted forms with a shareable public URL, and api only for headless custom implementations.",
             "enum": ["popover", "widget", "external_survey", "api"],
             "type": "string"
         }

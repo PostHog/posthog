@@ -24,7 +24,7 @@
   - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
-  - Start dev: `./bin/start`
+  - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
