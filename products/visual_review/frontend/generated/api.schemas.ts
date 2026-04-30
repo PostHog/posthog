@@ -439,3 +439,10 @@ export type VisualReviewRunsToleratedHashesListParams = {
      */
     offset?: number
 }
+
+export type VisualReviewRunsCountsRetrieveParams = {
+    /**
+     * Filter by repo UUID
+     */
+    repo_id?: string
+}

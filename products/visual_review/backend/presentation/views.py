@@ -341,11 +341,18 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(RunSerializer(instance=runs, many=True).data)
 
-    @extend_schema(responses={200: ReviewStateCountsSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("repo_id", str, required=False, description="Filter by repo UUID"),
+        ],
+        responses={200: ReviewStateCountsSerializer},
+    )
     @action(detail=False, methods=["get"])
     def counts(self, request: Request, **kwargs) -> Response:
-        """Review state counts for the runs list."""
-        return Response(api.get_review_state_counts(self.team_id))
+        """Review state counts for the runs list, optionally scoped to a repo."""
+        repo_id_param = request.query_params.get("repo_id")
+        repo_id = UUID(repo_id_param) if repo_id_param else None
+        return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
 
     @validated_request(
         request_serializer=CreateRunInputSerializer,

@@ -72,7 +72,9 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             { needs_review: 0, clean: 0, processing: 0, stale: 0 } as ReviewStateCountsApi,
             {
                 loadCounts: async () => {
-                    return await visualReviewRunsCountsRetrieve(String(values.currentProjectId))
+                    return await visualReviewRunsCountsRetrieve(String(values.currentProjectId), {
+                        repo_id: props.repoId,
+                    })
                 },
             },
         ],

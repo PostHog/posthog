@@ -44650,6 +44650,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type VisualReviewRunsCountsRetrieveParams = {
+    /**
+     * Filter by repo UUID
+     */
+    repo_id?: string;
+    };
+
     export type WarehouseModelPathsListParams = {
     /**
      * Number of results to return per page.

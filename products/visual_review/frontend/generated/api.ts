@@ -35,6 +35,7 @@ import type {
     VisualReviewReposListParams,
     VisualReviewReposQuarantineListParams,
     VisualReviewReposSnapshotsListParams,
+    VisualReviewRunsCountsRetrieveParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotsListParams,
     VisualReviewRunsToleratedHashesListParams,
@@ -534,17 +535,33 @@ export const visualReviewRunsToleratedHashesList = async (
 }
 
 /**
- * Review state counts for the runs list.
+ * Review state counts for the runs list, optionally scoped to a repo.
  */
-export const getVisualReviewRunsCountsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/visual_review/runs/counts/`
+export const getVisualReviewRunsCountsRetrieveUrl = (
+    projectId: string,
+    params?: VisualReviewRunsCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/runs/counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/runs/counts/`
 }
 
 export const visualReviewRunsCountsRetrieve = async (
     projectId: string,
+    params?: VisualReviewRunsCountsRetrieveParams,
     options?: RequestInit
 ): Promise<ReviewStateCountsApi> => {
-    return apiMutator<ReviewStateCountsApi>(getVisualReviewRunsCountsRetrieveUrl(projectId), {
+    return apiMutator<ReviewStateCountsApi>(getVisualReviewRunsCountsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
