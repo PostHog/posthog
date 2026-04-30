@@ -5895,8 +5895,9 @@ async fn test_shutdown_flush_lands_shadow_counter_in_redis() -> Result<()> {
     // the final flush to the shadow keyspace.
     server.shutdown_now();
 
-    // Poll for the counter to land. Generous timeout (5s) absorbs the
-    // graceful-drain window plus the shutdown flush.
+    // Poll for the counter to land. The helper polls for ~1s
+    // (40 × 25ms) — the graceful-drain window plus a single shutdown
+    // flush against a healthy local Redis is well under that.
     let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
     assert_eq!(
         counter, "1",

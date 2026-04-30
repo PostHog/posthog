@@ -1,6 +1,6 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    billing::BillingAggregator,
+    billing::{aggregator::classify_redis_error, BillingAggregator},
     flags::{
         flag_analytics::{increment_request_count, is_billable_flag_key},
         flag_models::FeatureFlagList,
@@ -61,6 +61,14 @@ pub async fn check_limits(
 ///
 /// Caller is responsible for the predicate (skip_writes, billable flags,
 /// etc.) — by the time this is called the request is known to be billable.
+///
+/// The shadow tee only fires when the synchronous write succeeds. Recording
+/// a request the production keyspace did not capture would surface as a
+/// false "aggregator over-counted" signal during reconciliation — masking
+/// any real over-count bug in the aggregator behind whatever Redis-error
+/// noise was happening at the same time. Tying the two writes together
+/// keeps the reconciliation invariant a strict equality: if shadow > prod
+/// and `flag_request_redis_error` is flat, the aggregator is the cause.
 pub async fn record_billing_increment(
     redis: Arc<dyn RedisClient + Send + Sync>,
     aggregator: Option<&Arc<BillingAggregator>>,
@@ -77,16 +85,26 @@ pub async fn record_billing_increment(
     // to call from every site.
     with_canonical_log(|log| log.billing_duration_ms = Some(elapsed_ms));
 
-    if let Err(e) = result {
-        inc(
-            FLAG_REQUEST_REDIS_ERROR,
-            &[("error".to_string(), e.to_string())],
-            1,
-        );
-    }
-
-    if let Some(aggregator) = aggregator {
-        aggregator.record(team_id, request_type, Some(library));
+    match result {
+        Ok(()) => {
+            if let Some(aggregator) = aggregator {
+                aggregator.record(team_id, request_type, Some(library));
+            }
+        }
+        Err(e) => {
+            // Bounded `error_type` label (e.g. "timeout"/"transport") —
+            // never the raw error message. The full `CustomRedisError::Display`
+            // can include unbounded transport details that would explode
+            // metric cardinality if used as a Prometheus label.
+            inc(
+                FLAG_REQUEST_REDIS_ERROR,
+                &[(
+                    "error_type".to_string(),
+                    classify_redis_error(&e).to_string(),
+                )],
+                1,
+            );
+        }
     }
 }
 

@@ -86,8 +86,11 @@ pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 // path from Redis timeouts.
 pub const FLAG_BILLING_INCREMENT_TIME: &str = "flags_billing_increment_time_ms";
 
-// Counter for Redis errors observed during the synchronous billing increment.
-// Labeled by `error`.
+// Counter for Redis errors observed during the synchronous billing
+// increment. Labeled by `error_type` ("timeout" | "transport" | "not_found"
+// | "parse" | "config") — same classification the billing flusher uses, so
+// breakdowns line up across both paths. The raw error message is never used
+// as a label (cardinality risk).
 pub const FLAG_REQUEST_REDIS_ERROR: &str = "flag_request_redis_error";
 
 // Billing aggregator metrics
@@ -98,8 +101,12 @@ pub const FLAG_REQUEST_REDIS_ERROR: &str = "flag_request_redis_error";
 //                                + flags_billing_unflushed_requests_total{cause="shutdown_drop"}
 //                                + flags_billing_pending_records (the residual still in `pending`)
 // should hold per pod over any window. The `redis_error` cause is omitted
-// from this identity because requeued entries eventually flush or land in
-// `shutdown_drop` — they aren't lost at the moment the error fires.
+// from this identity because it only fires under `BailOnError` (normal
+// ticks): the affected entries are requeued and eventually flush or land
+// in `shutdown_drop`, so they aren't lost at the moment the error fires.
+// Under `BestEffort` (shutdown) the same chunk failures are recorded only
+// as `flush_dropped_on_error`, so summing `redis_error` with the other
+// causes for a total-loss figure does not double-count.
 
 // Counter, labeled by `request_type` ("decide" | "flag_definitions").
 pub const FLAGS_BILLING_RECORDS: &str = "flags_billing_records_total";
@@ -161,11 +168,14 @@ pub const FLAGS_BILLING_FLUSH_ERRORS: &str = "flags_billing_flush_errors_total";
 //   - "shutdown_drop": entries lost during shutdown because the final flush
 //     timed out or panicked. SIGKILL past the grace window lands here.
 //   - "redis_error": affected-request count for chunks that hit a Redis
-//     error during a normal-tick flush. Under `BailOnError`, this includes
-//     the failing chunk plus the unattempted remainder so the rate reflects
-//     all requests blocked by the error, not just the chunk that hit it.
-//     These records are typically requeued and retried, so this label is
-//     an "incident magnitude" signal rather than a terminal-loss signal.
+//     error during a normal-tick flush. Only emitted under `BailOnError`:
+//     includes the failing chunk plus the unattempted remainder so the
+//     rate reflects all requests blocked by the error, not just the chunk
+//     that hit it. These records are requeued and retried, so this label
+//     is an "incident magnitude" signal rather than a terminal-loss
+//     signal. Suppressed under `BestEffort` (shutdown) where the same
+//     counts terminally land in `flush_dropped_on_error` — emitting both
+//     would double-count when summing causes for a total-loss figure.
 pub const FLAGS_BILLING_UNFLUSHED_REQUESTS: &str = "flags_billing_unflushed_requests_total";
 
 // Flag evaluation timing

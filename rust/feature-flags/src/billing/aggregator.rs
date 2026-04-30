@@ -556,7 +556,7 @@ async fn flush_chunk(
             ChunkOutcome::Ok
         }
         Err(e) => {
-            record_chunk_error(&e, chunk_counts);
+            record_chunk_error(&e, chunk_counts, policy);
             match policy {
                 FlushPolicy::BailOnError => {
                     requeue.append(chunk_entries);
@@ -830,20 +830,18 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     inner.in_flight_uncredited.store(0, Ordering::Relaxed);
 }
 
-/// Emit `FLUSH_ERRORS` (1 per failed chunk, classified by error type) and
-/// `unflushed_requests_total{cause="redis_error"}` (the aggregated request
-/// count this chunk represents) plus a warn-level log for a single failed
-/// chunk.
-///
-/// Use the classified `error_type` label on `FLUSH_ERRORS` for breakdowns;
-/// the raw error message is in the warn log, never on a metric label
-/// (unbounded cardinality risk).
+/// Emit `FLUSH_ERRORS` (1 per failed chunk, classified by `error_type`) and
+/// — under `BailOnError` only — `unflushed_requests_total{cause="redis_error"}`
+/// for the chunk's aggregated request count, plus a warn-level log carrying
+/// the raw error (never on a metric label — unbounded cardinality risk).
 ///
 /// `requests_in_chunk` is the count of records affected by this chunk's
-/// failure. The remainder under `BailOnError` is emitted separately in
-/// `flush_once` so the rate reflects all requests blocked by the error,
-/// not just the chunk that hit it.
-fn record_chunk_error(e: &CustomRedisError, requests_in_chunk: u64) {
+/// failure. Under `BailOnError`, `flush_once` separately emits the same cause
+/// for the unattempted remainder so the rate reflects all requests blocked by
+/// the error, not just the chunk that hit it. See the
+/// `FLAGS_BILLING_UNFLUSHED_REQUESTS` cause docs in `metrics::consts` for why
+/// `redis_error` is suppressed on the `BestEffort` (shutdown) path.
+fn record_chunk_error(e: &CustomRedisError, requests_in_chunk: u64, policy: FlushPolicy) {
     inc(
         FLAGS_BILLING_FLUSH_ERRORS,
         &[(
@@ -852,7 +850,9 @@ fn record_chunk_error(e: &CustomRedisError, requests_in_chunk: u64) {
         )],
         1,
     );
-    inc_unflushed(UnflushedCause::RedisError, requests_in_chunk);
+    if policy == FlushPolicy::BailOnError {
+        inc_unflushed(UnflushedCause::RedisError, requests_in_chunk);
+    }
     tracing::warn!(
         error = %e,
         requests_in_chunk,
@@ -860,7 +860,7 @@ fn record_chunk_error(e: &CustomRedisError, requests_in_chunk: u64) {
     );
 }
 
-fn classify_redis_error(err: &CustomRedisError) -> &'static str {
+pub(crate) fn classify_redis_error(err: &CustomRedisError) -> &'static str {
     // Exhaustive on purpose: a new `CustomRedisError` variant should produce a
     // compile error here so a new error type gets a deliberate
     // `error_type` label rather than disappearing into "other".
@@ -957,6 +957,7 @@ mod tests {
         get_team_request_library_shadow_key, get_team_request_shadow_key,
     };
     use common_redis::{MockRedisClient, MockRedisValue};
+    use rstest::rstest;
 
     fn test_config() -> BillingAggregatorConfig {
         BillingAggregatorConfig {
@@ -1026,34 +1027,51 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_record_aggregates_duplicate_keys() {
+    #[rstest]
+    // Repeated record on the same key collapses into one entry with the summed count.
+    #[case::same_key_aggregates(
+        &[(1, Some(Library::PosthogJs)), (1, Some(Library::PosthogJs)), (1, Some(Library::PosthogJs))],
+        &[((1, Some(Library::PosthogJs)), 3)],
+    )]
+    // Same team but distinct libraries (including no library) split into separate keys.
+    #[case::distinct_libraries_split(
+        &[(1, Some(Library::PosthogJs)), (1, Some(Library::PosthogNode)), (1, None)],
+        &[
+            ((1, Some(Library::PosthogJs)), 1),
+            ((1, Some(Library::PosthogNode)), 1),
+            ((1, None), 1),
+        ],
+    )]
+    fn test_record_aggregation(
+        #[case] records: &[(i32, Option<Library>)],
+        #[case] expected_counts: &[((i32, Option<Library>), u64)],
+    ) {
         let (_, agg) = new_test_aggregator(test_config());
 
-        agg.record(1, FlagRequestType::Decide, Some(Library::PosthogJs));
-        agg.record(1, FlagRequestType::Decide, Some(Library::PosthogJs));
-        agg.record(1, FlagRequestType::Decide, Some(Library::PosthogJs));
+        for &(team_id, library) in records {
+            agg.record(team_id, FlagRequestType::Decide, library);
+        }
 
-        assert_eq!(agg.pending_len(), 1);
-        let key = AggregationKey {
-            team_id: 1,
-            request_type: FlagRequestType::Decide,
-            library: Some(Library::PosthogJs),
-            bucket: current_bucket(),
-        };
+        assert_eq!(
+            agg.pending_len(),
+            expected_counts.len(),
+            "pending_len must match number of expected distinct keys",
+        );
+        let bucket = current_bucket();
         let pending = agg.inner.pending.lock().unwrap();
-        assert_eq!(pending.get(&key).copied(), Some(3));
-    }
-
-    #[test]
-    fn test_record_distinct_libraries_are_separate_keys() {
-        let (_, agg) = new_test_aggregator(test_config());
-
-        agg.record(1, FlagRequestType::Decide, Some(Library::PosthogJs));
-        agg.record(1, FlagRequestType::Decide, Some(Library::PosthogNode));
-        agg.record(1, FlagRequestType::Decide, None);
-
-        assert_eq!(agg.pending_len(), 3);
+        for &((team_id, library), expected) in expected_counts {
+            let key = AggregationKey {
+                team_id,
+                request_type: FlagRequestType::Decide,
+                library,
+                bucket,
+            };
+            assert_eq!(
+                pending.get(&key).copied(),
+                Some(expected),
+                "team {team_id} library {library:?} count mismatch",
+            );
+        }
     }
 
     /// `pending_total` is maintained alongside `pending` so the metrics
@@ -1228,54 +1246,47 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_cap_drops_new_record_when_full() {
+    #[rstest]
+    // At cap, a new key (team 3) is dropped — the original two entries survive
+    // unchanged, and team 3 never appears in pending.
+    #[case::new_key_dropped_at_cap(3, &[(1, 1), (2, 1)])]
+    // At cap, an existing key (team 1) still increments — pending_len is
+    // unchanged but the count for team 1 grows.
+    #[case::existing_key_increments_at_cap(1, &[(1, 2), (2, 1)])]
+    fn test_cap_third_record(#[case] third_team: i32, #[case] expected_counts: &[(i32, u64)]) {
         let config = BillingAggregatorConfig {
             max_pending_entries: 2,
             ..test_config()
         };
         let (_, agg) = new_test_aggregator(config);
 
-        // Fill the map to the cap.
         agg.record(1, FlagRequestType::Decide, None);
         agg.record(2, FlagRequestType::Decide, None);
         assert_eq!(agg.pending_len(), 2);
+        agg.record(third_team, FlagRequestType::Decide, None);
 
-        // A record for a new key should be dropped, not evict an existing entry.
-        agg.record(3, FlagRequestType::Decide, None);
-        assert_eq!(agg.pending_len(), 2, "new key must be dropped at cap");
-
-        let pending = agg.inner.pending.lock().unwrap();
-        assert!(pending.keys().any(|k| k.team_id == 1));
-        assert!(pending.keys().any(|k| k.team_id == 2));
-        assert!(
-            !pending.keys().any(|k| k.team_id == 3),
-            "team 3 should have been capped out"
+        // Length-equals-expected implicitly verifies that no extra team
+        // (e.g. a capped-out team 3) snuck in.
+        assert_eq!(
+            agg.pending_len(),
+            expected_counts.len(),
+            "cap must hold pending_len at max_pending_entries",
         );
-    }
-
-    #[test]
-    fn test_cap_allows_existing_key_increment() {
-        let config = BillingAggregatorConfig {
-            max_pending_entries: 2,
-            ..test_config()
-        };
-        let (_, agg) = new_test_aggregator(config);
-
-        agg.record(1, FlagRequestType::Decide, None);
-        agg.record(2, FlagRequestType::Decide, None);
-        // Already-present key — must still increment even at cap.
-        agg.record(1, FlagRequestType::Decide, None);
-
+        let bucket = current_bucket();
         let pending = agg.inner.pending.lock().unwrap();
-        assert_eq!(pending.len(), 2);
-        let key_1 = AggregationKey {
-            team_id: 1,
-            request_type: FlagRequestType::Decide,
-            library: None,
-            bucket: current_bucket(),
-        };
-        assert_eq!(pending.get(&key_1).copied(), Some(2));
+        for &(team_id, expected) in expected_counts {
+            let key = AggregationKey {
+                team_id,
+                request_type: FlagRequestType::Decide,
+                library: None,
+                bucket,
+            };
+            assert_eq!(
+                pending.get(&key).copied(),
+                Some(expected),
+                "team {team_id} count mismatch",
+            );
+        }
     }
 
     #[tokio::test]
