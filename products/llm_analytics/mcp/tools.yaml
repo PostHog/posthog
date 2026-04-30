@@ -14,10 +14,10 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
-    evaluations-update:
+    llma-evaluations-update:
         operation: evaluations_update
         enabled: false
-    llm-analytics-evaluation-reports-update:
+    llma-evaluation-reports-update:
         operation: llm_analytics_evaluation_reports_update
         enabled: false
     llma-clustering-config-retrieve:
