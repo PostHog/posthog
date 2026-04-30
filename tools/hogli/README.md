@@ -117,6 +117,8 @@ my:command:
 
 For complex logic, create Python commands using Click. Two layouts are supported — pick based on how many commands you have.
 
+The directory name is yours to choose. PostHog uses `hogli-commands` (and the examples below follow that). One constraint: it **must not** be named `hogli`, since that shadows the installed framework and your commands will be silently ignored.
+
 ### Minimal: single file (recommended for most repos)
 
 A handful of commands needs nothing more than one `commands.py`:
@@ -125,20 +127,18 @@ A handful of commands needs nothing more than one `commands.py`:
 your-repo/
 ├── hogli.yaml
 └── tools/
-    └── hogli-ext/
+    └── hogli-commands/
         └── commands.py
 ```
 
 ```yaml
 # hogli.yaml
 config:
-  commands_dir: tools/hogli-ext
+  commands_dir: tools/hogli-commands
 ```
 
-The directory can live anywhere `hogli.yaml` can reference — `tools/hogli-ext/` fits a monorepo with a `tools/` convention, but a top-level `hogli-ext/` or any other path works equally well.
-
 ```python
-# tools/hogli-ext/commands.py
+# tools/hogli-commands/commands.py
 import click
 from hogli.cli import cli
 
@@ -153,18 +153,18 @@ def db_migrate(dry_run: bool) -> None:
         pass
 ```
 
-> **Note:** `commands_dir` must not be named `hogli` — that shadows the installed framework package and your `commands.py` will be silently ignored.
+The directory can live anywhere `hogli.yaml` can reference — `tools/hogli-commands/` fits a monorepo with a `tools/` convention, but a top-level `hogli-commands/` or any other path works equally well.
 
 ### Full: package with submodules (for larger surfaces)
 
-When commands grow past one file and need to import each other, promote to a package. Add an `__init__.py` and split commands into submodules; `commands.py` becomes the registration entry point that imports them for side-effects:
+When commands grow past one file and need to import each other, promote to a package. Add an inner `hogli_commands/` directory with `__init__.py` and split commands into submodules; `commands.py` becomes the registration entry point that imports them for side-effects:
 
 ```text
 your-repo/
 ├── hogli.yaml
 └── tools/
-    └── hogli-ext/
-        └── hogli_ext/        # underscored: this is the import name
+    └── hogli-commands/
+        └── hogli_commands/    # underscored: this is the import name
             ├── __init__.py
             ├── commands.py    # `from . import build, db, deploy`
             ├── build.py
@@ -175,10 +175,10 @@ your-repo/
 ```yaml
 # hogli.yaml
 config:
-  commands_dir: tools/hogli-ext/hogli_ext
+  commands_dir: tools/hogli-commands/hogli_commands
 ```
 
-The dashed outer dir + underscored inner package is the standard Python convention (PEP 8: dashed project name, underscored import name).
+The dashed outer dir + underscored inner package follows PEP 8 (dashed project name, underscored import name). This is the layout PostHog itself uses.
 
 ## Extension Hooks
 
