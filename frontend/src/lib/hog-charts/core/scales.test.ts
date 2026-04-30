@@ -1,3 +1,4 @@
+import { dimensions, makeSeries } from '../test-helpers'
 import {
     autoFormatYTick,
     computePercentStackData,
@@ -6,9 +7,8 @@ import {
     createXScale,
     createYScale,
     yTickCountForHeight,
-} from '../core/scales'
-import { DEFAULT_Y_AXIS_ID } from '../core/types'
-import { dimensions, makeSeries } from '../test-helpers'
+} from './scales'
+import { DEFAULT_Y_AXIS_ID } from './types'
 
 describe('hog-charts scales', () => {
     describe('createXScale', () => {
