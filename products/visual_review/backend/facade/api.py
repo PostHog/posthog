@@ -168,16 +168,92 @@ def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
     return logic.read_thumbnail_bytes(repo_id, content_hash)
 
 
+def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
+    """Universe of identifiers with a current baseline, plus aggregates.
+
+    Backs the snapshots overview page. See `logic.get_baselines_overview` for
+    query shape and performance notes.
+    """
+    raw = logic.get_baselines_overview(repo_id)
+
+    days = _build_sparkline_day_keys(raw.generated_at)
+    entries: list[contracts.BaselineEntry] = []
+    for snapshot in raw.entries:
+        identifier = snapshot.identifier
+        run = snapshot.run
+        artifact = snapshot.current_artifact
+        thumbnail = artifact.thumbnail if artifact is not None else None
+        # `(run_type, identifier)` keys mirror the universe shape — see
+        # `_BaselineOverviewRaw.sparkline_by_key` for why.
+        spark_key = (run.run_type, identifier)
+        per_day = raw.sparkline_by_key.get(spark_key, {})
+        sparkline = [
+            contracts.BaselineSparklineDay(
+                clean=per_day.get(day, _ZERO_SPARK).clean,
+                tolerated=per_day.get(day, _ZERO_SPARK).tolerated,
+                changed=per_day.get(day, _ZERO_SPARK).changed,
+                quarantined=per_day.get(day, _ZERO_SPARK).quarantined,
+            )
+            for day in days
+        ]
+        metadata = snapshot.metadata or {}
+        entries.append(
+            contracts.BaselineEntry(
+                identifier=identifier,
+                run_type=run.run_type,
+                browser=metadata.get("browser") if isinstance(metadata, dict) else None,
+                thumbnail_hash=thumbnail.content_hash if thumbnail is not None else None,
+                width=artifact.width if artifact is not None else None,
+                height=artifact.height if artifact is not None else None,
+                tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
+                tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
+                is_quarantined=spark_key in raw.quarantined_ids,
+                last_run_at=run.completed_at or run.created_at,
+                recent_diff_avg=raw.drift_avg_by_key.get(spark_key),
+                sparkline=sparkline,
+            )
+        )
+
+    totals = contracts.BaselineTotals(
+        all_snapshots=raw.totals_all,
+        recently_tolerated=raw.totals_recent,
+        frequently_tolerated=raw.totals_frequent,
+        currently_quarantined=raw.totals_quarantined,
+        by_run_type=raw.by_run_type,
+    )
+
+    return contracts.BaselineOverview(
+        entries=entries,
+        totals=totals,
+        truncated=raw.truncated,
+        generated_at=raw.generated_at,
+    )
+
+
+_ZERO_SPARK = logic.SparkBuckets()
+
+
+def _build_sparkline_day_keys(now) -> list[str]:
+    from datetime import timedelta
+
+    from .contracts import BASELINE_SPARKLINE_DAYS
+
+    today = now.date()
+    return [
+        (today - timedelta(days=BASELINE_SPARKLINE_DAYS - 1 - i)).isoformat() for i in range(BASELINE_SPARKLINE_DAYS)
+    ]
+
+
 # --- Run API ---
 
 
-def list_runs(team_id: int, review_state: str | None = None) -> list[contracts.Run]:
-    runs = logic.list_runs_for_team(team_id, review_state=review_state)
+def list_runs(team_id: int, review_state: str | None = None, repo_id: UUID | None = None) -> list[contracts.Run]:
+    runs = logic.list_runs_for_team(team_id, review_state=review_state, repo_id=repo_id)
     return [_to_run(r) for r in runs]
 
 
-def get_review_state_counts(team_id: int) -> dict[str, int]:
-    return logic.get_review_state_counts(team_id)
+def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
+    return logic.get_review_state_counts(team_id, repo_id=repo_id)
 
 
 def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:

@@ -6,6 +6,8 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { buildIntegerMatcher } from '../../../config/config'
 import { HealthCheckResultError, ValueMatcher } from '../../../types'
 import { logger } from '../../../utils/logger'
@@ -265,9 +267,32 @@ export class CyclotronJobQueue {
         }
 
         await Promise.all([
-            this.jobQueuePostgres.queueInvocations(postgresInvocations),
-            this.jobQueuePostgresV2?.queueInvocations(postgresV2Invocations),
-            this.jobQueueKafka.queueInvocations(kafkaInvocations),
+            instrumentFn(
+                {
+                    key: 'cyclotron.queue_invocations.postgres_v1',
+                    sendException: false,
+                    getLoggingContext: () => ({ count: postgresInvocations.length }),
+                },
+                () => this.jobQueuePostgres.queueInvocations(postgresInvocations)
+            ),
+            this.jobQueuePostgresV2
+                ? instrumentFn(
+                      {
+                          key: 'cyclotron.queue_invocations.postgres_v2',
+                          sendException: false,
+                          getLoggingContext: () => ({ count: postgresV2Invocations.length }),
+                      },
+                      () => this.jobQueuePostgresV2!.queueInvocations(postgresV2Invocations)
+                  )
+                : Promise.resolve(),
+            instrumentFn(
+                {
+                    key: 'cyclotron.queue_invocations.kafka',
+                    sendException: false,
+                    getLoggingContext: () => ({ count: kafkaInvocations.length }),
+                },
+                () => this.jobQueueKafka.queueInvocations(kafkaInvocations)
+            ),
         ])
     }
 

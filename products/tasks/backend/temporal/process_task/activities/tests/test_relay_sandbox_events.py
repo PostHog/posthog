@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     RelaySandboxEventsInput,
     TaskRunRedisStream,
     _is_end_of_turn,
+    _is_keepalive_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
     _relay_loop,
@@ -110,6 +111,18 @@ class TestIsSessionUpdate:
     )
     def test_is_session_update(self, _name: str, event_data: dict, expected: bool):
         assert _is_session_update(event_data) == expected
+
+
+class TestIsKeepaliveEvent:
+    @parameterized.expand(
+        [
+            ("keepalive", {"type": "keepalive"}, True),
+            ("notification", {"type": "notification"}, False),
+            ("missing_type", {}, False),
+        ],
+    )
+    def test_is_keepalive_event(self, _name: str, event_data: dict, expected: bool) -> None:
+        assert _is_keepalive_event(event_data) == expected
 
 
 class TestAgentActiveReactivation:
@@ -332,6 +345,56 @@ class TestRelaySandboxEventsErrorHandling:
         assert marked_complete is True
         redis_stream_mock.mark_complete.assert_awaited_once()
         redis_stream_mock.mark_error.assert_not_awaited()
+
+    async def test_normal_stream_close_marks_stream_complete(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        sleep_mock = AsyncMock()
+        connect_attempts = 0
+
+        class EmptyEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "EmptyEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                events: list[SimpleNamespace] = []
+                for event in events:
+                    yield event
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> EmptyEventSource:
+            nonlocal connect_attempts
+            connect_attempts += 1
+            return EmptyEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+        )
+
+        assert connect_attempts == 1
+        sleep_mock.assert_not_awaited()
+        redis_stream.write_event.assert_not_awaited()
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
 
     async def test_in_progress_run_marks_stream_error_on_relay_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())

@@ -120,7 +120,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -180,7 +180,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -345,7 +345,7 @@
         }
     },
     "cdp-functions-create": {
-        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.",
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.\nRecipe — deliver an insight alert to Slack or a webhook (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Create function",
@@ -390,7 +390,7 @@
         }
     },
     "cdp-functions-list": {
-        "description": "List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns each function's name, type, enabled status, execution order, and template info. Filter by type (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status via query parameters.",
+        "description": "List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns each function's name, type, enabled status, execution order, template info, and filters (the event/property filter expression that gates the function). Filter by type (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status via query parameters. Pagination caps at 100 per page by default — pass limit=1000 (max 1000) when scanning for an existing function by alert id, and follow the next link if more pages exist.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "List functions",
@@ -1273,41 +1273,11 @@
             "readOnlyHint": true
         }
     },
-    "evaluation-config-get": {
-        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Get evaluation config",
-        "title": "Get evaluation config",
-        "required_scopes": ["evaluation:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-config-set-active-key": {
-        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from the PostHog UI before retrying.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Set active evaluation provider key",
-        "title": "Set active evaluation provider key",
-        "required_scopes": ["evaluation:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "evaluation-create": {
-        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create a new LLM analytics evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Create evaluation",
+        "summary": "Create a new evaluation.",
         "title": "Create evaluation",
         "required_scopes": ["evaluation:write"],
         "new_mcp": true,
@@ -1319,10 +1289,10 @@
         }
     },
     "evaluation-delete": {
-        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
+        "description": "Delete an LLM analytics evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Delete evaluation",
+        "summary": "Delete an evaluation.",
         "title": "Delete evaluation",
         "required_scopes": ["evaluation:write"],
         "new_mcp": true,
@@ -1334,10 +1304,10 @@
         }
     },
     "evaluation-get": {
-        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "description": "Get a specific LLM analytics evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Get evaluation",
+        "summary": "Get a specific evaluation by ID.",
         "title": "Get evaluation",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
@@ -1348,131 +1318,11 @@
             "readOnlyHint": true
         }
     },
-    "evaluation-judge-models": {
-        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List supported llm_judge models",
-        "title": "List supported llm_judge models",
-        "required_scopes": ["evaluation:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-report-create": {
-        "description": "Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)\nand are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults\nto 'every_n' if omitted:\n\n- 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have\naccumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per\nUTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)\nand `daily_run_cap` are optional.\n- 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.\n'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock\ntimes survive DST transitions. `rrule` and `starts_at` are required in this mode;\n`timezone_name` defaults to 'UTC'.\n\n`delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',\nintegration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the\nsame team. Use `report_prompt_guidance` to steer the AI report's focus.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Create evaluation report config",
-        "title": "Create evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-report-delete": {
-        "description": "Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views; historical report runs are preserved. Equivalent to calling evaluation-report-update with deleted=true — that update path is the canonical way to soft-delete and is the only option when you also want to change other fields in the same call.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Delete evaluation report config",
-        "title": "Delete evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-report-generate": {
-        "description": "Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute are coalesced — only one report is generated. Rate-limited by daily_run_cap.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Trigger evaluation report generation",
-        "title": "Trigger evaluation report generation",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-report-get": {
-        "description": "Get a specific evaluation report configuration by UUID. Returns the full config including frequency, delivery targets, trigger thresholds, and schedule settings.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Get evaluation report config",
-        "title": "Get evaluation report config",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-report-runs-list": {
-        "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List evaluation report runs",
-        "title": "List evaluation report runs",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-report-update": {
-        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set deleted=true to soft-delete the config.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Update evaluation report config",
-        "title": "Update evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-reports-list": {
-        "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List evaluation report configs",
-        "title": "List evaluation report configs",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "evaluation-run": {
-        "description": "Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a workflow_id and status \"started\". Pair with execute-sql to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.",
+        "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Run evaluation",
+        "summary": "Run an evaluation on a specific event.",
         "title": "Run evaluation",
         "required_scopes": ["evaluation:write"],
         "new_mcp": true,
@@ -1484,25 +1334,25 @@
         }
     },
     "evaluation-test-hog": {
-        "description": "Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
+        "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Test Hog evaluation code",
-        "title": "Test Hog evaluation code",
+        "summary": "Dry-run Hog evaluation code against sample events.",
+        "title": "Test Hog evaluation",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": false
+            "readOnlyHint": true
         }
     },
     "evaluation-update": {
-        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
+        "description": "Update an existing LLM analytics evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Update evaluation",
+        "summary": "Update an evaluation.",
         "title": "Update evaluation",
         "required_scopes": ["evaluation:write"],
         "new_mcp": true,
@@ -1514,10 +1364,10 @@
         }
     },
     "evaluations-get": {
-        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "description": "List LLM analytics evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "List evaluations",
+        "summary": "List LLM analytics evaluations.",
         "title": "List evaluations",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
@@ -1573,7 +1423,7 @@
         }
     },
     "experiment-archive": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Archive experiment",
@@ -1618,7 +1468,7 @@
         }
     },
     "experiment-duplicate": {
-        "description": "Create a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters, and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).\n\nIMPORTANT: always provide a unique feature_flag_key that differs from the original experiment's flag key. If omitted or if the same key is provided, the duplicate will reuse the original experiment's feature flag — meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments. Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults to \"Original Name (Copy)\").",
+        "description": "Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nCreate a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters, and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).\n\nIMPORTANT: always provide a unique feature_flag_key that differs from the original experiment's flag key. If omitted or if the same key is provided, the duplicate will reuse the original experiment's feature flag — meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments. Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults to \"Original Name (Copy)\").",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Duplicate experiment",
@@ -1633,7 +1483,7 @@
         }
     },
     "experiment-end": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "End experiment",
@@ -1678,7 +1528,7 @@
         }
     },
     "experiment-launch": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Launch experiment",
@@ -1708,7 +1558,7 @@
         }
     },
     "experiment-pause": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nPause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer returned by the /decide endpoint, so users fall back to the application default (typically control). No new exposure events ($feature_flag_called) are recorded while paused. The experiment stays in running status — it is not ended.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or already paused (\"Experiment is already paused.\").\n\nNo request body needed. Use resume to reactivate.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nPause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer returned by the /decide endpoint, so users fall back to the application default (typically control). No new exposure events ($feature_flag_called) are recorded while paused. The experiment stays in running status — it is not ended.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or already paused (\"Experiment is already paused.\").\n\nNo request body needed. Use resume to reactivate.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Pause experiment",
@@ -1723,7 +1573,7 @@
         }
     },
     "experiment-reset": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReset an experiment back to draft state. Clears start_date, end_date, conclusion, conclusion_comment, and archived flag (all set to null/false). The feature flag is left unchanged — users continue to see their currently assigned variants.\n\nPreviously collected events still exist in the database but won't be included in results unless start_date is manually adjusted after re-launch.\n\nReturns 400 if the experiment is already in draft (\"Experiment is already in draft state.\").\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nReset an experiment back to draft state. Clears start_date, end_date, conclusion, conclusion_comment, and archived flag (all set to null/false). The feature flag is left unchanged — users continue to see their currently assigned variants.\n\nPreviously collected events still exist in the database but won't be included in results unless start_date is manually adjusted after re-launch.\n\nReturns 400 if the experiment is already in draft (\"Experiment is already in draft state.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Reset experiment",
@@ -1753,7 +1603,7 @@
         }
     },
     "experiment-resume": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nResume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed deterministically into the same variants they had before the pause, and exposure tracking ($feature_flag_called) resumes.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or not currently paused (\"Experiment is not paused.\").\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nResume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed deterministically into the same variants they had before the pause, and exposure tracking ($feature_flag_called) resumes.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or not currently paused (\"Experiment is not paused.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Resume experiment",
@@ -1768,7 +1618,7 @@
         }
     },
     "experiment-ship-variant": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Ship experiment variant",
@@ -1813,7 +1663,7 @@
         }
     },
     "experiment-unarchive": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Unarchive experiment",
@@ -2380,6 +2230,66 @@
             "readOnlyHint": true
         }
     },
+    "inbox-reports-list": {
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List signal reports",
+        "title": "List signal reports",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-reports-retrieve": {
+        "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get signal report",
+        "title": "Get signal report",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-source-configs-list": {
+        "description": "List the configured signal sources for the current project. A signal source ties a product (e.g. error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and configuration. The 'status' field reflects the current state of the underlying data import or workflow (running, completed, failed) when applicable.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List signal source configs",
+        "title": "List signal source configs",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-source-configs-retrieve": {
+        "description": "Get a single signal source config by ID. Returns the full record including source_product, source_type, enabled flag, configuration JSON, and current status of the underlying data import or workflow.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get signal source config",
+        "title": "Get signal source config",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insight-create": {
         "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
         "category": "Product analytics",
@@ -2500,8 +2410,23 @@
             "readOnlyHint": true
         }
     },
+    "integrations-channels-retrieve": {
+        "description": "List the Slack channels available for a Slack integration. Slack-only — non-Slack integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each channel's id, name, is_private, is_member, is_ext_shared, and is_private_without_access flags; use is_member to avoid picking channels the bot can't post to. Results are cached for 1 hour (no force-refresh exposed via MCP). Use this to find a channel_id when wiring up Slack delivery for an alert — pass the channel id into the cdp-functions-create inputs.channel.value field. Requires the Slack integration's id; use integrations-list (filter by kind=slack) to find it.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List integration channels",
+        "title": "List integration channels",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integrations-list": {
-        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub integrations are returned.",
+        "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key or OAuth, only GitHub and Slack integrations are returned (other kinds remain session-only).",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "List integrations",
@@ -2515,22 +2440,7 @@
             "readOnlyHint": true
         }
     },
-    "llm-analytics-clustering-jobs-list": {
-        "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List clustering jobs",
-        "title": "List clustering jobs",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llm-analytics-clustering-jobs-retrieve": {
+    "llma-clustering-job-get": {
         "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2545,7 +2455,247 @@
             "readOnlyHint": true
         }
     },
-    "llm-analytics-evaluation-summary-create": {
+    "llma-clustering-job-list": {
+        "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List clustering jobs",
+        "title": "List clustering jobs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-config-get": {
+        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation config",
+        "title": "Get evaluation config",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-config-set-active-key": {
+        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from the PostHog UI before retrying.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Set active evaluation provider key",
+        "title": "Set active evaluation provider key",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-create": {
+        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation",
+        "title": "Create evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-delete": {
+        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete evaluation",
+        "title": "Delete evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-get": {
+        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation",
+        "title": "Get evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-judge-models": {
+        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List supported llm_judge models",
+        "title": "List supported llm_judge models",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-list": {
+        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluations",
+        "title": "List evaluations",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-report-create": {
+        "description": "Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)\nand are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults\nto 'every_n' if omitted:\n\n- 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have\naccumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per\nUTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)\nand `daily_run_cap` are optional.\n- 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.\n'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock\ntimes survive DST transitions. `rrule` and `starts_at` are required in this mode;\n`timezone_name` defaults to 'UTC'.\n\n`delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',\nintegration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the\nsame team. Use `report_prompt_guidance` to steer the AI report's focus.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation report config",
+        "title": "Create evaluation report config",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-report-delete": {
+        "description": "Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views; historical report runs are preserved. Equivalent to calling llma-evaluation-report-update with deleted=true — that update path is the canonical way to soft-delete and is the only option when you also want to change other fields in the same call.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete evaluation report config",
+        "title": "Delete evaluation report config",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-report-generate": {
+        "description": "Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute are coalesced — only one report is generated. Rate-limited by daily_run_cap.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Trigger evaluation report generation",
+        "title": "Trigger evaluation report generation",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-report-get": {
+        "description": "Get a specific evaluation report configuration by UUID. Returns the full config including frequency, delivery targets, trigger thresholds, and schedule settings.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation report config",
+        "title": "Get evaluation report config",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-report-list": {
+        "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluation report configs",
+        "title": "List evaluation report configs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-report-run-list": {
+        "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluation report runs",
+        "title": "List evaluation report runs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-report-update": {
+        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set deleted=true to soft-delete the config.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update evaluation report config",
+        "title": "Update evaluation report config",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-run": {
+        "description": "Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a workflow_id and status \"started\". Pair with execute-sql to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Run evaluation",
+        "title": "Run evaluation",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-summary-create": {
         "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2561,13 +2711,13 @@
         },
         "requires_ai_consent": true
     },
-    "llm-analytics-review-queue-items-create": {
-        "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
+    "llma-evaluation-test-hog": {
+        "description": "Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Create review queue item",
-        "title": "Create review queue item",
-        "required_scopes": ["llm_analytics:write"],
+        "summary": "Test Hog evaluation code",
+        "title": "Test Hog evaluation code",
+        "required_scopes": ["evaluation:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -2576,43 +2726,13 @@
             "readOnlyHint": false
         }
     },
-    "llm-analytics-review-queue-items-destroy": {
-        "description": "Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace can be queued again later if needed.",
+    "llma-evaluation-update": {
+        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Delete review queue item",
-        "title": "Delete review queue item",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llm-analytics-review-queue-items-list": {
-        "description": "List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id, trace_id__in, search, and ordering so agents can find traces that are still queued for review.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List review queue items",
-        "title": "List review queue items",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llm-analytics-review-queue-items-partial-update": {
-        "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Update review queue item",
-        "title": "Update review queue item",
-        "required_scopes": ["llm_analytics:write"],
+        "summary": "Update evaluation",
+        "title": "Update evaluation",
+        "required_scopes": ["evaluation:write"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -2621,14 +2741,44 @@
             "readOnlyHint": false
         }
     },
-    "llm-analytics-review-queue-items-retrieve": {
-        "description": "Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and timestamps for the pending review task.",
+    "llma-prompt-create": {
+        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Get review queue item",
-        "title": "Get review queue item",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
+        "summary": "Create prompt",
+        "title": "Create prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-prompt-duplicate": {
+        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Duplicate prompt",
+        "title": "Duplicate prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-prompt-get": {
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get prompt",
+        "title": "Get prompt",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2636,7 +2786,37 @@
             "readOnlyHint": true
         }
     },
-    "llm-analytics-review-queues-create": {
+    "llma-prompt-list": {
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List prompts",
+        "title": "List prompts",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-prompt-update": {
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update prompt",
+        "title": "Update prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-review-queue-create": {
         "description": "Create a review queue for routing traces that still need review. Queue names must be unique among active queues in the current project.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2651,7 +2831,7 @@
             "readOnlyHint": false
         }
     },
-    "llm-analytics-review-queues-destroy": {
+    "llma-review-queue-delete": {
         "description": "Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments that still belong to it.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2666,37 +2846,7 @@
             "readOnlyHint": false
         }
     },
-    "llm-analytics-review-queues-list": {
-        "description": "List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and timestamps. Supports queue-name search and ordering.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List review queues",
-        "title": "List review queues",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llm-analytics-review-queues-partial-update": {
-        "description": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Update review queue",
-        "title": "Update review queue",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llm-analytics-review-queues-retrieve": {
+    "llma-review-queue-get": {
         "description": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2711,7 +2861,112 @@
             "readOnlyHint": true
         }
     },
-    "llm-analytics-sentiment-create": {
+    "llma-review-queue-item-create": {
+        "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create review queue item",
+        "title": "Create review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-review-queue-item-delete": {
+        "description": "Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace can be queued again later if needed.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete review queue item",
+        "title": "Delete review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-review-queue-item-get": {
+        "description": "Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and timestamps for the pending review task.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get review queue item",
+        "title": "Get review queue item",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-review-queue-item-list": {
+        "description": "List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id, trace_id__in, search, and ordering so agents can find traces that are still queued for review.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List review queue items",
+        "title": "List review queue items",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-review-queue-item-update": {
+        "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update review queue item",
+        "title": "Update review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-review-queue-list": {
+        "description": "List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and timestamps. Supports queue-name search and ordering.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List review queues",
+        "title": "List review queues",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-review-queue-update": {
+        "description": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update review queue",
+        "title": "Update review queue",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2726,7 +2981,142 @@
             "readOnlyHint": false
         }
     },
-    "llm-analytics-summarization-create": {
+    "llma-skill-create": {
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create skill",
+        "title": "Create skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-duplicate": {
+        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Duplicate skill",
+        "title": "Duplicate skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-create": {
+        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use llma-skill-update with files to replace, or llma-skill-file-delete followed by llma-skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create skill file",
+        "title": "Create skill file",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-delete": {
+        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete skill file",
+        "title": "Delete skill file",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-get": {
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from llma-skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get skill file",
+        "title": "Get skill file",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-file-rename": {
+        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Rename skill file",
+        "title": "Rename skill file",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-get": {
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get skill",
+        "title": "Get skill",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-list": {
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content).",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List skills",
+        "title": "List skills",
+        "required_scopes": ["llm_skill:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-update": {
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nllma-skill-file-create / llma-skill-file-delete / llma-skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update skill",
+        "title": "Update skill",
+        "required_scopes": ["llm_skill:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-summarization-create": {
         "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2742,7 +3132,7 @@
         },
         "requires_ai_consent": true
     },
-    "llm-analytics-trace-reviews-create": {
+    "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2757,7 +3147,7 @@
             "readOnlyHint": false
         }
     },
-    "llm-analytics-trace-reviews-destroy": {
+    "llma-trace-review-delete": {
         "description": "Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if needed.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2772,7 +3162,22 @@
             "readOnlyHint": false
         }
     },
-    "llm-analytics-trace-reviews-list": {
+    "llma-trace-review-get": {
+        "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get trace review",
+        "title": "Get trace review",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-trace-review-list": {
         "description": "List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns comments, scores, reviewers, and timestamps.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2787,7 +3192,7 @@
             "readOnlyHint": true
         }
     },
-    "llm-analytics-trace-reviews-partial-update": {
+    "llma-trace-review-update": {
         "description": "Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to clear only a matching pending queue item after the review is saved.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2800,21 +3205,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llm-analytics-trace-reviews-retrieve": {
-        "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Get trace review",
-        "title": "Get trace review",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "logs-alerts-create": {
@@ -3240,81 +3630,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "prompt-create": {
-        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Create prompt",
-        "title": "Create prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "prompt-duplicate": {
-        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Duplicate prompt",
-        "title": "Duplicate prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "prompt-get": {
-        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Get prompt",
-        "title": "Get prompt",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "List prompts",
-        "title": "List prompts",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "prompt-update": {
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
-        "category": "Prompts",
-        "feature": "prompts",
-        "summary": "Update prompt",
-        "title": "Update prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "properties-list": {
@@ -3913,141 +4228,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "skill-create": {
-        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Create skill",
-        "title": "Create skill",
-        "required_scopes": ["llm_skill:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "skill-duplicate": {
-        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Duplicate skill",
-        "title": "Duplicate skill",
-        "required_scopes": ["llm_skill:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "skill-file-create": {
-        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Create skill file",
-        "title": "Create skill file",
-        "required_scopes": ["llm_skill:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "skill-file-delete": {
-        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Delete skill file",
-        "title": "Delete skill file",
-        "required_scopes": ["llm_skill:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "skill-file-get": {
-        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Get skill file",
-        "title": "Get skill file",
-        "required_scopes": ["llm_skill:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "skill-file-rename": {
-        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Rename skill file",
-        "title": "Rename skill file",
-        "required_scopes": ["llm_skill:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Get skill",
-        "title": "Get skill",
-        "required_scopes": ["llm_skill:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "skill-list": {
-        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content).",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "List skills",
-        "title": "List skills",
-        "required_scopes": ["llm_skill:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle add/remove/rename\none file at a time and return the updated skill (including the bumped version) so\ncallers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
-        "category": "Skills",
-        "feature": "skills",
-        "summary": "Update skill",
-        "title": "Update skill",
-        "required_scopes": ["llm_skill:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "sql-variables-create": {

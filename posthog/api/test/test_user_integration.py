@@ -144,10 +144,12 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(data.get("connect_flow"), "app_install")
         self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
 
-    @override_settings(
-        GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
+    @patch(
+        "posthog.api.user_integration.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
-    def test_github_start_returns_oauth_url_when_team_has_github_integration(self):
+    def test_github_start_returns_install_url_even_when_team_has_github_integration(self, _mock_settings):
         Integration.objects.create(
             team=self.team,
             kind="github",
@@ -160,11 +162,83 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("install_url", data)
+        self.assertEqual(data.get("connect_flow"), "app_install")
+        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"
+    )
+    def test_github_start_posthog_code_fast_path_returns_oauth_url(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345678",
+            config={"account": {"name": "acme"}},
+            sensitive_config={},
+            created_by=self.user,
+        )
+        response = self.client.post(
+            "/api/users/@me/integrations/github/start/",
+            {"connect_from": "posthog_code"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("install_url", data)
         self.assertEqual(data.get("connect_flow"), "oauth_authorize")
         url = data["install_url"]
         self.assertIn("github.com/login/oauth/authorize", url)
         self.assertIn("client_id=gh_client_123", url)
         self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
+
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
+    @patch(
+        "posthog.api.user_integration.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    def test_github_start_posthog_code_skips_fast_path_when_already_linked(self, _mock_settings):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345678",
+            config={"account": {"name": "acme"}},
+            sensitive_config={},
+            created_by=self.user,
+        )
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id=integration.integration_id,
+            config={},
+            sensitive_config={},
+        )
+        response = self.client.post(
+            "/api/users/@me/integrations/github/start/",
+            {"connect_from": "posthog_code"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data.get("connect_flow"), "app_install")
+        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
+    @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
+    @patch(
+        "posthog.api.user_integration.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    def test_github_start_rejects_when_all_installations_linked(self, _mock_settings, _mock_unlinked):
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345678",
+            config={},
+            sensitive_config={"user_access_token": "ghu_test"},
+        )
+        response = self.client.post("/api/users/@me/integrations/github/start/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already linked", response.json()["detail"])
 
     def test_github_start_without_app_slug_returns_400(self):
         with patch(
