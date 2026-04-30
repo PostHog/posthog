@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import (
+    connections,
     models as db_models,
     transaction,
 )
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
-from .db import WRITER_DB
+from .db import READER_DB, WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
@@ -1795,12 +1796,38 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnaps
 _DEFAULT_BRANCHES = ("master", "main")
 
 
+_SNAPSHOT_HISTORY_DEDUP_SQL = """
+WITH ordered AS (
+    SELECT rs.id,
+           rs.current_artifact_id,
+           LAG(rs.current_artifact_id) OVER (ORDER BY r.created_at DESC) AS prev_artifact_id,
+           r.created_at
+    FROM visual_review_runsnapshot rs
+    JOIN visual_review_run r ON r.id = rs.run_id
+    WHERE r.repo_id = %s
+      AND r.run_type = %s
+      AND r.branch = ANY(%s)
+      AND r.status = 'completed'
+      AND rs.identifier = %s
+      AND rs.result <> 'new'
+)
+SELECT id
+FROM ordered
+WHERE prev_artifact_id IS DISTINCT FROM current_artifact_id
+ORDER BY created_at DESC
+"""
+
+
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[RunSnapshot]:
     """Baseline timeline for a snapshot identifier on the default branch.
 
     Returns one entry per *baseline event* — i.e. each time the committed content
-    actually changed. Adjacent rows pointing at the same `current_artifact_id`
-    collapse to the most recent.
+    actually changed. Dedup happens server-side via a `LAG` window function over
+    runs ordered by `created_at DESC`: a row is kept only when its
+    `current_artifact_id` differs from its predecessor's. Plan stays the same as
+    the un-deduped query (verified on prod) — the WindowAgg piggybacks on the
+    sort already needed for ORDER BY, so the dedup is essentially free and we
+    avoid shipping the full raw history (often 100×–1000× larger) to Python.
 
     Filters applied at the DB level:
       - branch ∈ master/main, run_type, repo: scope to default-branch runs of this kind
@@ -1810,25 +1837,23 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
       - result != NEW: belt+braces; NEW shouldn't survive on a completed run, but
         cheap to filter and protects us if classification ever leaves stragglers.
     """
-    rows = (
-        RunSnapshot.objects.filter(
-            run__repo_id=repo_id,
-            run__run_type=run_type,
-            run__branch__in=_DEFAULT_BRANCHES,
-            run__status=RunStatus.COMPLETED,
-            identifier=identifier,
+    with connections[READER_DB].cursor() as cursor:
+        cursor.execute(
+            _SNAPSHOT_HISTORY_DEDUP_SQL,
+            [str(repo_id), run_type, list(_DEFAULT_BRANCHES), identifier],
         )
-        .exclude(result=SnapshotResult.NEW)
-        .select_related("run", "current_artifact")
-        .order_by("-run__created_at")
-    )
+        ordered_ids: list[UUID] = [row[0] for row in cursor.fetchall()]
 
-    deduped: list[RunSnapshot] = []
-    for row in rows.iterator():
-        if deduped and deduped[-1].current_artifact_id == row.current_artifact_id:
-            continue
-        deduped.append(row)
-    return deduped
+    if not ordered_ids:
+        return []
+
+    # `id__in` doesn't preserve order, so look rows up by id and re-emit in the
+    # cursor's order. Fetched count equals the deduped baseline-event count
+    # (typically <20), so this hydration is cheap regardless of raw history size.
+    rows_by_id: dict[UUID, RunSnapshot] = {
+        row.id: row for row in RunSnapshot.objects.filter(id__in=ordered_ids).select_related("run", "current_artifact")
+    }
+    return [rows_by_id[rid] for rid in ordered_ids if rid in rows_by_id]
 
 
 @transaction.atomic(using=WRITER_DB)
