@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import (
+    connections,
     models as db_models,
     transaction,
 )
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
-from .db import WRITER_DB
+from .db import READER_DB, WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
@@ -1789,26 +1790,70 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnaps
     )
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> list[dict]:
-    """Recent runs where this snapshot identifier appeared, most recent first."""
-    entries = (
-        RunSnapshot.objects.filter(
-            run__repo_id=repo_id,
-            identifier=identifier,
+# Default-branch fallback. We don't track repos' actual default branch, so we
+# include both candidates and assume nobody has both — whichever has rows wins.
+# When `trunk`/`develop`-style defaults show up, this becomes a `Repo` field.
+_DEFAULT_BRANCHES = ("master", "main")
+
+
+_SNAPSHOT_HISTORY_DEDUP_SQL = """
+WITH ordered AS (
+    SELECT rs.id,
+           rs.current_artifact_id,
+           LAG(rs.current_artifact_id) OVER (ORDER BY r.created_at DESC) AS prev_artifact_id,
+           r.created_at
+    FROM visual_review_runsnapshot rs
+    JOIN visual_review_run r ON r.id = rs.run_id
+    WHERE r.repo_id = %s
+      AND r.run_type = %s
+      AND r.branch = ANY(%s)
+      AND r.status = 'completed'
+      AND rs.identifier = %s
+      AND rs.result <> 'new'
+)
+SELECT id
+FROM ordered
+WHERE prev_artifact_id IS DISTINCT FROM current_artifact_id
+ORDER BY created_at DESC
+"""
+
+
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[RunSnapshot]:
+    """Baseline timeline for a snapshot identifier on the default branch.
+
+    Returns one entry per *baseline event* — i.e. each time the committed content
+    actually changed. Dedup happens server-side via a `LAG` window function over
+    runs ordered by `created_at DESC`: a row is kept only when its
+    `current_artifact_id` differs from its predecessor's. Plan stays the same as
+    the un-deduped query (verified on prod) — the WindowAgg piggybacks on the
+    sort already needed for ORDER BY, so the dedup is essentially free and we
+    avoid shipping the full raw history (often 100×–1000× larger) to Python.
+
+    Filters applied at the DB level:
+      - branch ∈ master/main, run_type, repo: scope to default-branch runs of this kind
+      - status=completed: drop pre-classification rows. `result` defaults to NEW
+        on upload and is only finalised when the run completes; runs stuck in
+        pending/processing leave noise behind that isn't a real history event.
+      - result != NEW: belt+braces; NEW shouldn't survive on a completed run, but
+        cheap to filter and protects us if classification ever leaves stragglers.
+    """
+    with connections[READER_DB].cursor() as cursor:
+        cursor.execute(
+            _SNAPSHOT_HISTORY_DEDUP_SQL,
+            [str(repo_id), run_type, list(_DEFAULT_BRANCHES), identifier],
         )
-        .select_related("run")
-        .order_by("-run__created_at")[:limit]
-    )
-    return [
-        {
-            "run_id": entry.run_id,
-            "result": entry.result,
-            "branch": entry.run.branch,
-            "commit_sha": entry.run.commit_sha,
-            "created_at": entry.run.created_at,
-        }
-        for entry in entries
-    ]
+        ordered_ids: list[UUID] = [row[0] for row in cursor.fetchall()]
+
+    if not ordered_ids:
+        return []
+
+    # `id__in` doesn't preserve order, so look rows up by id and re-emit in the
+    # cursor's order. Fetched count equals the deduped baseline-event count
+    # (typically <20), so this hydration is cheap regardless of raw history size.
+    rows_by_id: dict[UUID, RunSnapshot] = {
+        row.id: row for row in RunSnapshot.objects.filter(id__in=ordered_ids).select_related("run", "current_artifact")
+    }
+    return [rows_by_id[rid] for rid in ordered_ids if rid in rows_by_id]
 
 
 @transaction.atomic(using=WRITER_DB)

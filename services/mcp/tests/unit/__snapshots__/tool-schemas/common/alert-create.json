@@ -113,7 +113,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -190,7 +191,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -278,7 +280,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "type": {
                                                         "default": "iqr",
@@ -355,7 +358,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "type": {
                                                         "default": "threshold",
@@ -421,7 +425,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -498,7 +503,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -586,7 +592,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -629,7 +636,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                                     },
                                                     "n_neighbors": {
                                                         "anyOf": [
@@ -685,7 +693,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -773,7 +782,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -861,7 +871,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -960,7 +971,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -1037,7 +1049,8 @@
                                                             {
                                                                 "type": "null"
                                                             }
-                                                        ]
+                                                        ],
+                                                        "description": "Preprocessing transforms applied before detection"
                                                     },
                                                     "threshold": {
                                                         "anyOf": [
@@ -1074,6 +1087,7 @@
                                     "type": "array"
                                 },
                                 "operator": {
+                                    "description": "How to combine sub-detector results",
                                     "enum": ["and", "or"],
                                     "type": "string"
                                 },
@@ -1131,7 +1145,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1208,7 +1223,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1296,7 +1312,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "type": {
                                     "default": "iqr",
@@ -1373,7 +1390,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "type": {
                                     "default": "threshold",
@@ -1439,7 +1457,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1516,7 +1535,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1604,7 +1624,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1647,7 +1668,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                 },
                                 "n_neighbors": {
                                     "anyOf": [
@@ -1703,7 +1725,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1791,7 +1814,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1879,7 +1903,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -1978,7 +2003,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -2055,7 +2081,8 @@
                                         {
                                             "type": "null"
                                         }
-                                    ]
+                                    ],
+                                    "description": "Preprocessing transforms applied before detection"
                                 },
                                 "threshold": {
                                     "anyOf": [
@@ -2222,6 +2249,7 @@
                             ]
                         },
                         "type": {
+                            "description": "Whether bounds are compared as absolute values or as percentage change from the previous interval.",
                             "enum": ["absolute", "percentage"],
                             "type": "string"
                         }

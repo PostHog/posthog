@@ -21,6 +21,7 @@ export type {
     CreateScalesFn,
     LineChartConfig,
     PointClickData,
+    ResolvedSeries,
     ResolveValueFn,
     Series,
     TooltipContext,

@@ -32,17 +32,29 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/VisualReviewSettingsScene'),
             iconType: 'visual_review',
         },
+        VisualReviewSnapshotHistory: {
+            name: 'Visual review snapshot history',
+            projectBased: true,
+            import: () => import('./frontend/scenes/VisualReviewSnapshotHistoryScene'),
+            iconType: 'visual_review',
+        },
     },
     routes: {
         '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
         '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
         '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+        '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
+            'VisualReviewSnapshotHistory',
+            'visualReviewSnapshotHistory',
+        ],
     },
     redirects: {},
     urls: {
         visualReviewRuns: (): string => '/visual_review',
         visualReviewSettings: (): string => '/visual_review/settings',
         visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+        visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
+            `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

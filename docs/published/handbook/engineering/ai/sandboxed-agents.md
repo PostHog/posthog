@@ -304,7 +304,7 @@ The setup command is idempotent and handles:
 - Enabling the `tasks` feature flag for all teams
 - Building the agent skills bundle
 
-For advanced setup options (Modal sandboxes, local agent packages), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
+For advanced setup options (Modal sandboxes, local agent packages, MCP), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
 
 ## Questions?
 

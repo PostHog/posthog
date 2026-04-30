@@ -30,6 +30,7 @@ from posthog.kafka_client.topics import (
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_CDP_INTERNAL_EVENTS,
+    KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC,
     KAFKA_DOCUMENT_EMBEDDINGS_TOPIC,
@@ -60,19 +61,26 @@ from posthog.settings.kafka import KafkaProfileSettings
 # To move a topic to a different cluster at deploy time without a code change,
 # set `KAFKA_TOPIC_ROUTING_OVERRIDES=topic_name=profile_name` in the chart env.
 _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
-    # --- DEFAULT (MSK events cluster) ---
+    # --- INGESTION (Warpstream ingestion) ---
     KAFKA_EVENTS_JSON: KafkaClusterProfile.INGESTION,
     KAFKA_PERSON: KafkaClusterProfile.INGESTION,
     KAFKA_PERSON_DISTINCT_ID: KafkaClusterProfile.INGESTION,
     KAFKA_GROUPS: KafkaClusterProfile.INGESTION,
-    KAFKA_METRICS_TIME_TO_SEE_DATA: KafkaClusterProfile.DEFAULT,
-    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: KafkaClusterProfile.DEFAULT,
-    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: KafkaClusterProfile.DEFAULT,
-    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS: KafkaClusterProfile.DEFAULT,
-    KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC: KafkaClusterProfile.DEFAULT,
-    KAFKA_DOCUMENT_EMBEDDINGS_TOPIC: KafkaClusterProfile.DEFAULT,
-    KAFKA_NOTIFICATION_EVENTS: KafkaClusterProfile.DEFAULT,
-    KAFKA_SIGNALS_REPORT_COMPLETED: KafkaClusterProfile.DEFAULT,
+    KAFKA_LOG_ENTRIES: KafkaClusterProfile.INGESTION,
+    KAFKA_APP_METRICS2: KafkaClusterProfile.INGESTION,
+    # tophog topic + ingestion-pointed CH _ws table were both pre-provisioned (topic in
+    # warpstream-ingestion topics.tf, kafka_tophog_ws via CH migration 0227); only the
+    # producer-side override was missing.
+    KAFKA_CLICKHOUSE_TOPHOG: KafkaClusterProfile.INGESTION,
+    # --- SHARED (Warpstream shared — low-volume / early-stage topics) ---
+    KAFKA_METRICS_TIME_TO_SEE_DATA: KafkaClusterProfile.SHARED,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: KafkaClusterProfile.SHARED,
+    KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: KafkaClusterProfile.SHARED,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS: KafkaClusterProfile.SHARED,
+    KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC: KafkaClusterProfile.SHARED,
+    KAFKA_DOCUMENT_EMBEDDINGS_TOPIC: KafkaClusterProfile.SHARED,
+    KAFKA_NOTIFICATION_EVENTS: KafkaClusterProfile.SHARED,
+    KAFKA_SIGNALS_REPORT_COMPLETED: KafkaClusterProfile.SHARED,
     # --- WAREHOUSE_SOURCES (Warpstream warehouse-pipelines) ---
     KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
@@ -81,9 +89,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # --- CYCLOTRON (Warpstream cyclotron) ---
     KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
-    # --- AUX metrics ---
-    KAFKA_LOG_ENTRIES: KafkaClusterProfile.INGESTION,
-    KAFKA_APP_METRICS2: KafkaClusterProfile.INGESTION,
     # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.CALCULATED_EVENTS,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.CALCULATED_EVENTS,
