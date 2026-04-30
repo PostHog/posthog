@@ -10,7 +10,6 @@ import {
     SHORT_CODE_REGEX_MATCH_GROUPS,
     UUID_REGEX_MATCH_GROUPS,
     createUrlRegex,
-    parseNotebookNodeHTMLAttribute,
     sortProperties,
     useSyncedAttributes,
 } from './utils'
@@ -154,41 +153,6 @@ describe('notebook node utils', () => {
 
             jest.runOnlyPendingTimers()
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('parseNotebookNodeHTMLAttribute', () => {
-        // Round-trips both encodings produced by our two copy paths: explicit
-        // copyToClipboard (base64) and TipTap's default Cmd+C path (raw JSON via renderHTML).
-        it('decodes base64-encoded JSON (explicit copyToClipboard path)', () => {
-            const value = { kind: 'DataTableNode', source: { kind: 'HogQLQuery' } }
-            const encoded = btoa(JSON.stringify(value))
-            expect(parseNotebookNodeHTMLAttribute(encoded)).toEqual(value)
-        })
-
-        it('decodes raw JSON objects (TipTap default copy path)', () => {
-            const json = '{"kind":"DataTableNode","source":{"kind":"HogQLQuery"}}'
-            expect(parseNotebookNodeHTMLAttribute(json)).toEqual({
-                kind: 'DataTableNode',
-                source: { kind: 'HogQLQuery' },
-            })
-        })
-
-        it('decodes raw JSON booleans', () => {
-            expect(parseNotebookNodeHTMLAttribute('true')).toBe(true)
-            expect(parseNotebookNodeHTMLAttribute('false')).toBe(false)
-        })
-
-        it('decodes raw JSON numbers', () => {
-            expect(parseNotebookNodeHTMLAttribute('42')).toBe(42)
-        })
-
-        it('returns null for null/undefined input', () => {
-            expect(parseNotebookNodeHTMLAttribute(null)).toBeNull()
-        })
-
-        it('falls back to the raw string when neither base64 nor JSON parses', () => {
-            expect(parseNotebookNodeHTMLAttribute('not-base64-or-json!')).toBe('not-base64-or-json!')
         })
     })
 

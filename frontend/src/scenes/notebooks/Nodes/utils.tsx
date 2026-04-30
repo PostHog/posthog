@@ -283,28 +283,6 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     return [parsedAttrs.current, updateAttributes]
 }
 
-// Decodes a notebook node HTML attribute, tolerating both encodings produced by our two
-// copy paths: the explicit `copyToClipboard` action that base64-encodes JSON, and TipTap's
-// default Cmd+C path that writes attributes via `renderHTML` as raw JSON / primitive strings.
-// Without this fallback, pasting a selection containing a custom notebook node and surrounding
-// text fails because `JSON.parse(atob(...))` throws on the raw JSON, the node is rejected,
-// and ProseMirror rolls back the entire paste.
-export function parseNotebookNodeHTMLAttribute(attribute: string | null): any {
-    if (attribute === null || attribute === undefined) {
-        return null
-    }
-    try {
-        return JSON.parse(atob(attribute))
-    } catch {
-        // not base64, fall through
-    }
-    try {
-        return JSON.parse(attribute)
-    } catch {
-        return attribute
-    }
-}
-
 export const getLogicKey = ({
     tabId,
     personId,

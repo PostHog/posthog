@@ -20,7 +20,7 @@ import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { parseNotebookNodeHTMLAttribute, posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
@@ -518,14 +518,26 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         addAttributes() {
+            // Custom attributes round-trip through HTML as JSON.
+            // `parseHTML` on the way in and `renderHTML` on the way out are symmetric
+            // so default Cmd+C and the explicit `copyToClipboard` action produce the same encoding and parse cleanly
             const nodeAttributes = Object.fromEntries(
                 Object.entries(attributes as Record<string, any>).map(([name, config]) => {
                     return [
                         name,
                         {
                             ...config,
-                            parseHTML: (element: HTMLElement) =>
-                                parseNotebookNodeHTMLAttribute(element.getAttribute(name)),
+                            parseHTML: (element: HTMLElement) => {
+                                const raw = element.getAttribute(name)
+                                return raw === null ? null : JSON.parse(raw)
+                            },
+                            renderHTML: (attrs: Record<string, any>) => {
+                                const value = attrs[name]
+                                if (value === null || value === undefined) {
+                                    return {}
+                                }
+                                return { [name]: JSON.stringify(value) }
+                            },
                         },
                     ]
                 })

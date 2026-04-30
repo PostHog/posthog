@@ -1428,29 +1428,23 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         copyToClipboard: async () => {
             const { nodeAttributes } = values
 
-            const htmlAttributesString = Object.entries(nodeAttributes)
-                .map(([key, value]) => {
-                    if (key === 'nodeId' || key.startsWith('__')) {
-                        return ''
-                    }
+            // Must mirror the per-attribute parseHTML
+            // Built via the DOM so the browser handles attribute escaping.
+            const element = document.createElement(props.nodeType)
+            element.setAttribute('data-pm-slice', '0 0 []')
 
-                    if (value === null || value === undefined) {
-                        return ''
-                    }
-
-                    if (key === 'title') {
-                        return `title='${JSON.stringify(value)}'`
-                    }
-
-                    return `${key}='${btoa(JSON.stringify(value))}'`
-                })
-                .filter((x) => !!x)
-                .join(' ')
-
-            const html = `<${props.nodeType} ${htmlAttributesString} data-pm-slice="0 0 []"></${props.nodeType}>`
+            for (const [key, value] of Object.entries(nodeAttributes)) {
+                if (key === 'nodeId' || key.startsWith('__') || value == null) {
+                    continue
+                }
+                // `title` is a built-in attr that uses TipTap's default raw-string parseHTML;
+                // every other attr round-trips through the per-attribute JSON parseHTML.
+                const encoded = key === 'title' ? String(value) : JSON.stringify(value)
+                element.setAttribute(key, encoded)
+            }
 
             const type = 'text/html'
-            const blob = new Blob([html], { type })
+            const blob = new Blob([element.outerHTML], { type })
             const data = [new ClipboardItem({ [type]: blob })]
 
             await window.navigator.clipboard.write(data)
