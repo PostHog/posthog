@@ -109,6 +109,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 ## Code Style
 
 - Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. Do not run mypy locally (too slow); CI runs it on every PR. The config isn't fully strict yet, but new code should be
+- Python imports: Place all imports at the top of the file (module level). Do not put imports inside functions, methods, or conditionals. Inline imports hide dependencies from static analysis, slow down hot paths with repeated lookups, and obscure circular-import problems instead of fixing them. The only acceptable reasons to defer an import are (1) breaking a true unavoidable circular import — fix the structure first if you can, and (2) `TYPE_CHECKING` blocks for type-only references. If you reach for an inline import to dodge an import-time side effect or startup cost, fix the offending module instead
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
