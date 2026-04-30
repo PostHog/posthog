@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
     buildLabelPositions,
@@ -7,15 +7,43 @@ import {
     findNearestIndexFromPositions,
     isInPlotArea,
 } from '../interaction'
-import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Series, TooltipContext } from '../types'
+import type {
+    ChartDimensions,
+    ChartScales,
+    PointClickData,
+    ResolvedSeries,
+    ResolveValueFn,
+    TooltipContext,
+} from '../types'
+import { useLatest } from './useLatest'
 
 const defaultResolveValue: ResolveValueFn = (series, dataIndex) => series.data[dataIndex] ?? 0
+
+function isTooltipContextEquivalent<Meta>(a: TooltipContext<Meta>, b: TooltipContext<Meta>): boolean {
+    if (a.dataIndex !== b.dataIndex || a.label !== b.label) {
+        return false
+    }
+    if (a.position.x !== b.position.x || a.position.y !== b.position.y) {
+        return false
+    }
+    if (a.seriesData.length !== b.seriesData.length) {
+        return false
+    }
+    for (let i = 0; i < a.seriesData.length; i++) {
+        const ai = a.seriesData[i]
+        const bi = b.seriesData[i]
+        if (ai.value !== bi.value || ai.color !== bi.color || ai.series !== bi.series) {
+            return false
+        }
+    }
+    return true
+}
 
 interface UseChartInteractionOptions<Meta> {
     scales: ChartScales | null
     dimensions: ChartDimensions | null
     labels: string[]
-    series: Series<Meta>[]
+    series: ResolvedSeries<Meta>[]
     canvasRef: React.RefObject<HTMLCanvasElement>
     wrapperRef: React.RefObject<HTMLDivElement>
     showTooltip: boolean
@@ -48,8 +76,9 @@ export function useChartInteraction<Meta = unknown>({
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
-    const hoverIndexRef = useRef<number>(hoverIndex)
-    hoverIndexRef.current = hoverIndex
+    // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the
+    // most recent commit, so an effect-deferred ref is correct here.
+    const hoverIndexRef = useLatest(hoverIndex)
 
     const clearTooltip = useCallback(() => {
         setHoverIndex(-1)
@@ -69,8 +98,7 @@ export function useChartInteraction<Meta = unknown>({
     // Without this, the pin keeps stale values at stale pixel positions after the
     // parent updates series/labels/scales/dimensions. resolveValue is read live via a
     // ref so each render's new closure doesn't trigger a rebuild.
-    const resolveValueRef = useRef(resolveValue)
-    resolveValueRef.current = resolveValue
+    const resolveValueRef = useLatest(resolveValue)
     useEffect(() => {
         if (!isPinned || !scales || !dimensions) {
             return
@@ -93,7 +121,16 @@ export function useChartInteraction<Meta = unknown>({
                 resolveValueRef.current,
                 scales.yAxes
             )
-            return fresh ? { ...fresh, isPinned: true, onUnpin: unpin } : null
+            if (!fresh) {
+                return null
+            }
+            // Bail when the rebuilt context is value-equal to prev. Avoids identity churn
+            // re-rendering the tooltip overlay when the parent rerenders for unrelated
+            // reasons (e.g. dashboard-level state) while the pin is held.
+            if (isTooltipContextEquivalent(prev, fresh)) {
+                return prev
+            }
+            return { ...fresh, isPinned: true, onUnpin: unpin }
         })
         // Omitted on purpose:
         //   - isPinned / tooltipCtx: would feedback-loop with setTooltipCtx

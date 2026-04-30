@@ -9,6 +9,8 @@ interface TooltipProps<Meta> {
     placement?: 'follow-data' | 'top'
 }
 
+const TOOLTIP_MIDDLEWARE = [offset(12), flip(), shift({ padding: 8 })]
+
 export function Tooltip<Meta = unknown>({
     context,
     renderTooltip,
@@ -31,13 +33,13 @@ export function Tooltip<Meta = unknown>({
                 }
             },
         }),
-        [context.position.x, placement === 'follow-data' ? context.position.y : null, context.canvasBounds, placement]
+        [context.position.x, context.position.y, context.canvasBounds, placement]
     )
 
     const { refs, floatingStyles } = useFloating({
         placement: placement === 'top' ? 'right-start' : 'right',
         strategy: 'fixed',
-        middleware: [offset(12), flip(), shift({ padding: 8 })],
+        middleware: TOOLTIP_MIDDLEWARE,
     })
 
     useLayoutEffect(() => {
