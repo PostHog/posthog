@@ -82,13 +82,16 @@ export function ThreadAutoScroller({ children }: { children: React.ReactNode }):
         })
         resizeObserver.observe(sentinelRef.current)
 
-        // Reset the user interaction if we've reached the bottom of the screen
+        // Reset the user interaction if we've reached the bottom of the scroll container
         // eslint-disable-next-line compat/compat
-        const intersectionObserver = new IntersectionObserver(([entries]) => {
-            if (!scrollOrigin.current.programmatic && scrollOrigin.current.user && entries.isIntersecting) {
-                scrollOrigin.current.user = false
-            }
-        })
+        const intersectionObserver = new IntersectionObserver(
+            ([entries]) => {
+                if (!scrollOrigin.current.programmatic && scrollOrigin.current.user && entries.isIntersecting) {
+                    scrollOrigin.current.user = false
+                }
+            },
+            { root: scrollableContainer }
+        )
         intersectionObserver.observe(sentinelRef.current)
 
         return () => {
