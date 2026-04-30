@@ -1382,7 +1382,25 @@ def _post_commit_status(
         logger.warning("visual_review.status_check_error", run_id=str(run.id), exc_info=True)
 
 
-def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[dict]) -> dict:
+def _get_coauthor_trailer(user_id: int, installation_id: str) -> str | None:
+    """Return a `Co-authored-by` trailer for the approver, if they have a personal
+    GitHub integration for the same installation. Returns None when no match exists.
+    """
+    from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+    user_integration = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=installation_id,
+    ).first()
+    if user_integration is None:
+        return None
+    return UserGitHubIntegration(user_integration).coauthor_trailer
+
+
+def _commit_baseline_to_github(
+    run: Run, repo: Repo, approved_snapshots: list[dict], approver_user_id: int | None = None
+) -> dict:
     """
     Commit updated baseline file to GitHub.
 
@@ -1435,6 +1453,12 @@ def _commit_baseline_to_github(run: Run, repo: Repo, approved_snapshots: list[di
         parts.append(f"{removed_count} removed")
     summary = ", ".join(parts)
     commit_message = f"chore(visual): update {run.run_type} baselines\n\n{summary}\nRun: {run.id}"
+
+    installation_id = github.integration.integration_id
+    if approver_user_id is not None and isinstance(installation_id, str) and installation_id:
+        trailer = _get_coauthor_trailer(approver_user_id, installation_id)
+        if trailer:
+            commit_message = f"{commit_message}\n\n{trailer}"
 
     result = github.update_file(
         repository=repo_name,
@@ -1684,7 +1708,7 @@ def approve_run(
 
     # Commit to GitHub first — do this before DB changes so we can fail cleanly
     if commit_to_github and run.pr_number and repo.repo_full_name:
-        _commit_baseline_to_github(run, repo, approved_snapshots)
+        _commit_baseline_to_github(run, repo, approved_snapshots, approver_user_id=user_id)
 
     # Mark approved snapshots
     now = timezone.now()

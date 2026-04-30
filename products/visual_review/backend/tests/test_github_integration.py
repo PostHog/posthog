@@ -484,6 +484,79 @@ class TestGitHubCommitOnApprove:
 
         assert "newer commits" in str(exc_info.value)
 
+    def test_approve_adds_coauthor_trailer_when_user_has_personal_integration(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        run_with_changes,
+        user,
+    ):
+        """Approver's personal GitHub integration should be added as Co-authored-by on the bot commit."""
+        from posthog.models.user_integration import UserIntegration
+
+        # Pin the team integration's installation_id so UserIntegration lookup matches
+        mock_github_integration.integration_id = "12345"
+
+        UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="12345",
+            config={"github_user": {"login": "octocat", "id": 583231}},
+            sensitive_config={"user_access_token": "ghu_fake"},
+        )
+
+        run = run_with_changes
+        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
+
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=approved,
+            commit_to_github=True,
+        )
+
+        log_result = subprocess.run(
+            ["git", "log", "--format=%B", "-1"],
+            cwd=local_git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "Co-authored-by: octocat <583231+octocat@users.noreply.github.com>" in log_result.stdout
+
+    def test_approve_without_personal_integration_omits_trailer(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        run_with_changes,
+        user,
+    ):
+        """If the approver has no personal GitHub integration, no trailer is added."""
+        mock_github_integration.integration_id = "12345"
+
+        run = run_with_changes
+        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
+
+        logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=approved,
+            commit_to_github=True,
+        )
+
+        log_result = subprocess.run(
+            ["git", "log", "--format=%B", "-1"],
+            cwd=local_git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "Co-authored-by:" not in log_result.stdout
+
     def test_approve_without_github_skips_commit(
         self,
         vr_project_with_github,

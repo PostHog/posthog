@@ -138,6 +138,19 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             return int(gh_id) if gh_id is not None else None
         return None
 
+    @property
+    def coauthor_trailer(self) -> str | None:
+        """`Co-authored-by` trailer for git commits attributed to this GitHub user.
+
+        Uses GitHub's `<id>+<login>@users.noreply.github.com` format so attribution
+        works regardless of the user's email privacy settings.
+        """
+        login = self.github_login
+        gh_id = self.github_id
+        if not login or gh_id is None:
+            return None
+        return f"Co-authored-by: {login} <{gh_id}+{login}@users.noreply.github.com>"
+
     # --- User-to-server token ---
 
     @property
