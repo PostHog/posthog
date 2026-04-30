@@ -294,16 +294,18 @@ impl PodHandle {
         let pod = &self.config.pod_name;
         let is_old_owner = handoff.old_owner.as_deref() == Some(pod.as_str());
 
-        // Old owner: on Freezing, drain inflight and write a DrainedAck.
+        // Old owner: on Draining, drain inflight and write a DrainedAck.
         // The produce path awaits Kafka delivery before returning, so "no
         // inflight handlers" implies "every acked write is durable in Kafka."
-        // Skipped when old_owner is None (initial assignment): there is
-        // nothing to drain.
-        if is_old_owner && handoff.phase == HandoffPhase::Freezing {
+        // The coordinator only advances Freezing → Draining once every
+        // router has FreezeAcked, so by the time we observe Draining no
+        // new request can flow from any router to this pod and the
+        // inflight==0 check is meaningful.
+        if is_old_owner && handoff.phase == HandoffPhase::Draining {
             tracing::info!(
                 pod,
                 partition = handoff.partition,
-                "draining inflight for freezing partition"
+                "draining inflight for partition"
             );
             self.handler
                 .drain_partition_inflight(handoff.partition)

@@ -38,19 +38,25 @@ When the set of active pods changes, the coordinator computes a new partition-to
 
 ### Handoff
 
-Partitions that need to move go through a three-phase state machine. The protocol is designed so that no acknowledged write is ever lost across a cutover, even though three independent components (coordinator, old owner, new owner, routers) participate.
+Partitions that need to move go through a four-phase state machine. The protocol is designed so that no acknowledged write is ever lost across a cutover, even though four independent components (coordinator, old owner, new owner, routers) participate.
 
 ```text
-Freezing --> Warming --> Complete --> (deleted)
+Freezing --> Draining --> Warming --> Complete --> (deleted)
 ```
 
-1. **Freezing**: Coordinator creates the handoff. Routers begin buffering ("stashing") incoming writes for the partition and write a `RouterFreezeAck`. The old owner waits for its inflight request handlers to complete, then writes a `PodDrainedAck`. Because the leader's produce path awaits the Kafka delivery future before returning success, "no inflight" implies "every write this pod ever acked is durable in Kafka." Once both quorums are met (router quorum has frozen *and* the old owner has drained, or the old owner is gone), the coordinator advances the handoff to `Warming` via a versioned compare-and-swap.
+1. **Freezing**: Coordinator creates the handoff. Routers begin buffering ("stashing") incoming writes for the partition and write a `RouterFreezeAck`. The old owner does *not* yet drain — it continues serving until every router has acked, because while a single router still forwards traffic to the old owner the inflight count cannot meaningfully be observed as zero. Once every registered router has acked, the coordinator advances to `Draining` via a versioned compare-and-swap.
 
-2. **Warming**: Kafka high-water mark for the partition is now stable — no one is producing to it. The new owner consumes the changelog from the writer's last committed offset up to the current HWM, populating its cache, then writes a `PodWarmedAck`. The coordinator then atomically writes both `phase=Complete` and the new `PartitionAssignment` in a single etcd transaction.
+2. **Draining**: No router can forward new requests to the old owner anymore (every router is stashing). The old owner waits for its inflight request handlers to complete, then writes a `PodDrainedAck`. Because the leader's produce path awaits the Kafka delivery future before returning success, "no inflight" implies "every write this pod ever acked is durable in Kafka." When the ack arrives (or the old owner is no longer registered), the coordinator advances to `Warming`.
 
-3. **Complete**: Routers observe the handoff completion, drain their stashed writes to the new owner, and resume routing through the standard table lookup (which now points at the new owner). The old owner observes Complete and releases its partition cache. The coordinator deletes the handoff and ack keys.
+3. **Warming**: Kafka high-water mark for the partition is now stable — no producer can append. The new owner consumes the changelog from the writer's last committed offset up to the current HWM, populating its cache, then writes a `PodWarmedAck`. The coordinator atomically writes both `phase=Complete` and the new `PartitionAssignment` in a single etcd transaction.
 
-The handoff record carries `old_owner: Option<String>`. `None` denotes an initial assignment with no prior owner — the drain step is skipped at the type level.
+4. **Complete**: Routers observe the handoff completion, drain their stashed writes to the new owner, and resume routing through the standard table lookup (which now points at the new owner). The old owner observes Complete and releases its partition cache. The coordinator deletes the handoff and ack keys.
+
+The handoff record carries `old_owner: Option<String>`. `None` denotes an initial assignment with no prior owner — there's nothing to drain, so the protocol short-circuits and skips `Draining` entirely, advancing `Freezing → Warming` once router quorum is met.
+
+#### Why the Freezing/Draining split matters
+
+If a single phase served both purposes (router stash *and* old-owner drain in parallel), a slow router could send a final write to the old owner *after* the old owner observed inflight=0 momentarily and wrote `DrainedAck`. The coordinator would then advance to Warming based on a stale ack. The old owner would still process that final write, advancing Kafka HWM past the point warming snapshots, and the new owner's cache would be missing the record — silently stale. Sequencing the phases ensures "no inflight" actually means "no producer can append more."
 
 ### Recovery
 

@@ -350,8 +350,15 @@ impl Coordinator {
     }
 
     /// Advance a handoff's phase when its current phase's preconditions are satisfied:
-    ///   Freezing -> Warming:  all registered routers have FreezeAck AND old owner has DrainedAck
-    ///   Warming  -> Complete: new owner has WarmedAck (and CAS-updates the assignment)
+    ///   Freezing -> Draining: all registered routers have FreezeAck
+    ///   Draining -> Warming:  old owner has DrainedAck (or old owner is gone)
+    ///   Warming  -> Complete: new owner has WarmedAck (atomic with assignment write)
+    ///
+    /// The Freezing/Draining split sequences router-stop before old-owner-drain so
+    /// that "no inflight handlers" actually means "no producer can append more
+    /// to Kafka." Without the split, a slow router could send a final write
+    /// to the old owner after the old owner observed inflight=0 momentarily
+    /// and wrote DrainedAck, advancing HWM past the point warming snapshots.
     ///
     /// Called whenever an ack key is observed. Safe to call spuriously: reads
     /// are idempotent and transitions use CAS.
@@ -371,9 +378,36 @@ impl Coordinator {
                 // router-less configurations (e.g. tests exercising only
                 // the coordinator+pod) unblocked.
                 let all_routers_frozen = freeze_acks.len() >= routers.len();
+
+                if all_routers_frozen {
+                    // Initial assignments (no old owner) skip Draining
+                    // entirely — there's no inflight to wait for. Advance
+                    // straight to Warming.
+                    let target = match handoff.old_owner {
+                        None => HandoffPhase::Warming,
+                        Some(_) => HandoffPhase::Draining,
+                    };
+                    let advanced = store
+                        .cas_handoff_phase(partition, HandoffPhase::Freezing, target)
+                        .await?;
+                    if advanced {
+                        tracing::info!(
+                            partition,
+                            freeze_acks = freeze_acks.len(),
+                            routers = routers.len(),
+                            old_owner = ?handoff.old_owner,
+                            ?target,
+                            "freeze quorum reached, advanced from Freezing"
+                        );
+                    }
+                }
+            }
+            HandoffPhase::Draining => {
                 let old_owner_condition = match &handoff.old_owner {
-                    // Initial assignment or handoff with no prior owner -
-                    // nothing to drain, advance as soon as routers are frozen.
+                    // Defensive: a handoff that reached Draining without
+                    // an old owner shouldn't exist (Freezing skips
+                    // Draining when old_owner is None), but if it does,
+                    // there's nothing to drain.
                     None => true,
                     Some(name) => {
                         // "Alive" here means the pod's etcd registration key
@@ -398,22 +432,15 @@ impl Coordinator {
                     }
                 };
 
-                if all_routers_frozen && old_owner_condition {
-                    // CAS on the handoff version: concurrent
-                    // check_phase_advance calls (an ack-watch firing
-                    // alongside watch_handoffs_loop's nudge) must not both
-                    // write Warming, which would generate duplicate Put
-                    // events and cause downstream listeners to react twice.
+                if old_owner_condition {
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Freezing, HandoffPhase::Warming)
+                        .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
                         .await?;
                     if advanced {
                         tracing::info!(
                             partition,
-                            freeze_acks = freeze_acks.len(),
-                            routers = routers.len(),
                             old_owner = ?handoff.old_owner,
-                            "freeze + drain complete, advanced to Warming"
+                            "old owner drained, advanced to Warming"
                         );
                     }
                 }

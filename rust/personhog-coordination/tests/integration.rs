@@ -1927,20 +1927,35 @@ async fn draining_old_owner_blocks_phase_advance() {
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator. Reconcile-on-startup will call
-    // `check_phase_advance`. Without the fix, it would observe the
-    // Draining pod, treat it as dead, and advance Freezing → Warming
-    // immediately. With the fix it must wait for a DrainedAck.
+    // `check_phase_advance`. With no routers registered, the freeze
+    // quorum is vacuously satisfied (zero acks needed) so the handoff
+    // immediately advances Freezing → Draining. It must then sit in
+    // Draining until the (still-alive) Draining pod writes a
+    // DrainedAck — without the registration-presence check it would
+    // wrongly treat the pod as dead and advance straight to Warming.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
     let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
 
-    // Give the coordinator time to run reconcile and any subsequent
-    // ack-watch firings. The handoff must remain in Freezing throughout.
+    // Give the coordinator time to advance Freezing → Draining and to
+    // run subsequent ack-watch firings. The handoff must reach Draining
+    // and remain there.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            matches!(
+                store.get_handoff(7).await.unwrap(),
+                Some(ref s) if s.phase == HandoffPhase::Draining
+            )
+        }
+    })
+    .await;
     for _ in 0..10 {
         tokio::time::sleep(POLL_INTERVAL).await;
         let h = store.get_handoff(7).await.unwrap();
         assert!(
-            matches!(h, Some(ref s) if s.phase == HandoffPhase::Freezing),
-            "handoff must stay in Freezing while old_owner is Draining and unacked: {h:?}"
+            matches!(h, Some(ref s) if s.phase == HandoffPhase::Draining),
+            "handoff must stay in Draining while old_owner is registered and unacked: {h:?}"
         );
     }
 
@@ -2026,6 +2041,506 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
             "handoff for Draining old_owner must not be deleted by cleanup"
         );
     }
+
+    cancel.cancel();
+}
+
+/// The two-phase split (Freezing → Draining → Warming) ensures the old
+/// owner only begins draining inflight handlers AFTER every router has
+/// freeze-acked. Without the split, a slow router could send a final
+/// request to the old owner after the old owner observed inflight=0 and
+/// wrote DrainedAck, advancing Kafka HWM past the point warming
+/// snapshots and leaving the new owner with a stale cache.
+///
+/// This test verifies the gate by injecting a Freezing handoff with a
+/// registered router that never acks. The handoff must remain in
+/// Freezing — it cannot advance to Draining without the freeze quorum,
+/// and the old pod must not start draining yet.
+#[tokio::test]
+async fn freezing_blocks_until_routers_ack_before_draining() {
+    use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
+
+    let store = test_store("freezing-gates-draining").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    // Register both old and new owner pods so `cleanup_stale_handoffs`
+    // doesn't delete the injected handoff. They don't run real
+    // handlers — we just need their etcd registrations to exist.
+    let old_lease = store.grant_lease(60).await.unwrap();
+    let new_lease = store.grant_lease(60).await.unwrap();
+    for (name, lease) in [("writer-old", old_lease), ("writer-new", new_lease)] {
+        let pod = RegisteredPod {
+            pod_name: name.to_string(),
+            generation: String::new(),
+            status: PodStatus::Ready,
+            registered_at: 0,
+            last_heartbeat: 0,
+            controller: None,
+        };
+        store.register_pod(&pod, lease).await.unwrap();
+    }
+
+    // Register a router that will be slow — never write a FreezeAck —
+    // so the freeze quorum cannot complete on its own. We register it
+    // by hand because no real router process is started.
+    let router_lease = store.grant_lease(60).await.unwrap();
+    let slow_router = personhog_coordination::types::RegisteredRouter {
+        router_name: "slow-router".to_string(),
+        registered_at: 0,
+        last_heartbeat: 0,
+    };
+    store
+        .register_router(&slow_router, router_lease)
+        .await
+        .unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+
+    // Inject a Freezing handoff. With the slow router never acking,
+    // the coordinator cannot advance.
+    let handoff = HandoffState {
+        partition: 1,
+        old_owner: Some("writer-old".to_string()),
+        new_owner: "writer-new".to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+    };
+    store.put_handoff(&handoff).await.unwrap();
+
+    // The handoff must stay in Freezing for as long as the slow router
+    // hasn't acked, regardless of any other state. This prevents the
+    // race where the old pod could be told to drain while a router is
+    // still able to forward writes to it.
+    for _ in 0..10 {
+        tokio::time::sleep(POLL_INTERVAL).await;
+        let h = store.get_handoff(1).await.unwrap();
+        assert!(
+            matches!(h, Some(ref s) if s.phase == HandoffPhase::Freezing),
+            "handoff must stay in Freezing without freeze-ack quorum: {h:?}"
+        );
+    }
+
+    // Once the router acks, the handoff advances to Draining (waiting
+    // on the old owner) — not directly to Warming.
+    store
+        .put_freeze_ack(&personhog_coordination::types::RouterFreezeAck {
+            router_name: "slow-router".to_string(),
+            partition: 1,
+            acked_at: 0,
+        })
+        .await
+        .unwrap();
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            matches!(
+                store.get_handoff(1).await.unwrap(),
+                Some(ref s) if s.phase == HandoffPhase::Draining
+            )
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// Initial assignments — handoffs with `old_owner == None` — have
+/// nothing to drain and must skip the Draining phase entirely. They
+/// advance straight from Freezing to Warming once router quorum is
+/// satisfied. Without this short-circuit, every fresh partition
+/// assignment would stall in Draining waiting for a DrainedAck that
+/// will never arrive.
+#[tokio::test]
+async fn initial_assignment_skips_draining_phase() {
+    use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
+
+    let store = test_store("initial-skips-draining").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    // Register the new_owner pod so `cleanup_stale_handoffs` doesn't
+    // delete the injected handoff for missing-target reasons.
+    let lease = store.grant_lease(60).await.unwrap();
+    let new_pod = RegisteredPod {
+        pod_name: "writer-new".to_string(),
+        generation: String::new(),
+        status: PodStatus::Ready,
+        registered_at: 0,
+        last_heartbeat: 0,
+        controller: None,
+    };
+    store.register_pod(&new_pod, lease).await.unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+
+    // Inject a Freezing handoff with no old_owner. With no routers
+    // registered, the freeze quorum is vacuously met — the handoff
+    // should advance straight from Freezing to Warming, never visiting
+    // Draining.
+    let handoff = HandoffState {
+        partition: 0,
+        old_owner: None,
+        new_owner: "writer-new".to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+    };
+    store.put_handoff(&handoff).await.unwrap();
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            matches!(
+                store.get_handoff(0).await.unwrap(),
+                Some(ref s) if s.phase == HandoffPhase::Warming
+            )
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// If the old owner dies *during* Draining (lease expiry, pod crash),
+/// the handoff must still progress — either by advancing via
+/// `check_phase_advance`'s "old_owner not registered" branch, or by
+/// being cleaned up and replaced via rebalance. Either way the
+/// partition must end up assigned to a healthy pod, not stuck in
+/// Draining indefinitely.
+///
+/// The actual path is racy: pod-change events run
+/// `cleanup_stale_handoffs` (which may delete) while ack-watch events
+/// can fire `check_phase_advance` (which may advance). The test
+/// asserts the end state — partition has an active assignment and no
+/// lingering Draining handoff — which both paths converge to.
+#[tokio::test]
+async fn dead_old_owner_in_draining_recovers() {
+    use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
+
+    let store = test_store("dead-old-owner-draining").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    // Register both old and new owner. We need both initially so the
+    // injected Draining handoff isn't immediately cleaned up.
+    let old_lease = store.grant_lease(60).await.unwrap();
+    let new_lease = store.grant_lease(60).await.unwrap();
+    for (name, lease) in [("writer-old", old_lease), ("writer-new", new_lease)] {
+        let pod = RegisteredPod {
+            pod_name: name.to_string(),
+            generation: String::new(),
+            status: PodStatus::Ready,
+            registered_at: 0,
+            last_heartbeat: 0,
+            controller: None,
+        };
+        store.register_pod(&pod, lease).await.unwrap();
+    }
+
+    // Inject a Draining handoff (past Freezing, no DrainedAck yet).
+    let handoff = HandoffState {
+        partition: 3,
+        old_owner: Some("writer-old".to_string()),
+        new_owner: "writer-new".to_string(),
+        phase: HandoffPhase::Draining,
+        started_at: 0,
+    };
+    store.put_handoff(&handoff).await.unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+
+    // Wait for the coordinator to settle — the handoff must be in
+    // Draining (no DrainedAck written, old_owner still registered).
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            matches!(
+                store.get_handoff(3).await.unwrap(),
+                Some(ref s) if s.phase == HandoffPhase::Draining
+            )
+        }
+    })
+    .await;
+
+    // Kill the old owner. From this point, recovery must converge
+    // regardless of which mechanism wins — direct advance via
+    // check_phase_advance OR cleanup_stale_handoffs followed by
+    // rebalance.
+    store.delete_pod("writer-old").await.unwrap();
+
+    // End-state assertion: no Draining handoff lingers for partition
+    // 3, and partition 3 ends up assigned to a registered pod.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            let p3_still_draining = handoffs
+                .iter()
+                .any(|h| h.partition == 3 && h.phase == HandoffPhase::Draining);
+            if p3_still_draining {
+                return false;
+            }
+            // Partition is either fully resolved (assignment present,
+            // handoff complete or absent) or progressing (handoff has
+            // moved past Draining toward Warming/Complete).
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let p3_assigned = assignments
+                .iter()
+                .any(|a| a.partition == 3 && a.owner == "writer-new");
+            let p3_handoff_progressing = handoffs
+                .iter()
+                .any(|h| h.partition == 3 && h.phase != HandoffPhase::Draining);
+            p3_assigned || p3_handoff_progressing
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// Reconcile-on-startup must be able to advance a Draining handoff
+/// whose preconditions were satisfied before the coordinator came up.
+/// Two pre-stages exercise this: a DrainedAck already in etcd, or the
+/// old_owner already absent. Either way the coordinator's reconcile
+/// pass should drive the handoff to Warming via `check_phase_advance`,
+/// since the ack-watch only fires on Put events and missed pre-existing
+/// state.
+#[tokio::test]
+async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
+    use personhog_coordination::types::{
+        HandoffPhase, HandoffState, PodDrainedAck, PodStatus, RegisteredPod,
+    };
+
+    let store = test_store("reconcile-draining-ack").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    // Pre-stage both pods (so cleanup doesn't fire on either) plus a
+    // Draining handoff plus a matching DrainedAck — all before the
+    // coordinator starts. Reconcile must observe this state and
+    // advance Draining → Warming.
+    for name in ["writer-old", "writer-new"] {
+        let lease = store.grant_lease(60).await.unwrap();
+        let pod = RegisteredPod {
+            pod_name: name.to_string(),
+            generation: String::new(),
+            status: PodStatus::Ready,
+            registered_at: 0,
+            last_heartbeat: 0,
+            controller: None,
+        };
+        store.register_pod(&pod, lease).await.unwrap();
+    }
+
+    let handoff = HandoffState {
+        partition: 5,
+        old_owner: Some("writer-old".to_string()),
+        new_owner: "writer-new".to_string(),
+        phase: HandoffPhase::Draining,
+        started_at: 0,
+    };
+    store.put_handoff(&handoff).await.unwrap();
+
+    store
+        .put_drained_ack(&PodDrainedAck {
+            pod_name: "writer-old".to_string(),
+            partition: 5,
+            acked_at: 0,
+        })
+        .await
+        .unwrap();
+
+    // Now start the coordinator. Without reconcile-driven advancement,
+    // the pre-staged DrainedAck would be invisible (the ack-watch only
+    // fires on Put events delivered after the watch is established) and
+    // the handoff would stall. Reconcile re-runs `check_phase_advance`
+    // for every existing handoff, which picks up the pre-staged ack and
+    // advances to Warming.
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            matches!(
+                store.get_handoff(5).await.unwrap(),
+                Some(ref s) if s.phase == HandoffPhase::Warming
+            )
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// Symmetric to `late_joining_router_during_warming_begins_stash`, but
+/// for a router that comes up while the handoff is in `Draining`. The
+/// router must call `begin_stash` (so future writes for the partition
+/// are buffered) and must NOT write a `FreezeAck` — the freeze quorum
+/// has already been collected, and a late ack could miscount toward a
+/// future handoff for the same partition.
+#[tokio::test]
+async fn late_joining_router_during_draining_begins_stash_no_ack() {
+    use personhog_coordination::types::{HandoffPhase, HandoffState};
+
+    let store = test_store("late-router-draining").await;
+    let cancel = CancellationToken::new();
+
+    // Inject a Draining handoff before any router is up.
+    let draining_handoff = HandoffState {
+        partition: 2,
+        old_owner: Some("writer-0".to_string()),
+        new_owner: "writer-1".to_string(),
+        phase: HandoffPhase::Draining,
+        started_at: 0,
+    };
+    store.put_handoff(&draining_handoff).await.unwrap();
+
+    // Start the late-joining router.
+    let router = start_router(Arc::clone(&store), "router-late", cancel.clone());
+
+    // It must call begin_stash for the partition (observed via
+    // load_initial).
+    let check_router = Arc::clone(&router.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&check_router);
+        async move {
+            events.lock().await.iter().any(|e| {
+                matches!(
+                    e,
+                    common::CutoverEvent::StashBegan { partition: 2, new_owner }
+                        if new_owner == "writer-1"
+                )
+            })
+        }
+    })
+    .await;
+
+    // The router must NOT have written a FreezeAck — the freeze
+    // quorum closed when the coordinator advanced Freezing → Draining,
+    // and a late ack would either be redundant or risk being counted
+    // toward the next handoff for this partition.
+    tokio::time::sleep(POLL_INTERVAL * 3).await;
+    let freeze_acks = store.list_freeze_acks(2).await.unwrap();
+    let router1_acks = freeze_acks
+        .iter()
+        .filter(|a| a.router_name == "router-late")
+        .count();
+    assert_eq!(
+        router1_acks, 0,
+        "late-joining router must not write a FreezeAck for a Draining handoff"
+    );
+
+    cancel.cancel();
+}
+
+/// Symmetric to `handoff_delete_drains_stash_to_current_owner` and
+/// `handoff_delete_during_warming_drains_to_current_owner`, but for a
+/// handoff in `Draining` when it's deleted. The Delete branch in
+/// `watch_handoffs_loop` is phase-agnostic, so this exercises the same
+/// code path; the test confirms the recovery is uniform across phases.
+#[tokio::test]
+async fn handoff_delete_during_draining_drains_to_current_owner() {
+    use personhog_coordination::types::{HandoffPhase, HandoffState};
+
+    let store = test_store("delete-during-draining").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+    let router = start_router(Arc::clone(&store), "router-0", cancel.clone());
+    let _pod0 = start_pod(Arc::clone(&store), "writer-0", cancel.clone());
+
+    // Wait for the bootstrap assignment to settle so the router's
+    // table points at writer-0 for every partition.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize && handoffs.is_empty()
+        }
+    })
+    .await;
+
+    // Inject a Draining handoff for partition 0 targeting a phantom
+    // new owner. Inserting at Draining (rather than Freezing) lets us
+    // exercise the Delete-during-Draining branch directly.
+    let stuck = HandoffState {
+        partition: 0,
+        old_owner: Some("writer-0".to_string()),
+        new_owner: "phantom-pod".to_string(),
+        phase: HandoffPhase::Draining,
+        started_at: 0,
+    };
+    store.put_handoff(&stuck).await.unwrap();
+
+    // Wait for the router to observe the handoff and begin stashing.
+    let check_router = Arc::clone(&router.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&check_router);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, common::CutoverEvent::StashBegan { partition: 0, .. }))
+        }
+    })
+    .await;
+
+    let drains_before = router
+        .events
+        .lock()
+        .await
+        .iter()
+        .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
+        .count();
+
+    // Delete the Draining handoff. The Delete branch must drain the
+    // stash back to the current routing-table owner (writer-0),
+    // independent of the phase the handoff was in when deleted.
+    store.delete_handoff(0).await.unwrap();
+
+    let check_router = Arc::clone(&router.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&check_router);
+        async move {
+            events.lock().await.iter().any(|e| matches!(
+                e,
+                common::CutoverEvent::StashDrained { partition: 0, target } if target == "writer-0"
+            ))
+        }
+    })
+    .await;
+
+    let drains_after = router
+        .events
+        .lock()
+        .await
+        .iter()
+        .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
+        .count();
+    assert!(
+        drains_after > drains_before,
+        "router should have drained at least once on Delete from Draining"
+    );
 
     cancel.cancel();
 }

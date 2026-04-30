@@ -19,9 +19,10 @@ use crate::util;
 /// draining the stash to the new owner once the handoff completes.
 #[async_trait]
 pub trait StashHandler: Send + Sync {
-    /// Begin stashing writes for the partition. Must be idempotent: may be
-    /// called more than once for the same partition on phase transitions
-    /// (Freezing → Warming) and watch reconnects.
+    /// Begin stashing writes for the partition. Must be idempotent — may be
+    /// called more than once for the same partition across non-terminal
+    /// phase transitions (`Freezing` → `Draining` → `Warming`) and on
+    /// watch reconnects.
     async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()>;
 
     /// Drain stashed writes to the given target and resume normal routing.
@@ -61,9 +62,11 @@ impl Default for RoutingTableConfig {
 /// invisible to routers by design; see `PersonhogStore::complete_handoff`
 /// for the wider invariant.
 ///
-/// Maintains the current partition-to-pod mapping. When a handoff reaches
-/// the `Ready` phase, calls the `CutoverHandler` to perform the traffic
-/// switch, then writes a `RouterCutoverAck` to etcd.
+/// During non-terminal phases (`Freezing`, `Draining`, `Warming`) the
+/// routing table calls `StashHandler::begin_stash` and writes a
+/// `RouterFreezeAck` so the coordinator can collect freeze quorum. At
+/// `Complete` the table flips to the new owner and `drain_stash` flushes
+/// any buffered requests through the standard forwarding path.
 pub struct RoutingTable {
     store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
@@ -174,16 +177,15 @@ impl RoutingTable {
         drop(table);
 
         // Catch up on any in-progress handoffs. A late-joining router that
-        // observes a Freezing or Warming handoff needs to begin stashing
-        // (and write a FreezeAck if we're still in Freezing) so the
+        // observes a non-terminal handoff needs to begin stashing — and if
+        // we're still in Freezing, also write a FreezeAck so the
         // coordinator's quorum can progress. Handoffs already at Complete
-        // will arrive as a normal Put event through the watch loop below,
-        // so we don't need to handle them here.
+        // arrive as a normal Put event through the watch loop below.
         let handoffs = self.store.list_handoffs().await?;
         for handoff in handoffs {
             if matches!(
                 handoff.phase,
-                HandoffPhase::Freezing | HandoffPhase::Warming
+                HandoffPhase::Freezing | HandoffPhase::Draining | HandoffPhase::Warming
             ) {
                 tracing::info!(
                     router = %self.config.router_name,
@@ -198,8 +200,11 @@ impl RoutingTable {
                     .begin_stash(handoff.partition, &handoff.new_owner)
                     .await?;
 
-                // Only write a FreezeAck if we're still in Freezing — once
-                // we're in Warming, the ack quorum has already been met.
+                // Only write a FreezeAck while still in Freezing — once
+                // the coordinator advanced past Freezing, the freeze
+                // quorum has been collected and a late ack would be
+                // either redundant or, worse, mistakenly counted toward
+                // a future handoff for the same partition.
                 if handoff.phase == HandoffPhase::Freezing {
                     let ack = RouterFreezeAck {
                         router_name: self.config.router_name.clone(),
@@ -295,7 +300,7 @@ impl RoutingTable {
         };
 
         match handoff.phase {
-            HandoffPhase::Freezing | HandoffPhase::Warming => {
+            HandoffPhase::Freezing | HandoffPhase::Draining | HandoffPhase::Warming => {
                 tracing::info!(
                     router = %router_name,
                     partition = handoff.partition,
@@ -308,8 +313,8 @@ impl RoutingTable {
                     .await?;
 
                 // Only write a FreezeAck in Freezing — routers can arrive
-                // late, observe Warming, and must not re-ack a phase that's
-                // already cleared.
+                // late, observe a later phase, and must not re-ack a
+                // quorum that has already cleared.
                 if handoff.phase == HandoffPhase::Freezing {
                     let ack = RouterFreezeAck {
                         router_name: router_name.to_string(),

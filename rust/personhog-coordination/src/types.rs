@@ -89,27 +89,39 @@ pub struct HandoffState {
 /// State machine for partition handoffs:
 ///
 /// ```text
-/// Freezing → Warming → Complete → (deleted)
-///   ^routers    ^new owner      ^routers drain stash,
-///    stash,      consumes to    old owner releases
-///    old owner   stable HWM
-///    drains
+/// Freezing → Draining → Warming → Complete → (deleted)
+///   ^routers   ^old owner  ^new owner    ^routers drain stash,
+///    stash      drains      consumes to    old owner releases
+///                inflight    stable HWM
 /// ```
 ///
-/// The transition from `Freezing` to `Warming` happens when every registered
-/// router has written a `RouterFreezeAck` AND the old owner has written a
-/// `PodDrainedAck`. At that point no writes are in flight and Kafka HWM for
-/// the partition is stable.
+/// The phases are sequenced — routers stop *before* the old owner drains —
+/// so that "no inflight" actually means "no producer can write more." If
+/// routers and old owner transitioned in parallel, a slow router could
+/// send a final request to the old owner after the old owner observed
+/// inflight=0 momentarily and wrote its DrainedAck, advancing HWM past
+/// the point warming snapshots.
 ///
-/// The transition from `Warming` to `Complete` happens when the new owner
-/// has written a `PodWarmedAck`, meaning its cache has been populated up to
-/// the stable HWM.
+/// Phase advancement:
+///   - `Freezing → Draining`: every registered router has written a
+///     `RouterFreezeAck`. From this point no router forwards new requests
+///     to the old owner.
+///   - `Draining → Warming`: the old owner has written a `PodDrainedAck`
+///     (or it is no longer registered). From this point HWM is stable.
+///   - `Warming → Complete`: the new owner has written a `PodWarmedAck`,
+///     meaning its cache has been populated up to the stable HWM. The
+///     phase write and the new `PartitionAssignment` happen atomically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HandoffPhase {
-    /// Routers are stashing incoming writes; old owner is draining its inflight
-    /// request handlers. No one is producing to this partition after both
-    /// sides ack.
+    /// Routers are establishing per-partition stash queues. While in this
+    /// phase, the old owner continues to serve writes — the gate that
+    /// stops new traffic is each router's local `begin_stash`, not the
+    /// old owner's behavior.
     Freezing,
+    /// All routers have acked freeze, so no new requests can flow from
+    /// any router to the old owner. The old owner now waits for its
+    /// inflight handlers to complete and writes a `PodDrainedAck`.
+    Draining,
     /// HWM is stable. New owner consumes Kafka from the writer's committed
     /// offset up to current HWM, populating cache.
     Warming,
