@@ -8100,6 +8100,16 @@ class SessionRecordingType(BaseModel):
         default=None,
         description=("calculated on the backend so that we can sort by it, definition may change over time"),
     )
+    can_summarize: bool | None = Field(
+        default=None,
+        description=(
+            "Server-evaluated indicator for whether the AI session summary feature is"
+            " enabled for the requesting user. Source of truth for the player summary"
+            " dock visibility — the same check the `/summarize` endpoint enforces,"
+            " exposed up-front so the UI never offers a button the backend would"
+            " reject."
+        ),
+    )
     click_count: float | None = None
     console_error_count: float | None = None
     console_log_count: float | None = None
