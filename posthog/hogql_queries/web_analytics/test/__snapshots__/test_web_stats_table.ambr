@@ -515,25 +515,6 @@
                events.properties,
                events.timestamp
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toDate(events.timestamp), '2023-12-01'), lessOrEquals(toDate(events.timestamp), '2023-12-16'))) AS events
-     WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$pageleave'), equals(events.event, '$screen')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$prev_pageview_pathname'), ''), 'null'), '^"|"$', '')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$prev_pageview_duration'), ''), 'null'), '^"|"$', '')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1, 1)
-     GROUP BY breakdown_value) AS time_on_page ON equals(counts.breakdown_value, time_on_page.breakdown_value)
-  LEFT JOIN
-    (SELECT breakdown_value AS breakdown_value,
-            avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
-            avgIf(is_bounce, 0) AS previous_bounce_rate
-     FROM
-       (SELECT events__session.`$entry_pathname` AS breakdown_value,
-               any(events__session.`$is_bounce`) AS is_bounce,
-               events__session.session_id AS session_id,
-               min(events__session.`$start_timestamp`) AS start_timestamp
-        FROM
-          (SELECT events.`$session_id_uuid`,
-                  events.distinct_id,
-                  events.event,
-                  events.timestamp
-           FROM events
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toDate(events.timestamp), '2023-12-01'), lessOrEquals(toDate(events.timestamp), '2023-12-16'))) AS events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
                   if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
@@ -543,7 +524,7 @@
            FROM raw_sessions
            WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
-        WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1, 1)
+        WHERE and(equals(events.team_id, 99999), and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1, 1))
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
