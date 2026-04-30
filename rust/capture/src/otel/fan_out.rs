@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn span_attribute_distinct_id_overrides_resource_and_fallback() {
+    fn test_span_attribute_distinct_id_overrides_resource_and_fallback() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: Some(Resource {
@@ -526,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_users_in_one_batch_get_independent_distinct_ids() {
+    fn test_mixed_users_in_one_batch_get_independent_distinct_ids() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: None,
@@ -582,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_resource_when_span_has_no_id() {
+    fn test_falls_back_to_resource_when_span_has_no_id() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: Some(Resource {
@@ -616,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_request_fallback_when_no_attrs() {
+    fn test_falls_back_to_request_fallback_when_no_attrs() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: None,

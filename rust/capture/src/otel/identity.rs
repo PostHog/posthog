@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn span_metadata_distinct_id_wins_over_resource() {
+    fn test_span_metadata_distinct_id_wins_over_resource() {
         let span_attrs = vec![string_kv(
             "ai.telemetry.metadata.posthog_distinct_id",
             "span-user",
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn span_posthog_distinct_id_wins_over_user_id() {
+    fn test_span_posthog_distinct_id_wins_over_user_id() {
         let span_attrs = vec![
             string_kv("user.id", "user-id-value"),
             string_kv("posthog.distinct_id", "posthog-id-value"),
@@ -109,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn ai_telemetry_metadata_wins_over_posthog_distinct_id() {
+    fn test_ai_telemetry_metadata_wins_over_posthog_distinct_id() {
         let span_attrs = vec![
             string_kv("posthog.distinct_id", "explicit"),
             string_kv("ai.telemetry.metadata.posthog_distinct_id", "metadata"),
@@ -121,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_resource_when_no_span_attrs() {
+    fn test_falls_back_to_resource_when_no_span_attrs() {
         let resource = resource_with(vec![string_kv("posthog.distinct_id", "resource-user")]);
         assert_eq!(
             extract_distinct_id_for_span(&[], Some(&resource), "fallback"),
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn resource_user_id_used_when_no_posthog_id() {
+    fn test_resource_user_id_used_when_no_posthog_id() {
         let resource = resource_with(vec![string_kv("user.id", "user-id-value")]);
         assert_eq!(
             extract_distinct_id_for_span(&[], Some(&resource), "fallback"),
@@ -139,7 +139,19 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_when_no_attrs_present() {
+    fn test_resource_posthog_distinct_id_wins_over_user_id() {
+        let resource = resource_with(vec![
+            string_kv("user.id", "user-id-value"),
+            string_kv("posthog.distinct_id", "posthog-id-value"),
+        ]);
+        assert_eq!(
+            extract_distinct_id_for_span(&[], Some(&resource), "fallback"),
+            "posthog-id-value"
+        );
+    }
+
+    #[test]
+    fn test_falls_back_when_no_attrs_present() {
         assert_eq!(
             extract_distinct_id_for_span(&[], None, "fallback-id"),
             "fallback-id"
@@ -147,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_span_value_falls_through_to_resource() {
+    fn test_empty_span_value_falls_through_to_resource() {
         let span_attrs = vec![string_kv("posthog.distinct_id", "")];
         let resource = resource_with(vec![string_kv("posthog.distinct_id", "resource-user")]);
         assert_eq!(
@@ -157,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_resource_value_falls_through_to_fallback() {
+    fn test_empty_resource_value_falls_through_to_fallback() {
         let resource = resource_with(vec![
             string_kv("posthog.distinct_id", ""),
             string_kv("user.id", ""),
@@ -169,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn non_string_span_value_is_ignored() {
+    fn test_non_string_span_value_is_ignored() {
         let span_attrs = vec![make_kv(
             "ai.telemetry.metadata.posthog_distinct_id",
             any_value::Value::IntValue(42),
@@ -181,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn request_fallback_distinct_id_is_uuid() {
+    fn test_request_fallback_distinct_id_is_uuid() {
         let id = request_fallback_distinct_id();
         assert!(Uuid::parse_str(&id).is_ok());
     }
