@@ -10,7 +10,6 @@ import {
     TopicPartitionOffset,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, LogLevel } from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
@@ -23,6 +22,18 @@ import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
+import {
+    consumedBatchBackgroundDuration,
+    consumedBatchBackpressureDuration,
+    consumedBatchDuration,
+    consumerBatchSize,
+    consumerBatchSizeKb,
+    consumerBatchUtilization,
+    consumerDrainDuration,
+    consumerDrainTimeouts,
+    consumerStaleStoreOffsetsSkipped,
+    kafkaConsumerAssignment,
+} from './consumer-metrics'
 import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
@@ -30,64 +41,6 @@ const DRAIN_KEEPALIVE_TIMEOUT_MS = 100 // short consume() during DRAINING to kee
 const IDLE_POLL_INTERVAL_MS = 100
 const STATISTICS_INTERVAL_MS = 5000
 const LOOP_STALL_THRESHOLD_MS_DEFAULT = 60_000
-
-// All v2 metrics carry a `_v2` suffix so v1 and v2 can coexist in the same process during
-// rollout. Dashboards should `OR` v1 and v2 names (or sum them) for the duration of the
-// migration; once v1 is deleted, drop the suffix in a follow-up.
-const consumerAssignment = new Gauge({
-    name: 'kafka_consumer_assignment_v2',
-    help: 'Kafka consumer partition assignment status (v2)',
-    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
-})
-
-const consumedBatchDuration = new Histogram({
-    name: 'consumed_batch_duration_ms_v2',
-    help: 'Main loop consumer batch processing duration in ms (v2)',
-    labelNames: ['topic', 'groupId'],
-})
-
-const consumedBatchBackgroundDuration = new Histogram({
-    name: 'consumed_batch_background_duration_ms_v2',
-    help: 'Background task processing duration in ms (v2)',
-    labelNames: ['topic', 'groupId'],
-})
-
-const consumedBatchBackpressureDuration = new Histogram({
-    name: 'consumed_batch_backpressure_duration_ms_v2',
-    help: 'Time spent waiting for background work to finish due to backpressure (v2)',
-    labelNames: ['topic', 'groupId'],
-})
-
-const consumerBatchSize = new Histogram({
-    name: 'consumer_batch_size_v2',
-    help: 'The size of the batches we are receiving from Kafka (v2)',
-    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
-})
-
-const consumerBatchSizeKb = new Histogram({
-    name: 'consumer_batch_size_kb_v2',
-    help: 'The size in kb of the batches we are receiving from Kafka (v2)',
-    buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
-})
-
-const consumerDrainDuration = new Histogram({
-    name: 'kafka_consumer_drain_duration_ms_v2',
-    help: 'Time spent draining in-flight tasks during a rebalance or shutdown (v2)',
-    labelNames: ['topic', 'groupId', 'cause'],
-    buckets: [10, 50, 100, 500, 1000, 5000, 10000, 30000, 60000, 120000, Infinity],
-})
-
-const consumerDrainTimeouts = new Counter({
-    name: 'kafka_consumer_drain_timeouts_total_v2',
-    help: 'Number of times a drain hit its timeout before all tasks settled (v2)',
-    labelNames: ['topic', 'groupId', 'cause'],
-})
-
-const consumerStaleStoreOffsetsSkipped = new Counter({
-    name: 'kafka_consumer_stale_store_offsets_skipped_total_v2',
-    help: 'Number of times an offset store was skipped because the task spanned a rebalance generation (v2)',
-    labelNames: ['topic', 'groupId'],
-})
 
 export type KafkaConsumerV2Config = {
     groupId: string
@@ -332,6 +285,7 @@ export class KafkaConsumerV2 {
 
         consumerBatchSize.observe(messages.length)
         consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+        consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)
 
         if (messages.length === 0 && !this.config.callEachBatchWhenEmpty) {
             return
@@ -443,7 +397,7 @@ export class KafkaConsumerV2 {
                 return
             }
             for (const tp of event.partitions) {
-                consumerAssignment
+                kafkaConsumerAssignment
                     .labels({
                         topic_name: tp.topic,
                         partition_id: tp.partition.toString(),
@@ -481,7 +435,7 @@ export class KafkaConsumerV2 {
             }
 
             for (const tp of event.partitions) {
-                consumerAssignment
+                kafkaConsumerAssignment
                     .labels({
                         topic_name: tp.topic,
                         partition_id: tp.partition.toString(),
