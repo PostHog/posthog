@@ -77,7 +77,7 @@ def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
     These power the internal LLMA skills adoption/usage dashboards — keep stable
     and additive (renaming a key here will rename it on every dashboard).
     """
-    files = list(skill.files.all()) if skill.pk else []
+    file_count = skill.files.count() if skill.pk else 0
     body = skill.body or ""
     description = skill.description or ""
     allowed_tools = skill.allowed_tools or []
@@ -88,8 +88,8 @@ def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
         "skill_is_latest": skill.is_latest,
         "skill_body_length": len(body),
         "skill_description_length": len(description),
-        "skill_file_count": len(files),
-        "skill_has_files": bool(files),
+        "skill_file_count": file_count,
+        "skill_has_files": file_count > 0,
         "skill_has_license": bool(skill.license),
         "skill_has_compatibility": bool(skill.compatibility),
         "skill_has_allowed_tools": bool(allowed_tools),
