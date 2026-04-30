@@ -200,8 +200,8 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
 
     return (
         <SceneContent>
-            {repoId && <VisualReviewTabs activeKey="snapshots" repoId={repoId} />}
             <SceneTitleSection name={identifier} resourceType={{ type: 'visual_review' }} />
+            {repoId && <VisualReviewTabs activeKey="snapshots" repoId={repoId} />}
 
             <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
                 <div className="border rounded bg-bg-light flex flex-wrap items-center gap-x-10 gap-y-3 px-4 py-3">

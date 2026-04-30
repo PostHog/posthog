@@ -330,7 +330,6 @@ export function VisualReviewRunScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
             <SceneTitleSection
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
@@ -349,6 +348,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     ) : undefined
                 }
             />
+            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {run.is_stale && (
                 <LemonBanner type="warning" className="mb-4">
