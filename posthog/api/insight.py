@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Sequence
 from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
@@ -278,7 +279,7 @@ class _DashboardsFromTilesManyField(serializers.ManyRelatedField):
     def get_attribute(self, instance: Insight) -> list[int]:
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
-    def to_representation(self, iterable: list[int]) -> list[int]:
+    def to_representation(self, iterable: Sequence[Any]) -> list[Any]:
         return list(iterable)
 
 
