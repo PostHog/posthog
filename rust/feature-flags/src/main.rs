@@ -5,7 +5,6 @@ use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
@@ -16,24 +15,9 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use feature_flags::config::{Config, ThreadCounts};
 use feature_flags::rayon_dispatcher::RayonDispatcher;
-use feature_flags::server::serve;
+use feature_flags::server::{register_components, serve};
 
 common_alloc::used!();
-
-async fn shutdown() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
-    tracing::info!("Shutting down gracefully...");
-}
 
 fn init_tracer(
     sink_url: &str,
@@ -142,12 +126,26 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
         }
     };
 
+    let mut manager = lifecycle::Manager::builder("feature-flags")
+        .with_global_shutdown_timeout(Duration::from_secs(45))
+        .build();
+
+    let handles = register_components(&mut manager);
+    let monitor_guard = manager.monitor_background();
+
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, rayon_dispatcher, shutdown()).await;
-    unreachable!("Server exited unexpectedly");
+    serve(config, listener, rayon_dispatcher, handles).await;
+
+    // Exit non-zero on dirty shutdown so `restart: on-failure` policies
+    // (hobby docker-compose, default Docker) restart the container.
+    // Clean shutdown exits 0.
+    if let Err(e) = monitor_guard.wait().await {
+        tracing::error!("Lifecycle monitor reported: {e}");
+        std::process::exit(1);
+    }
 }
 
 fn main() {

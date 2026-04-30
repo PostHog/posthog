@@ -55,7 +55,11 @@ export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
         .min(organizationsProjectsRetrievePathIdMin)
         .max(organizationsProjectsRetrievePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 /**
@@ -70,7 +74,11 @@ export const OrganizationsProjectsPartialUpdateParams = /* @__PURE__ */ zod.obje
         .min(organizationsProjectsPartialUpdatePathIdMin)
         .max(organizationsProjectsPartialUpdatePathIdMax)
         .describe('A unique value identifying this project.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const organizationsProjectsPartialUpdateBodyNameMax = 200

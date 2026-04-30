@@ -24,6 +24,7 @@ export namespace Schemas {
       AiMetric: '$ai_metric',
       AiFeedback: '$ai_feedback',
       AiEvaluation: '$ai_evaluation',
+      AiTag: '$ai_tag',
       AiTraceSummary: '$ai_trace_summary',
       AiGenerationSummary: '$ai_generation_summary',
       AiTraceClusters: '$ai_trace_clusters',
@@ -534,7 +535,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type UserBasicHedgehogConfig = {[key: string]: unknown} | null | null;
+    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null | null;
 
     export interface UserBasic {
       readonly id: number;
@@ -4919,7 +4920,7 @@ export namespace Schemas {
 
     export type AddSnapshotsInputBaselineHashes = {[key: string]: string};
 
-    export type SnapshotManifestItemMetadata = {[key: string]: unknown};
+    export type SnapshotManifestItemMetadata = { [key: string]: unknown };
 
     export interface SnapshotManifestItem {
       identifier: string;
@@ -5607,9 +5608,9 @@ export namespace Schemas {
       date_from?: string | null;
     }
 
-    export type AlertSimulateResponseSubDetectorScoresItem = {[key: string]: unknown};
+    export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
 
-    export type BreakdownSimulationResultSubDetectorScoresItem = {[key: string]: unknown};
+    export type BreakdownSimulationResultSubDetectorScoresItem = { [key: string]: unknown };
 
     export interface BreakdownSimulationResult {
       /** Breakdown value label. */
@@ -5882,7 +5883,7 @@ export namespace Schemas {
       tolerated_matched?: number;
     }
 
-    export type RunMetadata = {[key: string]: unknown};
+    export type RunMetadata = { [key: string]: unknown };
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
@@ -5988,15 +5989,15 @@ export namespace Schemas {
     /**
      * Discovered detail fields and their value distributions.
      */
-    export type AvailableFiltersResponseDetailFields = {[key: string]: unknown};
+    export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
 
-    export type StaticFiltersUsersItem = {[key: string]: unknown};
+    export type StaticFiltersUsersItem = { [key: string]: unknown };
 
-    export type StaticFiltersScopesItem = {[key: string]: unknown};
+    export type StaticFiltersScopesItem = { [key: string]: unknown };
 
-    export type StaticFiltersActivitiesItem = {[key: string]: unknown};
+    export type StaticFiltersActivitiesItem = { [key: string]: unknown };
 
-    export type StaticFiltersClientsItem = {[key: string]: unknown};
+    export type StaticFiltersClientsItem = { [key: string]: unknown };
 
     export interface StaticFilters {
       /** Users who have logged activity. */
@@ -6465,6 +6466,50 @@ export namespace Schemas {
       Zar: 'ZAR',
       Zmw: 'ZMW',
     } as const;
+
+    export interface BaselineSparklineDay {
+      clean: number;
+      tolerated: number;
+      changed: number;
+      quarantined: number;
+    }
+
+    export interface BaselineEntry {
+      sparkline: BaselineSparklineDay[];
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      tolerate_count_30d: number;
+      tolerate_count_90d: number;
+      is_quarantined: boolean;
+      last_run_at: string;
+      /** @nullable */
+      recent_diff_avg: number | null;
+    }
+
+    export type BaselineTotalsByRunType = {[key: string]: number};
+
+    export interface BaselineTotals {
+      by_run_type: BaselineTotalsByRunType;
+      all_snapshots: number;
+      recently_tolerated: number;
+      frequently_tolerated: number;
+      currently_quarantined: number;
+    }
+
+    export interface BaselineOverview {
+      entries: BaselineEntry[];
+      totals: BaselineTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
 
     /**
      * * `minimal` - minimal
@@ -6977,7 +7022,7 @@ export namespace Schemas {
     /**
      * Property filters to apply
      */
-    export type BlastRadiusRequestFilters = {[key: string]: unknown};
+    export type BlastRadiusRequestFilters = { [key: string]: unknown };
 
     export interface BlastRadiusRequest {
       /** Property filters to apply */
@@ -7009,7 +7054,7 @@ export namespace Schemas {
     /**
      * Local variables at the time of the hit
      */
-    export type BreakpointHitVariables = {[key: string]: unknown};
+    export type BreakpointHitVariables = { [key: string]: unknown };
 
     /**
      * Schema for a single breakpoint hit event
@@ -7283,7 +7328,7 @@ export namespace Schemas {
     /**
      * Supporting evidence
      */
-    export type CapabilityStateEvidence = {[key: string]: unknown};
+    export type CapabilityStateEvidence = { [key: string]: unknown };
 
     /**
      * * `needs_setup` - needs_setup
@@ -7396,7 +7441,7 @@ export namespace Schemas {
       Both: 'both',
     } as const;
 
-    export type ChangeRequestApprovalsItem = {[key: string]: unknown};
+    export type ChangeRequestApprovalsItem = { [key: string]: unknown };
 
     /**
      * * `valid` - Valid
@@ -7730,6 +7775,7 @@ export namespace Schemas {
      * * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max
      */
     export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
@@ -7739,6 +7785,7 @@ export namespace Schemas {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
+      Xhigh: 'xhigh',
       Max: 'max',
     } as const;
 
@@ -7806,6 +7853,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -7820,12 +7868,12 @@ export namespace Schemas {
       initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
-    export type ClickhouseEventProperties = {[key: string]: unknown};
+    export type ClickhouseEventProperties = { [key: string]: unknown };
 
     /**
      * @nullable
      */
-    export type ClickhouseEventPerson = {[key: string]: unknown} | null | null;
+    export type ClickhouseEventPerson = { [key: string]: unknown } | null | null;
 
     export interface EventElement {
       event: string;
@@ -7921,7 +7969,7 @@ export namespace Schemas {
       Kmeans: 'kmeans',
     } as const;
 
-    export type ClusteringRunRequestEventFiltersItem = {[key: string]: unknown};
+    export type ClusteringRunRequestEventFiltersItem = { [key: string]: unknown };
 
     /**
      * * `none` - none
@@ -8120,6 +8168,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -8263,6 +8312,46 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
+    export type CohortPersonResultProperties = { [key: string]: unknown };
+
+    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
+
+    /**
+     * * `person` - person
+     */
+    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+
+
+    export const CohortPersonResultTypeEnum = {
+      Person: 'person',
+    } as const;
+
+    export interface CohortPersonResult {
+      id: string;
+      uuid: string;
+      type: CohortPersonResultTypeEnum;
+      name: string;
+      distinct_ids: string[];
+      properties: CohortPersonResultProperties;
+      /** @nullable */
+      created_at: string | null;
+      /** @nullable */
+      last_seen_at: string | null;
+      /** @nullable */
+      is_identified: boolean | null;
+      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
+      /** @nullable */
+      value_at_data_point: number | null;
+    }
+
+    export interface CohortPersonsResponse {
+      results: CohortPersonResult[];
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+    }
+
     export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
 
 
@@ -8375,9 +8464,9 @@ export namespace Schemas {
       Base64: 'base64',
     } as const;
 
-    export type ConversationMessagesItem = {[key: string]: unknown};
+    export type ConversationMessagesItem = { [key: string]: unknown };
 
-    export type ConversationPendingApprovalsItem = {[key: string]: unknown};
+    export type ConversationPendingApprovalsItem = { [key: string]: unknown };
 
     /**
      * * `idle` - Idle
@@ -9003,7 +9092,7 @@ export namespace Schemas {
 
     export type CreateRunInputBaselineHashes = {[key: string]: string};
 
-    export type CreateRunInputMetadata = {[key: string]: unknown};
+    export type CreateRunInputMetadata = { [key: string]: unknown };
 
     export interface CreateRunInput {
       repo_id: string;
@@ -9115,24 +9204,24 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    export type DashboardFilters = {[key: string]: unknown};
+    export type DashboardFilters = { [key: string]: unknown };
 
     /**
      * @nullable
      */
-    export type DashboardVariables = {[key: string]: unknown} | null | null;
+    export type DashboardVariables = { [key: string]: unknown } | null | null;
 
     /**
      * @nullable
      */
-    export type DashboardPersistedFilters = {[key: string]: unknown} | null | null;
+    export type DashboardPersistedFilters = { [key: string]: unknown } | null | null;
 
     /**
      * @nullable
      */
-    export type DashboardPersistedVariables = {[key: string]: unknown} | null | null;
+    export type DashboardPersistedVariables = { [key: string]: unknown } | null | null;
 
-    export type DashboardTilesItem = {[key: string]: unknown};
+    export type DashboardTilesItem = { [key: string]: unknown };
 
     /**
      * * `21` - Everyone in the project can edit
@@ -9186,10 +9275,6 @@ export namespace Schemas {
        */
       data_color_theme_id?: number | null;
       tags?: unknown[];
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
@@ -9271,10 +9356,6 @@ export namespace Schemas {
       readonly id: string;
       readonly dashboard_id: number;
       readonly user: UserBasic;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level: RestrictionLevelEnum;
       readonly added_at: string;
       readonly updated_at: string;
@@ -12936,7 +13017,7 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    export type DataWarehouseSavedQueryColumnsItem = {[key: string]: unknown};
+    export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
      * * `Cancelled` - Cancelled
@@ -13080,7 +13161,7 @@ export namespace Schemas {
       readonly view_count: number;
     }
 
-    export type DataWarehouseSavedQueryMinimalColumnsItem = {[key: string]: unknown};
+    export type DataWarehouseSavedQueryMinimalColumnsItem = { [key: string]: unknown };
 
     /**
      * Lightweight serializer for list views - excludes large query field to reduce memory usage.
@@ -14281,7 +14362,7 @@ export namespace Schemas {
     /**
      * Feature flag payload for this early access feature
      */
-    export type EarlyAccessFeaturePayload = {[key: string]: unknown};
+    export type EarlyAccessFeaturePayload = { [key: string]: unknown };
 
     /**
      * * `server` - Server
@@ -14297,7 +14378,7 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    export type MinimalFeatureFlagFilters = {[key: string]: unknown};
+    export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
     export interface MinimalFeatureFlag {
       readonly id: number;
@@ -14578,7 +14659,7 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
      */
-    export type EndpointRequestBucketOverrides = {[key: string]: unknown} | null | null;
+    export type EndpointRequestBucketOverrides = { [key: string]: unknown } | null | null;
 
     /**
      * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -14637,7 +14718,7 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization.
      * @nullable
      */
-    export type EndpointResponseBucketOverrides = {[key: string]: unknown} | null | null;
+    export type EndpointResponseBucketOverrides = { [key: string]: unknown } | null | null;
 
     /**
      * Full endpoint representation returned by list/retrieve/create/update.
@@ -14785,7 +14866,7 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization.
      * @nullable
      */
-    export type EndpointVersionResponseBucketOverrides = {[key: string]: unknown} | null | null;
+    export type EndpointVersionResponseBucketOverrides = { [key: string]: unknown } | null | null;
 
     /**
      * Extended endpoint representation when viewing a specific version.
@@ -15574,7 +15655,7 @@ export namespace Schemas {
      * Release associated with this symbol set
      * @nullable
      */
-    export type ErrorTrackingSymbolSetRelease = {[key: string]: unknown} | null | null;
+    export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface ErrorTrackingSymbolSet {
       readonly id: string;
@@ -15676,6 +15757,7 @@ export namespace Schemas {
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
     * `azure_openai` - Azure OpenAI
+    * `together_ai` - Together AI
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -15687,6 +15769,7 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
     } as const;
 
     /**
@@ -15738,6 +15821,76 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    /**
+     * * `unknown` - Unknown
+    * `ok` - Ok
+    * `invalid` - Invalid
+    * `error` - Error
+     */
+    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
+
+
+    export const LLMProviderKeyStateEnum = {
+      Unknown: 'unknown',
+      Ok: 'ok',
+      Invalid: 'invalid',
+      Error: 'error',
+    } as const;
+
+    export interface LLMProviderKey {
+      readonly id: string;
+      provider: LLMProviderEnum;
+      /** @maxLength 255 */
+      name: string;
+      readonly state: LLMProviderKeyStateEnum;
+      /** @nullable */
+      readonly error_message: string | null;
+      api_key?: string;
+      readonly api_key_masked: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display: string | null;
+      set_as_active?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_used_at: string | null;
+    }
+
+    export interface EvaluationConfig {
+      /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+      readonly trial_eval_limit: number;
+      /** Number of llm_judge runs already consumed against the trial credit pool. */
+      readonly trial_evals_used: number;
+      /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+      readonly trial_evals_remaining: number;
+      /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+      readonly active_provider_key: LLMProviderKey | null;
+      /** Timestamp when the evaluation config row was created. */
+      readonly created_at: string;
+      /** Timestamp when the evaluation config row was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface EvaluationConfigSetActiveKeyRequest {
+      /** UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide. */
+      key_id: string;
+    }
+
     export interface EvaluationPattern {
       title: string;
       description: string;
@@ -15761,58 +15914,58 @@ export namespace Schemas {
       readonly id: string;
       /** UUID of the evaluation this report config belongs to. */
       evaluation: string;
-      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
        * @nullable
        */
       starts_at?: string | null;
       /**
-       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
        * @maxLength 64
        */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
-      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+      /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Max number of evaluation runs included in each report. Defaults to 100.
+       * Maximum number of evaluation runs included in each report. Defaults to 200.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
-      /** Whether report delivery is active. */
+      /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
       /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
-      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+      /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+       * @minimum 10
+       * @maximum 10000
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+       * @minimum 60
+       * @maximum 1440
        */
       cooldown_minutes?: number;
       /**
-       * Max reports generated per day. Defaults to 3.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+       * @minimum 1
+       * @maximum 24
        */
       daily_run_cap?: number;
       /** @nullable */
@@ -16380,17 +16533,13 @@ export namespace Schemas {
      */
     export type _ExperimentApiMetricsList = ExperimentApiMetric[];
 
-    /**
-     * * `draft` - Draft
-    * `running` - Running
-    * `stopped` - Stopped
-     */
     export type ExperimentStatusEnum = typeof ExperimentStatusEnum[keyof typeof ExperimentStatusEnum];
 
 
     export const ExperimentStatusEnum = {
       Draft: 'draft',
       Running: 'running',
+      Paused: 'paused',
       Stopped: 'stopped',
     } as const;
 
@@ -16475,7 +16624,8 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
-      readonly status: ExperimentStatusEnum | NullEnum | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status: ExperimentStatusEnum;
       /**
        * The effective access level the user has for this object
        * @nullable
@@ -16678,7 +16828,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type ExternalDataSchemaTable = {[key: string]: unknown} | null | null;
+    export type ExternalDataSchemaTable = { [key: string]: unknown } | null | null;
 
     /**
      * * `full_refresh` - full_refresh
@@ -16877,7 +17027,7 @@ export namespace Schemas {
     /**
      * Connection credentials and a 'schemas' array. Keys depend on source_type.
      */
-    export type ExternalDataSourceCreatePayload = {[key: string]: unknown};
+    export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
 
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
@@ -17053,7 +17203,7 @@ export namespace Schemas {
       include_invoiceless_charges?: boolean;
     }
 
-    export type ExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
+    export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
      * Mixin for serializers to add user access control fields
@@ -17119,13 +17269,13 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
-    export type FeatureFlagFilters = {[key: string]: unknown};
+    export type FeatureFlagFilters = { [key: string]: unknown };
 
-    export type FeatureFlagExperimentSetMetadataItem = {[key: string]: unknown};
+    export type FeatureFlagExperimentSetMetadataItem = { [key: string]: unknown };
 
-    export type FeatureFlagSurveys = {[key: string]: unknown};
+    export type FeatureFlagSurveys = { [key: string]: unknown };
 
-    export type FeatureFlagFeatures = {[key: string]: unknown};
+    export type FeatureFlagFeatures = { [key: string]: unknown };
 
     /**
      * * `feature_flags` - feature_flags
@@ -17589,7 +17739,7 @@ export namespace Schemas {
      */
     export type FeatureFlagFiltersSchemaPayloads = {[key: string]: string};
 
-    export type FeatureFlagFiltersSchemaSuperGroupsItem = {[key: string]: unknown};
+    export type FeatureFlagFiltersSchemaSuperGroupsItem = { [key: string]: unknown };
 
     export interface FeatureFlagFiltersSchema {
       /** Release condition groups for the feature flag. */
@@ -17634,7 +17784,7 @@ export namespace Schemas {
       reason: string;
     }
 
-    export type FeatureFlagVersionResponseFilters = {[key: string]: unknown};
+    export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
 
     /**
      * Feature flag state at a given version plus reconstruction metadata.
@@ -17728,7 +17878,17 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at: string;
+    }
+
+    export interface FileSystemShortcutReorder {
+      /** IDs of the current user's shortcuts in the desired display order. */
+      ordered_ids: string[];
     }
 
     export interface FlagValueItem {
@@ -17740,7 +17900,7 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
-    export type GenerateRequestStepsItem = {[key: string]: unknown};
+    export type GenerateRequestStepsItem = { [key: string]: unknown };
 
     export interface GenerateRequest {
       title?: string;
@@ -17756,6 +17916,78 @@ export namespace Schemas {
 
     export interface GenerateResponse {
       steps: GenerateStepResponse[];
+    }
+
+    /**
+     * Optional translation-only draft survey payload to translate instead of the last saved survey.
+     */
+    export type GenerateSurveyTranslationsRequestSurvey = {[key: string]: unknown | null};
+
+    export interface GenerateSurveyTranslationsRequest {
+      /** Language code to generate translations for, for example pt-BR. */
+      target_language: string;
+      /** Source language code for the existing survey copy. */
+      source_language?: string;
+      /** Whether to overwrite existing translations for this language. */
+      overwrite?: boolean;
+      /** Optional translation-only draft survey payload to translate instead of the last saved survey. */
+      survey?: GenerateSurveyTranslationsRequestSurvey;
+    }
+
+    export interface GeneratedSurveyRootTranslation {
+      /** Translated survey name. */
+      name?: string;
+      /** Translated thank-you header. */
+      thankYouMessageHeader?: string;
+      /** Translated thank-you description. */
+      thankYouMessageDescription?: string;
+      /** Translated thank-you close button text. */
+      thankYouMessageCloseButtonText?: string;
+    }
+
+    /**
+     * Survey-level translation patch keyed by language.
+     */
+    export type GenerateSurveyTranslationsResponseTranslations = {[key: string]: GeneratedSurveyRootTranslation};
+
+    export interface GeneratedSurveyQuestionTranslation {
+      /** Translated question text. */
+      question?: string;
+      /** Translated question description. */
+      description?: string;
+      /** Translated submit button text. */
+      buttonText?: string;
+      /** Translated choices in the same order as the source choices. */
+      choices?: string[];
+      /** Translated lower rating bound label. */
+      lowerBoundLabel?: string;
+      /** Translated upper rating bound label. */
+      upperBoundLabel?: string;
+      /** Translated link text or localized URL. */
+      link?: string;
+    }
+
+    /**
+     * Question translation patch keyed by target language.
+     */
+    export type GeneratedSurveyQuestionTranslationPatchTranslations = {[key: string]: GeneratedSurveyQuestionTranslation};
+
+    export interface GeneratedSurveyQuestionTranslationPatch {
+      /** Survey question id this patch applies to. */
+      id: string;
+      /** Question translation patch keyed by target language. */
+      translations: GeneratedSurveyQuestionTranslationPatchTranslations;
+    }
+
+    export interface GenerateSurveyTranslationsResponse {
+      /** Survey-level translation patch keyed by language. */
+      translations: GenerateSurveyTranslationsResponseTranslations;
+      /** Question-level translation patches keyed by question id and language. */
+      questions: GeneratedSurveyQuestionTranslationPatch[];
+      /** Editor field paths generated by AI and safe to highlight as draft content. */
+      generated_field_paths: string[];
+      /** LLM trace id for debugging and feedback. */
+      trace_id: string;
     }
 
     export interface GitHubBranchesResponse {
@@ -17839,6 +18071,11 @@ export namespace Schemas {
     }
 
     /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type GroupUsageMetricFilters = { [key: string]: unknown };
+
+    /**
      * * `numeric` - numeric
     * `currency` - currency
      */
@@ -17876,19 +18113,32 @@ export namespace Schemas {
 
     export interface GroupUsageMetric {
       readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters: GroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -17955,7 +18205,7 @@ export namespace Schemas {
       pointer_target_fixed: boolean;
     }
 
-    export type HeatmapScreenshotResponseSnapshotsItem = {[key: string]: unknown};
+    export type HeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown };
 
     /**
      * * `screenshot` - Screenshot
@@ -18077,13 +18327,13 @@ export namespace Schemas {
       DataWarehouseTable: 'data-warehouse-table',
     } as const;
 
-    export type HogFunctionFiltersActionsItem = {[key: string]: unknown};
+    export type HogFunctionFiltersActionsItem = { [key: string]: unknown };
 
-    export type HogFunctionFiltersEventsItem = {[key: string]: unknown};
+    export type HogFunctionFiltersEventsItem = { [key: string]: unknown };
 
-    export type HogFunctionFiltersDataWarehouseItem = {[key: string]: unknown};
+    export type HogFunctionFiltersDataWarehouseItem = { [key: string]: unknown };
 
-    export type HogFunctionFiltersPropertiesItem = {[key: string]: unknown};
+    export type HogFunctionFiltersPropertiesItem = { [key: string]: unknown };
 
     export interface HogFunctionFilters {
       source?: HogFunctionFiltersSourceEnum;
@@ -18342,7 +18592,7 @@ export namespace Schemas {
       PosthogBusinessHours: 'posthog_business_hours',
     } as const;
 
-    export type InputsSchemaItemChoicesItem = {[key: string]: unknown};
+    export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
 
     export interface InputsSchemaItem {
       type: InputsSchemaItemTypeEnum;
@@ -18560,12 +18810,12 @@ export namespace Schemas {
     /**
      * Mock global variables available during test invocation.
      */
-    export type HogFunctionInvocationGlobals = {[key: string]: unknown};
+    export type HogFunctionInvocationGlobals = { [key: string]: unknown };
 
     /**
      * Mock ClickHouse event data to test the function with.
      */
-    export type HogFunctionInvocationClickhouseEvent = {[key: string]: unknown};
+    export type HogFunctionInvocationClickhouseEvent = { [key: string]: unknown };
 
     export interface HogFunctionInvocation {
       /** Full function configuration to test. */
@@ -19292,7 +19542,26 @@ export namespace Schemas {
       LogAttributesQuery: 'LogAttributesQuery',
     } as const;
 
-    export type LogAttributesQueryResponseResultsItem = { [key: string]: unknown };
+    export type MatchedOn = typeof MatchedOn[keyof typeof MatchedOn];
+
+
+    export const MatchedOn = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
+
+    export interface LogAttributeResult {
+      /** Whether this row matched the search by attribute key or by attribute value. */
+      matchedOn: MatchedOn;
+      /**
+       * Sample value that matched the search — only set when matchedOn is 'value'.
+       * @nullable
+       */
+      matchedValue?: string | null;
+      name: string;
+      /** Either 'log_attribute' or 'log_resource_attribute'. */
+      propertyFilterType: string;
+    }
 
     export interface LogAttributesQueryResponse {
       count: number;
@@ -19312,7 +19581,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: LogAttributesQueryResponseResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -19334,6 +19603,11 @@ export namespace Schemas {
       response?: LogAttributesQueryResponse | null;
       /** @nullable */
       search?: string | null;
+      /**
+       * When true, the search query also matches attribute values (not just keys).
+       * @nullable
+       */
+      searchValues?: boolean | null;
       /** @nullable */
       serviceNames?: string[] | null;
       /** @nullable */
@@ -20472,6 +20746,18 @@ export namespace Schemas {
       '20': '2.0',
     } as const;
 
+    export interface LLMModelInfo {
+      /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
+      id: string;
+      /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+      posthog_available: boolean;
+    }
+
+    export interface LLMModelsListResponse {
+      /** Models supported for the requested provider. */
+      models: LLMModelInfo[];
+    }
+
     export interface LLMPromptOutlineEntry {
       /**
        * Markdown heading level (1-6).
@@ -20573,59 +20859,9 @@ export namespace Schemas {
     }
 
     /**
-     * * `unknown` - Unknown
-    * `ok` - Ok
-    * `invalid` - Invalid
-    * `error` - Error
-     */
-    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
-
-
-    export const LLMProviderKeyStateEnum = {
-      Unknown: 'unknown',
-      Ok: 'ok',
-      Invalid: 'invalid',
-      Error: 'error',
-    } as const;
-
-    export interface LLMProviderKey {
-      readonly id: string;
-      provider: LLMProviderEnum;
-      /** @maxLength 255 */
-      name: string;
-      readonly state: LLMProviderKeyStateEnum;
-      /** @nullable */
-      readonly error_message: string | null;
-      api_key?: string;
-      readonly api_key_masked: string;
-      /** Azure OpenAI endpoint URL */
-      azure_endpoint?: string;
-      /**
-       * Azure OpenAI API version
-       * @maxLength 20
-       */
-      api_version?: string;
-      /**
-       * Azure endpoint (read-only, for display)
-       * @nullable
-       */
-      readonly azure_endpoint_display: string | null;
-      /**
-       * Azure API version (read-only, for display)
-       * @nullable
-       */
-      readonly api_version_display: string | null;
-      set_as_active?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly last_used_at: string | null;
-    }
-
-    /**
      * Arbitrary key-value metadata.
      */
-    export type LLMSkillMetadata = {[key: string]: unknown};
+    export type LLMSkillMetadata = { [key: string]: unknown };
 
     export interface LLMSkillFileManifest {
       /** @maxLength 500 */
@@ -20691,7 +20927,7 @@ export namespace Schemas {
     /**
      * Arbitrary key-value metadata.
      */
-    export type LLMSkillCreateMetadata = {[key: string]: unknown};
+    export type LLMSkillCreateMetadata = { [key: string]: unknown };
 
     export interface LLMSkillFileInput {
       /**
@@ -20828,7 +21064,7 @@ export namespace Schemas {
     /**
      * Arbitrary key-value metadata.
      */
-    export type LLMSkillListMetadata = {[key: string]: unknown};
+    export type LLMSkillListMetadata = { [key: string]: unknown };
 
     /**
      * List serializer that omits body and file manifest — progressive disclosure (Level 1).
@@ -20949,7 +21185,7 @@ export namespace Schemas {
     /**
      * Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).
      */
-    export type LocalEvaluationResponseCohorts = {[key: string]: unknown};
+    export type LocalEvaluationResponseCohorts = { [key: string]: unknown };
 
     export interface LocalEvaluationResponse {
       flags: MinimalFeatureFlag[];
@@ -21247,7 +21483,7 @@ export namespace Schemas {
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
-    export type LogsViewFilters = {[key: string]: unknown};
+    export type LogsViewFilters = { [key: string]: unknown };
 
     export interface LogsView {
       readonly id: string;
@@ -21543,6 +21779,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `key` - key
+    * `value` - value
+     */
+    export type MatchedOnEnum = typeof MatchedOnEnum[keyof typeof MatchedOnEnum];
+
+
+    export const MatchedOnEnum = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
+
+    /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
      * @nullable
      */
@@ -21622,7 +21870,7 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | NullEnum | null;
     }
 
-    export type MessageContextualTools = {[key: string]: unknown};
+    export type MessageContextualTools = { [key: string]: unknown };
 
     /**
      * Serializer for appending a message to an existing conversation without triggering AI processing.
@@ -22046,9 +22294,9 @@ export namespace Schemas {
       Earliest: 'earliest',
     } as const;
 
-    export type OrganizationTeamsItem = {[key: string]: unknown};
+    export type OrganizationTeamsItem = { [key: string]: unknown };
 
-    export type OrganizationProjectsItem = {[key: string]: unknown};
+    export type OrganizationProjectsItem = { [key: string]: unknown };
 
     export type OrganizationMetadata = {[key: string]: string};
 
@@ -22242,10 +22490,6 @@ export namespace Schemas {
       /** @maxLength 30 */
       first_name?: string;
       readonly emailing_attempt_made: boolean;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level?: OrganizationMembershipLevelEnum;
       /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
       readonly is_expired: boolean;
@@ -22278,10 +22522,6 @@ export namespace Schemas {
     export interface OrganizationMember {
       readonly id: string;
       readonly user: UserBasic;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level?: OrganizationMembershipLevelEnum;
       readonly joined_at: string;
       readonly updated_at: string;
@@ -23399,7 +23639,7 @@ export namespace Schemas {
      * Return the targeting flag filters, excluding the base exclusion properties.
      * @nullable
      */
-    export type ProductTourTargetingFlagFilters = {[key: string]: unknown} | null | null;
+    export type ProductTourTargetingFlagFilters = { [key: string]: unknown } | null | null;
 
     /**
      * Read-only serializer for ProductTour.
@@ -23596,7 +23836,7 @@ export namespace Schemas {
       readonly queue_id: string;
       /** Human-readable name of the queue that currently owns this pending trace. */
       readonly queue_name: string;
-      /** Trace ID currently pending human review. */
+      /** Trace ID currently pending review. */
       readonly trace_id: string;
       readonly created_at: string;
       /** @nullable */
@@ -23681,7 +23921,7 @@ export namespace Schemas {
       results: RoleExternalReference[];
     }
 
-    export type RoleMembersItem = {[key: string]: unknown};
+    export type RoleMembersItem = { [key: string]: unknown };
 
     export interface Role {
       readonly id: string;
@@ -23931,7 +24171,7 @@ export namespace Schemas {
       results: SessionRecordingExternalRef[];
     }
 
-    export type SessionRecordingExternalReferencesItem = {[key: string]: unknown};
+    export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
 
     export interface SessionRecording {
       readonly id: string;
@@ -24052,6 +24292,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `potential` - Potential
+    * `candidate` - Candidate
+    * `in_progress` - In Progress
+    * `pending_input` - Pending Input
+    * `ready` - Ready
+    * `failed` - Failed
+    * `deleted` - Deleted
+    * `suppressed` - Suppressed
+     */
+    export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
+
+
+    export const SignalReportStatusEnum = {
+      Potential: 'potential',
+      Candidate: 'candidate',
+      InProgress: 'in_progress',
+      PendingInput: 'pending_input',
+      Ready: 'ready',
+      Failed: 'failed',
+      Deleted: 'deleted',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface SignalReport {
+      readonly id: string;
+      /** @nullable */
+      readonly title: string | null;
+      /** @nullable */
+      readonly summary: string | null;
+      readonly status: SignalReportStatusEnum;
+      readonly total_weight: number;
+      readonly signal_count: number;
+      readonly signals_at_run: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly artefact_count: number;
+      /**
+       * P0–P4 from the latest priority judgment artefact (when present).
+       * @nullable
+       */
+      readonly priority: string | null;
+      /**
+       * Actionability choice from the latest actionability judgment artefact (when present).
+       * @nullable
+       */
+      readonly actionability: string | null;
+      /**
+       * Whether the issue appears already fixed, from the actionability judgment artefact.
+       * @nullable
+       */
+      readonly already_addressed: boolean | null;
+      readonly is_suggested_reviewer: boolean;
+      /** Distinct source products contributing signals to this report (from ClickHouse). */
+      readonly source_products: readonly string[];
+      /**
+       * PR URL from the latest implementation task run, if available.
+       * @nullable
+       */
+      readonly implementation_pr_url: string | null;
+    }
+
+    export interface PaginatedSignalReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReport[];
+    }
+
+    /**
      * * `session_replay` - Session replay
     * `llm_analytics` - LLM analytics
     * `github` - GitHub
@@ -24117,11 +24428,18 @@ export namespace Schemas {
     }
 
     export interface SnapshotHistoryEntry {
+      current_artifact?: Artifact | null;
       run_id: string;
+      snapshot_id: string;
       result: string;
       branch: string;
       commit_sha: string;
       created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+      /** @nullable */
+      diff_percentage?: number | null;
+      review_state?: string;
     }
 
     export interface PaginatedSnapshotHistoryEntryList {
@@ -24133,7 +24451,7 @@ export namespace Schemas {
       results: SnapshotHistoryEntry[];
     }
 
-    export type SnapshotMetadata = {[key: string]: unknown};
+    export type SnapshotMetadata = { [key: string]: unknown };
 
     export interface Snapshot {
       current_artifact?: Artifact | null;
@@ -24411,7 +24729,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type SurveyConditions = {[key: string]: unknown} | null | null;
+    export type SurveyConditions = { [key: string]: unknown } | null | null;
 
     export type SurveyFeatureFlagKeysItem = {[key: string]: string | null};
 
@@ -24652,14 +24970,14 @@ export namespace Schemas {
       readonly source_type: ExternalDataSourceTypeEnum;
     }
 
-    export type TableColumnsItem = {[key: string]: unknown};
+    export type TableColumnsItem = { [key: string]: unknown };
 
     /**
      * @nullable
      */
-    export type TableExternalSchema = {[key: string]: unknown} | null | null;
+    export type TableExternalSchema = { [key: string]: unknown } | null | null;
 
-    export type TableOptions = {[key: string]: unknown};
+    export type TableOptions = { [key: string]: unknown };
 
     export interface Table {
       readonly id: string;
@@ -24700,6 +25018,76 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaggedItem[];
+    }
+
+    /**
+     * * `llm` - LLM
+    * `hog` - Hog
+     */
+    export type TaggerTypeEnum = typeof TaggerTypeEnum[keyof typeof TaggerTypeEnum];
+
+
+    export const TaggerTypeEnum = {
+      Llm: 'llm',
+      Hog: 'hog',
+    } as const;
+
+    export type TaggerConditionPropertiesItem = { [key: string]: unknown };
+
+    export interface TaggerCondition {
+      /**
+       * Stable identifier for this condition
+       * @maxLength 100
+       */
+      id: string;
+      /**
+       * Percentage of matching events to apply this condition to
+       * @minimum 0
+       * @maximum 100
+       */
+      rollout_percentage?: number;
+      /** Property filters that scope when this condition fires */
+      properties?: TaggerConditionPropertiesItem[];
+    }
+
+    /**
+     * Nested serializer for model configuration.
+     */
+    export interface TaggerModelConfiguration {
+      provider: LLMProviderEnum;
+      /** @maxLength 100 */
+      model: string;
+      /** @nullable */
+      provider_key_id?: string | null;
+      /** @nullable */
+      readonly provider_key_name: string | null;
+    }
+
+    export interface Tagger {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration (varies by tagger_type) */
+      tagger_config: unknown;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
+      model_configuration?: TaggerModelConfiguration | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      deleted?: boolean;
+    }
+
+    export interface PaginatedTaggerList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Tagger[];
     }
 
     export interface TaskAutomation {
@@ -24758,7 +25146,7 @@ export namespace Schemas {
      * Latest run details for this task
      * @nullable
      */
-    export type TaskLatestRun = {[key: string]: unknown} | null | null;
+    export type TaskLatestRun = { [key: string]: unknown } | null | null;
 
     export interface Task {
       readonly id: string;
@@ -25050,7 +25438,7 @@ export namespace Schemas {
       readonly role: TicketAssignmentRole;
     }
 
-    export type TicketPersonProperties = {[key: string]: unknown};
+    export type TicketPersonProperties = { [key: string]: unknown };
 
     /**
      * Minimal person serializer for embedding in ticket responses.
@@ -25141,7 +25529,7 @@ export namespace Schemas {
     /**
      * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
      */
-    export type TicketViewFilters = {[key: string]: unknown};
+    export type TicketViewFilters = { [key: string]: unknown };
 
     export interface TicketView {
       readonly id: string;
@@ -25222,7 +25610,7 @@ export namespace Schemas {
       /** Trace ID for the review. */
       readonly trace_id: string;
       /**
-       * Optional human comment or reasoning for the review.
+       * Optional comment or reasoning for the review.
        * @nullable
        */
       readonly comment: string | null;
@@ -25371,7 +25759,7 @@ export namespace Schemas {
     /**
      * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
      */
-    export type UserNotificationSettings = {[key: string]: unknown};
+    export type UserNotificationSettings = { [key: string]: unknown };
 
     export interface User {
       readonly date_joined: string;
@@ -25956,9 +26344,9 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
-    export type PatchedConversationMessagesItem = {[key: string]: unknown};
+    export type PatchedConversationMessagesItem = { [key: string]: unknown };
 
-    export type PatchedConversationPendingApprovalsItem = {[key: string]: unknown};
+    export type PatchedConversationPendingApprovalsItem = { [key: string]: unknown };
 
     export interface PatchedConversation {
       readonly id?: string;
@@ -26071,24 +26459,24 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
-    export type PatchedDashboardFilters = {[key: string]: unknown};
+    export type PatchedDashboardFilters = { [key: string]: unknown };
 
     /**
      * @nullable
      */
-    export type PatchedDashboardVariables = {[key: string]: unknown} | null | null;
+    export type PatchedDashboardVariables = { [key: string]: unknown } | null | null;
 
     /**
      * @nullable
      */
-    export type PatchedDashboardPersistedFilters = {[key: string]: unknown} | null | null;
+    export type PatchedDashboardPersistedFilters = { [key: string]: unknown } | null | null;
 
     /**
      * @nullable
      */
-    export type PatchedDashboardPersistedVariables = {[key: string]: unknown} | null | null;
+    export type PatchedDashboardPersistedVariables = { [key: string]: unknown } | null | null;
 
-    export type PatchedDashboardTilesItem = {[key: string]: unknown};
+    export type PatchedDashboardTilesItem = { [key: string]: unknown };
 
     /**
      * Serializer mixin that handles tags for objects.
@@ -26122,10 +26510,6 @@ export namespace Schemas {
        */
       data_color_theme_id?: number | null;
       tags?: unknown[];
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level?: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
@@ -26208,7 +26592,7 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
-    export type PatchedDataWarehouseSavedQueryColumnsItem = {[key: string]: unknown};
+    export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
      * Shared methods for DataWarehouseSavedQuery serializers.
@@ -26427,7 +26811,7 @@ export namespace Schemas {
     /**
      * Feature flag payload for this early access feature
      */
-    export type PatchedEarlyAccessFeaturePayload = {[key: string]: unknown};
+    export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
@@ -26518,7 +26902,7 @@ export namespace Schemas {
      * Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.
      * @nullable
      */
-    export type PatchedEndpointRequestBucketOverrides = {[key: string]: unknown} | null | null;
+    export type PatchedEndpointRequestBucketOverrides = { [key: string]: unknown } | null | null;
 
     /**
      * Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.
@@ -26772,7 +27156,7 @@ export namespace Schemas {
      * Release associated with this symbol set
      * @nullable
      */
-    export type PatchedErrorTrackingSymbolSetRelease = {[key: string]: unknown} | null | null;
+    export type PatchedErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null | null;
 
     export interface PatchedErrorTrackingSymbolSet {
       readonly id?: string;
@@ -26857,58 +27241,58 @@ export namespace Schemas {
       readonly id?: string;
       /** UUID of the evaluation this report config belongs to. */
       evaluation?: string;
-      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
        * @nullable
        */
       starts_at?: string | null;
       /**
-       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
        * @maxLength 64
        */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
-      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+      /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Max number of evaluation runs included in each report. Defaults to 100.
+       * Maximum number of evaluation runs included in each report. Defaults to 200.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
-      /** Whether report delivery is active. */
+      /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
       /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
-      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+      /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+       * @minimum 10
+       * @maximum 10000
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+       * @minimum 60
+       * @maximum 1440
        */
       cooldown_minutes?: number;
       /**
-       * Max reports generated per day. Defaults to 3.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+       * @minimum 1
+       * @maximum 24
        */
       daily_run_cap?: number;
       /** @nullable */
@@ -27006,7 +27390,8 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
       update_feature_flag_params?: boolean;
-      readonly status?: ExperimentStatusEnum | NullEnum | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status?: ExperimentStatusEnum;
       /**
        * The effective access level the user has for this object
        * @nullable
@@ -27056,7 +27441,7 @@ export namespace Schemas {
     /**
      * @nullable
      */
-    export type PatchedExternalDataSchemaTable = {[key: string]: unknown} | null | null;
+    export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null | null;
 
     export interface PatchedExternalDataSchema {
       readonly id?: string;
@@ -27137,7 +27522,7 @@ export namespace Schemas {
       schemas?: ExternalDataSourceBulkUpdateSchema[];
     }
 
-    export type PatchedExternalDataSourceSerializersSchemasItem = {[key: string]: unknown};
+    export type PatchedExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
      * Mixin for serializers to add user access control fields
@@ -27231,6 +27616,11 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at?: string;
     }
 
@@ -27255,21 +27645,39 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type PatchedGroupUsageMetricFilters = { [key: string]: unknown };
+
     export interface PatchedGroupUsageMetric {
       readonly id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name?: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters?: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters?: PatchedGroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -27289,7 +27697,7 @@ export namespace Schemas {
       readonly resolved_at?: string | null;
     }
 
-    export type PatchedHeatmapScreenshotResponseSnapshotsItem = {[key: string]: unknown};
+    export type PatchedHeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown };
 
     export interface PatchedHeatmapScreenshotResponse {
       readonly id?: string;
@@ -27687,7 +28095,7 @@ export namespace Schemas {
     /**
      * Arbitrary key-value metadata.
      */
-    export type PatchedLLMSkillPublishMetadata = {[key: string]: unknown};
+    export type PatchedLLMSkillPublishMetadata = { [key: string]: unknown };
 
     export interface PatchedLLMSkillPublish {
       /** Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits. */
@@ -27837,7 +28245,7 @@ export namespace Schemas {
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
-    export type PatchedLogsViewFilters = {[key: string]: unknown};
+    export type PatchedLogsViewFilters = { [key: string]: unknown };
 
     export interface PatchedLogsView {
       readonly id?: string;
@@ -28002,9 +28410,9 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
-    export type PatchedOrganizationTeamsItem = {[key: string]: unknown};
+    export type PatchedOrganizationTeamsItem = { [key: string]: unknown };
 
-    export type PatchedOrganizationProjectsItem = {[key: string]: unknown};
+    export type PatchedOrganizationProjectsItem = { [key: string]: unknown };
 
     export type PatchedOrganizationMetadata = {[key: string]: string};
 
@@ -28119,10 +28527,6 @@ export namespace Schemas {
     export interface PatchedOrganizationMember {
       readonly id?: string;
       readonly user?: UserBasic;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level?: OrganizationMembershipLevelEnum;
       readonly joined_at?: string;
       readonly updated_at?: string;
@@ -28161,24 +28565,43 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTab {
+      /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
       id?: string;
+      /** URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination. */
       pathname?: string;
+      /** Query string portion of the URL, including the leading `?`. Empty string when there is no query. */
       search?: string;
+      /** Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment. */
       hash?: string;
+      /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
       title?: string;
-      /** @nullable */
+      /**
+       * Optional user-provided title that overrides `title` in the navigation UI.
+       * @nullable
+       */
       customTitle?: string | null;
+      /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
       iconType?: string;
-      /** @nullable */
+      /**
+       * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+       * @nullable
+       */
       sceneId?: string | null;
-      /** @nullable */
+      /**
+       * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+       * @nullable
+       */
       sceneKey?: string | null;
+      /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
       sceneParams?: unknown;
+      /** Whether this entry is pinned. Always coerced to true on save — pass true or omit. */
       pinned?: boolean;
     }
 
     export interface PatchedPinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -28224,9 +28647,9 @@ export namespace Schemas {
       creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
     }
 
-    export type PatchedProjectBackwardCompatGroupTypesItem = {[key: string]: unknown};
+    export type PatchedProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
 
-    export type PatchedProjectBackwardCompatDefaultModifiers = {[key: string]: unknown};
+    export type PatchedProjectBackwardCompatDefaultModifiers = { [key: string]: unknown };
 
     export type PatchedProjectBackwardCompatProductIntentsItem = {
       product_type?: string;
@@ -28984,14 +29407,10 @@ export namespace Schemas {
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
-      /**
-       * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+      /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
     * `0` - Sunday
-    * `1` - Monday
-       * @minimum -32768
-       * @maximum 32767
-       */
+    * `1` - Monday */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /**
        * ID of the dashboard shown as the project's default landing dashboard.
@@ -29111,7 +29530,7 @@ export namespace Schemas {
       name?: string;
     }
 
-    export type PatchedRoleMembersItem = {[key: string]: unknown};
+    export type PatchedRoleMembersItem = { [key: string]: unknown };
 
     export interface PatchedRole {
       readonly id?: string;
@@ -29245,7 +29664,7 @@ export namespace Schemas {
       readonly team?: number;
     }
 
-    export type PatchedSessionRecordingExternalReferencesItem = {[key: string]: unknown};
+    export type PatchedSessionRecordingExternalReferencesItem = { [key: string]: unknown };
 
     export interface PatchedSessionRecording {
       readonly id?: string;
@@ -30082,14 +30501,14 @@ export namespace Schemas {
       form_content?: unknown | null;
     }
 
-    export type PatchedTableColumnsItem = {[key: string]: unknown};
+    export type PatchedTableColumnsItem = { [key: string]: unknown };
 
     /**
      * @nullable
      */
-    export type PatchedTableExternalSchema = {[key: string]: unknown} | null | null;
+    export type PatchedTableExternalSchema = { [key: string]: unknown } | null | null;
 
-    export type PatchedTableOptions = {[key: string]: unknown};
+    export type PatchedTableOptions = { [key: string]: unknown };
 
     export interface PatchedTable {
       readonly id?: string;
@@ -30110,11 +30529,29 @@ export namespace Schemas {
       options?: PatchedTableOptions;
     }
 
+    export interface PatchedTagger {
+      readonly id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration (varies by tagger_type) */
+      tagger_config?: unknown;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
+      model_configuration?: TaggerModelConfiguration | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly created_by?: UserBasic;
+      deleted?: boolean;
+    }
+
     /**
      * Latest run details for this task
      * @nullable
      */
-    export type PatchedTaskLatestRun = {[key: string]: unknown} | null | null;
+    export type PatchedTaskLatestRun = { [key: string]: unknown } | null | null;
 
     export interface PatchedTask {
       readonly id?: string;
@@ -30263,11 +30700,11 @@ export namespace Schemas {
       environment?: TaskRunUpdateEnvironmentEnum;
     }
 
-    export type PatchedTeamDefaultModifiers = {[key: string]: unknown};
+    export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
 
-    export type PatchedTeamGroupTypesItem = {[key: string]: unknown};
+    export type PatchedTeamGroupTypesItem = { [key: string]: unknown };
 
-    export type PatchedTeamProductIntentsItem = {[key: string]: unknown};
+    export type PatchedTeamProductIntentsItem = { [key: string]: unknown };
 
     export type PatchedTeamManagedViewsets = {[key: string]: boolean};
 
@@ -30387,10 +30824,6 @@ export namespace Schemas {
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /** @nullable */
       primary_dashboard?: number | null;
@@ -30398,10 +30831,6 @@ export namespace Schemas {
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
@@ -30585,7 +31014,7 @@ export namespace Schemas {
        */
       trace_id?: string;
       /**
-       * Optional human comment or reasoning for the review.
+       * Optional comment or reasoning for the review.
        * @nullable
        */
       comment?: string | null;
@@ -30613,7 +31042,7 @@ export namespace Schemas {
     /**
      * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
      */
-    export type PatchedUserNotificationSettings = {[key: string]: unknown};
+    export type PatchedUserNotificationSettings = { [key: string]: unknown };
 
     export interface PatchedUser {
       readonly date_joined?: string;
@@ -30805,7 +31234,7 @@ export namespace Schemas {
       keep_person?: boolean;
     }
 
-    export type PersonBulkDeleteResponseDeletionErrorsItem = {[key: string]: unknown};
+    export type PersonBulkDeleteResponseDeletionErrorsItem = { [key: string]: unknown };
 
     export interface PersonBulkDeleteResponse {
       /** Number of persons matched by the provided IDs or distinct IDs. */
@@ -30828,9 +31257,9 @@ export namespace Schemas {
     /**
      * The parameters passed to the query
      */
-    export type PersonPropertiesAtTimeDebugParams = {[key: string]: unknown};
+    export type PersonPropertiesAtTimeDebugParams = { [key: string]: unknown };
 
-    export type PersonPropertiesAtTimeDebugEventsItem = {[key: string]: unknown};
+    export type PersonPropertiesAtTimeDebugEventsItem = { [key: string]: unknown };
 
     /**
      * Serializer for the debug information (only available to staff users).
@@ -30914,7 +31343,9 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -30948,9 +31379,9 @@ export namespace Schemas {
       creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnum;
     }
 
-    export type ProjectBackwardCompatGroupTypesItem = {[key: string]: unknown};
+    export type ProjectBackwardCompatGroupTypesItem = { [key: string]: unknown };
 
-    export type ProjectBackwardCompatDefaultModifiers = {[key: string]: unknown};
+    export type ProjectBackwardCompatDefaultModifiers = { [key: string]: unknown };
 
     export type ProjectBackwardCompatProductIntentsItem = {
       product_type?: string;
@@ -31680,14 +32111,10 @@ export namespace Schemas {
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
-      /**
-       * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+      /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
     * `0` - Sunday
-    * `1` - Monday
-       * @minimum -32768
-       * @maximum 32767
-       */
+    * `1` - Monday */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /**
        * ID of the dashboard shown as the project's default landing dashboard.
@@ -34382,8 +34809,6 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative76ResultsItem = { [key: string]: unknown };
-
     export interface QueryResponseAlternative76 {
       count: number;
       /**
@@ -34402,7 +34827,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative76ResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -35236,6 +35661,31 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface SlackChannel {
+      /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
+      id: string;
+      /** Slack channel name without the leading '#'. */
+      name: string;
+      /** True if the channel is private. */
+      is_private: boolean;
+      /** True if the PostHog Slack app is a member of the channel and can post to it. */
+      is_member: boolean;
+      /** True if the channel is shared with another Slack workspace. */
+      is_ext_shared: boolean;
+      /** True if the channel is private and the PostHog Slack app cannot access it. */
+      is_private_without_access: boolean;
+    }
+
+    export interface SlackChannelsResponse {
+      /** Slack channels visible to the PostHog Slack app. */
+      channels: SlackChannel[];
+      /**
+       * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+       * @nullable
+       */
+      lastRefreshedAt?: string | null;
+    }
+
     /**
      * * `none` - none
     * `auto` - auto
@@ -35347,12 +35797,12 @@ export namespace Schemas {
     /**
      * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
      */
-    export type SurveyGlobalStatsResponseStats = {[key: string]: unknown};
+    export type SurveyGlobalStatsResponseStats = { [key: string]: unknown };
 
     /**
      * Calculated response and dismissal rates.
      */
-    export type SurveyGlobalStatsResponseRates = {[key: string]: unknown};
+    export type SurveyGlobalStatsResponseRates = { [key: string]: unknown };
 
     export interface SurveyGlobalStatsResponse {
       /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
@@ -35791,12 +36241,12 @@ export namespace Schemas {
     /**
      * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
      */
-    export type SurveyStatsResponseStats = {[key: string]: unknown};
+    export type SurveyStatsResponseStats = { [key: string]: unknown };
 
     /**
      * Calculated response and dismissal rates.
      */
-    export type SurveyStatsResponseRates = {[key: string]: unknown};
+    export type SurveyStatsResponseRates = { [key: string]: unknown };
 
     export interface SurveyStatsResponse {
       /** The survey ID these stats belong to. */
@@ -35822,7 +36272,7 @@ export namespace Schemas {
       repositories: string[];
     }
 
-    export type TaskRunAppendLogRequestEntriesItem = {[key: string]: unknown};
+    export type TaskRunAppendLogRequestEntriesItem = { [key: string]: unknown };
 
     export interface TaskRunAppendLogRequest {
       /** Array of log entry dictionaries to append */
@@ -36101,6 +36551,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -36120,7 +36571,7 @@ export namespace Schemas {
     /**
      * Parameters for the command
      */
-    export type TaskRunCommandRequestParams = {[key: string]: unknown};
+    export type TaskRunCommandRequestParams = { [key: string]: unknown };
 
     /**
      * JSON-RPC request to send a command to the agent server in the sandbox.
@@ -36147,12 +36598,12 @@ export namespace Schemas {
     /**
      * Command result on success
      */
-    export type TaskRunCommandResponseResult = {[key: string]: unknown};
+    export type TaskRunCommandResponseResult = { [key: string]: unknown };
 
     /**
      * Error details on failure
      */
-    export type TaskRunCommandResponseError = {[key: string]: unknown};
+    export type TaskRunCommandResponseError = { [key: string]: unknown };
 
     /**
      * Response from the agent server command endpoint.
@@ -36348,11 +36799,11 @@ export namespace Schemas {
       artifacts: TaskStagedArtifactPrepareUploadResponse[];
     }
 
-    export type TeamDefaultModifiers = {[key: string]: unknown};
+    export type TeamDefaultModifiers = { [key: string]: unknown };
 
-    export type TeamGroupTypesItem = {[key: string]: unknown};
+    export type TeamGroupTypesItem = { [key: string]: unknown };
 
-    export type TeamProductIntentsItem = {[key: string]: unknown};
+    export type TeamProductIntentsItem = { [key: string]: unknown };
 
     export type TeamManagedViewsets = {[key: string]: boolean};
 
@@ -36443,10 +36894,6 @@ export namespace Schemas {
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /** @nullable */
       primary_dashboard?: number | null;
@@ -36454,10 +36901,6 @@ export namespace Schemas {
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
@@ -36524,7 +36967,7 @@ export namespace Schemas {
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
     }
 
-    export type TestHogRequestConditionsItem = {[key: string]: unknown};
+    export type TestHogRequestConditionsItem = { [key: string]: unknown };
 
     export interface TestHogRequest {
       /**
@@ -36660,7 +37103,7 @@ export namespace Schemas {
        */
       trace_id: string;
       /**
-       * Optional human comment or reasoning for the review.
+       * Optional comment or reasoning for the review.
        * @nullable
        */
       comment?: string | null;
@@ -36689,7 +37132,7 @@ export namespace Schemas {
     /**
      * The release condition to evaluate
      */
-    export type UserBlastRadiusRequestCondition = {[key: string]: unknown};
+    export type UserBlastRadiusRequestCondition = { [key: string]: unknown };
 
     export interface UserBlastRadiusRequest {
       /** The release condition to evaluate */
@@ -36896,6 +37339,16 @@ export namespace Schemas {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
       propertyFilterType: string;
+      /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+    * `key` - key
+    * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /**
+       * Sample matching value — only set when matchedOn is "value".
+       * @nullable
+       */
+      matchedValue?: string | null;
     }
 
     export interface _LogAttributeValue {
@@ -37039,6 +37492,46 @@ export namespace Schemas {
       filterGroup?: _LogPropertyFilter[];
     }
 
+    export interface _LogsCountRangeBucket {
+      /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+      date_from: string;
+      /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+      date_to: string;
+      /** Log entries matching the filters within this bucket. */
+      count: number;
+    }
+
+    export interface _LogsCountRangesBody {
+      /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+      dateRange?: _DateRange;
+      /**
+       * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+       * @minimum 1
+       * @maximum 100
+       */
+      targetBuckets?: number;
+      /** Filter by log severity levels. Applied before bucketing. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. Applied before bucketing. */
+      serviceNames?: string[];
+      /** Full-text search across log bodies. Applied before bucketing. */
+      searchTerm?: string;
+      /** Property filters applied before bucketing. Same shape as `query-logs`. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRangesRequest {
+      /** The bucketed-count query to execute. */
+      query: _LogsCountRangesBody;
+    }
+
+    export interface _LogsCountRangesResponse {
+      /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+      ranges: _LogsCountRangeBucket[];
+      /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+      interval: string;
+    }
+
     export interface _LogsCountRequest {
       /** The count query to execute. */
       query: _LogsCountBody;
@@ -37079,7 +37572,7 @@ export namespace Schemas {
     /**
      * The parsed query that was executed, echoed back for confirmation.
      */
-    export type _LogsQueryResponseQuery = {[key: string]: unknown};
+    export type _LogsQueryResponseQuery = { [key: string]: unknown };
 
     export interface _LogsQueryResponse {
       /** The parsed query that was executed, echoed back for confirmation. */
@@ -37746,9 +38239,9 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsEventsRetrieve200One = {[key: string]: unknown};
+    export type EnvironmentsEventsRetrieve200One = { [key: string]: unknown };
 
-    export type EnvironmentsEventsRetrieve200Two = {[key: string]: unknown};
+    export type EnvironmentsEventsRetrieve200Two = { [key: string]: unknown };
 
     export type EnvironmentsEventsValuesRetrieveParams = {
     format?: EnvironmentsEventsValuesRetrieveFormat;
@@ -38838,6 +39331,10 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
+    /**
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[];
@@ -38851,9 +39348,9 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
-    export type EnvironmentsLogsExportCreate201 = {[key: string]: unknown};
+    export type EnvironmentsLogsExportCreate201 = { [key: string]: unknown };
 
-    export type EnvironmentsLogsHasLogsRetrieve200 = {[key: string]: unknown};
+    export type EnvironmentsLogsHasLogsRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
@@ -39298,11 +39795,11 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsQueryLogRetrieve200 = {[key: string]: unknown};
+    export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
 
-    export type EnvironmentsQueryCheckAuthForAsyncCreate200 = {[key: string]: unknown};
+    export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
 
-    export type EnvironmentsQueryDraftSqlRetrieve200 = {[key: string]: unknown};
+    export type EnvironmentsQueryDraftSqlRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsSavedListParams = {
     /**
@@ -39747,7 +40244,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EvaluationRunsCreate200 = {[key: string]: unknown};
+    export type EvaluationRunsCreate200 = { [key: string]: unknown };
 
     export type EvaluationsListParams = {
     /**
@@ -39805,9 +40302,9 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsClusteringConfigRetrieve200 = {[key: string]: unknown};
+    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
 
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = {[key: string]: unknown};
+    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
 
     export type LlmAnalyticsClusteringJobsListParams = {
     /**
@@ -39819,10 +40316,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type LlmAnalyticsEvaluationConfigRetrieve200 = {[key: string]: unknown};
-
-    export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = {[key: string]: unknown};
 
     export type LlmAnalyticsEvaluationReportsListParams = {
     /**
@@ -39846,17 +40339,39 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsEvaluationSummaryCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationSummaryCreate403 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationSummaryCreate404 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationSummaryCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsModelsRetrieve200 = {[key: string]: unknown};
+    export type LlmAnalyticsModelsRetrieveParams = {
+    /**
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     */
+    key_id?: string;
+    /**
+     * LLM provider to list models for. Must be one of the supported providers.
+     */
+    provider: LlmAnalyticsModelsRetrieveProvider;
+    };
 
-    export type LlmAnalyticsProviderKeyValidationsCreate200 = {[key: string]: unknown};
+    export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];
+
+
+    export const LlmAnalyticsModelsRetrieveProvider = {
+      Anthropic: 'anthropic',
+      AzureOpenai: 'azure_openai',
+      Fireworks: 'fireworks',
+      Gemini: 'gemini',
+      Openai: 'openai',
+      Openrouter: 'openrouter',
+      TogetherAi: 'together_ai',
+    } as const;
+
+    export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 
     export type LlmAnalyticsProviderKeysListParams = {
     /**
@@ -39947,25 +40462,25 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type LlmAnalyticsSentimentCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSentimentCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationCreate403 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationBatchCheckCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsSummarizationBatchCheckCreate403 = {[key: string]: unknown};
+    export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown };
 
-    export type LlmAnalyticsTextReprCreate400 = {[key: string]: unknown};
+    export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown };
 
-    export type LlmAnalyticsTextReprCreate500 = {[key: string]: unknown};
+    export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsTextReprCreate503 = {[key: string]: unknown};
+    export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown };
 
     export type LlmAnalyticsTraceReviewsListParams = {
     /**
@@ -40002,7 +40517,7 @@ export namespace Schemas {
     trace_id__in?: string;
     };
 
-    export type LlmAnalyticsTranslateCreate200 = {[key: string]: unknown};
+    export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown };
 
     export type LlmPromptsListParams = {
     /**
@@ -40202,7 +40717,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type MaxToolsCreateAndQueryInsightCreate200 = {[key: string]: unknown};
+    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
     export type McpAnalyticsFeedbackListParams = {
     /**
@@ -40268,7 +40783,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type McpToolsCreate200 = {[key: string]: unknown};
+    export type McpToolsCreate200 = { [key: string]: unknown };
 
     export type MessagingCategoriesListParams = {
     /**
@@ -40346,6 +40861,40 @@ export namespace Schemas {
       Starting: 'starting',
     } as const;
 
+    export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
+    };
+
     export type UserInterviewsListParams = {
     /**
      * Number of results to return per page.
@@ -40399,7 +40948,7 @@ export namespace Schemas {
     pathname: string;
     };
 
-    export type WebVitalsRetrieve200 = {[key: string]: unknown};
+    export type WebVitalsRetrieve200 = { [key: string]: unknown };
 
     export type ListParams = {
     /**
@@ -41162,6 +41711,14 @@ export namespace Schemas {
 
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
+    /**
+     * Maximum number of persons to return per page (defaults to 100).
+     */
+    limit?: number;
+    /**
+     * Number of persons to skip before starting to return results.
+     */
+    offset?: number;
     };
 
     export type CohortsPersonsRetrieveFormat = typeof CohortsPersonsRetrieveFormat[keyof typeof CohortsPersonsRetrieveFormat];
@@ -41809,9 +42366,9 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EventsRetrieve200One = {[key: string]: unknown};
+    export type EventsRetrieve200One = { [key: string]: unknown };
 
-    export type EventsRetrieve200Two = {[key: string]: unknown};
+    export type EventsRetrieve200Two = { [key: string]: unknown };
 
     export type EventsValuesRetrieveParams = {
     format?: EventsValuesRetrieveFormat;
@@ -41849,6 +42406,18 @@ export namespace Schemas {
 
     export type ExperimentsListParams = {
     /**
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean;
+    /**
+     * Filter to experiments created by the given user ID.
+     */
+    created_by_id?: number;
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -41856,7 +42425,31 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string;
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsListStatus;
     };
+
+    export type ExperimentsListStatus = typeof ExperimentsListStatus[keyof typeof ExperimentsListStatus];
+
+
+    export const ExperimentsListStatus = {
+      All: 'all',
+      Complete: 'complete',
+      Draft: 'draft',
+      Paused: 'paused',
+      Running: 'running',
+      Stopped: 'stopped',
+    } as const;
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
@@ -43056,11 +43649,11 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type JsSnippetResolveRetrieve200 = {[key: string]: unknown};
+    export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };
 
-    export type JsSnippetVersionRetrieve200 = {[key: string]: unknown};
+    export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
 
-    export type JsSnippetVersionPartialUpdate200 = {[key: string]: unknown};
+    export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
 
     export type LiveDebuggerBreakpointsListParams = {
     filename?: string;
@@ -43161,6 +43754,10 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
+    /**
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[];
@@ -43174,9 +43771,9 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
-    export type LogsExportCreate201 = {[key: string]: unknown};
+    export type LogsExportCreate201 = { [key: string]: unknown };
 
-    export type LogsHasLogsRetrieve200 = {[key: string]: unknown};
+    export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
     export type LogsValuesRetrieveParams = {
     /**
@@ -43798,11 +44395,11 @@ export namespace Schemas {
       Session: 'session',
     } as const;
 
-    export type QueryLogRetrieve200 = {[key: string]: unknown};
+    export type QueryLogRetrieve200 = { [key: string]: unknown };
 
-    export type QueryCheckAuthForAsyncCreate200 = {[key: string]: unknown};
+    export type QueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
 
-    export type QueryDraftSqlRetrieve200 = {[key: string]: unknown};
+    export type QueryDraftSqlRetrieve200 = { [key: string]: unknown };
 
     export type QueryTabStateListParams = {
     /**
@@ -43918,6 +44515,37 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring match against report title and summary.
+     */
+    search?: string;
+    /**
+     * Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).
+     */
+    source_product?: string;
+    /**
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     */
+    status?: string;
+    /**
+     * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
+     */
+    suggested_reviewers?: string;
     };
 
     export type SignalsSourceConfigsListParams = {
@@ -44053,7 +44681,7 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
      */
     internal?: boolean;
     /**
@@ -44167,7 +44795,7 @@ export namespace Schemas {
     window_days?: number;
     };
 
-    export type UploadedMediaCreate201 = {[key: string]: unknown};
+    export type UploadedMediaCreate201 = { [key: string]: unknown };
 
     export type UserProductListListParams = {
     /**
@@ -44210,7 +44838,7 @@ export namespace Schemas {
     run_type?: string;
     };
 
-    export type VisualReviewRunsListParams = {
+    export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -44225,11 +44853,7 @@ export namespace Schemas {
     review_state?: string;
     };
 
-    export type VisualReviewRunsSnapshotHistoryListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string;
+    export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
      */

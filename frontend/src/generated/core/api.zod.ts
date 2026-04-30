@@ -114,8 +114,8 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(invitesCreateBodyFirstNameMax).optional(),
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner')
-        .optional(),
+        .optional()
+        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
     message: zod.string().nullish(),
     private_project_access: zod
         .unknown()
@@ -137,8 +137,8 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
     first_name: zod.string().max(invitesBulkCreateBodyFirstNameMax).optional(),
     level: zod
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
-        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner')
-        .optional(),
+        .optional()
+        .describe('* `1` - member\n* `8` - administrator\n* `15` - owner'),
     message: zod.string().nullish(),
     private_project_access: zod
         .unknown()

@@ -341,6 +341,20 @@ x-posthog-mcp-mode: tools
 
 The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
 
+### Consumer attribution
+
+Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
+
+```text
+https://mcp.posthog.com/mcp?consumer=plugin
+```
+
+```http
+x-posthog-mcp-consumer: plugin
+```
+
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
+
 ### Data processing
 
 The MCP server is hosted on a Cloudflare worker which can be located outside of the EU / US, for this reason the MCP server does not store any sensitive data outside of your cloud region.

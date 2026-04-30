@@ -12,6 +12,8 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.health_issue import HealthIssue
 
+from products.growth.backend.sdk_health import sdks_within_freshness_grace_period
+
 
 class HealthIssueSerializer(serializers.ModelSerializer):
     class Meta:
@@ -71,6 +73,9 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             .annotate(severity_order=SEVERITY_ORDERING)
             .order_by("severity_order", "-created_at")
         )
+
+        if fresh_sdks := sdks_within_freshness_grace_period():
+            queryset = queryset.exclude(kind="sdk_outdated", payload__sdk_name__in=fresh_sdks)
 
         if status_filter := self.request.query_params.get("status"):
             if status_filter not in VALID_STATUSES:

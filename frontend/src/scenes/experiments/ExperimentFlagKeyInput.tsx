@@ -3,12 +3,12 @@ import { LemonBanner, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { getExperimentStatus } from 'scenes/experiments/experimentsLogic'
+import { hasEnded, isLaunched } from 'scenes/experiments/experimentsLogic'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { FeatureFlagsFilters } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
-import { Experiment, ExperimentStatus, FeatureFlagType } from '~/types'
+import { Experiment, FeatureFlagType } from '~/types'
 
 import { featureFlagEligibleForExperiment } from './utils'
 
@@ -46,6 +46,7 @@ export function ExperimentFlagKeyInput({
             Reset analysis
         </Link>
     )
+    const isOngoing = isLaunched(sourceExperiment) && !hasEnded(sourceExperiment)
 
     return (
         <>
@@ -67,9 +68,9 @@ export function ExperimentFlagKeyInput({
                     </div>
                 )}
                 {isExistingFlag &&
-                    (getExperimentStatus(sourceExperiment) === ExperimentStatus.Running ? (
+                    (isOngoing ? (
                         <LemonBanner type="warning" className="mt-2">
-                            This experiment is still running. Reusing its flag in a new experiment will cause data
+                            This experiment has not ended yet. Reusing its flag in a new experiment will cause data
                             contamination, since both will count the same exposures and events. To re-run this
                             experiment, use {resetAnalysisLink} instead.
                         </LemonBanner>

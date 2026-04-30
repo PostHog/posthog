@@ -229,7 +229,7 @@ export default function SchemaForm(): JSX.Element {
                                                     className="font-mono cursor-pointer"
                                                     onClick={() => onClickCheckbox(schema, !schema.should_sync)}
                                                 >
-                                                    {schema.table}
+                                                    {schema.label || schema.table}
                                                 </span>
                                                 {schema.description && (
                                                     <Tooltip title={schema.description}>
