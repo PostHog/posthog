@@ -91,7 +91,27 @@ impl SourcemapProvider {
             .timeout(timeout)
             .connect_timeout(connect_timeout);
 
-        if !config.allow_internal_ips {
+        fn valid_proxy_url(var: &str) -> bool {
+            std::env::var(var)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .and_then(|v| reqwest::Url::parse(&v).ok())
+                .is_some()
+        }
+
+        let has_proxy = valid_proxy_url("HTTP_PROXY")
+            || valid_proxy_url("HTTPS_PROXY")
+            || valid_proxy_url("http_proxy")
+            || valid_proxy_url("https_proxy");
+
+        if has_proxy {
+            // When an egress proxy (e.g. smokescreen) is configured, it handles SSRF
+            // protection. The PublicIPv4Resolver would block the connection to the proxy
+            // itself since it resolves to a cluster-internal IP.
+            info!(
+                "HTTP(S)_PROXY is set, skipping PublicIPv4Resolver (proxy handles SSRF protection)"
+            );
+        } else if !config.allow_internal_ips {
             client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));
         } else {
             warn!("Internal IPs are allowed, this is a security risk");

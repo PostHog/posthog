@@ -54,27 +54,75 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "evaluation": {"help_text": "UUID of the evaluation this report config belongs to."},
             "frequency": {
-                "help_text": "'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule."
+                "help_text": (
+                    "How report generation is triggered. 'every_n' fires once N new evaluation results have "
+                    "accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence "
+                    "defined by rrule + starts_at + timezone_name."
+                )
             },
-            "rrule": {"help_text": "RFC 5545 recurrence rule string. Required when frequency is 'scheduled'."},
-            "starts_at": {"help_text": "Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'."},
-            "timezone_name": {"help_text": "IANA timezone name for scheduled delivery (e.g. 'America/New_York')."},
+            "rrule": {
+                "help_text": (
+                    "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the "
+                    "anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
+                )
+            },
+            "starts_at": {
+                "help_text": (
+                    "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation "
+                    "is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
+                )
+            },
+            "timezone_name": {
+                "help_text": (
+                    "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across "
+                    "DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+                )
+            },
             "delivery_targets": {
-                "help_text": "List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}."
+                "help_text": (
+                    "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or "
+                    "{type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must "
+                    "belong to this team."
+                )
             },
-            "max_sample_size": {"help_text": "Max number of evaluation runs included in each report. Defaults to 100."},
-            "enabled": {"help_text": "Whether report delivery is active."},
+            "max_sample_size": {
+                "help_text": "Maximum number of evaluation runs included in each report. Defaults to 200."
+            },
+            "enabled": {"help_text": "Whether report delivery is active. Disabled configs do not fire."},
             "deleted": {"help_text": "Set to true to soft-delete this report config."},
             "report_prompt_guidance": {
-                "help_text": "Optional custom instructions injected into the AI report prompt to focus analysis."
+                "help_text": (
+                    "Optional custom instructions appended to the AI report prompt to steer focus, scope, or "
+                    "section choices without modifying the base prompt."
+                )
             },
             "trigger_threshold": {
-                "help_text": "Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000."
+                "min_value": EvaluationReport.TRIGGER_THRESHOLD_MIN,
+                "max_value": EvaluationReport.TRIGGER_THRESHOLD_MAX,
+                "help_text": (
+                    f"Number of new evaluation results that triggers a report (every_n mode only). "
+                    f"Min {EvaluationReport.TRIGGER_THRESHOLD_MIN}, max {EvaluationReport.TRIGGER_THRESHOLD_MAX}. "
+                    f"Defaults to {EvaluationReport.TRIGGER_THRESHOLD_DEFAULT}. Required when frequency is 'every_n'."
+                ),
             },
             "cooldown_minutes": {
-                "help_text": "Minimum minutes between reports in every_n mode to prevent spam. Min 60."
+                "min_value": EvaluationReport.COOLDOWN_MINUTES_MIN,
+                "max_value": EvaluationReport.COOLDOWN_MINUTES_MAX,
+                "help_text": (
+                    f"Minimum minutes between count-triggered reports to prevent spam (every_n mode only). "
+                    f"Min {EvaluationReport.COOLDOWN_MINUTES_MIN}, max {EvaluationReport.COOLDOWN_MINUTES_MAX} "
+                    f"(24 hours). Defaults to {EvaluationReport.COOLDOWN_MINUTES_DEFAULT}."
+                ),
             },
-            "daily_run_cap": {"help_text": "Max reports generated per day. Defaults to 3."},
+            "daily_run_cap": {
+                "min_value": EvaluationReport.DAILY_RUN_CAP_MIN,
+                "max_value": EvaluationReport.DAILY_RUN_CAP_MAX,
+                "help_text": (
+                    f"Maximum count-triggered report runs per calendar day (UTC). "
+                    f"Min {EvaluationReport.DAILY_RUN_CAP_MIN}, max {EvaluationReport.DAILY_RUN_CAP_MAX} "
+                    f"(one per cooldown window). Defaults to {EvaluationReport.DAILY_RUN_CAP_DEFAULT}."
+                ),
+            },
         }
 
     def validate_evaluation(self, value):
@@ -99,8 +147,9 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        # On create without an explicit frequency, fall through to the model default so
-        # trigger_threshold / cooldown_minutes bounds still get enforced against every_n.
+        # Numeric bounds for trigger_threshold / cooldown_minutes / daily_run_cap are enforced
+        # by the field-level min_value / max_value validators. This block only handles the
+        # cross-field "required" rules that the field validators can't express on their own.
         frequency = attrs.get("frequency") or (
             self.instance.frequency if self.instance else EvaluationReport.Frequency.EVERY_N
         )
@@ -112,23 +161,6 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             )
             if threshold is None:
                 raise serializers.ValidationError({"trigger_threshold": "Required when frequency is 'every_n'."})
-            if threshold < EvaluationReport.TRIGGER_THRESHOLD_MIN:
-                raise serializers.ValidationError(
-                    {"trigger_threshold": f"Minimum is {EvaluationReport.TRIGGER_THRESHOLD_MIN}."}
-                )
-            if threshold > EvaluationReport.TRIGGER_THRESHOLD_MAX:
-                raise serializers.ValidationError(
-                    {"trigger_threshold": f"Maximum is {EvaluationReport.TRIGGER_THRESHOLD_MAX}."}
-                )
-            cooldown = (
-                attrs.get("cooldown_minutes")
-                if "cooldown_minutes" in attrs
-                else (self.instance.cooldown_minutes if self.instance else EvaluationReport.COOLDOWN_MINUTES_DEFAULT)
-            )
-            if cooldown < EvaluationReport.COOLDOWN_MINUTES_MIN:
-                raise serializers.ValidationError(
-                    {"cooldown_minutes": f"Minimum is {EvaluationReport.COOLDOWN_MINUTES_MIN} minutes."}
-                )
         elif frequency == EvaluationReport.Frequency.SCHEDULED:
             rrule_str = attrs.get("rrule") if "rrule" in attrs else (self.instance.rrule if self.instance else "")
             if not rrule_str:
@@ -186,6 +218,35 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class EvaluationReportListSerializer(EvaluationReportSerializer):
+    """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
+
+    Gated on the ``X-PostHog-Client: mcp`` header so the web UI keeps the full shape
+    it relies on for draft seeding and schedule editing (see
+    `EvaluationReportViewSet.get_serializer_class`).
+    """
+
+    class Meta(EvaluationReportSerializer.Meta):
+        fields = [
+            f
+            for f in EvaluationReportSerializer.Meta.fields
+            if f
+            not in (
+                "rrule",
+                "starts_at",
+                "timezone_name",
+                "delivery_targets",
+                "max_sample_size",
+                "deleted",
+                "report_prompt_guidance",
+                "cooldown_minutes",
+                "daily_run_cap",
+                "created_by",
+            )
+        ]
+        read_only_fields = [f for f in EvaluationReportSerializer.Meta.read_only_fields if f != "created_by"]
+
+
 class EvaluationReportRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = EvaluationReportRun
@@ -221,6 +282,15 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     permission_classes = [AccessControlPermission]
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
+
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
+    def get_serializer_class(self):
+        if self.action == "list" and self._is_mcp_request(self.request):
+            return EvaluationReportListSerializer
+        return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
         queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
@@ -332,7 +402,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             )
 
     @extend_schema(responses=EvaluationReportRunSerializer(many=True))
-    @action(detail=True, methods=["get"], url_path="runs")
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["llm_analytics:read"])
     @llma_track_latency("llma_evaluation_report_runs_list")
     def runs(self, request: Request, **kwargs) -> Response:
         """List report runs (history) for this report."""
@@ -346,7 +416,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         return Response(serializer.data)
 
     @extend_schema(request=None, responses={202: None})
-    @action(detail=True, methods=["post"], url_path="generate")
+    @action(detail=True, methods=["post"], url_path="generate", required_scopes=["llm_analytics:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""

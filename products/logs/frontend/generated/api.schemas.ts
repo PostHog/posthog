@@ -153,6 +153,36 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
+export interface LogsAlertStateIntervalApi {
+    /** Interval start (UTC, inclusive). */
+    start: string
+    /** Interval end (UTC, exclusive). */
+    end: string
+    /** Alert state during this interval.
+
+* `not_firing` - Not firing
+* `firing` - Firing
+* `pending_resolve` - Pending resolve
+* `errored` - Errored
+* `snoozed` - Snoozed
+* `broken` - Broken */
+    state: LogsAlertConfigurationStateEnumApi
+    /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+    enabled: boolean
+}
+
+/**
+ * * `slack` - slack
+ * `webhook` - webhook
+ */
+export type NotificationDestinationTypeEnumApi =
+    (typeof NotificationDestinationTypeEnumApi)[keyof typeof NotificationDestinationTypeEnumApi]
+
+export const NotificationDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
 export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
@@ -232,6 +262,10 @@ export interface LogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
     /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -330,6 +364,10 @@ export interface PatchedLogsAlertConfigurationApi {
      * @nullable
      */
     readonly last_error_message?: string | null
+    /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+    readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
+    /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+    readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
     /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -340,24 +378,12 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
-/**
- * * `slack` - slack
- * `webhook` - webhook
- */
-export type LogsAlertCreateDestinationTypeEnumApi =
-    (typeof LogsAlertCreateDestinationTypeEnumApi)[keyof typeof LogsAlertCreateDestinationTypeEnumApi]
-
-export const LogsAlertCreateDestinationTypeEnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
 export interface LogsAlertCreateDestinationApi {
     /** Destination type — slack or webhook.
 
 * `slack` - slack
 * `webhook` - webhook */
-    type: LogsAlertCreateDestinationTypeEnumApi
+    type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -582,6 +608,40 @@ export interface _LogPropertyFilterApi {
 }
 
 /**
+ * * `key` - key
+ * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
+export interface _LogAttributeEntryApi {
+    name: string
+    /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
+    propertyFilterType: string
+    /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+* `key` - key
+* `value` - value */
+    matchedOn: MatchedOnEnumApi
+    /**
+     * Sample matching value — only set when matchedOn is "value".
+     * @nullable
+     */
+    matchedValue?: string | null
+}
+
+export interface _LogsAttributesResponseApi {
+    /** Available attribute keys matching the filters. */
+    results: _LogAttributeEntryApi[]
+    /** Total attribute keys matched (not paginated). */
+    count: number
+}
+
+/**
  * * `trace` - trace
  * `debug` - debug
  * `info` - info
@@ -599,6 +659,69 @@ export const SeverityLevelsEnumApi = {
     Error: 'error',
     Fatal: 'fatal',
 } as const
+
+export interface _LogsCountBodyApi {
+    /** Date range for the count. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsCountRequestApi {
+    /** The count query to execute. */
+    query: _LogsCountBodyApi
+}
+
+export interface _LogsCountResponseApi {
+    /** Number of log entries matching the filters. */
+    count: number
+}
+
+export interface _LogsCountRangesBodyApi {
+    /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+    dateRange?: _DateRangeApi
+    /**
+     * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    targetBuckets?: number
+    /** Filter by log severity levels. Applied before bucketing. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. Applied before bucketing. */
+    serviceNames?: string[]
+    /** Full-text search across log bodies. Applied before bucketing. */
+    searchTerm?: string
+    /** Property filters applied before bucketing. Same shape as `query-logs`. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsCountRangesRequestApi {
+    /** The bucketed-count query to execute. */
+    query: _LogsCountRangesBodyApi
+}
+
+export interface _LogsCountRangeBucketApi {
+    /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+    date_from: string
+    /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+    date_to: string
+    /** Log entries matching the filters within this bucket. */
+    count: number
+}
+
+export interface _LogsCountRangesResponseApi {
+    /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+    ranges: _LogsCountRangeBucketApi[]
+    /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+    interval: string
+}
 
 /**
  * * `latest` - latest
@@ -639,6 +762,107 @@ export interface _LogsQueryRequestApi {
 }
 
 /**
+ * The parsed query that was executed, echoed back for confirmation.
+ */
+export type _LogsQueryResponseApiQuery = { [key: string]: unknown }
+
+/**
+ * Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).
+ */
+export type _LogEntryApiAttributes = { [key: string]: string }
+
+/**
+ * Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.
+ */
+export type _LogEntryApiResourceAttributes = { [key: string]: string }
+
+export interface _LogEntryApi {
+    uuid: string
+    /** ISO 8601 timestamp of the original log event. */
+    timestamp: string
+    /** ISO 8601 timestamp the log pipeline observed the event (may differ from `timestamp`). */
+    observed_timestamp: string
+    body: string
+    /** Log severity as a string (e.g. "info", "error"). Preferred over severity_number. */
+    severity_text: string
+    /** Log severity as a numeric code. Redundant with severity_text; kept for OpenTelemetry compatibility. */
+    severity_number: number
+    /** ClickHouse alias for severity_text. Redundant; prefer severity_text. */
+    level: string
+    /** Trace ID. Returns "00000000000000000000000000000000" when not set (padding, not null). */
+    trace_id: string
+    /** Span ID. Returns "0000000000000000" when not set (padding, not null). */
+    span_id: string
+    /** OpenTelemetry trace flags. */
+    trace_flags?: number
+    /** Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns). */
+    attributes: _LogEntryApiAttributes
+    /** Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host. */
+    resource_attributes: _LogEntryApiResourceAttributes
+    /** OpenTelemetry event name, if set. */
+    event_name?: string
+}
+
+export interface _LogsQueryResponseApi {
+    /** The parsed query that was executed, echoed back for confirmation. */
+    query: _LogsQueryResponseApiQuery
+    /** Log entries matching the query. */
+    results: _LogEntryApi[]
+    /** True if more results exist beyond this page. */
+    hasMore: boolean
+    /**
+     * Opaque cursor to pass as `after` in the next request to fetch the next page. Null when hasMore is false.
+     * @nullable
+     */
+    nextCursor?: string | null
+    /** Maximum number of rows the `export` endpoint will produce — informational. */
+    maxExportableLogs: number
+}
+
+export interface _LogsServicesBodyApi {
+    /** Date range for the services aggregation. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict the aggregation to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsServicesRequestApi {
+    /** The services aggregation query to execute. */
+    query: _LogsServicesBodyApi
+}
+
+export interface _LogsServiceAggregateApi {
+    /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
+    service_name: string
+    /** Total log entries from this service in the window. */
+    log_count: number
+    /** Count of logs at severity "error" or "fatal". */
+    error_count: number
+    /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
+    error_rate: number
+}
+
+export interface _LogsServicesSparklineBucketApi {
+    /** Bucket start time (ISO 8601). */
+    time: string
+    service_name: string
+    count: number
+}
+
+export interface _LogsServicesResponseApi {
+    /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
+    services: _LogsServiceAggregateApi[]
+    /** Time-bucketed counts broken down by service, for plotting volume over time. */
+    sparkline: _LogsServicesSparklineBucketApi[]
+}
+
+/**
  * * `severity` - severity
  * `service` - service
  */
@@ -670,6 +894,35 @@ export interface _LogsSparklineBodyApi {
 export interface _LogsSparklineRequestApi {
     /** The sparkline query to execute. */
     query: _LogsSparklineBodyApi
+}
+
+export interface _LogsSparklineBucketApi {
+    /** Bucket start time (ISO 8601). */
+    time: string
+    /** Severity label when sparklineBreakdownBy="severity". Present only for severity-broken-down sparklines. */
+    severity?: string
+    /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
+    service?: string
+    count: number
+}
+
+export interface _LogsSparklineResponseApi {
+    /** Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown. */
+    results: _LogsSparklineBucketApi[]
+}
+
+export interface _LogAttributeValueApi {
+    /** Attribute value (used as the identifier). */
+    id: string
+    /** Display name — currently identical to `id`. */
+    name: string
+}
+
+export interface _LogsValuesResponseApi {
+    /** Distinct values observed for the requested attribute. */
+    results: _LogAttributeValueApi[]
+    /** Always false — reserved for future cached-value refresh signalling. */
+    refreshing: boolean
 }
 
 /**
@@ -790,6 +1043,10 @@ export type LogsAttributesRetrieveParams = {
      */
     search?: string
     /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean
+    /**
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[]
@@ -802,6 +1059,10 @@ export const LogsAttributesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
 } as const
+
+export type LogsExportCreate201 = { [key: string]: unknown }
+
+export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
 
 export type LogsValuesRetrieveParams = {
     /**

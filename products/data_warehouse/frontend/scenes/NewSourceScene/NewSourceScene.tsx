@@ -180,7 +180,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         )
 
         return (
-            <div className="flex flex-row gap-2 justify-end mt-4">
+            <div className="flex flex-row gap-2 justify-end my-4">
                 {!props.hideBackButton && (
                     <LemonButton
                         type="secondary"
@@ -485,7 +485,7 @@ function WebhookSetupStep(): JSX.Element {
 
     const webhookTables = databaseSchema
         .filter((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync)
-        .map((s) => ({ name: s.table }))
+        .map((s) => ({ name: s.table, label: s.label }))
 
     return (
         <WebhookSetupForm

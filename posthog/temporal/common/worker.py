@@ -6,6 +6,8 @@ import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+from django.conf import settings
+
 from prometheus_client import REGISTRY
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
@@ -18,6 +20,10 @@ from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
+from posthog.temporal.data_modeling.metrics import (
+    DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
+    DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
+)
 from posthog.temporal.llm_analytics.eval_reports.metrics import (
     EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
     EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
@@ -218,6 +224,41 @@ async def create_worker(
     else:
         plugins = ()
 
+    histogram_bucket_overrides: dict[str, list[float]] = (
+        dict(
+            zip(
+                BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(SUMMARIZATION_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(CLUSTERING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(zip(SENTIMENT_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
+        | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
+    )
+    if task_queue == settings.DATA_MODELING_TASK_QUEUE:
+        histogram_bucket_overrides |= dict(
+            zip(
+                DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+
     runtime = Runtime(
         telemetry=TelemetryConfig(
             metric_prefix=metric_prefix,
@@ -227,61 +268,7 @@ async def create_worker(
                 # Units are u64 milliseconds in sdk-core,
                 # given that the `duration_as_seconds` is `False`.
                 # But in Python we still need to pass floats due to type hints.
-                histogram_bucket_overrides=dict(
-                    zip(
-                        BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        EVALS_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        SUMMARIZATION_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        CLUSTERING_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        TASKS_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        SENTIMENT_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | dict(
-                    zip(
-                        LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
-                        itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS),
-                    )
-                )
-                | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
+                histogram_bucket_overrides=histogram_bucket_overrides,
             ),
         )
     )

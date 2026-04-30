@@ -69,8 +69,8 @@ posthog/models/sessions/** @PostHog/team-analytics-platform
 posthog/tasks/alerts/** @PostHog/team-analytics-platform
 posthog/tasks/exports/** @PostHog/team-analytics-platform
 
-# Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-customer-analytics
-products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-customer-analytics
+# Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-web-analytics
+products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-web-analytics
 
 # Feature Flags platform (the `/flags` endpoint + associated utils) - owned by @PostHog/team-flags-platform
 rust/feature-flags/ @PostHog/team-flags-platform
@@ -145,14 +145,12 @@ posthog/temporal/weekly-digest @PostHog/team-growth
 .github/dependabot.yml @PostHog/team-devex
 Dockerfile @PostHog/team-devex
 docker-compose\*.yml @PostHog/team-devex
-pyproject.toml @PostHog/team-devex
-uv.lock @PostHog/team-devex
-package.json @PostHog/team-devex
-package-lock.json @PostHog/team-devex
 .prettierrc @PostHog/team-devex
 mypy.ini @PostHog/team-devex
 posthog/management/migration_analysis/ @PostHog/team-devex
-common/hogli/ @PostHog/team-devex
+tools/hogli/ @PostHog/team-devex
+tools/hogli-commands/ @PostHog/team-devex
+hogli.yaml @PostHog/team-devex
 tach.toml @PostHog/team-devex
 bin/ @PostHog/team-devex
 CODEOWNERS-soft @PostHog/team-devex
@@ -160,7 +158,7 @@ CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
 AGENTS.md @PostHog/team-devex
 .claude/ @PostHog/team-devex
-.agents/ @PostHog/team-devex
+.agents/* @PostHog/team-devex
 .claude/agents/ingestion/ @PostHog/team-ingestion
 .agents/skills/ingestion-*/ @PostHog/team-ingestion
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
@@ -168,3 +166,11 @@ tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
+
+# OpenAPI / drf-spectacular tooling - owned by @PostHog/team-devex
+posthog/api/documentation.py @PostHog/team-devex
+posthog/api/mixins.py @PostHog/team-devex
+posthog/management/commands/find_enum_collisions.py @PostHog/team-devex
+
+# Visual Review - owned by @PostHog/team-devex
+products/visual_review/** @PostHog/team-devex

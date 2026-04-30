@@ -316,7 +316,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         # Other team's person should be untouched
         assert Person.objects.filter(team_id=other_team.pk, uuid=other_person.uuid).count() == 1
 
-    @mock.patch("posthog.api.person.delete_person")
+    @mock.patch("posthog.models.person.bulk_delete.delete_person")
     def test_bulk_delete_partial_failure_only_deletes_successful_from_postgres(self, mock_delete_person):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])

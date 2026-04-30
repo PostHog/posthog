@@ -16,7 +16,6 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
-    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -1643,6 +1642,8 @@ export type RetentionFilter = {
     /** @description The type of property to aggregate on (event or person). Defaults to event.
      * @default event */
     aggregationPropertyType?: 'event' | 'person'
+    /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
+    customAggregationTarget?: boolean
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1848,11 +1849,10 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
-    cache_age_seconds?: number
+    /** How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency. */
+    data_freshness_seconds?: integer
     /** Whether this endpoint's query results are materialized to S3 */
     is_materialized?: boolean
-    /** How frequently should the underlying materialized view be updated */
-    sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
@@ -2565,6 +2565,22 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
+/** Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema */
+export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
+    fingerprint: string
+    issue_id: string
+    issue_name: string | null
+    issue_description: string | null
+    issue_status: string
+    assigned_user_id: integer | null
+    assigned_role_id: string | null
+    /** ISO 8601 datetime string. */
+    first_seen: string
+    is_deleted: integer
+    /** Client-stamped monotonic version (`Date.now()` ms at mutation success). */
+    version: integer
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -2596,6 +2612,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     useQueryV2?: boolean
     /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean
+    /**
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
+     * The backend caps the list at 50 entries; extras are dropped silently.
+     * @type array
+     */
+    pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -2894,14 +2916,26 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     limit?: integer
     offset?: integer
     search?: string
+    /** When true, the search query also matches attribute values (not just keys). */
+    searchValues?: boolean
     severityLevels?: LogSeverityLevel[]
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
 }
 
+export interface LogAttributeResult {
+    name: string
+    /** Either 'log_attribute' or 'log_resource_attribute'. */
+    propertyFilterType: string
+    /** Whether this row matched the search by attribute key or by attribute value. */
+    matchedOn: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn is 'value'. */
+    matchedValue?: string
+}
+
 export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
-    results: Record<string, any>[]
+    results: LogAttributeResult[]
     count: number
 }
 
@@ -3352,8 +3386,10 @@ export interface ExperimentVariant {
     key: string
     /** Human-readable variant name. */
     name?: string
-    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. */
-    rollout_percentage: number
+    /** @deprecated Use split_percent instead. Accepted for backward compatibility. */
+    rollout_percentage?: number
+    /** Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided. */
+    split_percent?: number
 }
 
 export interface ExperimentParameters {
@@ -3361,6 +3397,8 @@ export interface ExperimentParameters {
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
+    /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
+    rollout_percentage?: number
 }
 
 /** Slim exposure config for experiment API payloads. */
@@ -3495,8 +3533,6 @@ export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     experiment_id?: integer
     name?: string
     precomputation_mode?: 'precomputed' | 'direct'
-    /** @deprecated Now always enabled, kept for backward compatibility */
-    metric_events_precomputation?: boolean
 }
 
 export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQueryResponse> {
@@ -3581,6 +3617,9 @@ export interface ExperimentStatsBase {
     number_of_samples: integer
     sum: number
     sum_squares: number
+    covariate_sum?: number
+    covariate_sum_squares?: number
+    covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
@@ -3652,12 +3691,23 @@ export interface SampleRatioMismatch {
     p_value: number
 }
 
+/**
+ * Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE`
+ * handling + observed `$multiple` share above the threshold. Present on the response
+ * only when the experiment is currently at risk.
+ */
+export interface BiasRisk {
+    /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+    multiple_variant_percentage: number
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
     total_exposures: Record<string, number>
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
+    bias_risk?: BiasRisk
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -4037,8 +4087,7 @@ export interface ResolvedDateRangeResponse {
     date_to: string
 }
 
-export type MultipleBreakdownType = Extract<
-    BreakdownType,
+export type MultipleBreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
@@ -4047,8 +4096,8 @@ export type MultipleBreakdownType = Extract<
     | 'hogql'
     | 'cohort'
     | 'revenue_analytics'
+    | 'data_warehouse'
     | 'data_warehouse_person_property'
->
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
@@ -5369,6 +5418,13 @@ export interface SourceFieldInputConfig {
     required: boolean
     placeholder: string
     caption?: string
+    /**
+     * Marks this field as containing sensitive data. The value is stripped from
+     * API responses regardless of the rendering `type` (so a multi-line PEM
+     * blob can use `textarea` and still be redacted). Required: source authors
+     * must explicitly classify every field.
+     */
+    secret: boolean
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -5434,12 +5490,18 @@ export interface SourceConfig {
     disabledReason?: string | null
     existingSource?: boolean
     unreleasedSource?: boolean
-    betaSource?: boolean
+    releaseStatus?: 'alpha' | 'beta' | 'ga'
     iconPath: string
     featureFlag?: string
     iconClassName?: string
     webhookSetupCaption?: string
     webhookFields?: SourceFieldConfig[]
+    /**
+     * If true, the source does not support automatic webhook registration via API
+     * (e.g. Slack — the user must paste the URL into the source's app settings).
+     * Adjusts the setup UI copy to avoid promising automatic registration.
+     */
+    webhookManualOnly?: boolean
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why
@@ -5597,6 +5659,8 @@ export const externalDataSources = [
     'BuildBetter',
     'Convex',
     'ClickHouse',
+    'Plain',
+    'Resend',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5854,6 +5918,10 @@ export interface UsageMetric {
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer
+    /** Daily values over the current interval period. Only populated when display is 'sparkline'. */
+    timeseries?: number[]
+    /** ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'. */
+    timeseries_labels?: string[]
 }
 
 export interface UsageMetricsQueryResponse extends AnalyticsQueryResponseBase {

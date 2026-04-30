@@ -275,6 +275,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
         name: 'Event ingestion warnings',
@@ -358,7 +359,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         iconType: 'persons',
     },
-    [Scene.AccountSocialConnected]: {
+    [Scene.AccountConnected]: {
         name: 'Account connected',
         layout: 'plain',
         projectBased: false,
@@ -436,6 +437,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ResourceTransfer]: {
         projectBased: true,
         name: 'Copy to project',
+        layout: 'app-container',
+    },
+    [Scene.DashboardTemplateCopy]: {
+        projectBased: true,
+        name: 'Copy template to project',
         layout: 'app-container',
     },
     [Scene.RevenueAnalytics]: {
@@ -621,7 +627,7 @@ const redirectPipeline = (id: string, fallbackUrl: string): string => {
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
-export const forwardedRedirectQueryParams: string[] = ['invite_modal']
+export const forwardedRedirectQueryParams: string[] = ['modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -724,6 +730,7 @@ export const redirects: Record<
 export const routes: Record<string, [Scene | string, string]> = {
     [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
+    [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
     [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
@@ -846,7 +853,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
-    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
+    [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
@@ -866,6 +873,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
 

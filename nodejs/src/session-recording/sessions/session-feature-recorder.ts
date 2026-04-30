@@ -2,7 +2,6 @@ import crypto from 'crypto'
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../config/config'
-import { logger } from '../../utils/logger'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
 import { RRWebEventSource, RRWebEventType, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 
@@ -11,6 +10,10 @@ const RRWEB_NETWORK_PLUGIN = 'rrweb/network@1'
 
 const POSTHOG_NETWORK_DURATION_KEY = 39
 const POSTHOG_NETWORK_STATUS_KEY = 21
+
+export const MAX_UNIQUE_VALUES = 1000
+
+export const md5Hex = (s: string): string => crypto.createHash('md5').update(s).digest('hex')
 
 interface RRWebEventData {
     type?: number
@@ -76,8 +79,10 @@ interface RRWebEventData {
  *
  * Set-based metrics:
  *   - Unique click targets:   uniqExactMerge(unique_click_target_count)
- *   - Unique URLs visited:    uniqExactMerge(unique_url_count)
+ *   - Unique URLs visited:    uniqExactMerge(unique_url_count) — visited_urls are md5-hashed at the source
  *   - Page revisit count:     page_visit_count - uniqExactMerge(unique_url_count)
+ *
+ * All sets are capped at MAX_UNIQUE_VALUES per batch to bound payload size < 50 KB.
  */
 export interface FeatureEndResult {
     startDateTime: DateTime
@@ -237,17 +242,6 @@ export class SessionFeatureRecorder {
         public readonly batchId: string
     ) {
         this._run = this.shouldRun(sessionId)
-        if (!this._run) {
-            logger.warn('🧠', 'session_feature_recorder_skipped', {
-                sessionId,
-                rolloutPercentage: defaultConfig.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
-            })
-        } else {
-            logger.warn('🧠', 'session_feature_recorder - recording features', {
-                sessionId,
-                rolloutPercentage: defaultConfig.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
-            })
-        }
     }
 
     public recordMessage(message: ParsedMessageData): void {
@@ -416,7 +410,7 @@ export class SessionFeatureRecorder {
         this.lastUserActionTimestamp = e.timestamp
 
         const clickTargetId = e.data?.id
-        if (clickTargetId !== undefined) {
+        if (clickTargetId !== undefined && this.clickTargetIds.size < MAX_UNIQUE_VALUES) {
             this.clickTargetIds.add(clickTargetId)
         }
 
@@ -496,7 +490,9 @@ export class SessionFeatureRecorder {
         }
 
         this.pageVisitCount++
-        this.visitedUrls.add(eventUrl)
+        if (this.visitedUrls.size < MAX_UNIQUE_VALUES) {
+            this.visitedUrls.add(md5Hex(eventUrl))
+        }
         this.urlChangedSinceLastClick = true
 
         if (

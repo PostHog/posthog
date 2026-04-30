@@ -278,14 +278,15 @@ class OrderDirection(StrEnum):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class AssistantEventType(StrEnum):
@@ -410,11 +411,6 @@ class AssistantHogQLQuery(BaseModel):
             "SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions."
         ),
     )
-
-
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
 
 
 class AssistantInsightVizNode(BaseModel):
@@ -739,6 +735,11 @@ class AssistantToolCallMessage(BaseModel):
     )
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantTrendsDisplayType(RootModel[str | Any]):
     root: str | Any
 
@@ -829,6 +830,16 @@ class BaseMathType(StrEnum):
     UNIQUE_SESSION = "unique_session"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
+
+
+class BiasRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiple_variant_percentage: float = Field(
+        ...,
+        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
+    )
 
 
 class BillingSpendResponseBreakdownType(StrEnum):
@@ -1305,19 +1316,6 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     MANAGED_VIEWSET = "managed_viewset"
 
 
-class DataWarehouseSyncInterval(StrEnum):
-    FIELD_1MIN = "1min"
-    FIELD_5MIN = "5min"
-    FIELD_15MIN = "15min"
-    FIELD_30MIN = "30min"
-    FIELD_1HOUR = "1hour"
-    FIELD_6HOUR = "6hour"
-    FIELD_12HOUR = "12hour"
-    FIELD_24HOUR = "24hour"
-    FIELD_7DAY = "7day"
-    FIELD_30DAY = "30day"
-
-
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -1533,6 +1531,30 @@ class EmptyPropertyFilter(BaseModel):
         extra="forbid",
     )
     type: Literal["empty"] = "empty"
+
+
+class EndpointExecutionFailedSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endpoint_name: str
+    endpoint_version: float | None = None
+    error_class: str
+    error_message: str
+    materialized: bool
+    saved_query_id: str | None = None
+
+
+class EndpointExecutionFailedSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointExecutionFailedSignalExtra
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
+    weight: float
 
 
 class EndpointLastExecutionTimesRequest(BaseModel):
@@ -1926,9 +1948,14 @@ class ExperimentVariant(BaseModel):
     )
     key: str = Field(..., description="Variant key, e.g. 'control', 'test', 'variant_a'.")
     name: str | None = Field(default=None, description="Human-readable variant name.")
-    rollout_percentage: float = Field(
-        ...,
-        description=("Percentage of users assigned to this variant (0–100). All variants must sum to 100."),
+    rollout_percentage: float | None = None
+    split_percent: float | None = Field(
+        default=None,
+        description=(
+            "Percentage of users assigned to this variant (0–100). All variants must"
+            " sum to 100. One of split_percent (recommended) or rollout_percentage must"
+            " be provided."
+        ),
     )
 
 
@@ -2094,6 +2121,8 @@ class ExternalDataSourceType(StrEnum):
     BUILD_BETTER = "BuildBetter"
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
+    PLAIN = "Plain"
+    RESEND = "Resend"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2766,6 +2795,27 @@ class LoadingBlock(BaseModel):
     type: Literal["loading"] = "loading"
 
 
+class MatchedOn(StrEnum):
+    KEY = "key"
+    VALUE = "value"
+
+
+class LogAttributeResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    matchedOn: MatchedOn = Field(
+        ...,
+        description=("Whether this row matched the search by attribute key or by attribute value."),
+    )
+    matchedValue: str | None = Field(
+        default=None,
+        description=("Sample value that matched the search — only set when matchedOn is 'value'."),
+    )
+    name: str
+    propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
+
+
 class LogPropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
@@ -3340,15 +3390,16 @@ class MultiQuestionFormQuestionType(StrEnum):
 
 
 class MultipleBreakdownType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class NativeMarketingSource(StrEnum):
@@ -4343,6 +4394,7 @@ class SignalSourceProduct(StrEnum):
     ZENDESK = "zendesk"
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
+    ENDPOINTS = "endpoints"
 
 
 class SignalSourceType(StrEnum):
@@ -4354,6 +4406,7 @@ class SignalSourceType(StrEnum):
     ISSUE_CREATED = "issue_created"
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
+    ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
 
 
 class SimilarIssue(BaseModel):
@@ -4404,6 +4457,12 @@ class SnapchatAdsTableExclusions(StrEnum):
 
 class SnapchatAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
+
+
+class ReleaseStatus(StrEnum):
+    ALPHA = "alpha"
+    BETA = "beta"
+    GA = "ga"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -6511,6 +6570,25 @@ class ErrorTrackingIssueFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assigned_role_id: str | None = None
+    assigned_user_id: int | None = None
+    fingerprint: str
+    first_seen: str = Field(..., description="ISO 8601 datetime string.")
+    is_deleted: int
+    issue_description: str | None = None
+    issue_id: str
+    issue_name: str | None = None
+    issue_status: str
+    version: int = Field(
+        ...,
+        description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
+    )
+
+
 class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6661,6 +6739,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -6701,12 +6780,23 @@ class ExperimentParameters(BaseModel):
             " but catch smaller changes. Suggest 20–30% for most experiments."
         ),
     )
+    rollout_percentage: float | None = Field(
+        default=None,
+        description=(
+            "Overall rollout percentage (0-100). Controls what fraction of all users"
+            " enter the experiment. Users outside the rollout never see any variant and"
+            " are excluded from analysis. Default: 100."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
@@ -6722,6 +6812,9 @@ class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
@@ -6739,6 +6832,9 @@ class ExperimentVariantResultBayesian(BaseModel):
         extra="forbid",
     )
     chance_to_win: float | None = None
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
@@ -6759,6 +6855,9 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
@@ -7439,6 +7538,7 @@ class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -8111,6 +8211,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
     ]
 ):
     root: (
@@ -8121,6 +8222,7 @@ class SignalInput(
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
+        | EndpointExecutionFailedSignalInput
     ) = Field(..., discriminator="source_product")
 
 
@@ -8144,6 +8246,15 @@ class SourceFieldInputConfig(BaseModel):
     name: str
     placeholder: str
     required: bool
+    secret: bool = Field(
+        ...,
+        description=(
+            "Marks this field as containing sensitive data. The value is stripped from"
+            " API responses regardless of the rendering `type` (so a multi-line PEM"
+            " blob can use `textarea` and still be redacted). Required: source authors"
+            " must explicitly classify every field."
+        ),
+    )
     type: SourceFieldInputConfigType
 
 
@@ -8615,6 +8726,14 @@ class UsageMetric(BaseModel):
     interval: int
     name: str
     previous: float
+    timeseries: list[float] | None = Field(
+        default=None,
+        description=("Daily values over the current interval period. Only populated when display is 'sparkline'."),
+    )
+    timeseries_labels: list[str] | None = Field(
+        default=None,
+        description=("ISO date strings for sparkline tooltip labels. Only populated when display is 'sparkline'."),
+    )
     value: float
 
 
@@ -9534,7 +9653,17 @@ class AssistantRecordingsQuery(BaseModel):
             " $entry_current_url).\n- `event`: Filter by properties of events in the"
             " session (e.g. $current_url, $browser).\n- `recording`: Filter by"
             " recording metrics (e.g. console_error_count, click_count,"
-            " activity_score)."
+            " activity_score).\n- `cohort`: Filter recordings to persons belonging to a"
+            ' cohort. Example: `{ type: "cohort", key: "id", value: 42, operator:'
+            ' "in" }`.'
+        ),
+    )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Filter to specific session recording IDs. Use this when you have known"
+            " session IDs (e.g., from $session_id on events) to fetch multiple"
+            " recordings in a single call."
         ),
     )
 
@@ -10556,6 +10685,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14717,7 +14847,7 @@ class LogAttributesQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16810,7 +16940,7 @@ class QueryResponseAlternative76(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -17183,6 +17313,9 @@ class RetentionEntity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_target_field: str | None = Field(
+        default=None, description="Data warehouse field used as the actor identifier"
+    )
     custom_name: str | None = None
     id: str | float | None = None
     kind: RetentionEntityKind | None = None
@@ -17213,6 +17346,8 @@ class RetentionEntity(BaseModel):
         ]
         | None
     ) = Field(default=None, description="filters on the event")
+    table_name: str | None = Field(default=None, description="Data warehouse table name")
+    timestamp_field: str | None = Field(default=None, description="Data warehouse timestamp field")
     type: EntityType | None = None
     uuid: str | None = None
 
@@ -17234,6 +17369,13 @@ class RetentionFilter(BaseModel):
         description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=(
+            "For data warehouse based retention insights when the aggregation target"
+            " can't be mapped to persons or groups."
+        ),
+    )
     dashboardDisplay: RetentionDashboardDisplayType | None = None
     display: ChartDisplayType | None = Field(default=None, description="controls the display of the retention graph")
     goalLines: list[GoalLine] | None = None
@@ -18293,37 +18435,6 @@ class AssistantBasePropertyFilter(
     )
 
 
-class AssistantInsightActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: list[str] | None = Field(
-        default=None,
-        description=(
-            "Breakdown values, one per dimension in the source's"
-            " `breakdownFilter.breakdowns`, in the same order. Array length must equal"
-            " the number of breakdown dimensions."
-        ),
-    )
-    compare: Compare | None = Field(
-        default=None,
-        description=("Whether to pull from the previous period when `compare` is enabled in the source."),
-    )
-    day: str | int | None = Field(
-        default=None,
-        description=("Bucket date for the data point. Accepts ISO date or integer offset."),
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    series: int | None = Field(
-        default=None,
-        description="Series index (0-based) when the source has multiple series.",
-    )
-    source: AssistantTrendsQuery = Field(
-        ...,
-        description="The source insight query whose data point we are drilling into.",
-    )
-
-
 class AssistantLifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18375,6 +18486,41 @@ class AssistantLifecycleQuery(BaseModel):
         ...,
         description=("Event or action to analyze. Lifecycle insights only support a single series."),
         max_length=1,
+    )
+
+
+class AssistantTrendsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Breakdown values, one per dimension in the source's"
+            " `breakdownFilter.breakdowns`, in the same order. Array length must equal"
+            " the number of breakdown dimensions."
+        ),
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compare` is enabled in the source."),
+    )
+    day: str = Field(
+        ...,
+        description=("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description="Series index (0-based) when the source has multiple series.",
+    )
+    source: AssistantTrendsQuery = Field(
+        ...,
+        description="The source insight query whose data point we are drilling into.",
     )
 
 
@@ -19985,6 +20131,14 @@ class ErrorTrackingQuery(BaseModel):
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
     orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
+    pendingFingerprintIssueStateUpdates: list[ErrorTrackingPendingFingerprintIssueStateUpdate] | None = Field(
+        default=None,
+        description=(
+            "Pending fingerprint issue state updates UNIONed into the fingerprint issue"
+            " state subquery (V3 only). The backend caps the list at 50 entries; extras"
+            " are dropped silently."
+        ),
+    )
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(
@@ -20588,6 +20742,10 @@ class LogAttributesQuery(BaseModel):
     offset: int | None = None
     response: LogAttributesQueryResponse | None = None
     search: str | None = None
+    searchValues: bool | None = Field(
+        default=None,
+        description=("When true, the search query also matches attribute values (not just keys)."),
+    )
     serviceNames: list[str] | None = None
     severityLevels: list[LogSeverityLevel] | None = None
     tags: QueryLogTags | None = None
@@ -21026,7 +21184,12 @@ class EndpointRequest(BaseModel):
             " Keys are column names, values are bucket keys (hour, day, week, month)."
         ),
     )
-    cache_age_seconds: float | None = None
+    data_freshness_seconds: int | None = Field(
+        default=None,
+        description=(
+            "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
+        ),
+    )
     deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
@@ -21038,10 +21201,6 @@ class EndpointRequest(BaseModel):
     name: str | None = None
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
-    )
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
     )
     version: int | None = Field(
         default=None,
@@ -21072,7 +21231,6 @@ class ExperimentQuery(BaseModel):
     experiment_id: int | None = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
-    metric_events_precomputation: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     precomputation_mode: PrecomputationMode | None = None
@@ -23194,7 +23352,6 @@ class SourceConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    betaSource: bool | None = None
     caption: str | Any | None = None
     disabledReason: str | None = None
     docsUrl: str | None = None
@@ -23217,6 +23374,7 @@ class SourceConfig(BaseModel):
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
+    releaseStatus: ReleaseStatus | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
         default=[],
         description="Tables to suggest enabling, with optional tooltip explaining why",
@@ -23233,6 +23391,15 @@ class SourceConfig(BaseModel):
         ]
         | None
     ) = None
+    webhookManualOnly: bool | None = Field(
+        default=None,
+        description=(
+            "If true, the source does not support automatic webhook registration via"
+            " API (e.g. Slack — the user must paste the URL into the source's app"
+            " settings). Adjusts the setup UI copy to avoid promising automatic"
+            " registration."
+        ),
+    )
     webhookSetupCaption: str | None = None
 
 

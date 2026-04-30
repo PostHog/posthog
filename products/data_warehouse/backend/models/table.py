@@ -23,7 +23,7 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_clickhouse
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -122,7 +122,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
     name = models.CharField(max_length=128)
-    format = models.CharField(max_length=128, choices=TableFormat.choices)
+    format = models.CharField(max_length=128, choices=TableFormat)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     url_pattern = models.CharField(max_length=500)
@@ -224,7 +224,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if TEST:
                 raise Exception()
 
-            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
@@ -319,6 +319,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
             return result[0][0]
+        except ClickHouseServerException as err:
+            # CANNOT_EXTRACT_TABLE_STRUCTURE (636) is expected when the provided S3 path
+            # has no non-empty/readable files for the configured format (e.g. before the
+            # first successful sync). The caller handles a None return by resetting and
+            # triggering a refresh.
+            if err.code != 636:
+                capture_exception(err)
+            return None
         except Exception as err:
             capture_exception(err)
             return None
@@ -339,7 +347,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if TEST:
                 raise Exception()
 
-            quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
 

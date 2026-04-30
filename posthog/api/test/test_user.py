@@ -130,6 +130,70 @@ class TestUserAPI(APIBaseTest):
             ],
         )
 
+    def test_current_user_includes_pending_invites(self):
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        matching_invite = OrganizationInvite.objects.create(
+            organization=other_org,
+            target_email=self.user.email,
+            created_by=self.user,
+        )
+
+        # Invite for a different email — should be ignored.
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="someone-else@example.com",
+            created_by=self.user,
+        )
+
+        # Invite to an org the user already belongs to — should be ignored.
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email=self.user.email,
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        pending_invites = response.json()["pending_invites"]
+        self.assertEqual(len(pending_invites), 1)
+        self.assertEqual(pending_invites[0]["id"], str(matching_invite.id))
+        self.assertEqual(pending_invites[0]["organization_id"], str(other_org.id))
+        self.assertEqual(pending_invites[0]["organization_name"], "Other Org For Pending Invites Test")
+        self.assertEqual(pending_invites[0]["target_email"], self.user.email)
+
+    def test_current_user_pending_invites_matches_email_case_insensitively(self):
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        OrganizationInvite.objects.create(
+            organization=other_org,
+            target_email=self.user.email.upper(),
+            created_by=self.user,
+        )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["pending_invites"]), 1)
+
+    def test_current_user_pending_invites_excludes_expired(self):
+        from posthog.constants import INVITE_DAYS_VALIDITY
+        from posthog.models import OrganizationInvite
+
+        other_org = Organization.objects.create(name="Other Org For Pending Invites Test")
+        with freeze_time(timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 1)):
+            OrganizationInvite.objects.create(
+                organization=other_org,
+                target_email=self.user.email,
+                created_by=self.user,
+            )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["pending_invites"]), 0)
+
     def test_hedgehog_config_is_unset(self):
         self.user.hedgehog_config = None
         self.user.save()
@@ -177,12 +241,12 @@ class TestUserAPI(APIBaseTest):
 
     def test_non_admin_filter_users_by_email(self):
         org = Organization.objects.create()
-        user = User.objects.create(
-            email="foo@bar.com",
-            password="<PASSWORD>",
-            organization=org,
-            current_team=Team.objects.create(organization=org, name="Another team"),
+        team = Team.objects.create(organization=org, name="Another team")
+        user = User.objects.create_and_join(
+            org, "foo@bar.com", "<PASSWORD>", first_name="", level=OrganizationMembership.Level.MEMBER
         )
+        user.current_team = team
+        user.save(update_fields=["current_team"])
 
         response = self.client.get(f"/api/users/?email={user.email}")
 
@@ -190,21 +254,20 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 0, "Should not return users from another orgs")
 
     def test_admin_filter_users_by_email(self):
-        admin = User.objects.create(
-            email="admin@admin.com",
-            password="pw",
-            organization=self.organization,
-            current_team=self.team,
-            is_staff=True,
+        admin = User.objects.create_and_join(
+            self.organization, "admin@admin.com", "pw", first_name="", level=OrganizationMembership.Level.MEMBER
         )
+        admin.current_team = self.team
+        admin.is_staff = True
+        admin.save(update_fields=["current_team", "is_staff"])
         self.client.force_authenticate(admin)
         org = Organization.objects.create()
-        user = User.objects.create(
-            email="foo@bar.com",
-            password="<PASSWORD>",
-            organization=org,
-            current_team=Team.objects.create(organization=org, name="Another team"),
+        team = Team.objects.create(organization=org, name="Another team")
+        user = User.objects.create_and_join(
+            org, "foo@bar.com", "<PASSWORD>", first_name="", level=OrganizationMembership.Level.MEMBER
         )
+        user.current_team = team
+        user.save(update_fields=["current_team"])
 
         response = self.client.get(f"/api/users/?email={user.email}")
 
@@ -1929,6 +1992,57 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == "new@posthog.com"
         assert self.user.pending_email is None
+
+    def test_email_verification_does_not_log_in_user_with_2fa_totp(self):
+        # If the user has a TOTP device configured, verifying their email must
+        # NOT silently establish an authenticated session — otherwise an
+        # attacker with access to the email inbox could bypass 2FA entirely.
+        TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+
+        token = email_verification_token_generator.make_token(self.user)
+        self.client.logout()
+        assert self.client.session.get("_auth_user_id") is None
+
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True, "token": token, "requires_2fa": True}
+
+        # Email should still be marked verified, but the session must remain unauthenticated.
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+        assert self.client.session.get("_auth_user_id") is None
+
+    def test_cant_request_verification_for_already_verified_email(self):
+        self.user.is_email_verified = True
+        self.user.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "already_verified",
+                "detail": "Email is already verified.",
+                "attr": None,
+            },
+        )
+        # No email should have been sent for an already-verified address.
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_can_request_verification_for_pending_email_change(self):
+        # An already-verified user who initiated an email change still needs to
+        # verify the new address — re-requesting the verification link must work.
+        self.user.is_email_verified = True
+        self.user.pending_email = "new-address@posthog.com"
+        self.user.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
 
 
 class TestUserTwoFactor(APIBaseTest):

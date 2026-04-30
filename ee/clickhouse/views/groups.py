@@ -9,7 +9,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from requests import HTTPError
@@ -103,7 +103,7 @@ class GroupsTypesViewSet(
 ):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
-    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
+    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")  # nosemgrep: no-direct-persons-db-orm
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
@@ -115,7 +115,7 @@ class GroupsTypesViewSet(
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(
+            instance = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=row["group_type_index"]
             )
             # Pre-populate the team FK cache so serializer access control checks
@@ -130,7 +130,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(
+            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
@@ -155,7 +155,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(
+            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
@@ -201,7 +201,7 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 @extend_schema(tags=["core"])
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
-    queryset = Group.objects.all()
+    queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
     pagination_class = GroupCursorPagination
     serializer_classes = {
         "find": FindGroupSerializer,
@@ -267,7 +267,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 )
 
         try:
-            obj = GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            obj = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
+                project_id=self.team.project_id, group_type_index=group_type_index
+            )  # nosemgrep: no-direct-persons-db-orm
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
             ).inc()
@@ -808,13 +810,74 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
 
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Name of the usage metric. Must be unique per group type within the project.",
+    )
+    format = serializers.ChoiceField(
+        choices=GroupUsageMetric.Format.choices,
+        default=GroupUsageMetric.Format.NUMERIC,
+        help_text="How the metric value is formatted in the UI. One of `numeric` or `currency`.",
+    )
+    interval = serializers.IntegerField(
+        default=7,
+        help_text="Rolling time window in days used to compute the metric. Defaults to 7.",
+    )
+    display = serializers.ChoiceField(
+        choices=GroupUsageMetric.Display.choices,
+        default=GroupUsageMetric.Display.NUMBER,
+        help_text="Visual representation in the UI. One of `number` or `sparkline`.",
+    )
+    filters = serializers.DictField(
+        help_text=(
+            "HogQL filter definition used to compute the metric. Same shape as HogFunction filters: "
+            "a dict containing an `events` list and optional `properties` list."
+        ),
+    )
+    math = serializers.ChoiceField(
+        choices=GroupUsageMetric.Math.choices,
+        default=GroupUsageMetric.Math.COUNT,
+        help_text=(
+            "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` "
+            "on matching events."
+        ),
+    )
+    math_property = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.",
+    )
+
     class Meta:
         model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display", "filters")
+        fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
+
+    def validate(self, data):
+        data = super().validate(data)
+
+        math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
+        math_property = data.get("math_property", self.instance.math_property if self.instance else None)
+
+        if math == GroupUsageMetric.Math.SUM and not math_property:
+            raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
+        if math == GroupUsageMetric.Math.COUNT and math_property:
+            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
+
+        return data
 
 
+@extend_schema_view(
+    list=extend_schema(tags=["customer_analytics"]),
+    create=extend_schema(tags=["customer_analytics"]),
+    retrieve=extend_schema(tags=["customer_analytics"]),
+    update=extend_schema(tags=["customer_analytics"]),
+    partial_update=extend_schema(tags=["customer_analytics"]),
+    destroy=extend_schema(tags=["customer_analytics"]),
+)
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "group"
+    scope_object = "usage_metric"
     queryset = GroupUsageMetric.objects.all()
     serializer_class = GroupUsageMetricSerializer
 
