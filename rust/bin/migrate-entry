@@ -210,7 +210,6 @@ case "$MIGRATION_TYPE" in
         run_cyclotron_migrations
         run_cyclotron_node_migrations
         run_behavioral_cohorts_migrations
-        run_flags_read_store_migrations
         ;;
     *)
         log_json "error" "Invalid migration type specified" "failed" "$MIGRATION_TYPE"
