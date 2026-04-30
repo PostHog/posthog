@@ -2230,6 +2230,66 @@
             "readOnlyHint": true
         }
     },
+    "inbox-reports-list": {
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List signal reports",
+        "title": "List signal reports",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-reports-retrieve": {
+        "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get signal report",
+        "title": "Get signal report",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-source-configs-list": {
+        "description": "List the configured signal sources for the current project. A signal source ties a product (e.g. error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and configuration. The 'status' field reflects the current state of the underlying data import or workflow (running, completed, failed) when applicable.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List signal source configs",
+        "title": "List signal source configs",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-source-configs-retrieve": {
+        "description": "Get a single signal source config by ID. Returns the full record including source_product, source_type, enabled flag, configuration JSON, and current status of the underlying data import or workflow.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get signal source config",
+        "title": "Get signal source config",
+        "required_scopes": ["task:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insight-create": {
         "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
         "category": "Product analytics",

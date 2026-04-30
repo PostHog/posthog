@@ -7,6 +7,7 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -239,15 +240,21 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
-def list_runs_for_team(team_id: int, review_state: str | None = None) -> db_models.QuerySet[Run]:
+def list_runs_for_team(
+    team_id: int, review_state: str | None = None, repo_id: UUID | None = None
+) -> db_models.QuerySet[Run]:
     qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
+    if repo_id is not None:
+        qs = qs.filter(repo_id=repo_id)
     if review_state and review_state in REVIEW_STATE_FILTERS:
         qs = qs.filter(REVIEW_STATE_FILTERS[review_state])
     return qs
 
 
-def get_review_state_counts(team_id: int) -> dict[str, int]:
+def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
     qs = Run.objects.filter(team_id=team_id)
+    if repo_id is not None:
+        qs = qs.filter(repo_id=repo_id)
     return qs.aggregate(
         needs_review=Count("id", filter=REVIEW_STATE_FILTERS["needs_review"]),
         clean=Count("id", filter=REVIEW_STATE_FILTERS["clean"]),
@@ -1809,7 +1816,7 @@ WITH ordered AS (
       AND r.branch = ANY(%s)
       AND r.status = 'completed'
       AND rs.identifier = %s
-      AND rs.result <> 'new'
+      AND rs.result IN ('changed', 'removed', 'new')
 )
 SELECT id
 FROM ordered
@@ -1834,8 +1841,16 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
       - status=completed: drop pre-classification rows. `result` defaults to NEW
         on upload and is only finalised when the run completes; runs stuck in
         pending/processing leave noise behind that isn't a real history event.
-      - result != NEW: belt+braces; NEW shouldn't survive on a completed run, but
-        cheap to filter and protects us if classification ever leaves stragglers.
+      - result IN (changed, removed, new): only rows that move the baseline.
+        `unchanged` rows must be excluded *before* the LAG window — each capture
+        gets its own Artifact row even when the diff says the content matches
+        baseline (pixel jitter → different bytes → different content_hash), so
+        consecutive `unchanged` rows have differing `current_artifact_id`s and
+        would all slip past the dedup as fake "baseline events". For one prod
+        identifier we observed 99 fake events behind 2 real baselines.
+        Including `new` so first captures (the initial baseline event) appear
+        in history; `status=completed` already keeps pre-classification NEW
+        out.
     """
     with connections[READER_DB].cursor() as cursor:
         cursor.execute(
@@ -1854,6 +1869,311 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
         row.id: row for row in RunSnapshot.objects.filter(id__in=ordered_ids).select_related("run", "current_artifact")
     }
     return [rows_by_id[rid] for rid in ordered_ids if rid in rows_by_id]
+
+
+def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
+    """Universe of identifiers with a current baseline, plus aggregates.
+
+    The "current baseline" universe is anchored on the latest non-superseded run
+    on the default branch (master/main) for each `run_type`. One row per
+    `(run_type, identifier)` — the closest thing to "what we'd compare a new
+    capture against right now".
+
+    Performance shape:
+      - O(run_types) queries to find the universe runs (≤ a handful in practice)
+      - 1 query for the universe rows (with thumbnail + artifact prefetch)
+      - 3 grouped queries for tolerate counts + active quarantines + sparkline
+      - 3 cheap aggregate queries for totals
+    """
+    from collections import Counter, defaultdict
+    from datetime import timedelta
+
+    from .facade.contracts import BASELINE_OVERVIEW_MAX_ENTRIES, BASELINE_SPARKLINE_DAYS
+
+    now = timezone.now()
+    # The sparkline shows DAYS dates inclusive of today (see
+    # `_build_sparkline_day_keys`). `now - DAYS days` would pull rows from a
+    # 31st earlier date that has no day_key — they'd vanish into a bucket
+    # that's never read, but their `diff_percentage` would still skew
+    # `recent_diff_avg`. `DAYS - 1` aligns with the day-key window.
+    sparkline_cutoff = now - timedelta(days=BASELINE_SPARKLINE_DAYS - 1)
+
+    # 1. Find the latest non-superseded run on the default branch for every
+    # (repo, run_type). The partial unique index `unique_latest_run_per_group`
+    # ensures at most one row per group.
+    universe_runs = list(
+        Run.objects.filter(
+            repo_id=repo_id,
+            branch__in=_DEFAULT_BRANCHES,
+            superseded_by__isnull=True,
+        ).only("id", "run_type", "completed_at", "created_at")
+    )
+    universe_run_ids = [r.id for r in universe_runs]
+    if not universe_run_ids:
+        return _BaselineOverviewRaw(
+            entries=[],
+            tolerate_30d_by_id={},
+            tolerate_90d_by_id={},
+            quarantined_ids=set(),
+            sparkline_by_key={},
+            drift_avg_by_key={},
+            totals_all=0,
+            totals_recent=0,
+            totals_frequent=0,
+            totals_quarantined=0,
+            by_run_type={},
+            truncated=False,
+            generated_at=now,
+        )
+
+    # 2. Pull the universe rows. select_related the chain we need for thumbnails.
+    universe_qs = (
+        RunSnapshot.objects.filter(run_id__in=universe_run_ids)
+        .select_related("run", "current_artifact__thumbnail")
+        .only(
+            "identifier",
+            "metadata",
+            "run__id",
+            "run__run_type",
+            "run__completed_at",
+            "run__created_at",
+            "current_artifact__width",
+            "current_artifact__height",
+            "current_artifact__thumbnail__content_hash",
+        )
+        # Stable ordering so truncation is deterministic; newest baselines first.
+        .order_by("-run__completed_at", "identifier")
+    )
+    total_universe = universe_qs.count()
+    truncated = total_universe > BASELINE_OVERVIEW_MAX_ENTRIES
+    universe = list(universe_qs[:BASELINE_OVERVIEW_MAX_ENTRIES]) if truncated else list(universe_qs)
+    # Per-entry aggregates (tolerate counts, sparklines) only need to cover the
+    # entries we'll return. Totals must scope across the *full* universe,
+    # otherwise truncation makes them undercount in misleading ways (a 6000-id
+    # repo would show 0 frequently-tolerated if all of them sat past the slice).
+    universe_identifiers = list({s.identifier for s in universe})
+    if truncated:
+        full_universe_identifiers = list(universe_qs.values_list("identifier", flat=True).distinct())
+    else:
+        full_universe_identifiers = universe_identifiers
+
+    # 3a. Tolerate counts in 30d / 90d windows. Single grouped query each.
+    tolerate_30d_by_id: dict[str, int] = {}
+    tolerate_90d_by_id: dict[str, int] = {}
+    if universe_identifiers:
+        tol_30d_cutoff = now - timedelta(days=30)
+        tol_90d_cutoff = now - timedelta(days=90)
+        for identifier, count in (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+                created_at__gte=tol_30d_cutoff,
+            )
+            .values_list("identifier")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "c")
+        ):
+            tolerate_30d_by_id[identifier] = count
+        for identifier, count in (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+                created_at__gte=tol_90d_cutoff,
+            )
+            .values_list("identifier")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "c")
+        ):
+            tolerate_90d_by_id[identifier] = count
+
+    # 3b. Active quarantines for this repo, scoped to the universe identifiers
+    # AND the run_types they live on (quarantine is per (repo, run_type, id)).
+    quarantined_pairs: set[tuple[str, str]] = set()
+    if universe_identifiers:
+        quarantined_pairs = {
+            (run_type, identifier)
+            for run_type, identifier in QuarantinedIdentifier.objects.filter(
+                repo_id=repo_id,
+                identifier__in=universe_identifiers,
+            )
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .values_list("run_type", "identifier")
+        }
+
+    # 3c. Sparkline — last 30 days of run results bucketed by classification.
+    # One grouped query, then bucket in Python so we keep this portable across
+    # SQLite (tests) and Postgres without resorting to TruncDate or SQL CASE.
+    # Same loop also accumulates the running drift average so we get
+    # `recent_diff_avg` for free in this single pass. Keyed by
+    # `(run_type, identifier)` because the universe is one row per pair —
+    # same identifier in storybook + playwright are *different* baselines and
+    # their sparklines must not bleed into each other.
+    sparkline_by_key: dict[tuple[str, str], dict[str, SparkBuckets]] = defaultdict(lambda: defaultdict(SparkBuckets))
+    drift_sum_by_key: dict[tuple[str, str], float] = defaultdict(float)
+    drift_count_by_key: dict[tuple[str, str], int] = defaultdict(int)
+    if universe_identifiers:
+        spark_rows = RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            identifier__in=universe_identifiers,
+            run__created_at__gte=sparkline_cutoff,
+        ).values_list(
+            "identifier",
+            "run__run_type",
+            "run__created_at",
+            "result",
+            "is_quarantined",
+            "tolerated_hash_match_id",
+            "diff_percentage",
+        )
+        for identifier, run_type, run_created_at, result, is_quar, tol_match_id, diff_pct in spark_rows:
+            day_key = run_created_at.date().isoformat()
+            key = (run_type, identifier)
+            buckets = sparkline_by_key[key][day_key]
+            # `tolerated_hash_match` is a nullable FK but django-stubs types
+            # the `_id` column as a non-optional UUID, so without this widen
+            # mypy thinks `is not None` always succeeds → flags every later
+            # branch as unreachable.
+            tol_match_id_opt: UUID | None = tol_match_id
+            if is_quar:
+                buckets.quarantined += 1
+            elif tol_match_id_opt is not None:
+                buckets.tolerated += 1
+            elif result == "unchanged":
+                buckets.clean += 1
+            else:
+                buckets.changed += 1
+            if diff_pct is not None and diff_pct > 0:
+                drift_sum_by_key[key] += diff_pct
+                drift_count_by_key[key] += 1
+
+    # 4. Totals computed across the *full* universe (not the truncated slice)
+    # so the stat row stays correct when the entries are clipped.
+    if truncated:
+        # Re-issue a small COUNT-only query for accurate totals across the
+        # universe; we already have the truncated list in memory.
+        totals_all = total_universe
+    else:
+        totals_all = len(universe)
+
+    # Recently / frequently tolerated — counts of distinct identifiers with
+    # ≥1 (or ≥3) tolerations in the rolling window. Scope across the *full*
+    # universe so the stat row stays correct under truncation.
+    recent_cutoff = now - timedelta(days=30)
+    frequent_cutoff = now - timedelta(days=90)
+    recent_ids: set[str] = set()
+    frequent_ids: set[str] = set()
+    if full_universe_identifiers:
+        recent_ids = set(
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+                created_at__gte=recent_cutoff,
+            )
+            .values_list("identifier", flat=True)
+            .distinct()
+        )
+        frequent_grouped = (
+            ToleratedHash.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+                created_at__gte=frequent_cutoff,
+            )
+            .values("identifier")
+            .annotate(c=Count("id"))
+            .filter(c__gte=3)
+            .values_list("identifier", flat=True)
+        )
+        frequent_ids = set(frequent_grouped)
+
+    # `quarantined_pairs` was built from the truncated set above (per-entry
+    # attached). Re-query for the totals so they cover the full universe.
+    if truncated and full_universe_identifiers:
+        quarantined_id_count = (
+            QuarantinedIdentifier.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+            )
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .values("identifier")
+            .distinct()
+            .count()
+        )
+    else:
+        quarantined_id_count = len({identifier for _, identifier in quarantined_pairs})
+
+    # by_run_type counts every entry in the universe. Aggregate query under
+    # truncation so it doesn't undercount; in-memory Counter when not truncated
+    # (we already paid for the row hydration).
+    if truncated:
+        by_run_type = dict(
+            universe_qs.values_list("run__run_type")
+            .order_by()
+            .annotate(c=Count("id"))
+            .values_list("run__run_type", "c")
+        )
+    else:
+        by_run_type = dict(Counter(s.run.run_type for s in universe))
+
+    drift_avg_by_key: dict[tuple[str, str], float] = {
+        key: drift_sum_by_key[key] / drift_count_by_key[key]
+        for key in drift_count_by_key
+        if drift_count_by_key[key] > 0
+    }
+
+    return _BaselineOverviewRaw(
+        entries=universe,
+        tolerate_30d_by_id=tolerate_30d_by_id,
+        tolerate_90d_by_id=tolerate_90d_by_id,
+        quarantined_ids=quarantined_pairs,
+        sparkline_by_key=sparkline_by_key,
+        drift_avg_by_key=drift_avg_by_key,
+        totals_all=totals_all,
+        totals_recent=len(recent_ids),
+        totals_frequent=len(frequent_ids),
+        totals_quarantined=quarantined_id_count,
+        by_run_type=by_run_type,
+        truncated=truncated,
+        generated_at=now,
+    )
+
+
+@dataclass
+class SparkBuckets:
+    """One day's classification counts on the stability sparkline.
+
+    Public so the facade can construct a zero-default without reaching into
+    private symbols of this module. Otherwise an internal-only shape.
+    """
+
+    clean: int = 0
+    tolerated: int = 0
+    changed: int = 0
+    quarantined: int = 0
+
+
+@dataclass
+class _BaselineOverviewRaw:
+    """Internal raw shape — the facade layer reshapes this into the public DTOs.
+
+    Kept private to logic.py so that contract changes don't ripple through here.
+    """
+
+    entries: list[RunSnapshot]
+    tolerate_30d_by_id: dict[str, int]
+    tolerate_90d_by_id: dict[str, int]
+    quarantined_ids: set[tuple[str, str]]
+    # Sparkline + drift are keyed by `(run_type, identifier)` because the same
+    # identifier in different run types is a different baseline; merging would
+    # bleed storybook stability into playwright stability.
+    sparkline_by_key: dict[tuple[str, str], dict[str, SparkBuckets]]
+    drift_avg_by_key: dict[tuple[str, str], float]
+    totals_all: int
+    totals_recent: int
+    totals_frequent: int
+    totals_quarantined: int
+    by_run_type: dict[str, int]
+    truncated: bool
+    generated_at: datetime
 
 
 @transaction.atomic(using=WRITER_DB)

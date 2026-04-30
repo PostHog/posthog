@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "ordering": {
+            "description": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Case-insensitive substring match against report title and summary.",
+            "type": "string"
+        },
+        "source_product": {
+            "description": "Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).",
+            "type": "string"
+        },
+        "status": {
+            "description": "Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.",
+            "type": "string"
+        },
+        "suggested_reviewers": {
+            "description": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
