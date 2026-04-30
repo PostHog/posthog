@@ -72,7 +72,6 @@ PERMISSIONS = [
     "rak_product_read",
     "rak_credit_note_read",
     "rak_invoice_read",
-    "rak_invoice_item_read",  # Separate scope from invoice — /v1/invoiceitems requires this even if invoice_read is set
     "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
     "rak_subscription_read",
     "rak_application_fee_read",
@@ -111,7 +110,7 @@ class StripeSource(
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
             - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
-            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Invoice items**, **Prices**, and **Subscriptions**
+            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
             - Under the **Connect** resource type, select *read* for the **entire resource**
             - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
             These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
@@ -303,7 +302,13 @@ If automatic creation failed due to a permissions error and you're using a restr
             # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
             # surface the underlying Stripe message verbatim — the cause isn't obvious from the
             # resource name. Fold any 403s collected before the unknown error into the same toast.
-            details = "; ".join(f"{name}: {msg.splitlines()[0][:200]}" for name, msg in e.errors.items())
+            # Guard against empty / whitespace-only error strings so we never crash the response
+            # path while reporting a different error.
+            def _first_line(msg: str) -> str:
+                lines = (msg or "").splitlines()
+                return lines[0][:200] if lines else "(no detail)"
+
+            details = "; ".join(f"{name}: {_first_line(msg)}" for name, msg in e.errors.items())
             message = f"Stripe validation failed — {details}"
             if e.missing_permissions:
                 message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"

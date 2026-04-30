@@ -95,9 +95,10 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
     """Pull a human-readable error from a failed OAuth token-exchange response.
 
     Most providers (Stripe, Google, etc.) return JSON of the shape
-    `{"error": "...", "error_description": "..."}`. Fall back to plain text if
-    the body isn't JSON. Truncate so we don't dump multi-KB HTML error pages
-    into a frontend toast.
+    `{"error": "...", "error_description": "..."}`. Fall back to the raw body
+    (truncated) when the JSON has none of those fields, or when the body isn't
+    JSON at all — better to dump a snippet than to swallow the cause silently
+    and let the caller render a status-code-only message.
     """
     try:
         body = res.json()
@@ -114,7 +115,13 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
             return str(description)
         if code:
             return str(code)
-    return None
+
+    # Unknown shape — surface a serialized snippet so the customer at least sees what came back.
+    try:
+        snippet = json.dumps(body)
+    except (TypeError, ValueError):
+        snippet = (res.text or "").strip()
+    return snippet[:300] if snippet else None
 
 
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
