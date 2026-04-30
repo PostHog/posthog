@@ -1,6 +1,7 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, Series } from './types'
+import { yTickCountForHeight } from './scales'
+import type { ChartDimensions, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -10,7 +11,7 @@ export interface DrawContext {
     labels: string[]
 }
 
-export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
+export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
     if (data.length === 0) {
         return
@@ -43,7 +44,7 @@ interface Stroke {
  * Each entry is a contiguous index range drawn with a single dash pattern; adjacent strokes
  * share their boundary index so the visual seam between them is invisible.
  */
-function planLineStrokes(series: Series, length: number): Stroke[] {
+function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
     const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
     const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
@@ -150,7 +151,12 @@ interface AreaPoint {
     dataIndex: number
 }
 
-export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[], bottomValues?: number[]): void {
+export function drawArea(
+    drawCtx: DrawContext,
+    series: ResolvedSeries,
+    yValues?: number[],
+    bottomValues?: number[]
+): void {
     const { ctx, xScale, yScale, labels, dimensions } = drawCtx
     const data = yValues ?? series.data
     const opacity = series.fill?.opacity ?? 0.5
@@ -261,7 +267,7 @@ function fillAreaPath(
     ctx.fill()
 }
 
-export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
+export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
     const radius = series.points?.radius ?? 0
@@ -288,7 +294,7 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
 
-    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.() ?? []
+    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(dimensions.plotHeight)) ?? []
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
@@ -301,6 +307,29 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
         ctx.stroke()
     }
+
+    const axisX = Math.round(dimensions.plotLeft) + 0.5
+    ctx.beginPath()
+    ctx.moveTo(axisX, dimensions.plotTop)
+    ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
+}
+
+export function drawCrosshair(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    x: number,
+    color: string
+): void {
+    // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
+    const lineX = Math.round(x) + 0.5
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(lineX, dimensions.plotTop)
+    ctx.lineTo(lineX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
 }
 
 export function drawHighlightPoint(

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#
+# Shell into the flags-cache-jumphost pod. The jumphost is a long-lived
+# `sleep infinity` deployment that ships the warm-flags-cache binary on
+# PATH so ops can run it ad-hoc against an environment's Postgres / Redis
+# / S3.
+#
+# Prerequisites:
+#   - kubectl context already pointed at the target cluster (e.g.
+#     `kubectl config use-context posthog-dev`).
+#   - The flags-cache-jumphost deployment exists in $KUBE_NAMESPACE.
+#
+# Usage:
+#   bin/rust-jumphost                  # drops into bash
+#   KUBE_NAMESPACE=posthog bin/rust-jumphost
+#
+# Inside the pod:
+#   warm-flags-cache --help
+#   warm-flags-cache --team-ids <id> --no-stagger
+
+set -euo pipefail
+
+NAMESPACE="${KUBE_NAMESPACE:-posthog}"
+
+exec kubectl exec -it "deploy/flags-cache-jumphost" -n "$NAMESPACE" -- bash

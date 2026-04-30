@@ -1,16 +1,17 @@
 """Safety-net dispatcher for investigation-gated alert notifications.
 
 When an alert has `investigation_gates_notifications=True`, the synchronous
-notification in `check_alert_and_notify_atomically` is skipped and the
-investigation workflow becomes responsible for firing it. That's great when
-the workflow completes — but if Temporal has a hiccup, the workflow times out,
-or any other path leaves an AlertCheck with no `notification_sent_at` and no
-`notification_suppressed_by_agent`, the user could silently miss a real fire.
+notification in `notify_alert` is skipped and the investigation workflow
+becomes responsible for firing it. That's great when the workflow completes —
+but if Temporal has a hiccup, the workflow times out, or any other path leaves
+an AlertCheck with no `notification_sent_at` and no `notification_suppressed_by_agent`,
+the user could silently miss a real fire.
 
-This task runs on a Celery beat schedule, looks for gated checks that have
-been pending past a grace period, and force-dispatches the notification with
-whatever context we have on hand. After `INVESTIGATION_NOTIFY_GRACE_MINUTES`
-we assume the investigation is not coming back.
+`run_investigation_notification_safety_net` is invoked on a Temporal schedule
+(see `posthog/temporal/alerts/schedule.py`), looks for gated checks past a grace
+period, and force-dispatches the notification with whatever context we have on
+hand. After `INVESTIGATION_NOTIFY_GRACE_MINUTES` we assume the investigation
+is not coming back.
 """
 
 from __future__ import annotations

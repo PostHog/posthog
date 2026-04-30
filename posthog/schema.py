@@ -23,6 +23,7 @@ class AIEventType(StrEnum):
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
     FIELD_AI_EVALUATION = "$ai_evaluation"
+    FIELD_AI_TAG = "$ai_tag"
     FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
     FIELD_AI_GENERATION_SUMMARY = "$ai_generation_summary"
     FIELD_AI_TRACE_CLUSTERS = "$ai_trace_clusters"
@@ -832,6 +833,16 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BiasRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiple_variant_percentage: float = Field(
+        ...,
+        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
+    )
+
+
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -1304,19 +1315,6 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     ENDPOINT = "endpoint"
     MANAGED_VIEWSET = "managed_viewset"
-
-
-class DataWarehouseSyncInterval(StrEnum):
-    FIELD_1MIN = "1min"
-    FIELD_5MIN = "5min"
-    FIELD_15MIN = "15min"
-    FIELD_30MIN = "30min"
-    FIELD_1HOUR = "1hour"
-    FIELD_6HOUR = "6hour"
-    FIELD_12HOUR = "12hour"
-    FIELD_24HOUR = "24hour"
-    FIELD_7DAY = "7day"
-    FIELD_30DAY = "30day"
 
 
 class DatabaseSchemaManagedViewTableKind(StrEnum):
@@ -2125,6 +2123,7 @@ class ExternalDataSourceType(StrEnum):
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
+    RESEND = "Resend"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2251,6 +2250,7 @@ class FileSystemIconType(StrEnum):
     SDK_DOCTOR = "sdk_doctor"
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
+    LLM_TAGS = "llm_tags"
     LLM_DATASETS = "llm_datasets"
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
@@ -2765,6 +2765,19 @@ class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGN_GROUPS = "campaign_groups"
 
 
+class LlmEvalReportSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    evaluation_description: str
+    evaluation_id: str
+    evaluation_name: str
+    period_end: str
+    period_start: str
+    report_id: str
+    report_run_id: str
+
+
 class LlmEvalSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2775,6 +2788,18 @@ class LlmEvalSignalExtra(BaseModel):
     target_event_id: str | None = None
     target_event_type: str | None = None
     trace_id: str
+
+
+class LlmEvaluationReportSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalReportSignalExtra
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation_report"] = "evaluation_report"
+    weight: float
 
 
 class LlmEvaluationSignalInput(BaseModel):
@@ -2795,6 +2820,27 @@ class LoadingBlock(BaseModel):
     )
     artifact_id: str = Field(..., description="The artifact ID that is being loaded")
     type: Literal["loading"] = "loading"
+
+
+class MatchedOn(StrEnum):
+    KEY = "key"
+    VALUE = "value"
+
+
+class LogAttributeResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    matchedOn: MatchedOn = Field(
+        ...,
+        description=("Whether this row matched the search by attribute key or by attribute value."),
+    )
+    matchedValue: str | None = Field(
+        default=None,
+        description=("Sample value that matched the search — only set when matchedOn is 'value'."),
+    )
+    name: str
+    propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
 class LogPropertyFilterType(StrEnum):
@@ -4382,6 +4428,7 @@ class SignalSourceType(StrEnum):
     SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
     SESSION_PROBLEM = "session_problem"
     EVALUATION = "evaluation"
+    EVALUATION_REPORT = "evaluation_report"
     ISSUE = "issue"
     TICKET = "ticket"
     ISSUE_CREATED = "issue_created"
@@ -6720,6 +6767,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -6775,11 +6823,11 @@ class ExperimentStatsBase(BaseModel):
         extra="forbid",
     )
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6793,11 +6841,11 @@ class ExperimentStatsBaseValidated(BaseModel):
         extra="forbid",
     )
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6813,12 +6861,12 @@ class ExperimentVariantResultBayesian(BaseModel):
     )
     chance_to_win: float | None = None
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -6836,11 +6884,11 @@ class ExperimentVariantResultFrequentist(BaseModel):
     )
     confidence_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -7518,6 +7566,7 @@ class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -8185,6 +8234,7 @@ class SignalInput(
     RootModel[
         SessionProblemSignalInput
         | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
@@ -8196,13 +8246,14 @@ class SignalInput(
     root: (
         SessionProblemSignalInput
         | LlmEvaluationSignalInput
+        | LlmEvaluationReportSignalInput
         | ZendeskTicketSignalInput
         | GithubIssueSignalInput
         | LinearIssueSignalInput
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
-    ) = Field(..., discriminator="source_product")
+    )
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -8225,6 +8276,15 @@ class SourceFieldInputConfig(BaseModel):
     name: str
     placeholder: str
     required: bool
+    secret: bool = Field(
+        ...,
+        description=(
+            "Marks this field as containing sensitive data. The value is stripped from"
+            " API responses regardless of the rendering `type` (so a multi-line PEM"
+            " blob can use `textarea` and still be redacted). Required: source authors"
+            " must explicitly classify every field."
+        ),
+    )
     type: SourceFieldInputConfigType
 
 
@@ -10655,6 +10715,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14816,7 +14877,7 @@ class LogAttributesQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16909,7 +16970,7 @@ class QueryResponseAlternative76(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20711,6 +20772,10 @@ class LogAttributesQuery(BaseModel):
     offset: int | None = None
     response: LogAttributesQueryResponse | None = None
     search: str | None = None
+    searchValues: bool | None = Field(
+        default=None,
+        description=("When true, the search query also matches attribute values (not just keys)."),
+    )
     serviceNames: list[str] | None = None
     severityLevels: list[LogSeverityLevel] | None = None
     tags: QueryLogTags | None = None
@@ -21149,7 +21214,12 @@ class EndpointRequest(BaseModel):
             " Keys are column names, values are bucket keys (hour, day, week, month)."
         ),
     )
-    cache_age_seconds: float | None = None
+    data_freshness_seconds: int | None = Field(
+        default=None,
+        description=(
+            "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
+        ),
+    )
     deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
@@ -21161,10 +21231,6 @@ class EndpointRequest(BaseModel):
     name: str | None = None
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
-    )
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
     )
     version: int | None = Field(
         default=None,
@@ -23355,6 +23421,15 @@ class SourceConfig(BaseModel):
         ]
         | None
     ) = None
+    webhookManualOnly: bool | None = Field(
+        default=None,
+        description=(
+            "If true, the source does not support automatic webhook registration via"
+            " API (e.g. Slack — the user must paste the URL into the source's app"
+            " settings). Adjusts the setup UI copy to avoid promising automatic"
+            " registration."
+        ),
+    )
     webhookSetupCaption: str | None = None
 
 

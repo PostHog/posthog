@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
@@ -16,6 +17,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
@@ -433,6 +436,153 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert isinstance(result, MarketingAnalyticsTableQueryResponse)
         assert result.columns is not None
         assert config_alias_in_columns(result.columns, DRILL_DOWN_LEVEL_CONFIG[level]["column_alias"])
+
+    @parameterized.expand(
+        [
+            ("google", "Paid Search"),
+            ("meta", "Paid Social"),
+            ("facebook", "Paid Social"),
+            ("instagram", "Paid Social"),
+            ("linkedin", "Paid Social"),
+            ("snapchat", "Paid Social"),
+            ("tiktok", "Paid Social"),
+            ("reddit", "Paid Social"),
+            ("bing", "Paid Search"),
+            ("pinterest", "Paid Social"),
+            ("totally_unknown_source", "Paid Unknown"),
+        ]
+    )
+    def test_channel_drill_down_classifies_adapter_source(self, source: str, expected_channel: str):
+        """Adapter rows group into the channel_type derived from their source column."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+
+        union_subquery = _build_synthetic_adapter_union([source])
+        cte_select = runner._build_campaign_cost_select(union_subquery)
+        response = execute_hogql_query(query=cte_select, team=self.team)
+
+        channels = {row[0] for row in response.results}
+        assert channels == {expected_channel}, (
+            f"source={source!r} expected channel={expected_channel!r}, got {channels}"
+        )
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_channel_drill_down_meta_to_facebook_mapping_snapshot(self):
+        """Channel drill-down rewrites adapter source 'meta' to 'facebook' before lookupPaidSourceType."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+
+        union_subquery = _build_synthetic_adapter_union(["meta"])
+        cte_select = runner._build_campaign_cost_select(union_subquery)
+        response = execute_hogql_query(query=cte_select, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @parameterized.expand(
+        [
+            (MarketingAnalyticsDrillDownLevel.CHANNEL, True),
+            (MarketingAnalyticsDrillDownLevel.SOURCE, True),
+            (MarketingAnalyticsDrillDownLevel.CAMPAIGN, True),
+            (MarketingAnalyticsDrillDownLevel.MEDIUM, False),
+            (MarketingAnalyticsDrillDownLevel.CONTENT, False),
+            (MarketingAnalyticsDrillDownLevel.TERM, False),
+        ]
+    )
+    def test_cost_per_conversion_only_emitted_when_cost_is_available(self, level, cost_per_expected):
+        """At UTM levels (medium/content/term) the Cost metric is excluded because platform
+        cost can't be attributed to a specific UTM value — so 'Cost per <goal>' must also be
+        excluded to avoid showing divisions against a meaningless cost."""
+        conversion_goal = self._create_test_conversion_goal(goal_id="utm_cost_goal")
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+            draftConversionGoal=conversion_goal,
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            ast_query = runner.to_query()
+
+        column_names = [col.alias if isinstance(col, ast.Alias) else str(col) for col in ast_query.select]
+        cost_per_column = f"Cost per {conversion_goal.conversion_goal_name}"
+
+        assert (cost_per_column in column_names) == cost_per_expected
+
+    @parameterized.expand(
+        [
+            (MarketingAnalyticsDrillDownLevel.MEDIUM,),
+            (MarketingAnalyticsDrillDownLevel.CONTENT,),
+            (MarketingAnalyticsDrillDownLevel.TERM,),
+        ]
+    )
+    def test_utm_levels_bypass_campaign_costs_join(self, level):
+        """UTM drill-down levels should not join against the campaign_costs CTE — there's no
+        meaningful cost to attribute at that granularity, and joining produces phantom rows
+        from the dummy cost group (see _build_campaign_cost_select for the UTM branch)."""
+        conversion_goal = self._create_test_conversion_goal(goal_id="utm_join_goal")
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=level,
+            draftConversionGoal=conversion_goal,
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            ast_query = runner.to_query()
+
+        # Walk the FROM clause and any chained next_joins, collecting referenced tables.
+        tables_in_from: list[str] = []
+        join_expr: ast.JoinExpr | None = ast_query.select_from
+        while join_expr is not None:
+            table = join_expr.table
+            if isinstance(table, ast.Field) and table.chain:
+                tables_in_from.append(str(table.chain[0]))
+            join_expr = join_expr.next_join
+
+        assert runner.config.campaign_costs_cte_name not in tables_in_from
+
+
+def _build_synthetic_adapter_union(source_names: list[str]) -> ast.SelectSetQuery | ast.SelectQuery:
+    """UNION ALL matching MarketingSourceAdapter.build_query's 9-column schema."""
+    queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
+        ast.SelectQuery(
+            select=[
+                ast.Alias(alias="match_key", expr=ast.Constant(value="")),
+                ast.Alias(alias="campaign", expr=ast.Constant(value=f"campaign_{source}")),
+                ast.Alias(alias="id", expr=ast.Constant(value=f"id_{source}")),
+                ast.Alias(alias="source", expr=ast.Constant(value=source)),
+                ast.Alias(alias="impressions", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="clicks", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="cost", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="reported_conversion", expr=ast.Constant(value=0.0)),
+                ast.Alias(alias="reported_conversion_value", expr=ast.Constant(value=0.0)),
+            ]
+        )
+        for source in source_names
+    ]
+    return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
 
 def config_alias_in_columns(columns: list, alias: str) -> bool:

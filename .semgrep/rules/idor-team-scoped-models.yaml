@@ -122,6 +122,7 @@ rules:
                               |FeatureFlag
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
+                              |TeamSessionSummariesConfig
                               |FileSystem
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -184,6 +185,7 @@ rules:
                               |Survey
                               |SurveyResponseArchive
                               |Tag
+                              |Tagger
                               |Task
                               |TaskAutomation
                               |TaskRun
@@ -321,6 +323,7 @@ rules:
                         |FeatureFlag
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
+                        |TeamSessionSummariesConfig
                         |FileSystem
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -380,6 +383,7 @@ rules:
                         |Survey
                         |SurveyResponseArchive
                         |Tag
+                        |Tagger
                         |Task
                         |TaskAutomation
                         |TaskRun

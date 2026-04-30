@@ -25,6 +25,7 @@ import {
     IconHogQL,
     IconHome,
     IconLifecycle,
+    IconList,
     IconListCheck,
     IconListTree,
     IconLive,
@@ -317,6 +318,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_evaluations: {
         icon: <IconListCheck />,
         iconColor: ['var(--color-product-llm-evaluations-light)'],
+    },
+    llm_tags: {
+        icon: <IconList />,
+        iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     llm_datasets: {
         icon: <IconDocument />,
