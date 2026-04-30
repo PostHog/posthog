@@ -425,11 +425,14 @@
                events__session.session_id AS session_id,
                min(events__session.`$start_timestamp`) AS start_timestamp
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 >>>>>>> c537f818d2a (test(backend): update query snapshots)
+=======
+>>>>>>> f3ab6d6b298 (test(backend): update query snapshots)
         FROM events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
@@ -521,6 +524,7 @@
                events.properties,
                events.timestamp
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 >>>>>>> 869d156d9a4 (feat: enforce field-level access control in hogql 'properties' column)
@@ -529,6 +533,8 @@
 =======
 >>>>>>> 2f86f1d95f6 (test(backend): update query snapshots)
 >>>>>>> c537f818d2a (test(backend): update query snapshots)
+=======
+>>>>>>> f3ab6d6b298 (test(backend): update query snapshots)
         FROM events
         LEFT JOIN
           (SELECT path(nullIf(nullIf(argMinMerge(raw_sessions.entry_url), 'null'), '')) AS `$entry_pathname`,
@@ -871,6 +877,7 @@
   '''
 # ---
 <<<<<<< HEAD
+<<<<<<< HEAD
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user.2
   '''
   
@@ -1002,6 +1009,8 @@
 # ---
 =======
 >>>>>>> cf9099a4799 (test(backend): update query snapshots)
+=======
+>>>>>>> f3ab6d6b298 (test(backend): update query snapshots)
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user
   '''
   
@@ -1097,6 +1106,7 @@
            GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
         WHERE and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), 0), 1, 1)
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 >>>>>>> 869d156d9a4 (feat: enforce field-level access control in hogql 'properties' column)
@@ -1105,6 +1115,8 @@
 =======
 >>>>>>> 2f86f1d95f6 (test(backend): update query snapshots)
 >>>>>>> c537f818d2a (test(backend): update query snapshots)
+=======
+>>>>>>> f3ab6d6b298 (test(backend): update query snapshots)
         GROUP BY session_id,
                  breakdown_value)
      GROUP BY breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)
