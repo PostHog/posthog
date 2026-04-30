@@ -244,7 +244,7 @@ mod tests {
         let result = matcher
             .evaluate_all_feature_flags(
                 flags,
-                Some(HashMap::new()),
+                Some(HashMap::from([("distinct_id".to_string(), json!(distinct_id.clone()))])),
                 None,
                 None,
                 Uuid::new_v4(),
