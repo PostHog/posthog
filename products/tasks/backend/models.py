@@ -35,6 +35,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
@@ -68,7 +69,7 @@ class Task(DeletedMetaFields, models.Model):
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
+    origin_product = models.CharField(max_length=20, choices=OriginProduct)
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -223,6 +224,7 @@ class Task(DeletedMetaFields, models.Model):
             branch=branch,
         )
         task_run.publish_stream_state_event()
+        observe_task_run_created(task_run)
         self.capture_event(
             "task_run_created",
             {
@@ -268,6 +270,7 @@ class Task(DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        model: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -283,8 +286,12 @@ class Task(DeletedMetaFields, models.Model):
 
         sandbox_env = None
         if sandbox_environment_id is not None:
-            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
-            if not sandbox_env:
+            sandbox_env = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=team.id,
+                task_created_by_id=user_id,
+            )
+            if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
         task = Task.objects.create(
@@ -310,6 +317,9 @@ class Task(DeletedMetaFields, models.Model):
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+
+        if model:
+            extra_state["model"] = model
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
@@ -457,7 +467,7 @@ class TaskRun(models.Model):
 
     environment = models.CharField(
         max_length=10,
-        choices=Environment.choices,
+        choices=Environment,
         default=Environment.CLOUD,
         help_text="Execution environment",
     )
@@ -470,7 +480,7 @@ class TaskRun(models.Model):
         help_text="Current stage for this run (e.g., 'research', 'plan', 'build')",
     )
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.NOT_STARTED)
+    status = models.CharField(max_length=20, choices=Status, default=Status.NOT_STARTED)
 
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
@@ -521,14 +531,11 @@ class TaskRun(models.Model):
         env_id = (self.state or {}).get("sandbox_environment_id")
         if not env_id:
             return None
-        env = SandboxEnvironment.objects.filter(id=env_id, team_id=self.team_id).first()
-        if not env:
-            return None
-        if env.private:
-            task_user_id = self.task.created_by_id
-            if not task_user_id or env.created_by_id != task_user_id:
-                return None
-        return env
+        return SandboxEnvironment.get_accessible_for_task(
+            environment_id=env_id,
+            team_id=self.team_id,
+            task_created_by_id=self.task.created_by_id,
+        )
 
     def prepare_for_cloud_handoff(self) -> None:
         """
@@ -545,11 +552,25 @@ class TaskRun(models.Model):
         self.error_message = None
 
         state = self.state or {}
+        prior_snapshot_external_id = state.get("snapshot_external_id")
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_ts", None)
+        if not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS:
+            state.pop("snapshot_external_id", None)
         self.state = state
+
+        logger.info(
+            "prepare_for_cloud_handoff",
+            run_id=str(self.id),
+            task_id=str(self.task_id),
+            use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            prior_snapshot_external_id=prior_snapshot_external_id,
+            stripped_snapshot_external_id=(
+                prior_snapshot_external_id is not None and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
+            ),
+        )
 
         self.save(
             update_fields=[
@@ -645,6 +666,56 @@ class TaskRun(models.Model):
         """Base prefix for storing artifacts in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
+
+    def get_resume_chain(self, max_depth: int = 10) -> list["TaskRun"]:
+        """Walk `state.resume_from_run_id` from this run upward.
+
+        Returns runs ordered oldest-ancestor → ... → parent → this. Bounded
+        depth and a seen-set guard against cycles. The walk is scoped to this
+        task — a stale cross-task `resume_from_run_id` is silently dropped.
+
+        Loads sibling runs in a single query and walks in-memory so chain depth
+        doesn't translate to per-hop database round trips.
+        """
+        chain: list[TaskRun] = [self]
+        if max_depth <= 0:
+            return chain
+
+        # Walking the chain only needs id/state/artifacts and the bits that
+        # `log_url` derives from (team_id, task_id). Fetching the full row would
+        # pull every column for every historical run on the task.
+        siblings_qs = self.task.runs.only("id", "team_id", "task_id", "state", "artifacts")
+        siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in siblings_qs}
+        seen: set[str] = {str(self.id)}
+        current: TaskRun | None = self
+        depth = 0
+        while current is not None and depth < max_depth:
+            prior_id_raw = (current.state or {}).get("resume_from_run_id")
+            if not prior_id_raw:
+                break
+            try:
+                prior_id = str(uuid.UUID(str(prior_id_raw)))
+            except (ValueError, TypeError):
+                break
+            if prior_id in seen:
+                break
+            seen.add(prior_id)
+            current = siblings_by_id.get(prior_id)
+            if current is None:
+                break
+            chain.append(current)
+            depth += 1
+        chain.reverse()
+        return chain
+
+    def find_artifact_in_resume_chain(self, storage_path: str) -> dict | None:
+        """Find an artifact by storage_path on this run or any ancestor in the resume chain."""
+        # Iterate newest-first since artifact is more likely to be on this run.
+        for run in reversed(self.get_resume_chain()):
+            for entry in run.artifacts or []:
+                if entry.get("storage_path") == storage_path:
+                    return entry
+        return None
 
     @staticmethod
     def _is_agent_message_chunk(entry: dict) -> bool:
@@ -900,7 +971,7 @@ class SandboxSnapshot(UUIDModel):
 
     status = models.CharField(
         max_length=20,
-        choices=Status.choices,
+        choices=Status,
         default=Status.IN_PROGRESS,
     )
 
@@ -987,7 +1058,7 @@ class SandboxEnvironment(UUIDModel):
 
     network_access_level = models.CharField(
         max_length=20,
-        choices=NetworkAccessLevel.choices,
+        choices=NetworkAccessLevel,
         default=NetworkAccessLevel.FULL,  # NOTE: Default should be TRUSTED once we have an egress proxy in place
     )
 
@@ -1035,6 +1106,29 @@ class SandboxEnvironment(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_by"]),
         ]
+
+    def is_accessible_for_task_creator(self, task_created_by_id: int | None) -> bool:
+        if not self.private:
+            return True
+        return task_created_by_id is not None and self.created_by_id == task_created_by_id
+
+    @classmethod
+    def get_accessible_for_task(
+        cls,
+        *,
+        environment_id: str | uuid.UUID,
+        team_id: int,
+        task_created_by_id: int | None,
+    ) -> Optional["SandboxEnvironment"]:
+        try:
+            environment = cls.objects.filter(id=environment_id, team_id=team_id).first()
+        except (ValidationError, ValueError):
+            return None
+        if environment is None:
+            return None
+        if not environment.is_accessible_for_task_creator(task_created_by_id):
+            return None
+        return environment
 
     def __str__(self):
         return self.name

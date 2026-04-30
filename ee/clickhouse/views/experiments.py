@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -200,7 +200,20 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "for non-drafts."
         ),
     )
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
+            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
+            "feature_flag.active, not stored), 'stopped' (ended)."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    def get_status(self, instance: Experiment) -> str:
+        if instance.is_paused:
+            return "paused"
+        return instance.status or instance.computed_status.value
 
     class Meta:
         model = Experiment
@@ -457,6 +470,59 @@ class CopyExperimentToProjectSerializer(serializers.Serializer):
     # GET /experiments/ — DRF mixin, filtering via ExperimentService.filter_experiments_queryset
     list=extend_schema(
         description="List experiments for the current project. Supports filtering by status and archival state.",
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                enum=["draft", "running", "paused", "stopped", "complete", "all"],
+                description=(
+                    'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns '
+                    'launched experiments with an active feature flag, "paused" returns launched experiments whose '
+                    'feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status '
+                    "filtering."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
+                name="archived",
+                location=OpenApiParameter.QUERY,
+                type=bool,
+                description="Filter by archived state. Defaults to non-archived experiments only.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="feature_flag_id",
+                location=OpenApiParameter.QUERY,
+                type=int,
+                description="Filter to experiments linked to the given feature flag ID.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="created_by_id",
+                location=OpenApiParameter.QUERY,
+                type=int,
+                description="Filter to experiments created by the given user ID.",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="search",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                description="Free-text search applied to the experiment name (case-insensitive).",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="order",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                description=(
+                    "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, "
+                    "created_at, updated_at, start_date, end_date, duration, and status."
+                ),
+                required=False,
+            ),
+        ],
     ),
     # DELETE /experiments/{id}/
     # Logic and API docs defined in posthog/api/forbid_destroy_model.py (hard delete not allowed)
@@ -549,6 +615,23 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         archived_experiment = service.archive_experiment(experiment, request=request)
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def unarchive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Unarchive an archived experiment.
+
+        Restores the experiment to the default list view. Returns 400 if the
+        experiment is not currently archived.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        unarchived_experiment = service.unarchive_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(unarchived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=EndExperimentSerializer,
@@ -843,6 +926,30 @@ class EnterpriseExperimentsViewSet(
             }
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="metric_uuid",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "UUID of the metric to fetch timeseries for. Available on each metric in the "
+                    "experiment's metrics array."
+                ),
+                required=True,
+            ),
+            OpenApiParameter(
+                name="fingerprint",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Fingerprint of the metric configuration. Available alongside metric_uuid on "
+                    "each metric in the experiment's metrics array."
+                ),
+                required=True,
+            ),
+        ],
+    )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()

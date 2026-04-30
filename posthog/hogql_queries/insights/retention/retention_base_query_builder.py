@@ -64,10 +64,6 @@ class RetentionBaseQueryBuilder(ABC):
         return self.runner.global_event_filters
 
     @property
-    def events_timestamp_filter(self) -> ast.Expr:
-        return self.runner.events_timestamp_filter
-
-    @property
     def is_first_ever_occurrence(self) -> bool:
         return self.runner.is_first_ever_occurrence
 
@@ -78,6 +74,10 @@ class RetentionBaseQueryBuilder(ABC):
     @property
     def is_custom_bracket_retention(self) -> bool:
         return self.runner.is_custom_bracket_retention
+
+    @property
+    def minimum_occurrences(self) -> int:
+        return self.query.retentionFilter.minimumOccurrences or 1
 
     def build(
         self,
@@ -131,6 +131,9 @@ class RetentionBaseQueryBuilder(ABC):
         if breakdown_expr:
             base_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
             cast(list[ast.Expr], base_query.group_by).append(ast.Field(chain=["breakdown_value"]))
+
+    def events_timestamp_filter(self, field: ast.Expr | None = None) -> ast.Expr:
+        return self.runner.events_timestamp_filter(field=field)
 
     def get_first_time_anchor_expr(self) -> ast.Expr:
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:

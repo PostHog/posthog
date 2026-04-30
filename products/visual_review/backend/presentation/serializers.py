@@ -19,6 +19,7 @@ from ..facade.contracts import (
     CreateRunResult,
     QuarantinedIdentifierEntry,
     QuarantineInput,
+    RecomputeResult,
     Repo,
     Run,
     RunSummary,
@@ -94,6 +95,11 @@ class AutoApproveResultSerializer(DataclassSerializer):
         dataclass = AutoApproveResult
 
 
+class RecomputeResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RecomputeResult
+
+
 # --- Input Serializers ---
 
 
@@ -133,6 +139,8 @@ class ApproveRunInputSerializer(DataclassSerializer):
 
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
+    current_artifact = ArtifactSerializer(allow_null=True, required=False)
+
     class Meta:
         dataclass = SnapshotHistoryEntry
 

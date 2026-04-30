@@ -11,9 +11,9 @@
  * * `api_key` - API Key
  * `oauth` - OAuth
  */
-export type AuthType9cbEnumApi = (typeof AuthType9cbEnumApi)[keyof typeof AuthType9cbEnumApi]
+export type MCPAuthTypeEnumApi = (typeof MCPAuthTypeEnumApi)[keyof typeof MCPAuthTypeEnumApi]
 
-export const AuthType9cbEnumApi = {
+export const MCPAuthTypeEnumApi = {
     ApiKey: 'api_key',
     Oauth: 'oauth',
 } as const
@@ -23,12 +23,14 @@ export interface MCPServerInstallationApi {
     /** @nullable */
     readonly template_id: string | null
     readonly name: string
+    /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+    readonly icon_key: string
     /** @maxLength 200 */
     display_name?: string
     /** @maxLength 2048 */
     url?: string
     description?: string
-    auth_type?: AuthType9cbEnumApi
+    auth_type?: MCPAuthTypeEnumApi
     is_enabled?: boolean
     readonly needs_reauth: boolean
     readonly pending_oauth: boolean
@@ -188,7 +190,7 @@ export interface MCPServerTemplateApi {
     /** @maxLength 2048 */
     docs_url?: string
     description?: string
-    auth_type?: AuthType9cbEnumApi
+    auth_type?: MCPAuthTypeEnumApi
     /** @maxLength 100 */
     icon_key?: string
     category?: MCPServerTemplateCategoryEnumApi

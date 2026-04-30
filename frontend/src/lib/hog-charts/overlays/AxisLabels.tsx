@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
@@ -12,7 +12,8 @@ interface AxisLabelsProps {
     axisColor?: string
 }
 
-const LABEL_FONT = '11px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
+export const LABEL_FONT =
+    '12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
 const LABEL_PADDING = 20
 
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -23,7 +24,16 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     return measureCtx
 }
 
-function computeVisibleXLabels(
+export function measureLabelWidth(text: string, font: string = LABEL_FONT): number {
+    const ctx = getMeasureCtx()
+    if (!ctx) {
+        return text.length * 7
+    }
+    ctx.font = font
+    return ctx.measureText(text).width
+}
+
+export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
     formatter?: (value: string, index: number) => string | null
@@ -71,7 +81,7 @@ function computeVisibleXLabels(
 
 const TICK_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
-    fontSize: 11,
+    fontSize: 12,
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
 }
@@ -84,7 +94,7 @@ export function AxisLabels({
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
 }: AxisLabelsProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChart()
+    const { scales, dimensions, labels } = useChartLayout()
     const yTicks = scales.yTicks()
 
     const rightAxis = useMemo(() => {
@@ -114,6 +124,7 @@ export function AxisLabels({
                     return (
                         <div
                             key={`y-${tick}`}
+                            data-attr="hog-chart-axis-tick-y"
                             style={{
                                 ...TICK_STYLE_BASE,
                                 right: dimensions.width - dimensions.plotLeft + 8,
@@ -138,6 +149,7 @@ export function AxisLabels({
                     return (
                         <div
                             key={`yr-${tick}`}
+                            data-attr="hog-chart-axis-tick-yr"
                             style={{
                                 ...TICK_STYLE_BASE,
                                 left: dimensions.plotLeft + dimensions.plotWidth + 8,
@@ -154,6 +166,7 @@ export function AxisLabels({
             {visibleXLabels.map(({ index, text, x }) => (
                 <div
                     key={`x-${index}`}
+                    data-attr="hog-chart-axis-tick-x"
                     style={{
                         ...TICK_STYLE_BASE,
                         left: x,

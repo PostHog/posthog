@@ -14,7 +14,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -28,6 +28,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
@@ -130,12 +131,16 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-            existing_full_video_exports_count = ExportedAsset.objects.filter(
-                team_id=self.context["team_id"],
-                export_format__in=["video/mp4", "video/webm", "image/gif"],
-                export_context__session_recording_id__isnull=False,
-                created_at__gte=start_of_month,
-            ).count()
+            existing_full_video_exports_count = (
+                ExportedAsset.objects.filter(
+                    team_id=self.context["team_id"],
+                    export_format__in=["video/mp4", "video/webm", "image/gif"],
+                    export_context__session_recording_id__isnull=False,
+                    created_at__gte=start_of_month,
+                )
+                .exclude(is_system=True)
+                .count()
+            )
 
             # Plan-tier default with an optional per-team override that acts as a floor.
             # Taking max() preserves the override's original purpose — bumping a team above
@@ -227,6 +232,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
                 logger.info("starting_rasterize_recording_workflow", asset_id=instance.id)
 
+                session_recording_id = instance.export_context.get("session_recording_id")
+
                 async def _start():
                     client = await async_connect()
                     await client.execute_workflow(
@@ -237,6 +244,12 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                         execution_timeout=timedelta(hours=1),
+                        search_attributes=TypedSearchAttributes(
+                            search_attributes=[
+                                SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id),
+                                SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=session_recording_id),
+                            ]
+                        ),
                     )
 
                 try:

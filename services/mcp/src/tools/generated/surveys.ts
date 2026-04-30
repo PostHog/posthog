@@ -5,64 +5,17 @@ import type { Schemas } from '@/api/generated'
 import {
     SurveysCreateBody,
     SurveysDestroyParams,
+    SurveysGlobalStatsRetrieveQueryParams,
     SurveysListQueryParams,
     SurveysPartialUpdateBody,
     SurveysPartialUpdateParams,
     SurveysRetrieveParams,
-    SurveysStatsRetrieve2Params,
-    SurveysStatsRetrieve2QueryParams,
+    SurveysStatsRetrieveParams,
     SurveysStatsRetrieveQueryParams,
 } from '@/generated/surveys/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const SurveysGetAllSchema = SurveysListQueryParams
-
-const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Schemas.PaginatedSurveyList>> =>
-    withUiApp('survey-list', {
-        name: 'surveys-get-all',
-        schema: SurveysGetAllSchema,
-        handler: async (context: Context, params: z.infer<typeof SurveysGetAllSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedSurveyList>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
-                query: {
-                    archived: params.archived,
-                    limit: params.limit,
-                    offset: params.offset,
-                    search: params.search,
-                },
-            })
-            return await withPostHogUrl(
-                context,
-                {
-                    ...result,
-                    results: await Promise.all(
-                        (result.results ?? []).map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
-                    ),
-                },
-                '/surveys'
-            )
-        },
-    })
-
-const SurveyGetSchema = SurveysRetrieveParams.omit({ project_id: true })
-
-const surveyGet = (): ToolBase<typeof SurveyGetSchema, WithPostHogUrl<Schemas.Survey>> =>
-    withUiApp('survey', {
-        name: 'survey-get',
-        schema: SurveyGetSchema,
-        handler: async (context: Context, params: z.infer<typeof SurveyGetSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Survey>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
-            })
-            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
-        },
-    })
 
 const SurveyCreateSchema = SurveysCreateBody.omit({
     schedule: true,
@@ -138,6 +91,60 @@ const surveyCreate = (): ToolBase<
                 body,
             })
             return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+        },
+    })
+
+const SurveyDeleteSchema = SurveysDestroyParams.omit({ project_id: true })
+
+const surveyDelete = (): ToolBase<typeof SurveyDeleteSchema, Schemas.SurveySerializerCreateUpdateOnly> => ({
+    name: 'survey-delete',
+    schema: SurveyDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SurveyDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
+            body: { archived: true },
+        })
+        return result
+    },
+})
+
+const SurveyGetSchema = SurveysRetrieveParams.omit({ project_id: true })
+
+const surveyGet = (): ToolBase<typeof SurveyGetSchema, WithPostHogUrl<Schemas.Survey>> =>
+    withUiApp('survey', {
+        name: 'survey-get',
+        schema: SurveyGetSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyGetSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Survey>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+        },
+    })
+
+const SurveyStatsSchema = SurveysStatsRetrieveParams.omit({ project_id: true }).extend(
+    SurveysStatsRetrieveQueryParams.shape
+)
+
+const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schemas.SurveyStatsResponse>> =>
+    withUiApp('survey-stats', {
+        name: 'survey-stats',
+        schema: SurveyStatsSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyStatsSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SurveyStatsResponse>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stats/`,
+                query: {
+                    date_from: params.date_from,
+                    date_to: params.date_to,
+                },
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.survey_id}`)
         },
     })
 
@@ -232,45 +239,38 @@ const surveyUpdate = (): ToolBase<
         },
     })
 
-const SurveyDeleteSchema = SurveysDestroyParams.omit({ project_id: true })
+const SurveysGetAllSchema = SurveysListQueryParams
 
-const surveyDelete = (): ToolBase<typeof SurveyDeleteSchema, Schemas.SurveySerializerCreateUpdateOnly> => ({
-    name: 'survey-delete',
-    schema: SurveyDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof SurveyDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SurveySerializerCreateUpdateOnly>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/`,
-            body: { archived: true },
-        })
-        return result
-    },
-})
-
-const SurveyStatsSchema = SurveysStatsRetrieve2Params.omit({ project_id: true }).extend(
-    SurveysStatsRetrieve2QueryParams.shape
-)
-
-const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schemas.SurveyStatsResponse>> =>
-    withUiApp('survey-stats', {
-        name: 'survey-stats',
-        schema: SurveyStatsSchema,
-        handler: async (context: Context, params: z.infer<typeof SurveyStatsSchema>) => {
+const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Schemas.PaginatedSurveyList>> =>
+    withUiApp('survey-list', {
+        name: 'surveys-get-all',
+        schema: SurveysGetAllSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveysGetAllSchema>) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.SurveyStatsResponse>({
+            const result = await context.api.request<Schemas.PaginatedSurveyList>({
                 method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stats/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
                 query: {
-                    date_from: params.date_from,
-                    date_to: params.date_to,
+                    archived: params.archived,
+                    limit: params.limit,
+                    offset: params.offset,
+                    search: params.search,
                 },
             })
-            return await withPostHogUrl(context, result, `/surveys/${result.survey_id}`)
+            return await withPostHogUrl(
+                context,
+                {
+                    ...result,
+                    results: await Promise.all(
+                        (result.results ?? []).map((item) => withPostHogUrl(context, item, `/surveys/${item.id}`))
+                    ),
+                },
+                '/surveys'
+            )
         },
     })
 
-const SurveysGlobalStatsSchema = SurveysStatsRetrieveQueryParams
+const SurveysGlobalStatsSchema = SurveysGlobalStatsRetrieveQueryParams
 
 const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas.SurveyGlobalStatsResponse> =>
     withUiApp('survey-global-stats', {
@@ -291,11 +291,11 @@ const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas
     })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'surveys-get-all': surveysGetAll,
-    'survey-get': surveyGet,
     'survey-create': surveyCreate,
-    'survey-update': surveyUpdate,
     'survey-delete': surveyDelete,
+    'survey-get': surveyGet,
     'survey-stats': surveyStats,
+    'survey-update': surveyUpdate,
+    'surveys-get-all': surveysGetAll,
     'surveys-global-stats': surveysGlobalStats,
 }

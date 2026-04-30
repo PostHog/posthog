@@ -82,12 +82,48 @@ export interface QuarantineInputApi {
     expires_at?: string | null
 }
 
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
+export interface SnapshotHistoryEntryApi {
+    current_artifact?: ArtifactApi | null
+    run_id: string
+    snapshot_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+    /** @nullable */
+    diff_percentage?: number | null
+    review_state?: string
+}
+
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
+}
+
 export interface RunSummaryApi {
     total: number
     changed: number
     new: number
     removed: number
     unchanged: number
+    unresolved?: number
     tolerated_matched?: number
 }
 
@@ -199,32 +235,13 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
-export interface SnapshotHistoryEntryApi {
-    run_id: string
-    result: string
-    branch: string
-    commit_sha: string
-    created_at: string
-}
-
-export interface PaginatedSnapshotHistoryEntryListApi {
-    count: number
+export interface RecomputeResultApi {
+    run: RunApi
+    counts_changed: boolean
+    unresolved: number
+    ci_rerun_triggered: boolean
     /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SnapshotHistoryEntryApi[]
-}
-
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
+    ci_rerun_error?: string | null
 }
 
 export type SnapshotApiMetadata = { [key: string]: unknown }
@@ -323,13 +340,15 @@ export type VisualReviewReposQuarantineListParams = {
     run_type?: string
 }
 
-export type VisualReviewReposQuarantineDestroyParams = {
+export type VisualReviewReposSnapshotsListParams = {
     /**
-     * Snapshot identifier to unquarantine
-     * @minLength 1
-     * @maxLength 512
+     * Number of results to return per page.
      */
-    identifier: string
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type VisualReviewRunsListParams = {
@@ -345,21 +364,6 @@ export type VisualReviewRunsListParams = {
      * Filter by review state
      */
     review_state?: string
-}
-
-export type VisualReviewRunsSnapshotHistoryListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type VisualReviewRunsSnapshotsListParams = {

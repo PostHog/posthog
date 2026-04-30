@@ -122,6 +122,7 @@ rules:
                               |FeatureFlag
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
+                              |TeamSessionSummariesConfig
                               |FileSystem
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -184,6 +185,7 @@ rules:
                               |Survey
                               |SurveyResponseArchive
                               |Tag
+                              |Tagger
                               |Task
                               |TaskAutomation
                               |TaskRun
@@ -321,6 +323,7 @@ rules:
                         |FeatureFlag
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
+                        |TeamSessionSummariesConfig
                         |FileSystem
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -380,6 +383,7 @@ rules:
                         |Survey
                         |SurveyResponseArchive
                         |Tag
+                        |Tagger
                         |Task
                         |TaskAutomation
                         |TaskRun
@@ -491,6 +495,7 @@ rules:
                               |Project
                               |ProxyRecord
                               |Role
+                              |RoleExternalReference
                               |RoleMembership
                           )$
                 - focus-metavariable: $SINK
@@ -553,6 +558,7 @@ rules:
                         |Project
                         |ProxyRecord
                         |Role
+                        |RoleExternalReference
                         |RoleMembership
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)

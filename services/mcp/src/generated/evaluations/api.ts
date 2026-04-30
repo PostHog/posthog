@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -124,9 +124,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.string().nullish(),
@@ -214,9 +214,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.string().nullish(),
@@ -274,4 +274,57 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe('Optional trigger conditions to filter which events are sampled.'),
+})
+
+/**
+ * Get the evaluation config for this team
+ */
+export const LlmAnalyticsEvaluationConfigRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Set the active provider key for evaluations
+ */
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
+    key_id: zod
+        .string()
+        .describe(
+            "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide."
+        ),
+})
+
+/**
+ * List available models for a provider.
+ */
+export const LlmAnalyticsModelsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    key_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
+        ),
+    provider: zod
+        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'openai', 'openrouter', 'together_ai'])
+        .describe('LLM provider to list models for. Must be one of the supported providers.'),
 })

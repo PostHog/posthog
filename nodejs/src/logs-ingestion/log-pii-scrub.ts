@@ -1,7 +1,7 @@
 /**
- * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Only `record.body` is scrubbed — one
- * RE2 pass over the raw UTF-8 string (no JSON parse). Rules: Bearer-shaped tokens, Stripe `sk_*` keys, email
- * addresses. OTLP `attributes` / `resource_attributes` and other string fields are not modified here.
+ * Lossy ingestion scrub: replace matches with PII_REDACTED ({{REDACTED}}). Scrubs `record.body` and each value in
+ * `record.attributes` (no JSON parse). Rules: Bearer-shaped tokens, Stripe `sk_*` keys, email addresses.
+ * `resource_attributes` and other string fields (e.g. `service_name`, `severity_text`) are not modified here.
  *
  * **Not guaranteed:** secrets only discoverable by JSON object keys inside `body` (no tree walk), values only in
  * JSON number/boolean leaves. PAN-like digit runs are not redacted.
@@ -13,6 +13,12 @@ import { createTrackedRE2 } from '../utils/tracked-re2'
 import type { LogRecord } from './log-record-avro'
 
 export const PII_REDACTED = '{{REDACTED}}'
+
+export type PiiScrubStats = {
+    readonly piiReplacements: number
+}
+
+export const EMPTY_PII: Readonly<PiiScrubStats> = Object.freeze({ piiReplacements: 0 })
 
 /** Match Rust serde_json::Value::String(s).to_string() / CH kafka_logs_avro_mv JSONExtractString expectations. */
 export function encodeAttributeCell(semantic: string): string {
@@ -28,28 +34,55 @@ const PII_COMBINED_RE = createTrackedRE2(
     'log-pii-scrub:combined'
 )
 
-/** Apply regex-based redaction to a single string (e.g. log body). */
-export function scrubPlainString(input: string): string {
-    return input.replace(
+/** One regex pass; `piiReplacements` counts only successful redactions (a matched capture group). */
+export function scrubPlainStringWithStats(input: string): { output: string; piiReplacements: number } {
+    let piiReplacements = 0
+    const output = input.replace(
         PII_COMBINED_RE,
-        (_match: string, bearer: string | undefined, stripe: string | undefined, email: string | undefined) => {
+        (match: string, bearer: string | undefined, stripe: string | undefined, email: string | undefined) => {
             if (bearer !== undefined) {
+                piiReplacements += 1
                 return `Bearer ${PII_REDACTED}`
             }
             if (stripe !== undefined) {
+                piiReplacements += 1
                 return PII_REDACTED
             }
             if (email !== undefined) {
+                piiReplacements += 1
                 return PII_REDACTED
             }
-            return _match
+            return match
         }
     )
+    return { output, piiReplacements }
 }
 
-/** Mutate record in place: `body` only. */
-export function scrubLogRecord(record: LogRecord): void {
+/** Apply regex-based redaction to a single string (e.g. log body). */
+export function scrubPlainString(input: string): string {
+    return scrubPlainStringWithStats(input).output
+}
+
+/**
+ * Mutate record in place: `body` and each `attributes` value.
+ * `piiReplacements` is the sum of all successful redactions (body + every attribute value), not split by field.
+ */
+export function scrubLogRecord(record: LogRecord): PiiScrubStats {
+    let piiReplacements = 0
+
     if (record.body != null) {
-        record.body = scrubPlainString(record.body)
+        const { output, piiReplacements: n } = scrubPlainStringWithStats(record.body)
+        record.body = output
+        piiReplacements += n
     }
+
+    if (record.attributes != null) {
+        for (const [key, val] of Object.entries(record.attributes)) {
+            const { output, piiReplacements: n } = scrubPlainStringWithStats(val)
+            record.attributes[key] = output
+            piiReplacements += n
+        }
+    }
+
+    return piiReplacements === 0 ? EMPTY_PII : { piiReplacements }
 }

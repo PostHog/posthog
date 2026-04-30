@@ -199,3 +199,30 @@ def create(self, request, *args, **kwargs):
 drf-spectacular's `COMPONENT_SPLIT_PATCH` setting (enabled by default) handles
 the PATCH case automatically, creating separate schemas for PATCH vs POST
 since PATCH doesn't require all fields.
+
+## ENUM_NAME_OVERRIDES — fixing enum naming warnings
+
+When multiple serializer fields share the same choice values (or the same field name
+is used across components with different choices), drf-spectacular emits warnings.
+These are fixed via `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py`.
+
+**The hash trap:** overrides must produce the same hash that drf-spectacular computes
+at schema generation time. There are two different hash paths:
+
+1. **ChoiceField** (model-backed fields) — drf-spectacular injects `x-spec-enum-id`
+   using `list_hash([(value, label), ...])` where labels come from the Django Choices class.
+   Override with a **model class path**: `"MyEnum": "myapp.models.MyModel.MyChoices"`.
+
+2. **Enum type hints** (return types on `SerializerMethodField`) — no `x-spec-enum-id`
+   is set, so postprocessing falls back to `list_hash([(value, value), ...])`.
+   Override with an **inline value list**: `"MyEnum": ["val1", "val2"]`.
+   For integer enums, use tuples: `"MyEnum": [(1, 1), (8, 8)]`.
+
+Using the wrong format means the override hash doesn't match and the warning persists
+even though it looks like it should work.
+
+CI enforces zero warnings via `spectacular --fail-on-warn`.
+
+**Diagnostic tool:** run `python manage.py find_enum_collisions` to find unresolved
+collisions — it shows the field name, hash, enum values, hash path (ChoiceField vs
+type-hint), which components use it, and suggests the override format to add.

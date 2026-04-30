@@ -198,7 +198,15 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert payload == {
             "incremental_fields": [
-                {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                {
+                    "label": "id",
+                    "type": "integer",
+                    "field": "id",
+                    "field_type": "integer",
+                    "nullable": True,
+                    # Table has no index on `id`, so the warning UI will fire for this field.
+                    "is_indexed": False,
+                }
             ],
             "incremental_available": True,
             "append_available": True,
@@ -1442,3 +1450,42 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {action}",
             )
+
+
+class TestExternalDataSchemaSerializerValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"stripe_secret_key": "123"},
+        )
+        self.schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=self.source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+        )
+
+    def test_update_sync_type_null_clears_existing_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+            {"sync_type": None},
+            format="json",
+        )
+        assert response.status_code == 200
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type is None
+
+    def test_update_absent_sync_type_preserves_existing_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/",
+            {"should_sync": True},
+            format="json",
+        )
+        assert response.status_code == 200
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL

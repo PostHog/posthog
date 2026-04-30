@@ -71,8 +71,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=payload_bytes,
             content_type="application/json",
-            HTTP_X_HUB_SIGNATURE_256=signature,
-            HTTP_X_GITHUB_EVENT=event_type,
+            headers={"x-hub-signature-256": signature, "x-github-event": event_type},
         )
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
@@ -153,8 +152,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=payload_bytes,
             content_type="application/json",
-            HTTP_X_HUB_SIGNATURE_256="sha256=invalid",
-            HTTP_X_GITHUB_EVENT="pull_request",
+            headers={"x-hub-signature-256": "sha256=invalid", "x-github-event": "pull_request"},
         )
 
         self.assertEqual(response.status_code, 403)
@@ -170,7 +168,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_GITHUB_EVENT="pull_request",
+            headers={"x-github-event": "pull_request"},
         )
 
         self.assertEqual(response.status_code, 403)
@@ -230,7 +228,7 @@ class TestGitHubPRWebhook(TestCase):
                 "/webhooks/github/pr/",
                 data=json.dumps(payload),
                 content_type="application/json",
-                HTTP_X_GITHUB_EVENT="pull_request",
+                headers={"x-github-event": "pull_request"},
             )
 
             self.assertEqual(response.status_code, 500)
@@ -239,6 +237,35 @@ class TestGitHubPRWebhook(TestCase):
         """Test that non-POST methods are rejected."""
         response = self.client.get("/webhooks/github/pr/")
         self.assertEqual(response.status_code, 405)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_webhook_does_not_attribute_foreign_repo_pr_to_unrelated_run(self, mock_capture, mock_get_secret):
+        # Regression: a PR opened on a repo that has no matching TaskRun must
+        # not fall through to a branch-only lookup that attributes the event
+        # to an unrelated team's run with a colliding branch name.
+        mock_get_secret.return_value = self.webhook_secret
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+
+        payload = {
+            "action": "opened",
+            "repository": {"full_name": "ArkeroAI/arkero2"},
+            "pull_request": {
+                "html_url": "https://github.com/ArkeroAI/arkero2/pull/533",
+                "merged": False,
+                "head": {"ref": "main"},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
 
 
 class TestGitHubPRWebhookResolvesSignalReports(TestCase):
@@ -387,7 +414,7 @@ class TestFindTaskRun(TestCase):
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/my-branch",
         )
-        result = find_task_run(branch="feature/my-branch")
+        result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
 
     def test_pr_url_takes_priority_over_branch(self):
@@ -407,6 +434,7 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(
             pr_url="https://github.com/posthog/posthog/pull/123",
             branch="feature/my-branch",
+            repository="posthog/posthog",
         )
         self.assertEqual(result, pr_run)
 
@@ -420,6 +448,7 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(
             pr_url="https://github.com/posthog/posthog/pull/999",
             branch="feature/my-branch",
+            repository="posthog/posthog",
         )
         self.assertEqual(result, branch_run)
 
@@ -430,3 +459,46 @@ class TestFindTaskRun(TestCase):
     def test_returns_none_with_no_args(self):
         result = find_task_run()
         self.assertIsNone(result)
+
+    def test_branch_fallback_requires_repository(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+        # Without a repository the branch fallback must not match — bare branch
+        # names like "main" collide across every team in the database.
+        self.assertIsNone(find_task_run(branch="main"))
+
+    def test_branch_fallback_does_not_match_other_repositories(self):
+        # The task's repository is "posthog/posthog"; a webhook from a foreign
+        # repo with the same branch name must not be attributed to this run.
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+        result = find_task_run(branch="main", repository="ArkeroAI/arkero2")
+        self.assertIsNone(result)
+
+    def test_branch_fallback_matches_repository_case_insensitively(self):
+        task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/my-branch",
+        )
+        result = find_task_run(branch="feature/my-branch", repository="PostHog/PostHog")
+        self.assertEqual(result, task_run)
+
+    def test_branch_fallback_rejects_empty_repository(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+        )
+        for value in ("", "   ", "\t"):
+            self.assertIsNone(find_task_run(branch="main", repository=value))

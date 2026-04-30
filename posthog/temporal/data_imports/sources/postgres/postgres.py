@@ -40,11 +40,14 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     PARTITIONED_TABLE_MAX_CHUNK_SIZE,
+    build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
     get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
+    get_partition_strategy,
     is_partitioned_table as _is_partitioned_table,
     is_supported_incremental_type_for_window,
     iterate_date_windows,
+    iterate_partitions,
     list_child_partitions,
 )
 
@@ -203,6 +206,61 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
+def get_leading_index_columns(
+    conn: psycopg.Connection, schema: str, table_names: list[str]
+) -> dict[str, set[str]] | None:
+    """Return the set of columns that are the leading column of any index per table.
+
+    Used to surface a UI warning when a user picks an incremental field that isn't
+    indexed — those would force a full scan on every sync. Includes the primary key
+    (since PKs back an implicit index in Postgres). Excludes:
+
+    - `indkey[0] = 0`: the leading index entry is an expression (e.g. a functional
+      index on `lower(email)`), not a plain column — we can't tell whether it
+      accelerates `WHERE col >= …` so don't claim it does.
+    - `indisvalid = false`: the index isn't usable by the planner (failed
+      `CREATE INDEX CONCURRENTLY`, in-progress build) and won't accelerate any
+      query.
+    - `indpred IS NOT NULL`: partial indexes only accelerate queries whose
+      predicate the planner can prove implies the index predicate. Most partial
+      indexes in practice (`WHERE deleted_at IS NULL` and similar) don't apply
+      to the incremental sync's `WHERE col >= last_max`, so flagging the
+      leading column as indexed would suppress a warning the user genuinely
+      needs.
+
+    Returns None when discovery fails (e.g. permission issues on system catalogs)
+    so the caller can default to no warning rather than blowing away other
+    discovery results.
+    """
+    if not table_names:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.relname AS table_name,
+                       a.attname AS column_name
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = i.indkey[0]
+                WHERE i.indkey[0] <> 0
+                  AND i.indisvalid
+                  AND i.indpred IS NULL
+                  AND n.nspname = %s
+                  AND c.relname = ANY(%s)
+                """,
+                (schema, table_names),
+            )
+            result: dict[str, set[str]] = {}
+            for row in cur:
+                result.setdefault(row[0], set()).add(row[1])
+        return result
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index columns for Postgres schemas", exc_info=e)
+        return None
+
+
 def _normalize_function_names(function_names: list[Any]) -> list[str]:
     return sorted(
         {
@@ -301,17 +359,16 @@ def _get_discovered_tables(
             for table_catalog, schema_name, table_name in discovered_rows
         }
     else:
+        # pg_class covers all syncable relkinds: r/p (tables), v/m (views), f (foreign).
         if selected_schema is not None:
             cursor.execute(
                 """
-                SELECT schemaname AS schema_name, tablename AS table_name
-                FROM pg_tables
-                WHERE schemaname = %(schema)s
-                UNION ALL
-                SELECT schemaname AS schema_name, matviewname AS table_name
-                FROM pg_matviews
-                WHERE schemaname = %(schema)s
-                ORDER BY schema_name, table_name
+                SELECT n.nspname AS schema_name, c.relname AS table_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  AND n.nspname = %(schema)s
+                ORDER BY n.nspname, c.relname
                 """,
                 {"schema": selected_schema},
             )
@@ -321,18 +378,14 @@ def _get_discovered_tables(
             )
             cursor.execute(
                 f"""
-                SELECT schemaname AS schema_name, tablename AS table_name
-                FROM pg_tables
-                WHERE schemaname NOT IN ({system_schema_placeholders})
-                  AND schemaname NOT LIKE 'pg_temp_%%'
-                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
-                UNION ALL
-                SELECT schemaname AS schema_name, matviewname AS table_name
-                FROM pg_matviews
-                WHERE schemaname NOT IN ({system_schema_placeholders})
-                  AND schemaname NOT LIKE 'pg_temp_%%'
-                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
-                ORDER BY schema_name, table_name
+                SELECT n.nspname AS schema_name, c.relname AS table_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  AND n.nspname NOT IN ({system_schema_placeholders})
+                  AND n.nspname NOT LIKE 'pg_temp_%%'
+                  AND n.nspname NOT LIKE 'pg_toast_temp_%%'
+                ORDER BY n.nspname, c.relname
                 """,
                 system_schema_params,
             )
@@ -601,6 +654,7 @@ def get_connection_metadata(
 
             function_source = "duckdb_functions" if is_duckdb else "pg_proc"
             available_functions: list[str] = []
+            available_table_functions: list[str] = []
 
             try:
                 if is_duckdb:
@@ -611,12 +665,29 @@ def get_connection_metadata(
             except Exception as error:
                 capture_exception(error)
 
+            try:
+                if is_duckdb:
+                    cursor.execute(
+                        "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
+                    )
+                else:
+                    # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
+                    # which is how Postgres exposes table functions in pg_proc.
+                    cursor.execute(
+                        "SELECT DISTINCT proname FROM pg_proc "
+                        "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
+                    )
+                available_table_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
+            except Exception as error:
+                capture_exception(error)
+
             return {
                 "database": current_database,
                 "version": version,
                 "engine": "duckdb" if is_duckdb else "postgres",
                 "function_source": function_source,
                 "available_functions": available_functions,
+                "available_table_functions": available_table_functions,
             }
 
 
@@ -812,23 +883,25 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
 def _get_primary_keys(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> list[str] | None:
-    info_schema_query = sql.SQL("""
-        SELECT
-            kcu.column_name
-        FROM
-            information_schema.table_constraints tc
-        JOIN
-            information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-        WHERE
-            tc.table_schema = {schema}
-            AND tc.table_name = {table}
-            AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    # Uses pg_catalog rather than information_schema because information_schema views
+    # are ACL-filtered — a user with only SELECT grants may not see PK constraint rows
+    # depending on PostgreSQL version, which silently returned no primary key at sync
+    # time even though discovery (which already uses pg_catalog) found one.
+    pg_catalog_query = sql.SQL("""
+        SELECT a.attname AS column_name
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+        WHERE i.indisprimary
+          AND n.nspname = {schema}
+          AND c.relname = {table}
+        ORDER BY array_position(i.indkey, a.attnum)
+    """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
-    _explain_query(cursor, info_schema_query, logger)
-    logger.debug(f"Running query: {info_schema_query.as_string()}")
-    cursor.execute(info_schema_query)
+    _explain_query(cursor, pg_catalog_query, logger)
+    logger.debug(f"Running query: {pg_catalog_query.as_string()}")
+    cursor.execute(pg_catalog_query)
     rows = cursor.fetchall()
     if len(rows) > 0:
         return [row[0] for row in rows]
@@ -895,7 +968,7 @@ def _get_primary_keys(
         return None
 
     logger.warning(
-        f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
+        f"No primary keys found for {table_name}. If the table is not a view, does the table have a primary key set?"
     )
 
     return None
@@ -1529,8 +1602,27 @@ def postgres_source(
                         and should_use_incremental_field
                         and is_supported_incremental_type_for_window(incremental_field_type)
                     )
+                    # When the parent is range-partitioned on the incremental field, we can
+                    # query each child relation directly instead of routing through the parent
+                    # and forcing the planner to Append + sort across all children. One cursor
+                    # per child = no cross-partition merge sort, trivial pruning, and child-sized
+                    # query plans that fit comfortably under statement_timeout.
+                    use_per_partition_chunking = False
+                    if use_window_chunking and child_partitions:
+                        try:
+                            partition_strategy = get_partition_strategy(cursor, schema, table_name)
+                        except Exception as e:
+                            partition_strategy = None
+                            logger.debug(f"Partition strategy detection failed: {e}")
+                        use_per_partition_chunking = (
+                            partition_strategy is not None
+                            and partition_strategy.strategy == "r"
+                            and incremental_field is not None
+                            and incremental_field in partition_strategy.key_columns
+                        )
                     logger.debug(
                         f"Postgres read strategy: use_window_chunking={use_window_chunking}, "
+                        f"use_per_partition_chunking={use_per_partition_chunking}, "
                         f"child_partitions={len(child_partitions)}"
                     )
 
@@ -1680,6 +1772,33 @@ def postgres_source(
 
                 if connection.closed is False:
                     connection.__exit__(None, None, None)
+
+            if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
+
+                def _build_per_partition_query(child_schema: str, child_name: str) -> sql.Composed:
+                    return build_partition_query(
+                        child_schema,
+                        child_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+
+                yield from iterate_partitions(
+                    get_connection=get_connection,
+                    build_partition_query=_build_per_partition_query,
+                    schema=schema,
+                    table_name=table_name,
+                    child_partitions=child_partitions,
+                    chunk_size=chunk_size,
+                    arrow_schema=arrow_schema,
+                    logger=logger,
+                    incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                )
+                return
 
             if use_window_chunking and incremental_field is not None and incremental_field_type is not None:
 

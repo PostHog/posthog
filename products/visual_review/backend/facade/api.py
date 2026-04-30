@@ -31,6 +31,7 @@ RunNotFoundError = logic.RunNotFoundError
 ArtifactNotFoundError = logic.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = logic.GitHubIntegrationNotFoundError
 GitHubCommitError = logic.GitHubCommitError
+GitHubRateLimitError = logic.GitHubRateLimitError
 PRSHAMismatchError = logic.PRSHAMismatchError
 StaleRunError = logic.StaleRunError
 BaselineFilePathNotConfiguredError = logic.BaselineFilePathNotConfiguredError
@@ -78,6 +79,14 @@ def _to_snapshot(
     )
 
 
+def _compute_unresolved(run) -> int:
+    """Compute unresolved count from prefetched snapshots, or fall back to DB."""
+    # Use prefetched snapshots if available (detail view), skip for list views
+    if "snapshots" in getattr(run, "_prefetched_objects_cache", {}):
+        return sum(1 for s in run.snapshots.all() if logic._is_unresolved(s))
+    return 0
+
+
 def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
@@ -96,6 +105,7 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
             new=run.new_count,
             removed=run.removed_count,
             unchanged=run.total_snapshots - run.changed_count - run.new_count - run.removed_count,
+            unresolved=_compute_unresolved(run),
             tolerated_matched=run.tolerated_match_count,
         ),
         error_message=run.error_message or None,
@@ -146,6 +156,16 @@ def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Rep
         enable_pr_comments=input.enable_pr_comments,
     )
     return _to_repo(repo)
+
+
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Resolve a snapshot identifier to the content hash of its thumbnail, if any."""
+    return logic.get_thumbnail_hash_for_identifier(repo_id, identifier)
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    """Read the raw bytes for a thumbnail artifact from storage."""
+    return logic.read_thumbnail_bytes(repo_id, content_hash)
 
 
 # --- Run API ---
@@ -227,7 +247,7 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
 
 
 def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
-    run = logic.get_run(run_id, team_id=team_id)
+    run = logic.get_run_with_snapshots(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
     return _to_run(run, user_basic_infos)
@@ -243,15 +263,20 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contract
     return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.SnapshotHistoryEntry]:
-    entries = logic.get_snapshot_history(repo_id, identifier)
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
+    entries = logic.get_snapshot_history(repo_id, identifier, run_type)
     return [
         contracts.SnapshotHistoryEntry(
-            run_id=e["run_id"],
-            result=e["result"],
-            branch=e["branch"],
-            commit_sha=e["commit_sha"],
-            created_at=e["created_at"],
+            run_id=e.run_id,
+            snapshot_id=e.id,
+            result=e.result,
+            branch=e.run.branch,
+            commit_sha=e.run.commit_sha,
+            created_at=e.run.created_at,
+            pr_number=e.run.pr_number,
+            diff_percentage=e.diff_percentage,
+            review_state=e.review_state,
+            current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
         )
         for e in entries
     ]
@@ -286,6 +311,18 @@ def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
         logic.get_run(run_id, team_id=team_id)  # validates ownership
     run = logic.complete_run(run_id)
     return _to_run(run)
+
+
+def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
+    result = logic.recompute_run(run_id, team_id=team_id)
+    run = logic.get_run_with_snapshots(run_id, team_id=team_id)
+    return contracts.RecomputeResult(
+        run=_to_run(run),
+        counts_changed=result["counts_changed"],
+        unresolved=result["unresolved"],
+        ci_rerun_triggered=result["ci_rerun_triggered"],
+        ci_rerun_error=result["ci_rerun_error"],
+    )
 
 
 def approve_all(
@@ -385,3 +422,7 @@ def quarantine_identifier(
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:
     logic.unquarantine_identifier(repo_id=repo_id, identifier=identifier, run_type=run_type, team_id=team_id)
+
+
+def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
+    logic.expire_quarantine_entry(entry_id=entry_id, team_id=team_id)

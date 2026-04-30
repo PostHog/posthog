@@ -168,6 +168,7 @@ class RunSummary:
     new: int
     removed: int
     unchanged: int
+    unresolved: int = 0
     tolerated_matched: int = 0
 
 
@@ -201,6 +202,17 @@ class AutoApproveResult:
 
     run: Run
     baseline_content: str
+
+
+@dataclass(frozen=True)
+class RecomputeResult:
+    """Result of re-evaluating quarantine/counts and optionally retriggering CI."""
+
+    run: Run
+    counts_changed: bool
+    unresolved: int
+    ci_rerun_triggered: bool
+    ci_rerun_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -261,10 +273,15 @@ class SnapshotHistoryEntry:
     """A single entry in a snapshot's change history across runs."""
 
     run_id: UUID
+    snapshot_id: UUID
     result: str
     branch: str
     commit_sha: str
     created_at: datetime
+    pr_number: int | None = None
+    diff_percentage: float | None = None
+    review_state: str = ""
+    current_artifact: Artifact | None = None
 
 
 @dataclass(frozen=True)
