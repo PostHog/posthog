@@ -2249,6 +2249,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Gemini: 'gemini',
     Openai: 'openai',
     Openrouter: 'openrouter',
+    TogetherAi: 'together_ai',
 } as const
 
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }

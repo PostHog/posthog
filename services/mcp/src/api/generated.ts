@@ -15777,6 +15777,76 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    /**
+     * * `unknown` - Unknown
+    * `ok` - Ok
+    * `invalid` - Invalid
+    * `error` - Error
+     */
+    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
+
+
+    export const LLMProviderKeyStateEnum = {
+      Unknown: 'unknown',
+      Ok: 'ok',
+      Invalid: 'invalid',
+      Error: 'error',
+    } as const;
+
+    export interface LLMProviderKey {
+      readonly id: string;
+      provider: LLMProviderEnum;
+      /** @maxLength 255 */
+      name: string;
+      readonly state: LLMProviderKeyStateEnum;
+      /** @nullable */
+      readonly error_message: string | null;
+      api_key?: string;
+      readonly api_key_masked: string;
+      /** Azure OpenAI endpoint URL */
+      azure_endpoint?: string;
+      /**
+       * Azure OpenAI API version
+       * @maxLength 20
+       */
+      api_version?: string;
+      /**
+       * Azure endpoint (read-only, for display)
+       * @nullable
+       */
+      readonly azure_endpoint_display: string | null;
+      /**
+       * Azure API version (read-only, for display)
+       * @nullable
+       */
+      readonly api_version_display: string | null;
+      set_as_active?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_used_at: string | null;
+    }
+
+    export interface EvaluationConfig {
+      /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+      readonly trial_eval_limit: number;
+      /** Number of llm_judge runs already consumed against the trial credit pool. */
+      readonly trial_evals_used: number;
+      /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+      readonly trial_evals_remaining: number;
+      /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+      readonly active_provider_key: LLMProviderKey | null;
+      /** Timestamp when the evaluation config row was created. */
+      readonly created_at: string;
+      /** Timestamp when the evaluation config row was last modified. */
+      readonly updated_at: string;
+    }
+
+    export interface EvaluationConfigSetActiveKeyRequest {
+      /** UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide. */
+      key_id: string;
+    }
+
     export interface EvaluationPattern {
       title: string;
       description: string;
@@ -20635,6 +20705,18 @@ export namespace Schemas {
       '20': '2.0',
     } as const;
 
+    export interface LLMModelInfo {
+      /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
+      id: string;
+      /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+      posthog_available: boolean;
+    }
+
+    export interface LLMModelsListResponse {
+      /** Models supported for the requested provider. */
+      models: LLMModelInfo[];
+    }
+
     export interface LLMPromptOutlineEntry {
       /**
        * Markdown heading level (1-6).
@@ -20733,56 +20815,6 @@ export namespace Schemas {
       prompt: LLMPrompt;
       versions: LLMPromptVersionSummary[];
       has_more: boolean;
-    }
-
-    /**
-     * * `unknown` - Unknown
-    * `ok` - Ok
-    * `invalid` - Invalid
-    * `error` - Error
-     */
-    export type LLMProviderKeyStateEnum = typeof LLMProviderKeyStateEnum[keyof typeof LLMProviderKeyStateEnum];
-
-
-    export const LLMProviderKeyStateEnum = {
-      Unknown: 'unknown',
-      Ok: 'ok',
-      Invalid: 'invalid',
-      Error: 'error',
-    } as const;
-
-    export interface LLMProviderKey {
-      readonly id: string;
-      provider: LLMProviderEnum;
-      /** @maxLength 255 */
-      name: string;
-      readonly state: LLMProviderKeyStateEnum;
-      /** @nullable */
-      readonly error_message: string | null;
-      api_key?: string;
-      readonly api_key_masked: string;
-      /** Azure OpenAI endpoint URL */
-      azure_endpoint?: string;
-      /**
-       * Azure OpenAI API version
-       * @maxLength 20
-       */
-      api_version?: string;
-      /**
-       * Azure endpoint (read-only, for display)
-       * @nullable
-       */
-      readonly azure_endpoint_display: string | null;
-      /**
-       * Azure API version (read-only, for display)
-       * @nullable
-       */
-      readonly api_version_display: string | null;
-      set_as_active?: boolean;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      /** @nullable */
-      readonly last_used_at: string | null;
     }
 
     /**
@@ -40059,10 +40091,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown };
-
     export type LlmAnalyticsEvaluationReportsListParams = {
     /**
      * Number of results to return per page.
@@ -40093,7 +40121,29 @@ export namespace Schemas {
 
     export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
-    export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown };
+    export type LlmAnalyticsModelsRetrieveParams = {
+    /**
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     */
+    key_id?: string;
+    /**
+     * LLM provider to list models for. Must be one of the supported providers.
+     */
+    provider: LlmAnalyticsModelsRetrieveProvider;
+    };
+
+    export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];
+
+
+    export const LlmAnalyticsModelsRetrieveProvider = {
+      Anthropic: 'anthropic',
+      AzureOpenai: 'azure_openai',
+      Fireworks: 'fireworks',
+      Gemini: 'gemini',
+      Openai: 'openai',
+      Openrouter: 'openrouter',
+      TogetherAi: 'together_ai',
+    } as const;
 
     export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 

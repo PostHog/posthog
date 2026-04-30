@@ -325,6 +325,6 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
             'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
         ),
     provider: zod
-        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'openai', 'openrouter'])
+        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'openai', 'openrouter', 'together_ai'])
         .describe('LLM provider to list models for. Must be one of the supported providers.'),
 })
