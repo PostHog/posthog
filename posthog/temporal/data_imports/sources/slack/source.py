@@ -1,4 +1,7 @@
+import time
 from typing import TYPE_CHECKING, Optional, cast
+
+import structlog
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -37,6 +40,8 @@ from posthog.temporal.data_imports.sources.slack.slack import (
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 
 @SourceRegistry.register
@@ -180,7 +185,15 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         msg_config = messages_endpoint_config()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         authed_user = (integration.config or {}).get("authed_user", {}).get("id")
+        get_channels_started_at = time.monotonic()
         channels = get_channels(access_token, authed_user)
+        logger.info(
+            "Slack get_schemas channel discovery complete",
+            team_id=team_id,
+            integration_id=config.slack_integration_id,
+            channel_count=len(channels),
+            duration_ms=int((time.monotonic() - get_channels_started_at) * 1000),
+        )
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue

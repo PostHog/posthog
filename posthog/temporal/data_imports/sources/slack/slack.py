@@ -1,3 +1,4 @@
+import time
 import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
@@ -53,13 +54,32 @@ def _wait_with_retry_after(retry_state: RetryCallState) -> float:
     reraise=True,
 )
 def _slack_get(url: str, **kwargs: Any) -> requests.Response:
+    started_at = time.monotonic()
     response = requests.get(url, **kwargs)
+    request_duration_ms = int((time.monotonic() - started_at) * 1000)
     if response.status_code == 429:
         retry_after = int(response.headers.get("Retry-After", 1))
-        logger.warning("Slack API rate limited", url=url, retry_after=retry_after)
+        logger.warning(
+            "Slack API rate limited",
+            url=url,
+            retry_after=retry_after,
+            request_duration_ms=request_duration_ms,
+        )
         raise SlackRetryableError("Slack: rate limited", retry_after=retry_after)
     if response.status_code >= 500:
+        logger.warning(
+            "Slack API server error",
+            url=url,
+            status_code=response.status_code,
+            request_duration_ms=request_duration_ms,
+        )
         raise SlackRetryableError(f"Slack: server error {response.status_code}")
+    logger.debug(
+        "Slack API request",
+        url=url,
+        status_code=response.status_code,
+        request_duration_ms=request_duration_ms,
+    )
     return response
 
 
@@ -155,8 +175,11 @@ def _fetch_channels_by_type(
     )
     channels: list[dict[str, Any]] = []
     cursor: str | None = None
+    type_started_at = time.monotonic()
+    page_num = 0
 
     for _ in range(_CHANNELS_MAX_PAGES):
+        page_num += 1
         params: dict[str, Any] = {
             "types": channel_type,
             "limit": _CHANNELS_PAGE_SIZE,
@@ -167,8 +190,18 @@ def _fetch_channels_by_type(
         if cursor:
             params["cursor"] = cursor
 
+        page_started_at = time.monotonic()
         page, cursor = _fetch_channels_page(url, access_token, params)
+        page_duration_ms = int((time.monotonic() - page_started_at) * 1000)
         channels.extend(page)
+        logger.info(
+            "Slack channels page fetched",
+            channel_type=channel_type,
+            page_num=page_num,
+            page_duration_ms=page_duration_ms,
+            channels_in_page=len(page),
+            has_next_cursor=cursor is not None,
+        )
         if cursor is None:
             break
     else:
@@ -178,14 +211,29 @@ def _fetch_channels_by_type(
             max_pages=_CHANNELS_MAX_PAGES,
         )
 
+    logger.info(
+        "Slack channels fetch complete",
+        channel_type=channel_type,
+        total_pages=page_num,
+        total_channels=len(channels),
+        total_duration_ms=int((time.monotonic() - type_started_at) * 1000),
+    )
     return channels
 
 
 def _fetch_all_channels(access_token: str, authed_user: str | None = None) -> list[dict[str, Any]]:
     # Fetch public and private separately — Slack's conversations.list pagination is buggy
     # when public and private types are requested in a single call.
+    started_at = time.monotonic()
     public = _fetch_channels_by_type(access_token, "public_channel")
     private = _fetch_channels_by_type(access_token, "private_channel", authed_user)
+    logger.info(
+        "Slack all channels fetched",
+        public_channels=len(public),
+        private_channels=len(private),
+        total_channels=len(public) + len(private),
+        total_duration_ms=int((time.monotonic() - started_at) * 1000),
+    )
     return public + private
 
 
