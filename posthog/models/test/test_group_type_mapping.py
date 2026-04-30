@@ -408,3 +408,152 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
         result = get_group_types_for_projects([10, 20, 30])
 
         assert result == {10: [], 20: [], 30: []}
+
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_success_backfills_missing_project_ids_with_empty_lists(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_fetch_personhog,
+    ):
+        mock_fetch_personhog.return_value = {
+            1: [{"group_type": "organization", "group_type_index": 0}],
+        }
+
+        result = get_group_types_for_projects([1, 2, 3])
+
+        assert result == {
+            1: [{"group_type": "organization", "group_type_index": 0}],
+            2: [],
+            3: [],
+        }
+
+
+class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
+    def setUp(self):
+        self.project_id = 888
+        _clear_cache(self.project_id)
+
+    def tearDown(self):
+        _clear_cache(self.project_id)
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_empty_list_result_is_cached(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_fetch_personhog,
+        mock_objects,
+    ):
+        mock_fetch_personhog.return_value = []
+
+        result1 = get_group_types_for_project(self.project_id)
+        result2 = get_group_types_for_project(self.project_id)
+
+        assert result1 == []
+        assert result2 == []
+        assert mock_fetch_personhog.call_count == 1
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping._fetch_group_types_via_personhog")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_success_populates_stale_cache(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_fetch_personhog,
+        mock_objects,
+    ):
+        from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+        from posthog.utils import get_safe_cache
+
+        mock_fetch_personhog.return_value = PERSONHOG_SUCCESS_DATA
+
+        get_group_types_for_project(self.project_id)
+
+        stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.project_id}")
+        assert stale == PERSONHOG_SUCCESS_DATA
+
+
+class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_returns_empty_list(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_fetch_personhog,
+        mock_objects,
+    ):
+        mock_fetch_personhog.return_value = []
+
+        result = get_group_types_for_team(42)
+
+        assert result == []
+        mock_objects.filter.assert_not_called()
+
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_team_via_personhog")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_orm_database_error_returns_empty_list(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_fetch_personhog,
+        mock_objects,
+    ):
+        from django.db import DatabaseError
+
+        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
+
+        def _raise_db_error():
+            raise DatabaseError("db is down")
+
+        mock_values_qs = MagicMock()
+        mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
+        mock_qs = MagicMock()
+        mock_qs.order_by.return_value.values.return_value = mock_values_qs
+        mock_objects.filter.return_value = mock_qs
+
+        result = get_group_types_for_team(42)
+
+        assert result == []
+
+
+class TestGetGroupTypesForProjectsEdgeCases(SimpleTestCase):
+    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_orm_database_error_returns_empty_dicts(
+        self,
+        mock_errors_counter,
+        mock_routing_counter,
+        mock_fetch_personhog,
+        mock_objects,
+    ):
+        from django.db import DatabaseError
+
+        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
+
+        def _raise_db_error():
+            raise DatabaseError("db is down")
+
+        mock_values_qs = MagicMock()
+        mock_values_qs.__iter__ = MagicMock(side_effect=_raise_db_error)
+        mock_qs = MagicMock()
+        mock_qs.order_by.return_value.values.return_value = mock_values_qs
+        mock_objects.filter.return_value = mock_qs
+
+        result = get_group_types_for_projects([10, 20])
+
+        assert result == {10: [], 20: []}

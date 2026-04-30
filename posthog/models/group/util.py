@@ -3,6 +3,7 @@ import datetime
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
+from django.db import DatabaseError
 from django.utils.timezone import now
 
 import structlog
@@ -116,6 +117,7 @@ def get_group_by_key(team_id: int, group_type_index: int, group_key: str) -> Gro
             "personhog_get_group_by_key_failure",
             team_id=team_id,
             group_type_index=group_type_index,
+            group_key=group_key,
             exc_info=True,
         )
 
@@ -127,6 +129,15 @@ def get_group_by_key(team_id: int, group_type_index: int, group_key: str) -> Gro
             team_id=team_id, group_type_index=group_type_index, group_key=group_key
         )
     except Group.DoesNotExist:
+        return None
+    except DatabaseError:
+        logger.warning(
+            "persons_db_get_group_by_key_failure",
+            team_id=team_id,
+            group_type_index=group_type_index,
+            group_key=group_key,
+            exc_info=True,
+        )
         return None
 
 
@@ -167,11 +178,78 @@ def get_groups_by_identifiers(team_id: int, group_type_index: int, group_keys: l
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="get_groups_by_identifiers", source="django_orm", client_name=get_client_name()
     ).inc()
-    return list(
-        Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            team_id=team_id, group_type_index=group_type_index, group_key__in=group_keys
+    try:
+        return list(
+            Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                team_id=team_id, group_type_index=group_type_index, group_key__in=group_keys
+            )
         )
-    )
+    except DatabaseError:
+        logger.warning(
+            "persons_db_get_groups_by_identifiers_failure",
+            team_id=team_id,
+            group_type_index=group_type_index,
+            exc_info=True,
+        )
+        return []
+
+
+def get_groups_by_type_indices(team_id: int, group_type_indices: set[int], group_keys: set[str]) -> list[Group]:
+    """Fetch Groups across multiple group type indices in a single call.
+
+    Creates a GroupIdentifier for each (group_type_index, group_key) combination
+    and fetches them all in one gRPC/ORM call."""
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_to_model
+    from posthog.personhog_client.proto import GetGroupsRequest, GroupIdentifier
+
+    if not group_type_indices or not group_keys:
+        return []
+
+    try:
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError("personhog client not configured")
+
+        identifiers = [
+            GroupIdentifier(group_type_index=gti, group_key=key) for gti in group_type_indices for key in group_keys
+        ]
+        resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="get_groups_by_type_indices", source="personhog", client_name=get_client_name()
+        ).inc()
+        return [proto_group_to_model(g) for g in resp.groups if g.id]
+    except Exception:
+        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+            operation="get_groups_by_type_indices",
+            source="personhog",
+            error_type="grpc_error",
+            client_name=get_client_name(),
+        ).inc()
+        logger.warning(
+            "personhog_get_groups_by_type_indices_failure",
+            team_id=team_id,
+            group_type_indices=list(group_type_indices),
+            exc_info=True,
+        )
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_groups_by_type_indices", source="django_orm", client_name=get_client_name()
+    ).inc()
+    try:
+        return list(
+            Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                team_id=team_id, group_type_index__in=group_type_indices, group_key__in=group_keys
+            )
+        )
+    except DatabaseError:
+        logger.warning(
+            "persons_db_get_groups_by_type_indices_failure",
+            team_id=team_id,
+            group_type_indices=list(group_type_indices),
+            exc_info=True,
+        )
+        return []
 
 
 def get_aggregation_target_field(

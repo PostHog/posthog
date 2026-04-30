@@ -318,3 +318,47 @@ class TestProtoGroupToModel:
         group = proto_group_to_model(proto)  # type: ignore[arg-type]
         assert isinstance(group.created_at, datetime)
         assert group.created_at.tzinfo is not None
+
+
+class TestGroupTypeMappingDictKeysParity:
+    def test_converter_dict_keys_match_orm_values_keys(self):
+        from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
+
+        proto = _make_proto_mapping(
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Org",
+            name_plural="Orgs",
+            detail_dashboard_id=42,
+            default_columns=json.dumps(["name"]).encode(),
+            created_at=1700000000000,
+        )
+        result = proto_group_type_mapping_to_dict(proto)  # type: ignore[arg-type]
+
+        expected_keys = set()
+        for field in GROUP_TYPE_MAPPING_SERIALIZER_FIELDS:
+            if field == "detail_dashboard":
+                expected_keys.add("detail_dashboard_id")
+            else:
+                expected_keys.add(field)
+
+        assert set(result.keys()) == expected_keys
+
+    def test_converter_malformed_default_columns_raises(self):
+        proto = _make_proto_mapping(
+            group_type="org",
+            group_type_index=0,
+            default_columns=b"not valid json",
+        )
+        with pytest.raises(json.JSONDecodeError):
+            proto_group_type_mapping_to_dict(proto)  # type: ignore[arg-type]
+
+    def test_group_converter_malformed_properties_raises(self):
+        proto = _make_proto_group(
+            id=1,
+            team_id=1,
+            group_key="k",
+            group_properties=b"not valid json",
+        )
+        with pytest.raises(json.JSONDecodeError):
+            proto_group_to_model(proto)  # type: ignore[arg-type]

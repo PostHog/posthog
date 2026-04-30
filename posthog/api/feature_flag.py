@@ -1756,13 +1756,12 @@ class FeatureFlagSerializer(
                         group_keys.add(str(prop_value))
 
                 if group_keys:
-                    from posthog.models.group.util import get_groups_by_identifiers
+                    from posthog.models.group.util import get_groups_by_type_indices
 
                     group_names: dict[str, str] = {}
-                    for gti in group_type_indices:
-                        for group in get_groups_by_identifiers(instance.team_id, gti, list(group_keys)):
-                            name = group.group_properties.get("name")
-                            group_names[group.group_key] = str(name) if name else group.group_key
+                    for group in get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys):
+                        name = group.group_properties.get("name")
+                        group_names[group.group_key] = str(name) if name else group.group_key
 
                     for prop in group_key_props:
                         prop["group_key_names"] = group_names

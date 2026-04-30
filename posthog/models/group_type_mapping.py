@@ -198,11 +198,15 @@ def get_group_types_for_team(team_id: int) -> list[dict[str, Any]]:
     PERSONHOG_ROUTING_TOTAL.labels(
         operation="get_group_types_for_team", source="django_orm", client_name=get_client_name()
     ).inc()
-    return list(
-        GroupTypeMapping.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
-        .order_by("group_type_index")
-        .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
-    )
+    try:
+        return list(
+            GroupTypeMapping.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
+    except DatabaseError:
+        logger.warning("persons_db_group_types_for_team_failure", team_id=team_id, exc_info=True)
+        return []
 
 
 def _fetch_group_types_for_projects_via_personhog(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
@@ -229,6 +233,8 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     """Batch fetch group types for multiple projects via personhog, falling back to ORM on error."""
     try:
         result = _fetch_group_types_for_projects_via_personhog(project_ids)
+        for pid in project_ids:
+            result.setdefault(pid, [])
         PERSONHOG_ROUTING_TOTAL.labels(
             operation="get_group_types_for_projects", source="personhog", client_name=get_client_name()
         ).inc()
@@ -246,11 +252,14 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
         operation="get_group_types_for_projects", source="django_orm", client_name=get_client_name()
     ).inc()
     result: dict[int, list[dict[str, Any]]] = {pid: [] for pid in project_ids}
-    for row in (
-        GroupTypeMapping.objects.filter(project_id__in=project_ids)  # nosemgrep: no-direct-persons-db-orm
-        .order_by("group_type_index")
-        .values("project_id", *GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
-    ):
-        pid = row.pop("project_id")
-        result.setdefault(pid, []).append(row)
+    try:
+        for row in (
+            GroupTypeMapping.objects.filter(project_id__in=project_ids)  # nosemgrep: no-direct-persons-db-orm
+            .order_by("group_type_index")
+            .values("project_id", *GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        ):
+            pid = row.pop("project_id")
+            result.setdefault(pid, []).append(row)
+    except DatabaseError:
+        logger.warning("persons_db_group_types_for_projects_failure", project_ids=project_ids, exc_info=True)
     return result
