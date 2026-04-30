@@ -1850,3 +1850,31 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Django Tests Pass'
                   runner: 'depot'
+
+    report-test-timings:
+        name: Report per-test timings to PostHog DevEx
+        needs: [django_tests, async-migrations]
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        continue-on-error: true
+        # First attempt only; master always, PRs only when labeled `capture-test-timings`. Skip forks/dependabot (no secrets).
+        if: |
+            always() && github.run_attempt == '1' && github.actor != 'dependabot[bot]' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'capture-test-timings')) ||
+            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'))
+        steps:
+            - uses: actions/checkout@b7c39afe7d8be7c0a3b1f6ed9b6c81bdc5dc20b1 # v6.0.0
+              with:
+                  sparse-checkout: .github/scripts/report_test_timings.py
+                  sparse-checkout-cone-mode: false
+            - name: Install posthog SDK
+              run: python3 -m pip install --user 'posthoganalytics~=7.13'
+            - name: Download junit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-*
+            - name: Emit per-test events
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: python3 .github/scripts/report_test_timings.py ./junit-artifacts
