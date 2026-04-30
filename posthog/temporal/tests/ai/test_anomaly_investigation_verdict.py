@@ -17,6 +17,10 @@ from posthog.temporal.ai.anomaly_investigation.workflow import (
 
 
 class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
+    # NonAtomicBaseTest TRUNCATEs after each test so class-level fixtures stale out;
+    # force per-test setup so self.team is freshly inserted each time.
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self) -> None:
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, name="test insight")
