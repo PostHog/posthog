@@ -598,12 +598,12 @@ export const DashboardsCreateFormat = {
 
 export type DashboardsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
      */
     filters_override?: string
     format?: DashboardsRetrieveFormat
     /**
-     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
      */
     variables_override?: string
 }
@@ -699,7 +699,7 @@ export const DashboardsReorderTilesCreateFormat = {
 
 export type DashboardsRunInsightsRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys (e.g., date_from, date_to).
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
      */
     filters_override?: string
     format?: DashboardsRunInsightsRetrieveFormat
@@ -712,7 +712,7 @@ export type DashboardsRunInsightsRetrieveParams = {
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh
     /**
-     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable. Use dashboard-get to see the dashboard's current variables and their IDs.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
      */
     variables_override?: string
 }
@@ -756,16 +756,16 @@ export const DashboardsSnapshotCreateFormat = {
 
 export type DashboardsStreamTilesRetrieveParams = {
     /**
-     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
      */
     filters_override?: string
     format?: DashboardsStreamTilesRetrieveFormat
     /**
-     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile.
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
      */
     layoutSize?: DashboardsStreamTilesRetrieveLayoutSize
     /**
-     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
      */
     variables_override?: string
 }
