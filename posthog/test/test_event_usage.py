@@ -245,14 +245,19 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
 
-    def test_x_posthog_client_mcp_header_takes_precedence_over_user_agent(self):
+    @parameterized.expand(
+        [
+            ("wizard_wraps_mcp", "posthog/wizard 1.0 posthog/mcp-server", EventSource.WIZARD),
+            ("terraform_wraps_mcp", "posthog/terraform-provider 1.0 posthog/mcp-server", EventSource.TERRAFORM),
+            ("posthog_code_wraps_mcp", "posthog/code 1.2.3 posthog/mcp-server", EventSource.POSTHOG_CODE),
+        ]
+    )
+    def test_outer_caller_user_agent_wins_over_x_posthog_client_header(self, _name, user_agent, expected):
+        # Wizard / posthog-code / terraform all wrap MCP — when both signals are present, the
+        # outer caller's UA token must win so attribution reflects who actually drove the request.
         factory = APIRequestFactory()
-        request = factory.get(
-            "/fake",
-            HTTP_X_POSTHOG_CLIENT="mcp",
-            HTTP_USER_AGENT="posthog/terraform-provider 1.0",
-        )
-        assert get_event_source(request) == EventSource.MCP
+        request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp", HTTP_USER_AGENT=user_agent)
+        assert get_event_source(request) == expected
 
 
 class TestGetMcpProperties(BaseTest):
