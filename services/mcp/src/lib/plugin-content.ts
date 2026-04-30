@@ -18,19 +18,27 @@ import { loadContextMillManifest } from '@/resources/manifest-loader'
 import type { ContextMillManifest } from '@/resources/manifest-types'
 
 const MCP_SERVER_URL = 'https://mcp.posthog.com/mcp'
-const CORE_PLUGIN_VERSION = '2.0.0'
-const SKILL_PLUGIN_VERSION = '1.0.0'
+
+function parseVersionFromFrontmatter(content: string): string | undefined {
+    const match = content.match(/^---\n([\s\S]*?)\n---/)
+    if (!match?.[1]) {
+        return undefined
+    }
+    const versionLine = match[1].split('\n').find((l) => l.trim().startsWith('version:'))
+    return versionLine?.split(':')[1]?.trim()
+}
 
 export interface SkillEntry {
     name: string
     description: string
-    /** All files from the inner ZIP, keyed by relative path */
+    version: string
     files: Record<string, string>
 }
 
 /**
  * Extract skill entries from the context-mill archive.
  * Each resource references an inner ZIP containing SKILL.md + references/.
+ * Version is pulled from the SKILL.md frontmatter.
  */
 export function extractSkillsFromArchive(archive: Unzipped): SkillEntry[] {
     const manifestData = archive['manifest.json']
@@ -63,7 +71,6 @@ export function extractSkillsFromArchive(archive: Unzipped): SkillEntry[] {
             const files: Record<string, string> = {}
 
             for (const [path, data] of Object.entries(inner)) {
-                // Skip directory entries (empty data, path ends with /)
                 if (data.length === 0) {
                     continue
                 }
@@ -71,14 +78,17 @@ export function extractSkillsFromArchive(archive: Unzipped): SkillEntry[] {
             }
 
             if (Object.keys(files).length > 0) {
+                const skillMd = files['SKILL.md'] ?? ''
+                const version = parseVersionFromFrontmatter(skillMd) ?? '0.0.0'
+
                 skills.push({
                     name: resource.id,
                     description: resource.resource.description,
+                    version,
                     files,
                 })
             }
         } catch {
-            // Skip malformed inner ZIPs
             continue
         }
     }
@@ -90,13 +100,13 @@ export function extractSkillsFromArchive(archive: Unzipped): SkillEntry[] {
  * Build the file tree for the core PostHog plugin.
  * Contains MCP server config and plugin metadata — no skills.
  */
-export function buildCorePluginFiles(): FileTree {
+export function buildCorePluginFiles(version: string): FileTree {
     const files: FileTree = {}
 
     files['.claude-plugin/plugin.json'] = JSON.stringify(
         {
             name: 'posthog',
-            version: CORE_PLUGIN_VERSION,
+            version,
             description: 'PostHog MCP tools — analytics, feature flags, experiments, error tracking, and more.',
             author: { name: 'PostHog', email: 'hey@posthog.com', url: 'https://posthog.com' },
             homepage: 'https://posthog.com/docs/model-context-protocol',
@@ -135,7 +145,7 @@ export function buildSkillPluginFiles(skill: SkillEntry): FileTree {
     files['.claude-plugin/plugin.json'] = JSON.stringify(
         {
             name: `posthog-${skill.name}`,
-            version: SKILL_PLUGIN_VERSION,
+            version: skill.version,
             description: skill.description,
             dependencies: ['posthog'],
             author: { name: 'PostHog', email: 'hey@posthog.com' },

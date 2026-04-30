@@ -8,19 +8,19 @@ import {
 } from '@/lib/plugin-content'
 
 describe('buildCorePluginFiles', () => {
-    it('includes plugin.json with correct name', () => {
-        const files = buildCorePluginFiles()
+    it('includes plugin.json with correct name and passed version', () => {
+        const files = buildCorePluginFiles('1.12.1')
         const raw = files['.claude-plugin/plugin.json']
         expect(raw).toBeDefined()
         const pluginJson = JSON.parse(raw!)
 
         expect(pluginJson.name).toBe('posthog')
-        expect(pluginJson.version).toBeDefined()
+        expect(pluginJson.version).toBe('1.12.1')
         expect(pluginJson.author.name).toBe('PostHog')
     })
 
     it('includes mcp.json pointing to MCP server', () => {
-        const files = buildCorePluginFiles()
+        const files = buildCorePluginFiles('1.0.0')
         const raw = files['mcp.json']
         expect(raw).toBeDefined()
         const mcpJson = JSON.parse(raw!)
@@ -34,6 +34,7 @@ describe('buildSkillPluginFiles', () => {
     const skill: SkillEntry = {
         name: 'exploring-llm-traces',
         description: 'Debug and inspect LLM traces',
+        version: '1.12.1',
         files: {
             'SKILL.md': '---\nname: exploring-llm-traces\n---\n\n# Exploring LLM Traces\n\nContent here.',
             'references/traces.md': '# Trace reference docs',
@@ -48,6 +49,13 @@ describe('buildSkillPluginFiles', () => {
 
         expect(pluginJson.name).toBe('posthog-exploring-llm-traces')
         expect(pluginJson.dependencies).toEqual(['posthog'])
+    })
+
+    it('passes through skill version from frontmatter', () => {
+        const files = buildSkillPluginFiles(skill)
+        const pluginJson = JSON.parse(files['.claude-plugin/plugin.json']!)
+
+        expect(pluginJson.version).toBe('1.12.1')
     })
 
     it('includes SKILL.md at the correct path', () => {
@@ -74,8 +82,8 @@ describe('buildSkillPluginFiles', () => {
 
 describe('buildMarketplaceJson', () => {
     const skills: SkillEntry[] = [
-        { name: 'skill-a', description: 'Skill A', files: { 'SKILL.md': '# A' } },
-        { name: 'skill-b', description: 'Skill B', files: { 'SKILL.md': '# B' } },
+        { name: 'skill-a', description: 'Skill A', version: '1.0.0', files: { 'SKILL.md': '# A' } },
+        { name: 'skill-b', description: 'Skill B', version: '1.0.0', files: { 'SKILL.md': '# B' } },
     ]
 
     it('includes core plugin and all skills', () => {

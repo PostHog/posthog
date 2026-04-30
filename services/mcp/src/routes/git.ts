@@ -38,7 +38,6 @@ const repoCache = new GitRepoCache()
 let cachedArchive: Unzipped | null = null
 let cachedSkills: SkillEntry[] | null = null
 let cachedMarketplaceJson: string | null = null
-
 async function getArchive(): Promise<Unzipped> {
     if (cachedArchive) {
         return cachedArchive
@@ -189,7 +188,10 @@ export async function handleGitRequest(
         files = { '.claude-plugin/marketplace.json': marketplaceContent }
         cacheKey = 'marketplace'
     } else if (pluginType === 'core') {
-        files = buildCorePluginFiles()
+        const archive = await getArchive()
+        const skills = getSkills(archive)
+        const version = skills[0]?.version ?? '0.0.0'
+        files = buildCorePluginFiles(version)
         cacheKey = 'core'
     } else {
         const archive = await getArchive()
