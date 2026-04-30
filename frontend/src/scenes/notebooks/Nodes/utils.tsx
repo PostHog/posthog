@@ -283,6 +283,24 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     return [parsedAttrs.current, updateAttributes]
 }
 
+// Builds the HTML that the explicit "Copy" action writes to the clipboard.
+// Each attribute is JSON.stringified to mirror the per-attribute renderHTML in
+// `createPostHogWidgetNode`, so paste round-trips through `JSON.parse` regardless of which
+// copy path produced the HTML. Building via the DOM lets the browser handle attribute escaping.
+export function buildNotebookNodeClipboardHTML(nodeType: string, attrs: Record<string, any>): string {
+    const element = document.createElement(nodeType)
+    element.setAttribute('data-pm-slice', '0 0 []')
+
+    for (const [key, value] of Object.entries(attrs)) {
+        if (key === 'nodeId' || key.startsWith('__') || value == null) {
+            continue
+        }
+        element.setAttribute(key, JSON.stringify(value))
+    }
+
+    return element.outerHTML
+}
+
 export const getLogicKey = ({
     tabId,
     personId,

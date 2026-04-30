@@ -58,6 +58,7 @@ import {
     buildPythonExecutionRunning,
     mergeExecutionVariables,
 } from './pythonExecution'
+import { buildNotebookNodeClipboardHTML } from './utils'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 export type DuckSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
@@ -1426,25 +1427,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         },
 
         copyToClipboard: async () => {
-            const { nodeAttributes } = values
-
-            // Must mirror the per-attribute parseHTML
-            // Built via the DOM so the browser handles attribute escaping.
-            const element = document.createElement(props.nodeType)
-            element.setAttribute('data-pm-slice', '0 0 []')
-
-            for (const [key, value] of Object.entries(nodeAttributes)) {
-                if (key === 'nodeId' || key.startsWith('__') || value == null) {
-                    continue
-                }
-                element.setAttribute(key, JSON.stringify(value))
-            }
-
+            const html = buildNotebookNodeClipboardHTML(props.nodeType, values.nodeAttributes)
             const type = 'text/html'
-            const blob = new Blob([element.outerHTML], { type })
-            const data = [new ClipboardItem({ [type]: blob })]
-
-            await window.navigator.clipboard.write(data)
+            const blob = new Blob([html], { type })
+            await window.navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
         },
         convertToBacklink: ({ href }) => {
             const pos = props.getPos?.()
