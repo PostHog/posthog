@@ -1949,6 +1949,99 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         metric.refresh_from_db()
         self.assertEqual(metric.name, "Updated by admin")
 
+    def _create_dw_table(self, name: str = "stripe_charges"):
+        from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        return DataWarehouseTable.objects.create(
+            team=self.team,
+            name=name,
+            credential=credential,
+            url_pattern="http://example.com/{name}",
+            columns={
+                "customer_id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField", "valid": True},
+                "amount": {"clickhouse": "Float64", "hogql": "FloatDatabaseField", "valid": True},
+            },
+        )
+
+    def test_create_data_warehouse_metric(self):
+        self._create_dw_table()
+        payload = {
+            "name": "DW signups",
+            "math": "count",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        metric = GroupUsageMetric.objects.get(id=response.json()["id"])
+        self.assertEqual(metric.filters["source"], "data_warehouse")
+        self.assertEqual(metric.filters["table_name"], "stripe_charges")
+
+    def test_create_data_warehouse_metric_rejects_missing_fields(self):
+        self._create_dw_table()
+        payload = {
+            "name": "DW signups",
+            "filters": {"source": "data_warehouse", "table_name": "stripe_charges"},
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
+    def test_create_data_warehouse_metric_rejects_unknown_table(self):
+        payload = {
+            "name": "DW signups",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "no_such_table",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
+    def test_create_data_warehouse_sum_requires_math_property(self):
+        self._create_dw_table()
+        payload = {
+            "name": "DW revenue",
+            "math": "sum",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "math_property")
+
+    def test_create_metric_rejects_unknown_source(self):
+        payload = {
+            "name": "Bogus",
+            "filters": {"source": "something_else"},
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
 
 class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):

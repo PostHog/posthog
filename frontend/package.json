@@ -69,6 +69,7 @@
         "@posthog/hogvm": "workspace:*",
         "@posthog/icons": "^0.36.6",
         "@posthog/mosaic": "workspace:*",
+        "@posthog/products-access-control": "workspace:*",
         "@posthog/products-actions": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",
