@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["posthoganalytics~=7.13"]
+# ///
 """Emit per-test execution events from Backend CI JUnit XML artifacts.
 
 Reads `junit-*.xml` files under the directory passed as argv[1] (typically a

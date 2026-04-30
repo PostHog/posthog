@@ -1867,8 +1867,9 @@ jobs:
               with:
                   sparse-checkout: .github/scripts/report_test_timings.py
                   sparse-checkout-cone-mode: false
-            - name: Install posthog SDK
-              run: python3 -m pip install --user 'posthoganalytics~=7.13'
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
@@ -1877,4 +1878,4 @@ jobs:
             - name: Emit per-test events
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-              run: python3 .github/scripts/report_test_timings.py ./junit-artifacts
+              run: uv run --script .github/scripts/report_test_timings.py ./junit-artifacts
