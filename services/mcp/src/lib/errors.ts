@@ -59,6 +59,42 @@ function formatMissingProjectContextMessage(organizationId: string | undefined):
     )
 }
 
+export interface PostHogValidationErrorOptions {
+    detail: string
+    attr: string | undefined
+    code: string | undefined
+    extra: Record<string, unknown> | undefined
+    url: string
+    method: string
+}
+
+/**
+ * Thrown when the PostHog API rejects a request with a `validation_error`
+ * body. Carries the structured `extra` payload (if any) so tool handlers can
+ * surface information that doesn't fit in a single `detail` line — for
+ * example, the HogQL metadata response attached to a failed /query/ call.
+ */
+export class PostHogValidationError extends Error {
+    public readonly detail: string
+    public readonly attr: string | undefined
+    public readonly code: string | undefined
+    public readonly extra: Record<string, unknown> | undefined
+    public readonly url: string
+    public readonly method: string
+
+    constructor(options: PostHogValidationErrorOptions) {
+        const attr = options.attr ? ` (field: ${options.attr})` : ''
+        super(`Validation error: ${options.detail}${attr}`)
+        this.name = 'PostHogValidationError'
+        this.detail = options.detail
+        this.attr = options.attr
+        this.code = options.code
+        this.extra = options.extra
+        this.url = options.url
+        this.method = options.method
+    }
+}
+
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
@@ -208,7 +244,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             properties.$session_id = sessionUuid
         }
 
-        getPostHogClient().captureException(permissionError, distinctId, properties)
+        try {
+            getPostHogClient().captureException(permissionError, distinctId, properties)
+        } catch {
+            // Never let observability break the request.
+        }
 
         return {
             content: [
@@ -237,7 +277,11 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         properties.$session_id = sessionUuid
     }
 
-    getPostHogClient().captureException(mcpError, distinctId, properties)
+    try {
+        getPostHogClient().captureException(mcpError, distinctId, properties)
+    } catch {
+        // Never let observability break the request.
+    }
 
     return {
         content: [

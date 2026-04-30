@@ -20,6 +20,26 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// In-memory flag definitions cache (deserialized + regex-compiled).
+// Keyed on `(team_id, etag)` where `etag` is the version tag Django writes
+// alongside the hypercache payload (`enable_etag=True`). Cache hits avoid the
+// payload fetch + deserialization entirely.
+pub const FLAG_DEFINITIONS_INMEM_CACHE_HIT_COUNTER: &str =
+    "flags_definitions_inmem_cache_hit_total";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_MISS_COUNTER: &str =
+    "flags_definitions_inmem_cache_miss_total";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE: &str =
+    "flags_definitions_inmem_cache_size_bytes";
+pub const FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE: &str =
+    "flags_definitions_inmem_cache_entries";
+// Counter for requests that bypassed the version-keyed fast path. Labels are
+// mutually exclusive — a bypassing request increments exactly one:
+//   reason="sentinel"         — Django wrote `__missing__` (empty team).
+//   reason="etag_missing"     — etag key absent but the loader returned a
+//                                non-empty wrapper (TTL drift / pre-etag).
+//   reason="etag_redis_error" — the `get_etag` call itself failed.
+pub const FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER: &str =
+    "flags_definitions_inmem_cache_no_version_total";
 // Cohort source for flag evaluation
 // Labels: source="preloaded" (from flags hypercache) | source="cache_manager" (CohortCacheManager fallback)
 pub const FLAG_COHORT_SOURCE_COUNTER: &str = "flags_cohort_source_total";
