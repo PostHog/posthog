@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
@@ -36,8 +36,11 @@ interface TrendsLineChartProps {
     inSharedMode?: boolean
 }
 
-const handleChartError = (error: Error): void => {
-    posthog.captureException(error, { feature: 'trends-line-chart' })
+const handleChartError = (error: Error, info: ErrorInfo): void => {
+    posthog.captureException(error, {
+        feature: 'trends-line-chart',
+        componentStack: info.componentStack ?? undefined,
+    })
 }
 
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
