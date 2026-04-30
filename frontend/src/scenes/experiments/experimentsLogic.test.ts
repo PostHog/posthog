@@ -516,18 +516,18 @@ describe('utility functions', () => {
     })
 
     describe('isExperimentPaused', () => {
-        it('returns true when a running experiment has an inactive feature flag', () => {
+        it('returns true when the API status is paused', () => {
             const pausedExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
-                status: ExperimentStatus.Running,
+                status: ExperimentStatus.Paused,
                 feature_flag: { active: false },
             })
 
             expect(isExperimentPaused(pausedExperiment)).toBe(true)
         })
 
-        it('returns false when a running experiment has an active feature flag', () => {
+        it('returns false when the experiment is running', () => {
             const runningExperiment = createMockExperiment({
                 start_date: '2024-01-01',
                 end_date: null,
@@ -543,7 +543,7 @@ describe('utility functions', () => {
         it('returns correct colors for each status', () => {
             expect(getExperimentStatusColor(ExperimentStatus.Draft)).toBe('default')
             expect(getExperimentStatusColor(ExperimentStatus.Running)).toBe('success')
-            expect(getExperimentStatusColor(ExperimentStatus.Running, true)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentStatus.Paused)).toBe('warning')
             expect(getExperimentStatusColor(ExperimentStatus.Stopped)).toBe('completion')
         })
     })

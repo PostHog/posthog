@@ -207,6 +207,13 @@ export function Chart<Meta = unknown>({
     // hover indication stays entirely on the canvas — DOM-based overlays would
     // force per-event style invalidation/layout that scales badly with chart
     // content size. Crosshair drawn first so highlight rings render on top.
+    //
+    // drawHover is held via a ref so composedDrawHover stays referentially stable
+    // even when the parent recreates drawHover (e.g. stackedData changes). Without
+    // this, useChartDraw's hover effect re-fires on every drawHover identity change,
+    // and the resulting requestAnimationFrame churn can race with tooltip rendering.
+    const drawHoverRef = useRef(drawHover)
+    drawHoverRef.current = drawHover
     const composedDrawHover = useCallback(
         (args: ChartDrawArgs) => {
             if (showCrosshair && theme.crosshairColor && args.hoverIndex >= 0) {
@@ -215,9 +222,9 @@ export function Chart<Meta = unknown>({
                     drawCrosshair(args.ctx, args.dimensions, x, theme.crosshairColor)
                 }
             }
-            drawHover(args)
+            drawHoverRef.current(args)
         },
-        [drawHover, showCrosshair, theme.crosshairColor]
+        [showCrosshair, theme.crosshairColor]
     )
 
     useChartDraw({

@@ -1,9 +1,9 @@
 import { act, cleanup, render } from '@testing-library/react'
 import React, { useState } from 'react'
 
-import { ChartHoverContext, ChartLayoutContext, useChart, useChartHover, useChartLayout } from '../chart-context'
-import type { ChartLayoutContextValue } from '../chart-context'
-import type { ChartTheme } from '../types'
+import { ChartHoverContext, ChartLayoutContext, useChart, useChartHover, useChartLayout } from './chart-context'
+import type { ChartLayoutContextValue } from './chart-context'
+import type { ChartTheme } from './types'
 
 const THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
 

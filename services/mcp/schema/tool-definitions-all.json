@@ -1273,6 +1273,36 @@
             "readOnlyHint": true
         }
     },
+    "evaluation-config-get": {
+        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation config",
+        "title": "Get evaluation config",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-config-set-active-key": {
+        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from the PostHog UI before retrying.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Set active evaluation provider key",
+        "title": "Set active evaluation provider key",
+        "required_scopes": ["evaluation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "evaluation-create": {
         "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
         "category": "LLM analytics",
@@ -1309,6 +1339,21 @@
         "feature": "llm_analytics",
         "summary": "Get evaluation",
         "title": "Get evaluation",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "evaluation-judge-models": {
+        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List supported llm_judge models",
+        "title": "List supported llm_judge models",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
         "annotations": {
@@ -1603,7 +1648,7 @@
         }
     },
     "experiment-get": {
-        "description": "Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/stopped), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type (web/product).",
+        "description": "Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/paused/stopped — \"paused\" is a virtual value returned when the experiment is launched but its feature flag has been deactivated), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type (web/product).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment details",
@@ -1648,7 +1693,7 @@
         }
     },
     "experiment-list": {
-        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
+        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get all experiments",

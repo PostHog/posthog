@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 
-import { drawArea, drawGrid, drawLine, type DrawContext } from '../core/canvas-renderer'
-import type { ChartDimensions, Series } from '../core/types'
+import { drawArea, drawGrid, drawLine, type DrawContext } from './canvas-renderer'
+import type { ChartDimensions, Series } from './types'
 
 const dimensions: ChartDimensions = {
     width: 800,
