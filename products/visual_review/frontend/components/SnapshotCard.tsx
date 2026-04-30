@@ -8,6 +8,14 @@ import type { BaselineEntryApi } from '../generated/api.schemas'
 import { parseArea, parseTheme } from '../lib/parseIdentifier'
 import { InlineSparkline } from './InlineSparkline'
 
+// Shared base for the corner badges on a snapshot card. Both badges use the
+// same shape (capsule, fixed height, min-width matching height so single-glyph
+// content stays circular), centered content, and weight — only the bg colour
+// differs. Mismatched widths/shapes here looked broken when both badges were
+// present.
+const BADGE_BASE =
+    'inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full text-white text-[10px] font-semibold leading-none'
+
 export function SnapshotCard({
     repoId,
     entry,
@@ -61,16 +69,14 @@ export function SnapshotCard({
                 <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
                     {entry.is_quarantined && (
                         <Tooltip title="Currently quarantined — excluded from gating">
-                            <span className="bg-warning text-white rounded-full w-5 h-5 flex items-center justify-center">
+                            <span className={`${BADGE_BASE} bg-warning`}>
                                 <IconWarning className="w-3 h-3" />
                             </span>
                         </Tooltip>
                     )}
                     {tolerateCount > 0 && (
                         <Tooltip title={`${tolerateCount} tolerate${tolerateCount === 1 ? '' : 's'} in last 30 days`}>
-                            <span className="bg-primary-3000 text-white text-[10px] font-semibold rounded-full px-1.5 h-5 flex items-center">
-                                ~{tolerateCount}
-                            </span>
+                            <span className={`${BADGE_BASE} bg-primary-3000`}>~{tolerateCount}</span>
                         </Tooltip>
                     )}
                 </div>

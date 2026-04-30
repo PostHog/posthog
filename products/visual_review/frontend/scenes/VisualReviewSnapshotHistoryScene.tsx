@@ -12,6 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DiffPercentage } from '../components/DiffPercentage'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import {
     ThemePair,
@@ -186,7 +187,7 @@ function Stat({ value, label }: { value: React.ReactNode; label: string }): JSX.
 }
 
 export function VisualReviewSnapshotHistoryScene(): JSX.Element {
-    const { repo, repoLoading, history, historyLoading, identifier, pairedHistory, runType } = useValues(
+    const { repo, repoLoading, history, historyLoading, identifier, pairedHistory, runType, repoId } = useValues(
         visualReviewSnapshotHistorySceneLogic
     )
 
@@ -199,6 +200,7 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
 
     return (
         <SceneContent>
+            {repoId && <VisualReviewTabs activeKey="snapshots" repoId={repoId} />}
             <SceneTitleSection name={identifier} resourceType={{ type: 'visual_review' }} />
 
             <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
