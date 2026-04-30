@@ -325,13 +325,16 @@ async def _relay_loop(
                     await redis_stream.mark_error("Sandbox is no longer reachable (404)")
                     return
                 # Retryable server errors (502, 503, etc.)
+                # Retryable server errors (502, 503, etc.)
                 reconnect_count += 1
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
                     status_code=e.response.status_code,
+                    error=str(e),
                     reconnect_count=reconnect_count,
                 )
+                await asyncio.sleep(min(reconnect_count * 2, 10))
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
