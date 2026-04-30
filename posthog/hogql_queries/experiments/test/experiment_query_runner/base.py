@@ -68,12 +68,13 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         if use_precomputation:
             self._enable_precomputation()
             if experiment.start_date is not None:
-                elapsed = (timezone.now() - experiment.start_date).total_seconds()
+                now = timezone.now()
+                elapsed = (now - experiment.start_date).total_seconds()
                 if elapsed < MIN_PRECOMPUTATION_DURATION_SECONDS:
                     # Backdate to exactly the threshold (gate is >=) so the
                     # daily window stays in the same UTC day as the original
                     # start_date and the SQL filter shifts by the minimum.
-                    experiment.start_date = timezone.now() - timedelta(seconds=MIN_PRECOMPUTATION_DURATION_SECONDS)
+                    experiment.start_date = now - timedelta(seconds=MIN_PRECOMPUTATION_DURATION_SECONDS)
         experiment.save()
 
     def create_feature_flag(self, key="test-experiment"):
