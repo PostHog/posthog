@@ -6,7 +6,7 @@ import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
 from urllib.parse import urlencode, urlparse
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -115,6 +115,19 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
         if code:
             return str(code)
     return None
+
+
+def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
+    """Raise a ValidationError describing a failed OAuth token exchange.
+
+    DRF turns ValidationError into a 400 with a populated `detail`, so the frontend toast renders
+    a useful message instead of the generic "Something went wrong" fallback that follows from a
+    bare Exception (which surfaces as a 500 with no detail).
+    """
+    provider_error = _extract_oauth_error_message(res)
+    if provider_error:
+        raise ValidationError(f"{kind} OAuth failed: {provider_error}")
+    raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
 
 
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
@@ -769,10 +782,7 @@ class OauthIntegration:
 
                 if res.status_code != 200 or not config.get("access_token"):
                     logger.error(f"Oauth error for {kind}", response=res.text)
-                    provider_error = _extract_oauth_error_message(res)
-                    if provider_error:
-                        raise ValidationError(f"{kind} OAuth failed: {provider_error}")
-                    raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
+                    _raise_oauth_validation_error(kind, res)
             else:
                 # Include request context so on-call can compare what we sent against what
                 # the merchant authorized with in Stripe. Code prefix only, full grant is
@@ -788,10 +798,7 @@ class OauthIntegration:
                 # Surface the provider's error to the frontend toast — without this, DRF turns
                 # the bare Exception into a generic 500 and the user sees "Something went wrong"
                 # with no actionable detail. ValidationError → 400 with `detail` set.
-                provider_error = _extract_oauth_error_message(res)
-                if provider_error:
-                    raise ValidationError(f"{kind} OAuth failed: {provider_error}")
-                raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
+                _raise_oauth_validation_error(kind, res)
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there

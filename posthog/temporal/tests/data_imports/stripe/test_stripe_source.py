@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import stripe as stripe_lib
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
@@ -297,8 +299,6 @@ def test_validate_credentials_authentication_error_short_circuits():
     not bucket every resource into StripePermissionError. Otherwise the user sees
     a misleading 'lacks permissions for ALL 13 resources' message and tries to
     grant permissions they already have."""
-    import stripe as stripe_lib
-
     mock_client = mock.MagicMock()
     auth_error = stripe_lib.AuthenticationError(message="Invalid API Key provided: rk_live_***")
     # First call (accounts) raises 401 — loop must abort before touching others.
@@ -321,8 +321,6 @@ def test_validate_credentials_authentication_error_short_circuits():
 def test_validate_credentials_permission_error_lists_only_403_resources():
     """403 on a single resource must be reported as a per-resource permission gap,
     not poisoned by other unrelated successes."""
-    import stripe as stripe_lib
-
     mock_client = mock.MagicMock()
     mock_client.accounts.list = mock.MagicMock()
     mock_client.balance_transactions.list = mock.MagicMock()
@@ -380,8 +378,6 @@ def test_validate_credentials_unknown_error_raises_validation_error():
 def test_validate_credentials_mixed_403_and_unknown_raises_validation_error_with_both():
     """When both true 403s and unknown errors are present, the validation error should win
     (it's the higher-severity signal) but carry the 403s along so callers can show both."""
-    import stripe as stripe_lib
-
     mock_client = mock.MagicMock()
     mock_client.accounts.list = mock.MagicMock()
     mock_client.balance_transactions.list = mock.MagicMock()
