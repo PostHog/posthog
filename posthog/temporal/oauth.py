@@ -54,6 +54,7 @@ MCP_READ_SCOPES: list[str] = [
     "session_recording_playlist:read",
     "subscription:read",
     "survey:read",
+    "task:read",
     "ticket:read",
     "usage_metric:read",
     "user:read",
