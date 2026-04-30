@@ -13,7 +13,7 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 def _make_batch(**overrides) -> PendingBatch:
     defaults = {
-        "id": 1,
+        "id": "00000000-0000-0000-0000-000000000001",
         "team_id": 1,
         "schema_id": "schema-1",
         "source_id": "source-1",
@@ -128,7 +128,7 @@ class TestProcessGroup:
 
         consumer._process_batch = track_batch  # type: ignore[assignment]
 
-        batches = [_make_batch(batch_index=i, id=i + 1) for i in range(3)]
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
 
         with (
             patch(
@@ -179,7 +179,7 @@ class TestProcessGroup:
 
         consumer._process_batch = track_and_shutdown  # type: ignore[assignment]
 
-        batches = [_make_batch(batch_index=i, id=i + 1) for i in range(3)]
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
 
         with (
             patch(
@@ -244,10 +244,10 @@ class TestRecoverySweep:
 class TestGroupByKey:
     def test_groups_by_team_and_schema(self):
         batches = [
-            _make_batch(id=1, team_id=1, schema_id="a", batch_index=0),
-            _make_batch(id=2, team_id=1, schema_id="b", batch_index=0),
-            _make_batch(id=3, team_id=1, schema_id="a", batch_index=1),
-            _make_batch(id=4, team_id=2, schema_id="a", batch_index=0),
+            _make_batch(id="00000000-0000-0000-0000-000000000001", team_id=1, schema_id="a", batch_index=0),
+            _make_batch(id="00000000-0000-0000-0000-000000000002", team_id=1, schema_id="b", batch_index=0),
+            _make_batch(id="00000000-0000-0000-0000-000000000003", team_id=1, schema_id="a", batch_index=1),
+            _make_batch(id="00000000-0000-0000-0000-000000000004", team_id=2, schema_id="a", batch_index=0),
         ]
 
         groups = _group_by_key(batches)
@@ -259,9 +259,9 @@ class TestGroupByKey:
 
     def test_preserves_insertion_order(self):
         batches = [
-            _make_batch(id=1, team_id=1, schema_id="a", batch_index=0),
-            _make_batch(id=2, team_id=1, schema_id="a", batch_index=1),
-            _make_batch(id=3, team_id=1, schema_id="a", batch_index=2),
+            _make_batch(id="00000000-0000-0000-0000-000000000001", team_id=1, schema_id="a", batch_index=0),
+            _make_batch(id="00000000-0000-0000-0000-000000000002", team_id=1, schema_id="a", batch_index=1),
+            _make_batch(id="00000000-0000-0000-0000-000000000003", team_id=1, schema_id="a", batch_index=2),
         ]
 
         groups = _group_by_key(batches)

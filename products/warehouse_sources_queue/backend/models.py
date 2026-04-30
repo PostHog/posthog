@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import sane_repr
+from posthog.models.utils import UUIDModel, sane_repr
 
 
-class SourceBatch(models.Model):
+class SourceBatch(UUIDModel):
     class SyncType(models.TextChoices):
         FULL_REFRESH = "full_refresh", "full_refresh"
         INCREMENTAL = "incremental", "incremental"
@@ -48,7 +48,7 @@ class SourceBatch(models.Model):
         ]
 
 
-class SourceBatchStatus(models.Model):
+class SourceBatchStatus(UUIDModel):
     class State(models.TextChoices):
         WAITING = "waiting", "waiting"
         EXECUTING = "executing", "executing"

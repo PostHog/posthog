@@ -25,7 +25,7 @@ def _get_test_database_url() -> str:
 def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {BATCH_TABLE} (
-            id BIGSERIAL PRIMARY KEY,
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             team_id BIGINT NOT NULL,
             schema_id VARCHAR(200) NOT NULL,
             source_id VARCHAR(200) NOT NULL,
@@ -49,8 +49,8 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
     """)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
-            id BIGSERIAL PRIMARY KEY,
-            batch_id BIGINT NOT NULL REFERENCES {BATCH_TABLE}(id) ON DELETE CASCADE,
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            batch_id UUID NOT NULL REFERENCES {BATCH_TABLE}(id) ON DELETE CASCADE,
             job_state VARCHAR(32) NOT NULL,
             attempt SMALLINT NOT NULL DEFAULT 0,
             exec_time TIMESTAMPTZ,
@@ -93,7 +93,7 @@ _BATCH_DEFAULTS: dict[str, Any] = {
 }
 
 
-async def _insert_batch(conn: psycopg.AsyncConnection[Any], **overrides: Any) -> int:
+async def _insert_batch(conn: psycopg.AsyncConnection[Any], **overrides: Any) -> str:
     params = {**_BATCH_DEFAULTS, **overrides}
     return await BatchQueue.insert(conn, **params)
 
@@ -131,17 +131,18 @@ async def conn_b(_db_url: str):
 @pytest.mark.django_db(transaction=True)
 class TestBatchQueueInsert:
     @pytest.mark.asyncio
-    async def test_insert_returns_positive_id(self, conn):
+    async def test_insert_returns_uuid(self, conn):
         batch_id = await _insert_batch(conn)
 
-        assert batch_id > 0
+        assert len(batch_id) == 36
+        assert batch_id.count("-") == 4
 
     @pytest.mark.asyncio
-    async def test_insert_sequential_ids(self, conn):
+    async def test_insert_unique_ids(self, conn):
         id1 = await _insert_batch(conn, batch_index=0)
         id2 = await _insert_batch(conn, batch_index=1)
 
-        assert id2 == id1 + 1
+        assert id1 != id2
 
 
 @pytest.mark.django_db(transaction=True)
@@ -298,7 +299,7 @@ class TestBatchQueueStaleExecuting:
 class TestPendingBatchToExportSignal:
     def test_maps_all_fields(self):
         batch = PendingBatch(
-            id=1,
+            id="00000000-0000-0000-0000-000000000001",
             team_id=42,
             schema_id="schema-1",
             source_id="source-1",

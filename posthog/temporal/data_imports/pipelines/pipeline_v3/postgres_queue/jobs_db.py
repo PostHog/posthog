@@ -28,7 +28,7 @@ ADVISORY_LOCK_NAMESPACE = 0x57485300  # "WHS\0" in hex
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""
 
-    id: int
+    id: str
     team_id: int
     schema_id: str
     source_id: str
@@ -116,16 +116,17 @@ class BatchQueue:
         is_resume: bool,
         is_first_ever_sync: bool,
         metadata: dict[str, Any],
-    ) -> int:
+    ) -> str:
         """Insert a batch row into the queue. Returns the new batch id."""
         row = await conn.execute(
             f"""
             INSERT INTO {BATCH_TABLE} (
-                team_id, schema_id, source_id, job_id, run_uuid,
+                id, team_id, schema_id, source_id, job_id, run_uuid,
                 batch_index, s3_path, row_count, byte_size, is_final_batch,
                 total_batches, total_rows, sync_type, cumulative_row_count,
                 resource_name, is_resume, is_first_ever_sync, metadata, created_at
             ) VALUES (
+                gen_random_uuid(),
                 %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
                 %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
                 %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
@@ -154,7 +155,7 @@ class BatchQueue:
                 "metadata": json.dumps(metadata),
             },
         )
-        batch_id: int = (await row.fetchone())[0]  # type: ignore[index]
+        batch_id: str = str((await row.fetchone())[0])  # type: ignore[index]
         return batch_id
 
     # -- reads (consumer side) -------------------------------------------------
@@ -199,7 +200,7 @@ class BatchQueue:
     async def update_status(
         conn: psycopg.AsyncConnection[Any],
         *,
-        batch_id: int,
+        batch_id: str,
         job_state: str,
         attempt: int = 0,
         error_response: dict[str, Any] | None = None,
