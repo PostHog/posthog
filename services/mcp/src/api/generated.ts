@@ -6926,10 +6926,10 @@ export namespace Schemas {
       readonly state: unknown | null;
       /** @nullable */
       readonly created_by: BatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message: string | null;
-      import_config: unknown;
+      readonly import_config: unknown;
     }
 
     export type BehavioralFilterType = typeof BehavioralFilterType[keyof typeof BehavioralFilterType];
@@ -16348,6 +16348,8 @@ export namespace Schemas {
       ExitOnlyAtEnd: 'exit_only_at_end',
     } as const;
 
+    export type ExperimentFeatureFlag = { [key: string]: unknown };
+
     export interface ExperimentHoldout {
       readonly id: number;
       /** @maxLength 400 */
@@ -16565,7 +16567,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
-      readonly feature_flag: MinimalFeatureFlag;
+      readonly feature_flag: ExperimentFeatureFlag;
       readonly holdout: ExperimentHoldout;
       /**
        * ID of a holdout group to exclude from the experiment.
@@ -21490,6 +21492,80 @@ export namespace Schemas {
       threshold_operator: string;
     }
 
+    export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    /**
+     * * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit
+     */
+    export type RuleTypeEnum = typeof RuleTypeEnum[keyof typeof RuleTypeEnum];
+
+
+    export const RuleTypeEnum = {
+      SeveritySampling: 'severity_sampling',
+      PathDrop: 'path_drop',
+      RateLimit: 'rate_limit',
+    } as const;
+
+    export interface LogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface LogsSamplingRuleReorder {
+      /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+      ordered_ids: string[];
+    }
+
+    export interface LogsSamplingRuleSimulateResponse {
+      /** Rough percent of log volume this rule would drop (0–100). Stub until ClickHouse-backed estimate ships. */
+      estimated_reduction_pct: number;
+      /** Human-readable caveats for the estimate. */
+      notes: string;
+    }
+
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
@@ -23290,6 +23366,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsAlertEvent[];
+    }
+
+    export interface PaginatedLogsSamplingRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsSamplingRule[];
     }
 
     export interface PaginatedLogsViewList {
@@ -26187,10 +26272,10 @@ export namespace Schemas {
       readonly state?: unknown | null;
       /** @nullable */
       readonly created_by?: PatchedBatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status?: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message?: string | null;
-      import_config?: unknown;
+      readonly import_config?: unknown;
     }
 
     export interface PatchedClusteringJob {
@@ -27252,6 +27337,8 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export type PatchedExperimentFeatureFlag = { [key: string]: unknown };
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -27274,7 +27361,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
-      readonly feature_flag?: MinimalFeatureFlag;
+      readonly feature_flag?: PatchedExperimentFeatureFlag;
       readonly holdout?: ExperimentHoldout;
       /**
        * ID of a holdout group to exclude from the experiment.
@@ -28190,6 +28277,54 @@ export namespace Schemas {
        * When the alert was last modified.
        * @nullable
        */
+      readonly updated_at?: string | null;
+    }
+
+    export type PatchedLogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    export interface PatchedLogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id?: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type?: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+      config?: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -37527,6 +37662,19 @@ export namespace Schemas {
       maxExportableLogs: number;
     }
 
+    export interface _LogsServiceActiveRule {
+      rule_id: string;
+      rule_name: string;
+      summary_string: string;
+    }
+
+    export interface _LogsServiceSeverityBreakdown {
+      debug: number;
+      info: number;
+      warn: number;
+      error: number;
+    }
+
     export interface _LogsServiceAggregate {
       /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
       service_name: string;
@@ -37536,6 +37684,12 @@ export namespace Schemas {
       error_count: number;
       /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
       error_rate: number;
+      /** Share of total log volume in the window for this service (0–100). */
+      volume_share_pct?: number;
+      /** Counts by coarse severity bucket (debug, info, warn, error+fatal). */
+      severity_breakdown?: _LogsServiceSeverityBreakdown;
+      /** Enabled sampling rules whose scope includes this service. */
+      active_rules?: _LogsServiceActiveRule[];
     }
 
     export interface _LogsServicesBody {
@@ -37563,11 +37717,20 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogsServicesSummary {
+      /** Number of top services included in the volume_share aggregate (up to 5). */
+      top_services_count: number;
+      /** Combined volume share (percent) of the top services by log_count. */
+      top_services_volume_share_pct: number;
+    }
+
     export interface _LogsServicesResponse {
       /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
       services: _LogsServiceAggregate[];
       /** Time-bucketed counts broken down by service, for plotting volume over time. */
       sparkline: _LogsServicesSparklineBucket[];
+      /** Roll-up stats for the Services tab header. */
+      summary?: _LogsServicesSummary;
     }
 
     export interface _LogsSparklineBody {
@@ -39288,6 +39451,28 @@ export namespace Schemas {
     export type EnvironmentsLogsExportCreate201 = { [key: string]: unknown };
 
     export type EnvironmentsLogsHasLogsRetrieve200 = { [key: string]: unknown };
+
+    export type EnvironmentsLogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
@@ -41261,6 +41446,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      * @minLength 1
@@ -41335,6 +41521,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -41395,6 +41582,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      */
@@ -41457,6 +41645,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -43712,6 +43901,28 @@ export namespace Schemas {
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
+    export type LogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type LogsValuesRetrieveParams = {
     /**
      * Type of attribute: "log" or "resource". Defaults to "log".
@@ -44791,6 +45002,48 @@ export namespace Schemas {
     };
 
     export type VisualReviewReposSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisualReviewRunsListParams = {
+    /**
+     * Filter by branch name
+     */
+    branch?: string;
+    /**
+     * Filter by full commit SHA
+     */
+    commit_sha?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by GitHub PR number
+     */
+    pr_number?: number;
+    /**
+     * Filter by review state
+     */
+    review_state?: string;
+    };
+
+    export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
     /**
      * Number of results to return per page.
      */

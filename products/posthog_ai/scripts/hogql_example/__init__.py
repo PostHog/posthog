@@ -79,7 +79,7 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
             hogql_filters = HogQLFilters(dateRange=runner.query.dateRange)
 
         if isinstance(runner, TraceQueryRunner):
-            ast_query = replace_placeholders(ast_query, {"filter_conditions": runner._get_where_clause()})
+            ast_query = replace_placeholders(ast_query, {"filter_conditions": runner._get_bounds_where_clause()})
 
         ast_query = replace_filters(ast_query, hogql_filters, _cached_team)
 

@@ -1827,6 +1827,42 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["parameters"]["recommended_sample_size"], 1500)
 
+    def test_experiment_response_includes_feature_flag(self):
+        """Test that experiment responses include the feature_flag field correctly serialized."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Feature Flag Test",
+                "feature_flag_key": "test-flag-serialization",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify feature_flag is included and properly serialized
+        response_data = response.json()
+        self.assertIn("feature_flag", response_data)
+        self.assertIsNotNone(response_data["feature_flag"])
+        self.assertEqual(response_data["feature_flag"]["key"], "test-flag-serialization")
+        self.assertIn("id", response_data["feature_flag"])
+        self.assertIn("active", response_data["feature_flag"])
+
+        # Also test GET to ensure serialization works for retrieval too
+        experiment_id = response_data["id"]
+        get_response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+
+        get_data = get_response.json()
+        self.assertIn("feature_flag", get_data)
+        self.assertIsNotNone(get_data["feature_flag"])
+        self.assertEqual(get_data["feature_flag"]["key"], "test-flag-serialization")
+
     def test_creating_invalid_multivariate_experiment_no_control(self):
         ff_key = "a-b-test"
         response = self.client.post(
@@ -5930,7 +5966,7 @@ class TestExperimentParametersFieldMutation(APILicensedTest):
     """
 
     def test_to_internal_value_does_not_mutate_input_dict(self):
-        from products.experiments.backend.presentation.experiments import ExperimentParametersField
+        from products.experiments.backend.presentation.serializers import ExperimentParametersField
 
         input_dict = {
             "feature_flag_variants": [
@@ -5950,7 +5986,7 @@ class TestExperimentParametersFieldMutation(APILicensedTest):
         }
 
     def test_to_representation_does_not_mutate_stored_value(self):
-        from products.experiments.backend.presentation.experiments import ExperimentParametersField
+        from products.experiments.backend.presentation.serializers import ExperimentParametersField
 
         stored_value = {
             "feature_flag_variants": [
