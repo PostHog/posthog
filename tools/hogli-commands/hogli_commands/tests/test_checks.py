@@ -10,6 +10,7 @@ import pytest
 from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
     CheckContext,
+    FileFolderConflictsCheck,
     PackageJsonScriptsCheck,
     ProductYamlCheck,
     ProductYamlOwnersCheck,
@@ -577,3 +578,87 @@ class TestProductYamlOwnersCheck:
         monkeypatch.setattr(gh_module, "_fetch_err", "gh CLI not found")
         result = owners_check.run(ctx)
         assert not result.issues
+
+
+# ---------------------------------------------------------------------------
+# FileFolderConflictsCheck — file vs package twin detection
+# ---------------------------------------------------------------------------
+
+# Structure mirrors product_structure.yaml: logic is a package, models can be
+# either a file or folder. Tests exercise both shapes plus a stray-twin case.
+_CONFLICT_STRUCTURE = {
+    "backend_files": {
+        "models.py": {"can_be_folder": True},
+        "logic/": {"__init__.py": {}},
+        "tasks/": {"__init__.py": {}},
+    },
+}
+
+conflict_check = FileFolderConflictsCheck()
+
+
+def _make_backend(tmp_path: Path, files: list[str]) -> CheckContext:
+    """Create a product with the given files/dirs under backend/. Trailing '/' = directory."""
+    product_dir = tmp_path / "p"
+    backend = product_dir / "backend"
+    backend.mkdir(parents=True)
+    for f in files:
+        target = backend / f.rstrip("/")
+        if f.endswith("/"):
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("")
+    return CheckContext(
+        name="p",
+        product_dir=product_dir,
+        backend_dir=backend,
+        is_isolated=False,
+        structure=_CONFLICT_STRUCTURE,
+        detailed=False,
+    )
+
+
+class TestFileFolderConflictsCheck:
+    def test_skip_when_no_backend(self, tmp_path: Path) -> None:
+        product_dir = tmp_path / "p"
+        product_dir.mkdir()
+        ctx = CheckContext(
+            name="p",
+            product_dir=product_dir,
+            backend_dir=product_dir / "backend",
+            is_isolated=False,
+            structure=_CONFLICT_STRUCTURE,
+            detailed=False,
+        )
+        assert conflict_check.run(ctx).skip is True
+
+    @pytest.mark.parametrize(
+        "files, expect_conflicts",
+        [
+            # Pattern A (can_be_folder): models.py only / models/ only — both fine
+            (["models.py"], []),
+            (["models/"], []),
+            (["models.py", "models/"], ["models.py"]),
+            # Pattern B (package init): logic.py only / logic/ only — both fine
+            (["logic/__init__.py"], []),
+            (["logic.py"], []),
+            (["logic/"], []),  # half-migrated package without __init__.py
+            (["logic.py", "logic/__init__.py"], ["logic.py"]),
+            (["logic.py", "logic/"], ["logic.py"]),  # __init__.py absent — still flagged
+            # Pattern B also covers other canonical packages — stray tasks.py is a mistake
+            (["tasks/__init__.py"], []),
+            (["tasks.py", "tasks/__init__.py"], ["tasks.py"]),
+            # Multiple conflicts at once
+            (["logic.py", "logic/", "models.py", "models/"], ["logic.py", "models.py"]),
+        ],
+    )
+    def test_conflict_detection(self, tmp_path: Path, files: list[str], expect_conflicts: list[str]) -> None:
+        ctx = _make_backend(tmp_path, files)
+        result = conflict_check.run(ctx)
+        if not expect_conflicts:
+            assert not result.issues, f"unexpected conflicts: {result.issues}"
+            return
+        assert len(result.issues) == len(expect_conflicts)
+        for stem in expect_conflicts:
+            assert any(f"backend/{stem}" in i and f"backend/{stem[:-3]}/" in i for i in result.issues), result.issues

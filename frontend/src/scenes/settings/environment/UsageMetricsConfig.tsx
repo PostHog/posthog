@@ -31,26 +31,14 @@ import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
 import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { usageMetricsConfigLogic } from './usageMetricsConfigLogic'
-
-function sanitizeFilters(filters?: FilterType): FilterType {
-    if (!filters) {
-        return {}
-    }
-
-    const sanitized: FilterType = {}
-    if (filters.events) {
-        sanitized.events = filters.events.map((f) => ({
-            id: f.id,
-            type: 'events',
-            name: f.name,
-            order: f.order,
-            properties: f.properties,
-        }))
-    }
-
-    return sanitized
-}
+import {
+    UsageMetricFiltersDataWarehouse,
+    UsageMetricFormData,
+    actionFilterValueToSavedFilters,
+    getMetricSource,
+    savedFiltersToActionFilterValue,
+    usageMetricsConfigLogic,
+} from './usageMetricsConfigLogic'
 
 function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
@@ -82,6 +70,18 @@ function UsageMetricsTable(): JSX.Element {
             key: 'display',
             render: function Render(_, metric) {
                 return metric.display === 'sparkline' ? 'Sparkline' : 'Number'
+            },
+        },
+        {
+            title: 'Source',
+            key: 'source',
+            render: function Render(_, metric) {
+                const source = getMetricSource(metric.filters as UsageMetricFormData['filters'])
+                if (source === 'data_warehouse') {
+                    const dwFilters = metric.filters as UsageMetricFiltersDataWarehouse
+                    return `Warehouse · ${dwFilters?.table_name ?? '(unknown table)'}`
+                }
+                return 'Events'
             },
         },
         {
@@ -153,12 +153,13 @@ function UsageMetricsForm(): JSX.Element {
         TaxonomicFilterGroupType.EventMetadata,
         TaxonomicFilterGroupType.HogQLExpression,
     ]
+    const source = getMetricSource(usageMetric.filters)
 
     return (
         <Form id="usageMetric" logic={usageMetricsConfigLogic} formKey="usageMetric" enableFormOnSubmit>
             <div className="flex flex-col gap-2">
                 <div className="grid grid-cols-2 gap-2">
-                    <LemonField name="name" label="Name" help="This will be the title of the column in group list">
+                    <LemonField name="name" label="Name">
                         <LemonInput placeholder="Events" />
                     </LemonField>
 
@@ -195,8 +196,14 @@ function UsageMetricsForm(): JSX.Element {
                             <LemonSelect
                                 value={value}
                                 options={[
-                                    { value: 'count', label: 'Count of events' },
-                                    { value: 'sum', label: 'Sum of property' },
+                                    {
+                                        value: 'count',
+                                        label: source === 'data_warehouse' ? 'Count of rows' : 'Count of events',
+                                    },
+                                    {
+                                        value: 'sum',
+                                        label: source === 'data_warehouse' ? 'Sum of column' : 'Sum of property',
+                                    },
                                 ]}
                                 onChange={(newValue) => {
                                     onChange(newValue)
@@ -209,16 +216,28 @@ function UsageMetricsForm(): JSX.Element {
                     </LemonField>
 
                     {usageMetric.math === 'sum' && (
-                        <LemonField name="math_property" label="Property to sum">
-                            {({ value, onChange }) => (
-                                <TaxonomicStringPopover
-                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                                    value={value}
-                                    onChange={onChange}
-                                    placeholder="Select property"
-                                    data-attr="usage-metric-math-property"
-                                />
-                            )}
+                        <LemonField
+                            name="math_property"
+                            label={source === 'data_warehouse' ? 'Column to sum' : 'Property to sum'}
+                        >
+                            {({ value, onChange }) =>
+                                source === 'data_warehouse' ? (
+                                    <LemonInput
+                                        value={value ?? ''}
+                                        onChange={(newValue) => onChange(newValue || null)}
+                                        placeholder="amount"
+                                        data-attr="usage-metric-math-property"
+                                    />
+                                ) : (
+                                    <TaxonomicStringPopover
+                                        groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                        value={value}
+                                        onChange={onChange}
+                                        placeholder="Select property"
+                                        data-attr="usage-metric-math-property"
+                                    />
+                                )
+                            }
                         </LemonField>
                     )}
                 </div>
@@ -226,60 +245,84 @@ function UsageMetricsForm(): JSX.Element {
                 <div className="grid grid-cols-1 gap-2">
                     <LemonField
                         name="filters"
-                        label="Match events"
-                        help="The usage metric will take into account events matching any of the above. Filters apply for all match events."
+                        label="Match events or data warehouse table"
+                        help={
+                            source === 'data_warehouse'
+                                ? 'Data warehouse metrics are limited to a single table and currently only render on group profiles.'
+                                : 'Pick events to match, or switch to a data warehouse table. Only one source can be active per metric.'
+                        }
                     >
                         {({ value, onChange }) => {
-                            const currentFilters = (value ?? {}) as FilterType
+                            const actionFilterValue = savedFiltersToActionFilterValue(value)
                             return (
                                 <>
                                     <ActionFilter
                                         bordered
-                                        filters={currentFilters}
+                                        filters={actionFilterValue}
                                         setFilters={(payload) => {
-                                            onChange({
-                                                ...currentFilters,
-                                                ...sanitizeFilters(payload),
-                                            })
+                                            onChange(actionFilterValueToSavedFilters(payload, source))
                                         }}
-                                        typeKey="plugin-filters"
+                                        typeKey="usage-metric-filters"
                                         mathAvailability={MathAvailability.None}
                                         hideRename
                                         hideDuplicate
                                         showNestedArrow={false}
-                                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                        entitiesLimit={source === 'data_warehouse' ? 1 : undefined}
+                                        actionsTaxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.Events,
+                                            TaxonomicFilterGroupType.DataWarehouse,
+                                        ]}
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
+                                        dataWarehousePopoverFields={[
+                                            { key: 'timestamp_field', label: 'Timestamp column', allowHogQL: true },
+                                            { key: 'key_field', label: 'Group key column' },
+                                        ]}
                                         addFilterDefaultOptions={{
                                             id: '$pageview',
                                             name: '$pageview',
                                             type: EntityTypes.EVENTS,
                                         }}
-                                        buttonCopy="Add event matcher"
+                                        buttonCopy={
+                                            (actionFilterValue?.events ?? []).length > 0
+                                                ? 'Add event'
+                                                : 'Match event or data warehouse table'
+                                        }
                                     />
-                                    <div className="flex gap-2 justify-between w-full">
-                                        <LemonLabel>Filters</LemonLabel>
-                                    </div>
-                                    <PropertyFilters
-                                        propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        onChange={(properties: AnyPropertyFilter[]) => {
-                                            const newValue = {
-                                                ...currentFilters,
-                                                properties,
-                                            }
-                                            onChange(newValue)
-                                        }}
-                                        pageKey="UsageMetricsConfig"
-                                    />
-                                    <TestAccountFilterSwitch
-                                        checked={currentFilters?.filter_test_accounts ?? false}
-                                        onChange={(filter_test_accounts) => {
-                                            const newValue = { ...currentFilters, filter_test_accounts }
-                                            onChange(newValue)
-                                        }}
-                                        fullWidth
-                                    />
+                                    {source === 'events' && (
+                                        <>
+                                            <div className="flex gap-2 justify-between w-full">
+                                                <LemonLabel>Filters</LemonLabel>
+                                            </div>
+                                            <PropertyFilters
+                                                propertyFilters={
+                                                    (actionFilterValue?.properties ?? []) as AnyPropertyFilter[]
+                                                }
+                                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                                onChange={(properties: AnyPropertyFilter[]) => {
+                                                    onChange(
+                                                        actionFilterValueToSavedFilters(
+                                                            { ...actionFilterValue, properties },
+                                                            source
+                                                        )
+                                                    )
+                                                }}
+                                                pageKey="UsageMetricsConfig"
+                                            />
+                                            <TestAccountFilterSwitch
+                                                checked={actionFilterValue?.filter_test_accounts ?? false}
+                                                onChange={(filter_test_accounts) => {
+                                                    onChange(
+                                                        actionFilterValueToSavedFilters(
+                                                            { ...actionFilterValue, filter_test_accounts },
+                                                            source
+                                                        )
+                                                    )
+                                                }}
+                                                fullWidth
+                                            />
+                                        </>
+                                    )}
                                 </>
                             )
                         }}

@@ -36,22 +36,73 @@ tools:
         enrich_url: '{id}'
         title: Creates a new survey in the project.
         description: >
-            Creates a new survey in the project. Surveys can be popover or API-based and support various question types
-            including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if
-            they want to add the survey to their application code.
+            Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft
+            creation by default and do not set start_date unless the user explicitly asks to launch immediately. For
+            in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use
+            external_survey. Keep surveys short unless the user asks for a longer flow.
         include_params:
             - name
             - description
             - type
+            - schedule
             - questions
+            - conditions
             - appearance
             - start_date
             - responses_limit
             - iteration_count
             - iteration_frequency_days
             - enable_partial_responses
+            - enable_iframe_embedding
             - linked_flag_id
             - targeting_flag_filters
+            - translations
+            - form_content
+        param_overrides:
+            type:
+                description: >
+                    Survey type. Use popover for most in-app surveys, widget for always-available feedback entrypoints,
+                    external_survey for hosted forms with a shareable public URL, and api only for headless custom
+                    implementations.
+            schedule:
+                description: >
+                    Survey scheduling behavior. Omit this to use the default once behavior. Use recurring only when the
+                    user explicitly asks for a repeated schedule.
+            questions:
+                description: >
+                    Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
+                    survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the
+                    user wants structured answers. Questions can include inline translations on each question.
+            conditions:
+                description: >
+                    Display and targeting conditions for in-app surveys, such as URL matching, event triggers, device
+                    filters, or linked flag variants. Do not use URL, selector, event, device, or linkedFlagVariant
+                    conditions for external_survey forms.
+            start_date:
+                description: >
+                    Setting this launches the survey immediately. Leave unset unless the user explicitly asks to launch
+                    now.
+            linked_flag_id:
+                description: >
+                    Feature flag ID linked to this survey. Use only when the user explicitly wants the survey linked to
+                    a feature flag. Resolve the flag ID first, preferably with SQL in v2.
+            targeting_flag_filters:
+                description: >
+                    User targeting rules for in-app surveys. Use only when the user wants the survey shown to a subset
+                    of users. Do not use this for external_survey forms.
+            enable_iframe_embedding:
+                description: >
+                    Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks
+                    for iframe embedding.
+            translations:
+                description: >
+                    Optional survey-level translations keyed by language code. Use for translated survey name,
+                    description, and thank-you message fields. Question text translations belong inside each question's
+                    translations object.
+            form_content:
+                description: >
+                    Optional hosted-form content configuration for external_survey forms. Only include this when the
+                    user explicitly asks to customize the hosted form content beyond the standard question flow.
         ui_app: survey
     survey-delete:
         operation: surveys_destroy
@@ -108,8 +159,10 @@ tools:
         enrich_url: '{id}'
         title: Update an existing survey by ID.
         description: >
-            Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey
-            properties.
+            Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you
+            provide may replace existing values. Before changing questions, conditions, appearance, targeting,
+            translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do
+            not send null to clear a field unless the user explicitly asked to remove it.
         include_params:
             - id
             - name
@@ -126,10 +179,34 @@ tools:
             - iteration_count
             - iteration_frequency_days
             - enable_partial_responses
+            - enable_iframe_embedding
             - linked_flag_id
             - targeting_flag_id
             - targeting_flag_filters
             - remove_targeting_flag
+            - translations
+            - form_content
+        param_overrides:
+            questions:
+                description: >
+                    Complete replacement question list. Existing question IDs are tied to response data and must be
+                    preserved. Before sending this field, fetch the survey first, modify the existing question objects
+                    in place, keep every unchanged or edited question's id, and include the complete intended ordered
+                    question list. New questions should omit id. Do not regenerate existing questions from scratch.
+            conditions:
+                description: >
+                    Complete replacement display and targeting conditions object. Do not provide this field unless
+                    changing display targeting. Preserve existing URL, selector, event, device, wait-period, and linked
+                    flag variant conditions unless explicitly changing them.
+            translations:
+                description: >
+                    Complete replacement survey-level translations object. Do not provide this field unless changing
+                    translations. Preserve existing language keys and translated fields that should remain. Use null
+                    only when the user explicitly asks to remove survey-level translations.
+            form_content:
+                description: >
+                    Hosted-form content configuration for external_survey forms. Do not provide this field unless
+                    editing hosted-form content. Preserve existing content fields that should remain.
         ui_app: survey
     surveys-activity-retrieve:
         operation: surveys_activity_retrieve

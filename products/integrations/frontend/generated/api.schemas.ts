@@ -153,7 +153,8 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * * `azure-blob` - Azure Blob
+ * * `apns` - Apple Push
+ * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
  * `customerio-app` - Customerio App
@@ -190,6 +191,7 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -245,6 +247,31 @@ export interface PaginatedIntegrationConfigListApi {
     /** @nullable */
     previous?: string | null
     results: IntegrationConfigApi[]
+}
+
+export interface SlackChannelApi {
+    /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
+    id: string
+    /** Slack channel name without the leading '#'. */
+    name: string
+    /** True if the channel is private. */
+    is_private: boolean
+    /** True if the PostHog Slack app is a member of the channel and can post to it. */
+    is_member: boolean
+    /** True if the channel is shared with another Slack workspace. */
+    is_ext_shared: boolean
+    /** True if the channel is private and the PostHog Slack app cannot access it. */
+    is_private_without_access: boolean
+}
+
+export interface SlackChannelsResponseApi {
+    /** Slack channels visible to the PostHog Slack app. */
+    channels: SlackChannelApi[]
+    /**
+     * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).
+     * @nullable
+     */
+    lastRefreshedAt?: string | null
 }
 
 /**
