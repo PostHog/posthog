@@ -6,8 +6,8 @@ import {
     createXScale,
     createYScale,
     yTickCountForHeight,
-} from '../core/scales'
-import { DEFAULT_Y_AXIS_ID } from '../core/types'
+} from './scales'
+import { DEFAULT_Y_AXIS_ID } from './types'
 import { dimensions, makeSeries } from '../test-helpers'
 
 describe('hog-charts scales', () => {
