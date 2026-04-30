@@ -19,6 +19,8 @@ import { LemonMenuItems } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import { hashCodeForString } from 'lib/utils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 
@@ -105,6 +107,13 @@ const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean =>
 }
 
 const DEFAULT_DATAFRAME_PAGE_SIZE = 10
+
+const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string): string =>
+    `notebook-sql-${suffix}-${nodeId ?? 'new'}`
+
+const getMountedNotebookSqlEditorCode = (nodeId: string | null | undefined, suffix: string): string | null =>
+    sqlEditorLogic.findMounted({ tabId: getNotebookSqlEditorTabId(nodeId, suffix), mode: SQLEditorMode.Embedded })
+        ?.values.queryInput ?? null
 
 const buildDuckSqlCode = (code: string, returnVariable: string, pageSize: number): string => {
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
@@ -447,7 +456,11 @@ const runDependencyNodes = async ({
                     returnVariable?: string
                     duckExecutionSandboxId?: string | null
                 }
-                const nodeCode = nodeAttributes.code ?? node.code ?? ''
+                const mountedEditorCode = getMountedNotebookSqlEditorCode(node.nodeId, 'duck')
+                const nodeCode = mountedEditorCode ?? nodeAttributes.code ?? node.code ?? ''
+                if (mountedEditorCode !== null && mountedEditorCode !== nodeAttributes.code) {
+                    nodeLogic.actions.updateAttributes({ code: mountedEditorCode })
+                }
                 const nodeReturnVariable = getUniqueDuckSqlReturnVariable(
                     duckSqlNodeSummaries,
                     node.nodeId,
@@ -497,7 +510,11 @@ const runDependencyNodes = async ({
                     returnVariable?: string
                     hogqlExecutionSandboxId?: string | null
                 }
-                const nodeCode = nodeAttributes.code ?? node.code ?? ''
+                const mountedEditorCode = getMountedNotebookSqlEditorCode(node.nodeId, 'hogql')
+                const nodeCode = mountedEditorCode ?? nodeAttributes.code ?? node.code ?? ''
+                if (mountedEditorCode !== null && mountedEditorCode !== nodeAttributes.code) {
+                    nodeLogic.actions.updateAttributes({ code: mountedEditorCode })
+                }
                 const nodeReturnVariable = getUniqueHogqlReturnVariable(
                     hogqlSqlNodeSummaries,
                     node.nodeId,
@@ -1506,10 +1523,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             if (!notebook) {
                 return
             }
-            const { code = '', returnVariable = 'duck_df' } = values.nodeAttributes as {
+            const { code: attributesCode = '', returnVariable = 'duck_df' } = values.nodeAttributes as {
                 code?: string
                 returnVariable?: string
                 duckExecutionSandboxId?: string | null
+            }
+            const mountedEditorCode = getMountedNotebookSqlEditorCode(values.nodeId, 'duck')
+            const code = mountedEditorCode ?? attributesCode
+            if (mountedEditorCode !== null && mountedEditorCode !== attributesCode) {
+                actions.updateAttributes({ code: mountedEditorCode })
             }
             const executionSandboxId =
                 values.kernelInfo?.sandbox_id ?? values.nodeAttributes.duckExecutionSandboxId ?? null
@@ -1578,10 +1600,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             if (!notebook) {
                 return
             }
-            const { code = '', returnVariable = 'hogql_df' } = values.nodeAttributes as {
+            const { code: attributesCode = '', returnVariable = 'hogql_df' } = values.nodeAttributes as {
                 code?: string
                 returnVariable?: string
                 hogqlExecutionSandboxId?: string | null
+            }
+            const mountedEditorCode = getMountedNotebookSqlEditorCode(values.nodeId, 'hogql')
+            const code = mountedEditorCode ?? attributesCode
+            if (mountedEditorCode !== null && mountedEditorCode !== attributesCode) {
+                actions.updateAttributes({ code: mountedEditorCode })
             }
             const executionSandboxId =
                 values.kernelInfo?.sandbox_id ?? values.nodeAttributes.hogqlExecutionSandboxId ?? null
@@ -1712,7 +1739,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 nodeLogic &&
                 !isDuckSqlExecutionFresh(
                     nodeLogic,
-                    (values.nodeAttributes as { code?: string }).code ?? '',
+                    getMountedNotebookSqlEditorCode(values.nodeId, 'duck') ??
+                        (values.nodeAttributes as { code?: string }).code ??
+                        '',
                     values.duckSqlReturnVariable
                 )
             ) {
@@ -1739,7 +1768,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 nodeLogic &&
                 !isHogqlSqlExecutionFresh(
                     nodeLogic,
-                    (values.nodeAttributes as { code?: string }).code ?? '',
+                    getMountedNotebookSqlEditorCode(values.nodeId, 'hogql') ??
+                        (values.nodeAttributes as { code?: string }).code ??
+                        '',
                     values.hogqlSqlReturnVariable
                 )
             ) {
