@@ -108,8 +108,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     showMultipleYAxes: showMultipleYAxes ?? undefined,
                     incompletenessOffsetFromEnd,
                     isStickiness,
-                    getColor: (rr) => getTrendsColor(rr),
-                    getHidden: (rr) => getTrendsHidden(rr),
+                    getColor: getTrendsColor,
+                    getHidden: getTrendsHidden,
                     buildMeta: (rr) => ({
                         action: rr.action,
                         breakdown_value: rr.breakdown_value,
