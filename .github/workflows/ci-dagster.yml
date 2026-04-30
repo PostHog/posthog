@@ -272,7 +272,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
-              uses: actions/cache/restore@v4
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               id: schema-cache
               with:
                   path: schema.sql.gz
