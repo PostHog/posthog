@@ -61,6 +61,14 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // emission in single-exec mode. Slack-launched runs send `"slack"` instead.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
+// Value sent in `x-posthog-mcp-consumer` (or `?consumer=`) by AI-tool plugins
+// that install the PostHog MCP for a user — distinguishes plugin-installed
+// connections from manual URL-paste installs. The wrapped AI client (Claude
+// Code, Cursor, …) is still captured separately via MCP `clientInfo.name`,
+// so a single token is enough; the User-Agent folder concatenates them as
+// `plugin/<client>` for downstream attribution.
+export const PLUGIN_CONSUMER = 'plugin'
+
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
     // clients inject into the model's system prompt. Codex discards it, so

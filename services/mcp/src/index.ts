@@ -284,9 +284,13 @@ const handleRequest = async (
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
     // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
-    // Tasks sandbox) when the wrapped MCP client's name is too generic to
-    // distinguish (e.g. both direct and sandboxed Claude Code send `claude-code`).
-    const mcpConsumer = sanitizeHeaderValue(request.headers.get('x-posthog-mcp-consumer') || undefined)
+    // Tasks sandbox, or an AI-tool plugin that auto-installs the MCP) when the
+    // wrapped MCP client's name is too generic to distinguish (e.g. both direct
+    // and sandboxed Claude Code send `claude-code`). Query-param fallback for
+    // clients that only let the user customize the URL, not headers.
+    const mcpConsumer = sanitizeHeaderValue(
+        request.headers.get('x-posthog-mcp-consumer') || url.searchParams.get('consumer') || undefined
+    )
 
     // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
     // request body (streamable-http only). The framework's async
