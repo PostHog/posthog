@@ -14,13 +14,21 @@ from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
 
+# Opt-in instrumentation that exposes how long Django migrations + the wrapper
+# `django_db_setup` (ClickHouse tables, sqlx persons migrations) actually take.
+# Without this, the cost hides inside the setup phase of whichever test happens
+# to be collected first.
+#
+# Enable by setting `POSTHOG_DB_SETUP_TIMING=1`. When unset, behaviour is
+# unchanged: no monkey-patches, sentinel test is skipped, no extra reporting.
+_DB_SETUP_TIMING_ENABLED: bool = os.environ.get("POSTHOG_DB_SETUP_TIMING", "").lower() in {"1", "true", "yes"}
+
 # Per-migration timings captured via monkey-patch of MigrationExecutor.apply_migration.
-# Populated only when Django actually runs migrations (i.e. without --reuse-db, or when
-# the test database is missing/stale). Reported in pytest_terminal_summary.
 _MIGRATION_TIMINGS: list[tuple[str, float]] = []
 # Accumulated wrapper setup/teardown seconds across all package activations.
 _DB_SETUP_TIMINGS: dict[str, float] = {"wrapper_setup_seconds": 0.0, "wrapper_teardown_seconds": 0.0}
 _DB_SETUP_INVOCATIONS: dict[str, int] = {"setup": 0, "teardown": 0}
+_MIGRATION_PATCH_INSTALLED: bool = False
 
 
 def create_clickhouse_tables():
@@ -337,6 +345,10 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
+    if not _DB_SETUP_TIMING_ENABLED:
+        yield from _django_db_setup(django_db_keepdb, django_db_blocker)
+        return
+
     # The inner `django_db_setup` parameter (pytest-django's session-scoped fixture)
     # has already run Django's `migrate` by the time we get here. Per-migration
     # timings landed in _MIGRATION_TIMINGS via the monkey-patch in pytest_configure.
@@ -471,29 +483,43 @@ def pytest_configure(config):
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
 
-    # Monkey-patch MigrationExecutor.apply_migration to record per-migration timings.
-    # Surfaces "what's slow in Django migrations?" in pytest_terminal_summary, instead
-    # of letting the cost hide inside the first test's setup phase.
+    if _DB_SETUP_TIMING_ENABLED:
+        _install_migration_timing_patch()
+
+
+def _install_migration_timing_patch() -> None:
+    """Wrap MigrationExecutor.apply_migration so per-migration durations are recorded.
+    Idempotent; only runs when POSTHOG_DB_SETUP_TIMING is set."""
+    global _MIGRATION_PATCH_INSTALLED
+    if _MIGRATION_PATCH_INSTALLED:
+        return
+
     from django.db.migrations.executor import MigrationExecutor
 
-    if not getattr(MigrationExecutor, "_posthog_timing_patched", False):
-        original_apply = MigrationExecutor.apply_migration
+    original_apply = MigrationExecutor.apply_migration
 
-        def timed_apply_migration(self, state, migration, *args, **kwargs):
-            start = time.perf_counter()
-            try:
-                return original_apply(self, state, migration, *args, **kwargs)
-            finally:
-                _MIGRATION_TIMINGS.append((str(migration), time.perf_counter() - start))
+    def timed_apply_migration(self, state, migration, *args, **kwargs):
+        start = time.perf_counter()
+        try:
+            return original_apply(self, state, migration, *args, **kwargs)
+        finally:
+            _MIGRATION_TIMINGS.append((str(migration), time.perf_counter() - start))
 
-        MigrationExecutor.apply_migration = timed_apply_migration
-        MigrationExecutor._posthog_timing_patched = True
+    # setattr (rather than direct assignment) keeps ty/mypy from complaining
+    # about replacing a bound method with a plain function.
+    setattr(MigrationExecutor, "apply_migration", timed_apply_migration)  # noqa: B010
+    _MIGRATION_PATCH_INSTALLED = True
 
 
 def pytest_collection_modifyitems(config, items):
     """Run the db-setup-timing sentinel first so the package-scoped django_db_setup
     fixture's cost is attributed to it (and visible in --durations) rather than to
-    whichever test happened to be collected first."""
+    whichever test happened to be collected first.
+
+    Only runs when POSTHOG_DB_SETUP_TIMING is set; the sentinel itself is skipped
+    in that case (see posthog/test/test_db_setup_timing.py)."""
+    if not _DB_SETUP_TIMING_ENABLED:
+        return
     sentinel_idx = next(
         (i for i, item in enumerate(items) if "db_setup_timing" in item.keywords),
         None,
