@@ -516,12 +516,7 @@ const ConditionContent = ({
 
                                     {isTargetingV2Enabled && groupTypes.size > 0 && !isDeviceTargeting && (
                                         <div>
-                                            <LemonLabel
-                                                className="mb-1"
-                                                info="Users targets individuals by distinct ID. Group types target a custom group (organization, project, etc.) — every member gets the same value, keeping the flag stable across the group."
-                                            >
-                                                Target by
-                                            </LemonLabel>
+                                            <LemonLabel className="mb-1">Target by</LemonLabel>
                                             <LemonSelect<AggregationValue>
                                                 size="small"
                                                 data-attr={`condition-set-${index}-aggregation`}
