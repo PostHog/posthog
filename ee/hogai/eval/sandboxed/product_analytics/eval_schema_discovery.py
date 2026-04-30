@@ -46,7 +46,7 @@ def _discovery_case(
 
 
 @pytest.mark.django_db
-async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_client):
+async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         _discovery_case(
             name="schema_discovery_pageview_7d",
@@ -86,7 +86,7 @@ async def eval_schema_discovery(sandboxed_demo_data, pytestconfig, posthog_clien
     ]
 
     await SandboxedPublicEval(
-        experiment_name="sandboxed-schema-discovery",
+        experiment_name=f"sandboxed-schema-discovery-{mcp_mode}",
         cases=cases,
         scorers=[
             ExitCodeZero(),

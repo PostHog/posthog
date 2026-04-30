@@ -769,7 +769,8 @@ class TaskListQuerySerializer(serializers.Serializer):
         help_text="Filter tasks by the status of their most recent run.",
     )
     internal = serializers.BooleanField(
-        required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+        required=False,
+        help_text="When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.",
     )
 
 

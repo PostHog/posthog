@@ -26,7 +26,7 @@ npx @posthog/wizard@latest mcp add
       "args": [
         "-y",
         "mcp-remote@latest",
-        "https://mcp.posthog.com/mcp", // You can replace this with https://mcp.posthog.com/sse if your client does not support Streamable HTTP
+        "https://mcp.posthog.com/mcp",
         "--header",
         "Authorization:${POSTHOG_AUTH_HEADER}"
       ],
@@ -317,6 +317,43 @@ https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
 ```
 
 The example above exposes all flag tools plus `dashboard-get`.
+
+### Server mode (tools vs cli)
+
+The MCP server can register either every PostHog tool individually (**tools** mode, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the cli mode when the rollout flag is enabled).
+
+You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
+
+```text
+https://mcp.posthog.com/mcp?mode=cli
+https://mcp.posthog.com/mcp?mode=tools
+```
+
+```http
+x-posthog-mcp-mode: cli
+x-posthog-mcp-mode: tools
+```
+
+| Value   | Behavior                                                |
+| ------- | ------------------------------------------------------- |
+| `tools` | Force tools mode (one MCP tool per PostHog tool).       |
+| `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
+
+The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
+
+### Consumer attribution
+
+Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
+
+```text
+https://mcp.posthog.com/mcp?consumer=plugin
+```
+
+```http
+x-posthog-mcp-consumer: plugin
+```
+
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
 
 ### Data processing
 

@@ -1,6 +1,7 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, Series } from './types'
+import { yTickCountForHeight } from './scales'
+import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -10,7 +11,7 @@ export interface DrawContext {
     labels: string[]
 }
 
-export function drawLine(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
+export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
     if (data.length === 0) {
         return
@@ -39,15 +40,15 @@ interface Stroke {
 }
 
 /**
- * Splits the line into strokes based on `dashedFromIndex`/`dashedToIndex`. Each entry is a
- * contiguous index range drawn with a single dash pattern; adjacent strokes share their
- * boundary index so the visual seam between them is invisible.
+ * Splits the line into strokes based on `stroke.partial.fromIndex`/`stroke.partial.toIndex`.
+ * Each entry is a contiguous index range drawn with a single dash pattern; adjacent strokes
+ * share their boundary index so the visual seam between them is invisible.
  */
-function planLineStrokes(series: Series, length: number): Stroke[] {
-    const basePattern = series.dashPattern ?? []
-    const partialPattern = series.dashedPattern ?? [10, 10]
-    const from = resolveDashedFromIndex(series.dashedFromIndex, length)
-    const to = resolveDashedToIndex(series.dashedToIndex, length)
+function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
+    const basePattern = series.stroke?.pattern ?? []
+    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
+    const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
+    const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
 
     // No partial dashing — one stroke covering the whole line.
     if (from === null && to === null) {
@@ -99,16 +100,7 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
 }
 
 /** Returns null when unset; otherwise rounds and clamps into [0, length-1]. */
-function resolveDashedFromIndex(idx: number | undefined, length: number): number | null {
-    if (idx == null || length === 0) {
-        return null
-    }
-    const rounded = Math.round(idx)
-    return Math.max(0, Math.min(length - 1, rounded))
-}
-
-/** Returns null when unset; otherwise rounds and clamps into [0, length-1]. */
-function resolveDashedToIndex(idx: number | undefined, length: number): number | null {
+function resolvePartialIndex(idx: number | undefined, length: number): number | null {
     if (idx == null || length === 0) {
         return null
     }
@@ -159,13 +151,18 @@ interface AreaPoint {
     dataIndex: number
 }
 
-export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[], bottomValues?: number[]): void {
+export function drawArea(
+    drawCtx: DrawContext,
+    series: ResolvedSeries,
+    yValues?: number[],
+    bottomValues?: number[]
+): void {
     const { ctx, xScale, yScale, labels, dimensions } = drawCtx
     const data = yValues ?? series.data
-    const opacity = series.fillOpacity ?? 0.5
+    const opacity = series.fill?.opacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
-    const dashedFrom = resolveDashedFromIndex(series.dashedFromIndex, data.length)
-    const dashedTo = resolveDashedToIndex(series.dashedToIndex, data.length)
+    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, data.length)
+    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, data.length)
 
     const segments: { top: AreaPoint[]; bottom: AreaPoint[] }[] = []
     let currentTop: AreaPoint[] = []
@@ -270,10 +267,10 @@ function fillAreaPath(
     ctx.fill()
 }
 
-export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
+export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.pointRadius ?? 0
+    const radius = series.points?.radius ?? 0
 
     if (radius <= 0) {
         return
@@ -297,7 +294,7 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
 
-    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.() ?? []
+    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(dimensions.plotHeight)) ?? []
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
@@ -310,6 +307,29 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
         ctx.stroke()
     }
+
+    const axisX = Math.round(dimensions.plotLeft) + 0.5
+    ctx.beginPath()
+    ctx.moveTo(axisX, dimensions.plotTop)
+    ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
+}
+
+export function drawCrosshair(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    x: number,
+    color: string
+): void {
+    // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
+    const lineX = Math.round(x) + 0.5
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(lineX, dimensions.plotTop)
+    ctx.lineTo(lineX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
 }
 
 export function drawHighlightPoint(
@@ -329,4 +349,23 @@ export function drawHighlightPoint(
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
+}
+
+type DrawHoverFn = (args: ChartDrawArgs) => void
+
+// Crosshair drawn first so the chart-type's highlight rings render on top.
+export function composeDrawHoverWithCrosshair(
+    getDrawHover: () => DrawHoverFn,
+    crosshairColor: string | undefined,
+    showCrosshair: boolean
+): DrawHoverFn {
+    return (args) => {
+        if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
+            const x = args.scales.x(args.labels[args.hoverIndex])
+            if (x != null && isFinite(x)) {
+                drawCrosshair(args.ctx, args.dimensions, x, crosshairColor)
+            }
+        }
+        getDrawHover()(args)
+    }
 }

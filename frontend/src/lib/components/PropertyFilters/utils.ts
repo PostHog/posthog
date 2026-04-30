@@ -550,12 +550,19 @@ export function isEmptyProperty(property: AnyPropertyFilter): boolean {
     )
 }
 
+/** Subset of TaxonomicFilter result-item fields that influence default-filter creation. */
+type SelectedTaxonomicItem = {
+    matchedOn?: string
+    matchedValue?: string
+}
+
 export function createDefaultPropertyFilter(
     filter: AnyPropertyFilter | null,
     propertyKey: string | number,
     propertyType: PropertyFilterType,
     taxonomicGroup: TaxonomicFilterGroup,
-    describeProperty: propertyDefinitionsModelType['values']['describeProperty']
+    describeProperty: propertyDefinitionsModelType['values']['describeProperty'],
+    selectedItem?: SelectedTaxonomicItem | null
 ): AnyPropertyFilter {
     if (propertyType === PropertyFilterType.Cohort) {
         const operator =
@@ -609,11 +616,20 @@ export function createDefaultPropertyFilter(
         PropertyOperator.Exact
 
     const isGroupNameFilter = taxonomicGroup.type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
+    // When the row was surfaced because the search matched a property *value* (not the key),
+    // pre-fill the filter with that value so the user doesn't have to retype it. Operator
+    // defaults above are multi-select (Exact), so wrap in an array.
+    const matchedValue =
+        selectedItem?.matchedOn === 'value' &&
+        typeof selectedItem.matchedValue === 'string' &&
+        selectedItem.matchedValue
+            ? selectedItem.matchedValue
+            : null
     // :TRICKY: When we have a GroupNamesPrefix taxonomic filter, selecting the group name
     // is the equivalent of selecting a property value
     const property: AnyPropertyFilter = {
         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
-        value: isGroupNameFilter ? propertyKey.toString() : null,
+        value: isGroupNameFilter ? propertyKey.toString() : matchedValue ? [matchedValue] : null,
         operator,
         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
         group_type_index: taxonomicGroup.groupTypeIndex,

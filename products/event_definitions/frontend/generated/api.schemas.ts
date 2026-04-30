@@ -103,6 +103,12 @@ export interface EnterpriseEventDefinitionApi {
     /** @nullable */
     hidden?: boolean | null
     enforcement_mode?: EnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    promoted_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -148,6 +154,12 @@ export interface PatchedEnterpriseEventDefinitionApi {
     /** @nullable */
     hidden?: boolean | null
     enforcement_mode?: EnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    promoted_property?: string | null
     readonly is_action?: boolean
     readonly action_id?: number
     readonly is_calculating?: boolean
@@ -216,12 +228,28 @@ export interface EventDefinitionRecordApi {
     readonly last_updated_at: string
     tags?: unknown[]
     enforcement_mode?: EnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    promoted_property?: string | null
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
     readonly last_calculated_at: string
     readonly created_by: UserBasicApi
     post_to_slack?: boolean
+}
+
+/**
+ * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+ */
+export type PromotedPropertiesResponseApiPromotedProperties = { [key: string]: string }
+
+export interface PromotedPropertiesResponseApi {
+    /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
+    promoted_properties: PromotedPropertiesResponseApiPromotedProperties
 }
 
 export type EventDefinitionsListParams = {
@@ -240,4 +268,11 @@ export type EventDefinitionsByNameRetrieveParams = {
      * The exact event name to look up
      */
     name: string
+}
+
+export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    /**
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     */
+    names?: string[]
 }
