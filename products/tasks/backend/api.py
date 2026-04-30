@@ -116,11 +116,14 @@ from .temporal.client import (
 )
 from .temporal.process_task.utils import (
     PrAuthorshipMode,
+    RunSource,
     cache_github_user_token,
+    get_pr_authorship_mode,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
-    get_user_github_integration,
     parse_run_state,
+    resolve_user_github_integration_for_task,
+    user_github_integration_is_usable,
 )
 
 logger = logging.getLogger(__name__)
@@ -128,6 +131,39 @@ TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
+
+
+def _validate_user_authored_task_github_access(task: Task, *, request_user_id: int | None) -> Response | None:
+    if task.created_by_id != request_user_id:
+        return Response(
+            {
+                "type": "validation_error",
+                "code": "github_authorization_required",
+                "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
+                "attr": "pr_authorship_mode",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+    if user_github_integration is None or not user_github_integration_is_usable(user_github_integration):
+        return Response(
+            {
+                "type": "validation_error",
+                "code": "github_authorization_required",
+                "detail": ("Link a GitHub account with repo access before running user-authored cloud tasks."),
+                "attr": "pr_authorship_mode",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if task.github_user_integration_id != user_github_integration.integration.id:
+        task.github_user_integration = user_github_integration.integration
+        task.save(update_fields=["github_user_integration", "updated_at"])
+
+    return None
+
+
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
@@ -310,8 +346,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
-        # select_related to avoid N+1 on created_by (UserBasicSerializer) and team (slug property)
-        qs = qs.select_related("created_by", "team").prefetch_related("runs")
+        # select_related to avoid N+1 on created_by (UserBasicSerializer), team (slug property),
+        # and GitHub integrations returned on task rows.
+        qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").prefetch_related(
+            "runs"
+        )
 
         # `stage` joins through `runs` and can produce duplicate task rows. If any other
         # JOIN-producing filter is added above, broaden this guard (or move `.distinct()`
@@ -533,6 +572,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        if run_source == RunSource.SIGNAL_REPORT:
+            pr_authorship_mode = PrAuthorshipMode.BOT
 
         runtime_state_fields = {
             "pr_authorship_mode": pr_authorship_mode,
@@ -615,39 +656,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         # User-authored cloud runs need *some* GitHub credential: either the caller
-        # ships its own token in ``github_user_token`` (backward-compat for PostHog Code),
-        # or the task creator has linked GitHub from Settings so the server has stored
-        # user-to-server tokens. No-repo runs skip this gate since they never touch GitHub.
-        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            if task.created_by_id != getattr(request.user, "id", None):
-                return Response(
-                    {
-                        "type": "validation_error",
-                        "code": "github_authorization_required",
-                        "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
-                        "attr": "pr_authorship_mode",
-                    },
-                    status=400,
-                )
-            user_github_integration = get_user_github_integration(task.created_by)
-            if (
-                user_github_integration is None
-                or not user_github_integration.user_access_token
-                or user_github_integration.user_refresh_token_expired()
-                or not user_github_integration.user_refresh_token
-            ):
-                return Response(
-                    {
-                        "type": "validation_error",
-                        "code": "github_authorization_required",
-                        "detail": (
-                            "Provide github_user_token, or have the task creator link a GitHub account "
-                            "with repo access from Settings → Linked accounts before running user-authored tasks."
-                        ),
-                        "attr": "pr_authorship_mode",
-                    },
-                    status=400,
-                )
+        # ships its own token in ``github_user_token`` (backward compatibility), or
+        # the task creator has linked GitHub so the server has user-to-server tokens.
+        if pr_authorship_mode == PrAuthorshipMode.USER and not github_user_token:
+            validation_response = _validate_user_authored_task_github_access(
+                task,
+                request_user_id=getattr(request.user, "id", None),
+            )
+            if validation_response is not None:
+                return validation_response
 
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
@@ -763,7 +780,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
     scope_object = "task"
-    queryset = TaskRun.objects.select_related("task").all()
+    queryset = TaskRun.objects.select_related(
+        "task", "task__created_by", "task__github_integration", "task__github_user_integration"
+    ).all()
     posthog_feature_flag = {
         "tasks": [
             "list",
@@ -820,6 +839,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        if run_source == RunSource.SIGNAL_REPORT:
+            pr_authorship_mode = PrAuthorshipMode.BOT
 
         extra_state: dict[str, Any] | None = None
         if initial_permission_mode is not None:
@@ -856,11 +877,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if pr_authorship_mode == PrAuthorshipMode.USER and task.repository and not github_user_token:
-            return Response(
-                {"detail": "github_user_token is required for user-authored cloud runs"},
-                status=status.HTTP_400_BAD_REQUEST,
+        if pr_authorship_mode == PrAuthorshipMode.USER and not github_user_token:
+            validation_response = _validate_user_authored_task_github_access(
+                task,
+                request_user_id=getattr(request.user, "id", None),
             )
+            if validation_response is not None:
+                return validation_response
 
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
@@ -2087,7 +2110,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         with transaction.atomic():
-            task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)
+            task_run = (
+                TaskRun.objects.select_for_update(of=("self",))
+                .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
+                .get(pk=task_run.pk)
+            )
 
             is_cloud_active = task_run.environment == TaskRun.Environment.CLOUD and task_run.status in (
                 TaskRun.Status.QUEUED,
@@ -2098,6 +2125,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     ErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            if get_pr_authorship_mode(task_run.task, task_run.state) == PrAuthorshipMode.USER:
+                validation_response = _validate_user_authored_task_github_access(
+                    task_run.task,
+                    request_user_id=getattr(request.user, "id", None),
+                )
+                if validation_response is not None:
+                    return validation_response
 
             prior_status = task_run.status
             prior_environment = task_run.environment

@@ -13,6 +13,7 @@ from rest_framework import serializers
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
+from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.signals.backend.models import SignalReportTask
@@ -33,6 +34,7 @@ from .temporal.process_task.utils import (
     RuntimeAdapter,
     get_reasoning_effort_error,
     parse_run_state,
+    resolve_user_github_integration_for_task,
 )
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
@@ -81,6 +83,13 @@ def build_task_run_artifact_size_error(
 
 class TaskSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    # UserIntegration is scoped to request.user in validate_github_user_integration.
+    github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=UserIntegration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="User-scoped GitHub integration to use for user-authored cloud runs.",
+    )
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -113,6 +122,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "origin_product",
             "repository",
             "github_integration",
+            "github_user_integration",
             "signal_report",
             "signal_report_task_relationship",
             "json_schema",
@@ -146,6 +156,14 @@ class TaskSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Integration must belong to the same team")
         return value
 
+    def validate_github_user_integration(self, value):
+        """Validate that the GitHub user integration belongs to the authenticated user."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value and value.user_id != getattr(user, "id", None):
+            raise serializers.ValidationError("User integration must belong to the authenticated user")
+        return value
+
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
@@ -173,10 +191,18 @@ class TaskSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
                 )
+        if (
+            attrs.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+            and attrs.get("github_user_integration") is not None
+        ):
+            raise serializers.ValidationError(
+                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+            )
         return attrs
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
+        validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
@@ -191,6 +217,22 @@ class TaskSerializer(serializers.ModelSerializer):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration
+
+        if (
+            validated_data.get("repository")
+            and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
+            and not validated_data.get("github_user_integration")
+        ):
+            task_stub = Task(
+                team=self.context["team"],
+                created_by=validated_data.get("created_by"),
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository=validated_data["repository"],
+                github_integration=validated_data.get("github_integration"),
+            )
+            github_user_integration = resolve_user_github_integration_for_task(task_stub, allow_refresh=False)
+            if github_user_integration is not None:
+                validated_data["github_user_integration"] = github_user_integration.integration
 
         title = validated_data.get("title", "").strip()
         if not title and validated_data.get("description"):

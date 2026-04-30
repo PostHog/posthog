@@ -33,7 +33,10 @@ from rest_framework.response import Response
 from posthog.api.integration import (
     GITHUB_INSTALL_STATE_CACHE_PREFIX,
     GITHUB_INSTALL_STATE_TTL_SECONDS,
+    GitHubBranchesQuerySerializer,
+    GitHubBranchesResponseSerializer,
     GitHubReposQuerySerializer,
+    GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
     github_oauth_redirect_uri,
 )
@@ -44,7 +47,12 @@ from posthog.auth import (
     session_auth_required,
 )
 from posthog.models.instance_setting import get_instance_settings
-from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, Integration
+from posthog.models.integration import (
+    GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
+    GitHubInstallationAccess,
+    GitHubIntegration,
+    Integration,
+)
 from posthog.models.user import User
 from posthog.models.user_integration import (
     UserGitHubIntegration,
@@ -74,6 +82,7 @@ class UserGitHubAccountSerializer(serializers.Serializer):
 
 
 class UserGitHubIntegrationItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="PostHog UserIntegration row id.")
     kind = serializers.CharField(help_text="Integration kind; always `github` for this API.")
     installation_id = serializers.CharField(help_text="GitHub App installation id.")
     repository_selection = serializers.CharField(
@@ -127,7 +136,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
     scope_object = "user"
     required_scopes: list[str] | None = None
-    scope_object_read_actions = ["list", "retrieve", "github_repos"]
+    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -136,6 +145,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "destroy",
         "github_start",
         "github_destroy",
+        "github_repos_refresh",
     ]
 
     authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
@@ -227,6 +237,67 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         github = UserGitHubIntegration(integration)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
         return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(
+        summary="Refresh repositories for a personal GitHub installation",
+        responses={200: GitHubReposRefreshResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path=r"github/(?P<installation_id>\d+)/repos/refresh")
+    def github_repos_refresh(self, request: Request, installation_id: str, **_kwargs) -> Response:
+        """Refresh repositories accessible to a specific GitHub installation."""
+        integration = UserIntegration.objects.filter(
+            user=self._get_user(), kind="github", integration_id=installation_id
+        ).first()
+        if integration is None:
+            raise exceptions.NotFound("No GitHub integration found for this installation.")
+
+        github = UserGitHubIntegration(integration)
+        repositories = github.sync_repository_cache(
+            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+        )
+        return Response({"repositories": repositories})
+
+    @extend_schema(
+        summary="List branches for a personal GitHub installation repository",
+        parameters=[GitHubBranchesQuerySerializer],
+        responses={200: GitHubBranchesResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path=r"github/(?P<installation_id>\d+)/branches")
+    def github_branches(self, request: Request, installation_id: str, **_kwargs) -> Response:
+        """List branches for a repository accessible to a personal GitHub installation."""
+        params = GitHubBranchesQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        repo: str = params.validated_data["repo"]
+        search: str = params.validated_data["search"]
+        limit: int = params.validated_data["limit"]
+        offset: int = params.validated_data["offset"]
+
+        parts = repo.split("/")
+        if (
+            len(parts) != 2
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[0])
+            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[1])
+            or parts[0] in (".", "..")
+            or parts[1] in (".", "..")
+        ):
+            raise exceptions.ValidationError("repo must be in owner/repo format")
+
+        integration = UserIntegration.objects.filter(
+            user=self._get_user(), kind="github", integration_id=installation_id
+        ).first()
+        if integration is None:
+            raise exceptions.NotFound("No GitHub integration found for this installation.")
+
+        github = UserGitHubIntegration(integration)
+        branches, default_branch, has_more = github.list_cached_branches(
+            repo,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
+
+        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 
     @extend_schema(
         summary="Start GitHub personal integration linking",
@@ -634,6 +705,7 @@ def _serialize_github_integration(
 ) -> dict[str, Any]:
     """Build the response payload for a single GitHub UserIntegration."""
     return {
+        "id": integration.id,
         "kind": "github",
         "installation_id": integration.integration_id,
         "repository_selection": integration.config.get("repository_selection"),

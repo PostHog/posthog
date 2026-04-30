@@ -103,7 +103,9 @@ class InjectFreshTokensOnResumeInput:
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        return Task.objects.select_related("created_by").get(id=ctx.task_id)
+        return Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
+            id=ctx.task_id
+        )
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
@@ -228,14 +230,19 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         github_token = ""
-        if has_repo and ctx.github_integration_id is not None:
+        should_inject_github_token = ctx.has_github_credentials and (
+            has_repo or ctx.github_user_integration_id is not None
+        )
+        if should_inject_github_token:
             try:
                 github_token = (
                     get_sandbox_github_token(
                         ctx.github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
-                        created_by=task.created_by,
+                        task=task,
+                        github_user_integration_id=ctx.github_user_integration_id,
+                        repository=repository,
                     )
                     or ""
                 )
@@ -461,13 +468,16 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         task = _load_task(ctx)
 
         github_token = ""
-        if ctx.github_integration_id is not None:
+        if ctx.has_github_credentials:
             try:
                 github_token = (
                     get_sandbox_github_token(
                         ctx.github_integration_id,
                         run_id=ctx.run_id,
                         state=ctx.state,
+                        task=task,
+                        github_user_integration_id=ctx.github_user_integration_id,
+                        repository=input.repository,
                     )
                     or ""
                 )

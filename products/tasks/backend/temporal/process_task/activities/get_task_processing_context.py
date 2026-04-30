@@ -13,7 +13,11 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
-from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
+from products.tasks.backend.temporal.process_task.utils import (
+    format_allowed_domains_for_log,
+    get_pr_authorship_mode,
+    resolve_user_github_integration_for_task,
+)
 
 
 def close_old_database_connections() -> None:
@@ -44,6 +48,7 @@ class TaskProcessingContext:
     distinct_id: str
     origin_product: str | None = None
     environment: str | None = None
+    github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
@@ -65,6 +70,10 @@ class TaskProcessingContext:
     @property
     def interaction_origin(self) -> str | None:
         return (self.state or {}).get("interaction_origin")
+
+    @property
+    def has_github_credentials(self) -> bool:
+        return self.github_integration_id is not None or self.github_user_integration_id is not None
 
     @property
     def sandbox_environment_id(self) -> str | None:
@@ -143,7 +152,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     close_old_database_connections()
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
+        task_run = TaskRun.objects.select_related(
+            "task__created_by",
+            "task__team",
+            "task__github_integration",
+            "task__github_user_integration",
+        ).get(id=run_id)
     except ObjectDoesNotExist as e:
         raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
 
@@ -218,6 +232,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
+    if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
+        user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+        if user_github_integration is not None:
+            user_github_integration_id = str(user_github_integration.integration.id)
+
     return TaskProcessingContext(
         task_id=str(task.id),
         run_id=run_id,
@@ -225,6 +245,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
+        github_user_integration_id=user_github_integration_id,
         repository=task.repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
