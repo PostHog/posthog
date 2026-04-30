@@ -2015,7 +2015,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
                 buckets.quarantined += 1
             elif tol_match_id is not None:
                 buckets.tolerated += 1
-            elif result in (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED):
+            elif result in (SnapshotResult.CHANGED.value, SnapshotResult.NEW.value, SnapshotResult.REMOVED.value):
                 buckets.changed += 1
             else:
                 buckets.clean += 1
