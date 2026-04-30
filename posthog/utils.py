@@ -452,6 +452,7 @@ def get_context_for_template(
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
+        from posthog.models.user_home_settings import UserHomeSettings
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -532,6 +533,13 @@ def get_context_for_template(
                     many=True,
                 )
                 posthog_app_context["custom_products"] = user_product_list.data
+
+                # Render the user's homepage selection synchronously so the `/` redirect can
+                # resolve on first paint without a network round-trip. The value is the source of
+                # truth at page-load time; subsequent updates go through PATCH /api/user_home_settings/@me/.
+                home_settings = UserHomeSettings.objects.filter(user=user, team=user.team).first()
+                homepage = (home_settings.homepage if home_settings else None) or None
+                posthog_app_context["user_home_settings"] = {"homepage": homepage}
 
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:

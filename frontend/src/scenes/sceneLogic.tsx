@@ -64,7 +64,6 @@ export type TabCloseSource =
 
 export interface PersistedPinnedState {
     tabs: SceneTab[]
-    homepage: SceneTab | null
 }
 
 const getStorageKey = (key: string): string => {
@@ -111,20 +110,24 @@ const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
     return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
 
-const persistPinnedTabs = (tabs: SceneTab[], homepage: SceneTab | null): void => {
+// Tabs are mirrored to localStorage so cross-tab pin/unpin/reorder syncs live via the `storage`
+// event. Homepage is intentionally NOT persisted here — it's a singleton preference whose source
+// of truth is the server (UserHomeSettings), seeded into appContext on first paint and updated
+// via PATCH /api/user_home_settings/@me/. Mirroring it locally let stale localStorage overwrite
+// the server with null on cross-tab clears or first mount.
+const persistPinnedTabs = (tabs: SceneTab[]): void => {
     const pinnedTabs = getPinnedTabsForPersistence(tabs)
-    const homepageTab = getHomepageForPersistence(homepage)
 
     const key = getStorageKey(PINNED_TAB_STATE_KEY)
 
-    if (pinnedTabs.length === 0 && !homepageTab) {
+    if (pinnedTabs.length === 0) {
         if (localStorage.getItem(key) !== null) {
             localStorage.removeItem(key)
         }
         return
     }
 
-    const serialized = JSON.stringify({ tabs: pinnedTabs, homepage: homepageTab })
+    const serialized = JSON.stringify({ tabs: pinnedTabs })
     if (localStorage.getItem(key) !== serialized) {
         localStorage.setItem(key, serialized)
     }
@@ -141,21 +144,12 @@ const normalizeStoredPinnedTabs = (tabs: SceneTab[]): SceneTab[] =>
         return sanitized
     })
 
-const normalizeStoredHomepage = (tab: SceneTab | Record<string, any> | null | undefined): SceneTab | null => {
-    if (!tab || typeof tab !== 'object') {
-        return null
-    }
-
-    return sanitizeTabForPersistence(tab as SceneTab)
-}
-
 const getPersistedPinnedState = (): PersistedPinnedState | null => {
     const savedTabs = localStorage.getItem(getStorageKey(PINNED_TAB_STATE_KEY))
     if (savedTabs) {
         try {
             const parsed = JSON.parse(savedTabs)
             let tabs: SceneTab[] = []
-            let homepage: SceneTab | null = null
 
             if (Array.isArray(parsed)) {
                 tabs = parsed
@@ -166,13 +160,12 @@ const getPersistedPinnedState = (): PersistedPinnedState | null => {
                     // Backwards compatibility for older local storage entries.
                     tabs = parsed.personal
                 }
-
-                homepage = normalizeStoredHomepage(parsed.homepage)
+                // parsed.homepage may exist on old entries — ignore it. Homepage is owned by the
+                // server now (appContext.user_home_settings.homepage) and not mirrored here.
             }
 
             return {
                 tabs: normalizeStoredPinnedTabs(tabs ?? []),
-                homepage,
             }
         } catch (e) {
             console.error('Failed to parse saved tabs from localStorage:', e)
@@ -181,9 +174,9 @@ const getPersistedPinnedState = (): PersistedPinnedState | null => {
     return null
 }
 
-const persistTabs = (tabs: SceneTab[], homepage: SceneTab | null): void => {
+const persistTabs = (tabs: SceneTab[]): void => {
     persistSessionTabs(tabs)
-    persistPinnedTabs(tabs, homepage)
+    persistPinnedTabs(tabs)
 }
 
 const getPinnedTabsForPersistence = (tabs: SceneTab[]): SceneTab[] => {
@@ -691,10 +684,15 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     reducers({
+        // Seed from server-rendered appContext on first build so the `/` redirect resolves
+        // synchronously without waiting for an API round-trip. The server is the source of
+        // truth at page-load time; user changes go through PATCH /api/user_home_settings/@me/.
         homepage: [
-            null as SceneTab | null,
+            ((): SceneTab | null => {
+                const initial = getAppContext()?.user_home_settings?.homepage
+                return initial ? sanitizeTabForPersistence(initial) : null
+            })(),
             {
-                setPinnedStateFromBackend: (_, { pinnedState }) => pinnedState.homepage ?? null,
                 setHomepage: (_, { tab }) => (tab ? sanitizeTabForPersistence(tab) : null),
             },
         ],
@@ -922,50 +920,39 @@ export const sceneLogic = kea<sceneLogicType>([
                 scene_key: newTab?.sceneKey,
                 open_source: openSource,
             })
-            persistTabs(values.tabs, values.homepage)
+            persistTabs(values.tabs)
             if (!(options?.skipNavigate ?? false)) {
                 router.actions.push(href || urls.newTab())
             }
         },
-        setTabs: () => persistTabs(values.tabs, values.homepage),
+        setTabs: () => persistTabs(values.tabs),
         activateTab: ({ tab }, _, __, previousState) => {
             const previousActiveTabId = selectors.activeTabId(previousState)
             if (previousActiveTabId && previousActiveTabId !== tab.id) {
                 sidePanelStateLogic.findMounted()?.actions.onSceneTabChanged(previousActiveTabId, tab.id)
             }
-            persistTabs(values.tabs, values.homepage)
+            persistTabs(values.tabs)
         },
-        duplicateTab: () => persistTabs(values.tabs, values.homepage),
+        duplicateTab: () => persistTabs(values.tabs),
         renameTab: ({ tab }) => {
             actions.startTabEdit(tab)
         },
-        pinTab: () => persistTabs(values.tabs, values.homepage),
+        pinTab: () => persistTabs(values.tabs),
         unpinTab: ({ tabId }) => {
             if (values.homepage?.id === tabId) {
                 actions.setHomepage(null)
-            } else {
-                persistTabs(values.tabs, values.homepage)
             }
+            persistTabs(values.tabs)
         },
         loadPinnedTabsFromBackend: async () => {
             try {
                 const response = await api.get<{
                     tabs?: SceneTab[]
-                    homepage?: SceneTab | null
                 }>('api/user_home_settings/@me/')
                 const tabs = response?.tabs ?? []
-                const homepage = response?.homepage ?? null
-                // Cancel any pending debounced PATCH that may have captured pre-load state
-                // (e.g. a setHomepage(null) triggered by an empty localStorage at mount time).
-                // Letting it fire would overwrite the freshly-loaded backend value.
-                if (cache.persistPinnedTabsTimeout) {
-                    window.clearTimeout(cache.persistPinnedTabsTimeout)
-                    cache.persistPinnedTabsTimeout = null
-                }
                 cache.skipNextPinnedSync = true
                 const pinnedState: PersistedPinnedState = {
                     tabs: normalizeStoredPinnedTabs(tabs),
-                    homepage: homepage ? sanitizeTabForPersistence(homepage) : null,
                 }
                 actions.setPinnedStateFromBackend(pinnedState)
             } catch (error) {
@@ -973,10 +960,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         setPinnedStateFromBackend: () => {
-            persistTabs(values.tabs, values.homepage)
-        },
-        setHomepage: () => {
-            persistTabs(values.tabs, values.homepage)
+            persistTabs(values.tabs)
         },
         closeTabId: ({ tabId, options }) => {
             const tab = values.tabs.find(({ id }) => id === tabId)
@@ -1003,11 +987,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { activeTab } = values
                 if (activeTab) {
                     router.actions.push(activeTab.pathname, activeTab.search, activeTab.hash)
-                } else if (!isHomepageTab) {
-                    persistTabs(values.tabs, values.homepage)
+                } else {
+                    persistTabs(values.tabs)
                 }
-            } else if (!isHomepageTab) {
-                persistTabs(values.tabs, values.homepage)
+            } else {
+                persistTabs(values.tabs)
             }
 
             if (isHomepageTab) {
@@ -1019,10 +1003,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.activateTab(tab)
             }
             router.actions.push(tab.pathname, tab.search, tab.hash)
-            persistTabs(values.tabs, values.homepage)
+            persistTabs(values.tabs)
         },
         reorderTabs: () => {
-            persistTabs(values.tabs, values.homepage)
+            persistTabs(values.tabs)
         },
         push: ({ url, hashInput, searchInput }) => {
             let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
@@ -1056,7 +1040,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                 ])
             }
-            persistTabs(values.tabs, values.homepage)
+            persistTabs(values.tabs)
         },
         locationChanged: ({ pathname, search, hash, routerState, method }) => {
             pathname = addProjectIdIfMissing(pathname)
@@ -1093,7 +1077,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                 ])
             }
-            persistTabs(values.tabs, values.homepage)
+            persistTabs(values.tabs)
 
             // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
@@ -1359,11 +1343,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 initialTabs = composeTabsFromStorage(savedPinnedTabs, sessionWithIds)
                 cache.skipNextPinnedSync = true
                 actions.setTabs(initialTabs)
-                if (savedPinnedTabs) {
-                    cache.skipNextPinnedSync = true
-                    actions.setHomepage(savedPinnedTabs.homepage ?? null)
-                }
-
                 cache.initialNavigationTabCreated = initialTabs.some((tab) => !tab.pinned)
             }
             cache.tabsLoaded = true
@@ -1514,25 +1493,24 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
 
     subscriptions(({ actions, values, cache }) => {
-        const schedulePinnedStateSync = (): void => {
+        // Tabs and homepage are PATCHed independently. They're independent fields with independent
+        // change cadences, and a combined PATCH would let a tabs-only update from a stale tab
+        // overwrite a homepage change made in another tab during the same session.
+        const schedulePinnedTabsSync = (): void => {
             const pinnedTabsForPersistence = getPinnedTabsForPersistence(values.tabs)
-            const homepageForPersistence = getHomepageForPersistence(values.homepage)
-            const serializedPinnedState = JSON.stringify({
-                tabs: pinnedTabsForPersistence,
-                homepage: homepageForPersistence,
-            })
+            const serialized = JSON.stringify(pinnedTabsForPersistence)
 
             if (cache.skipNextPinnedSync) {
                 cache.skipNextPinnedSync = false
-                cache.lastPersistedPinnedSerialized = serializedPinnedState
+                cache.lastPersistedTabsSerialized = serialized
                 return
             }
 
-            if (cache.lastPersistedPinnedSerialized === serializedPinnedState) {
+            if (cache.lastPersistedTabsSerialized === serialized) {
                 return
             }
 
-            cache.lastPersistedPinnedSerialized = serializedPinnedState
+            cache.lastPersistedTabsSerialized = serialized
 
             if (cache.persistPinnedTabsTimeout) {
                 window.clearTimeout(cache.persistPinnedTabsTimeout)
@@ -1540,19 +1518,36 @@ export const sceneLogic = kea<sceneLogicType>([
 
             cache.persistPinnedTabsTimeout = window.setTimeout(async () => {
                 cache.persistPinnedTabsTimeout = null
-                // Read fresh values at fire time. If the schedule was triggered by transient
-                // pre-load state (e.g. setHomepage(null) on mount before loadPinnedTabsFromBackend
-                // resolved), the in-memory state has since been corrected — persist that, not the
-                // stale value captured at schedule time.
                 const freshTabs = getPinnedTabsForPersistence(values.tabs)
-                const freshHomepage = getHomepageForPersistence(values.homepage)
                 try {
-                    await api.update('api/user_home_settings/@me/', {
-                        tabs: freshTabs,
-                        homepage: freshHomepage,
-                    })
+                    await api.update('api/user_home_settings/@me/', { tabs: freshTabs })
                 } catch (error) {
                     console.error('Failed to persist pinned scene tabs to backend', error)
+                }
+            }, 500)
+        }
+
+        const scheduleHomepageSync = (): void => {
+            const homepageForPersistence = getHomepageForPersistence(values.homepage)
+            const serialized = JSON.stringify(homepageForPersistence)
+
+            if (cache.lastPersistedHomepageSerialized === serialized) {
+                return
+            }
+
+            cache.lastPersistedHomepageSerialized = serialized
+
+            if (cache.persistHomepageTimeout) {
+                window.clearTimeout(cache.persistHomepageTimeout)
+            }
+
+            cache.persistHomepageTimeout = window.setTimeout(async () => {
+                cache.persistHomepageTimeout = null
+                const freshHomepage = getHomepageForPersistence(values.homepage)
+                try {
+                    await api.update('api/user_home_settings/@me/', { homepage: freshHomepage })
+                } catch (error) {
+                    console.error('Failed to persist homepage to backend', error)
                 }
             }, 500)
         }
@@ -1610,9 +1605,9 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 }
-                schedulePinnedStateSync()
+                schedulePinnedTabsSync()
             },
-            homepage: schedulePinnedStateSync,
+            homepage: scheduleHomepageSync,
         }
     }),
     afterMount(({ cache }) => {
@@ -1648,12 +1643,6 @@ export const sceneLogic = kea<sceneLogicType>([
             () => {
                 const syncPinnedTabsFromStorage = (): void => {
                     const storedPinned = getPersistedPinnedState()
-                    if (!storedPinned) {
-                        // localStorage has no entry — either the initial mount before any local
-                        // state has been written, or another tab cleared site data. Either way,
-                        // don't clobber in-memory state (the backend load is authoritative).
-                        return
-                    }
                     const currentTabs = values.tabs
                     const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
 
@@ -1662,8 +1651,6 @@ export const sceneLogic = kea<sceneLogicType>([
 
                     cache.skipNextPinnedSync = true
                     actions.setTabs(updatedTabs)
-                    cache.skipNextPinnedSync = true
-                    actions.setHomepage(storedPinned.homepage ?? null)
 
                     if (!nextActiveTab?.pinned) {
                         return

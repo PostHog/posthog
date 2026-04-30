@@ -35,7 +35,7 @@ import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
@@ -4697,6 +4697,12 @@ export interface AppContext {
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
+    /** Server-rendered home page preference. Source of truth at page-load time; updates flow
+     * through PATCH /api/user_home_settings/@me/. Tabs deliberately stay out of appContext —
+     * they need cross-tab live sync via localStorage. */
+    user_home_settings?: {
+        homepage: SceneTab | null
+    }
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
