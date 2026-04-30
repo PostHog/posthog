@@ -108,11 +108,19 @@ class Command(BaseCommand):
             loader = None
 
         for label, migration in migrations:
-            if loader:
-                risk = analyzer.analyze_migration_with_context(migration, label, loader)
-            else:
-                risk = analyzer.analyze_migration(migration, label)
-            results.append(risk)
+            # Best-effort: a single un-analyzable migration must not abort the run,
+            # otherwise handle() never reaches write_json_report() and the
+            # downstream Migration risk check is never published — leaving
+            # stamphog stuck in WAITING with no bridge retrigger.
+            try:
+                if loader:
+                    risk = analyzer.analyze_migration_with_context(migration, label, loader)
+                else:
+                    risk = analyzer.analyze_migration(migration, label)
+                results.append(risk)
+            except Exception as e:
+                print(f"## ⚠️ Error analyzing migration {label}: {e}", file=sys.stderr)
+                continue
 
         return results
 
