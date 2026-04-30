@@ -221,7 +221,7 @@ class ErrorTrackingAssigneeResponseSerializer(serializers.Serializer):
 
 
 class ErrorTrackingVolumeBucketSerializer(serializers.Serializer):
-    label = serializers.CharField(help_text="Bucket timestamp label.")
+    label = serializers.CharField(help_text="Bucket timestamp label.")  # type: ignore[assignment]
     value = serializers.FloatField(required=False, allow_null=True, help_text="Occurrence count for the bucket.")
 
 
@@ -248,7 +248,7 @@ class ErrorTrackingIssueListItemSerializer(serializers.Serializer):
     first_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="First seen timestamp.")
     last_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="Last seen timestamp.")
     library = serializers.CharField(required=False, allow_null=True, help_text="SDK/library associated with the issue.")
-    source = serializers.CharField(
+    source = serializers.CharField(  # type: ignore[assignment]
         required=False, allow_null=True, help_text="Top source/file associated with the issue."
     )
     assignee = ErrorTrackingAssigneeResponseSerializer(required=False, allow_null=True, help_text="Issue assignee.")
@@ -267,7 +267,7 @@ class ErrorTrackingIssuesListResponseSerializer(serializers.Serializer):
 
 class ErrorTrackingTopFrameSerializer(serializers.Serializer):
     function = serializers.CharField(required=False, help_text="Frame function name.")
-    source = serializers.CharField(required=False, help_text="Frame source, filename, or module.")
+    source = serializers.CharField(required=False, help_text="Frame source, filename, or module.")  # type: ignore[assignment]
     line = serializers.IntegerField(required=False, help_text="Line number.")
     column = serializers.IntegerField(required=False, help_text="Column number.")
     in_app = serializers.BooleanField(required=False, help_text="Whether the frame is an application frame.")

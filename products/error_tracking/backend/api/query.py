@@ -92,7 +92,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
             data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
-        raw_results = data.get("results") if isinstance(data.get("results"), list) else []
+        raw_results_value = data.get("results")
+        raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         results = [pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS) for issue in raw_results[:limit]]
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
@@ -138,7 +139,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
             data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
-        raw_results = data.get("results") if isinstance(data.get("results"), list) else []
+        raw_results_value = data.get("results")
+        raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         if not raw_results:
             payload: dict[str, object] = compact_dict(
                 {
@@ -235,7 +237,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             data = EventsQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
         raw_columns = data.get("columns")
         columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else EVENT_SELECTS
-        raw_results = data.get("results") if isinstance(data.get("results"), list) else []
+        raw_results_value = data.get("results")
+        raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         verbosity = cast(str, params.get("verbosity", "summary"))
         only_app_frames = cast(bool, params.get("onlyAppFrames", True))
         results = [map_event_row(row, columns, verbosity, only_app_frames) for row in raw_results[:limit]]

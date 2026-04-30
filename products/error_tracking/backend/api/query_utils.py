@@ -284,9 +284,11 @@ def property_name(select: str) -> str | None:
 
 
 def map_event_row(row: object, columns: list[str], verbosity: str, only_app_frames: bool) -> dict[str, object]:
-    values = (
-        row if isinstance(row, list) else [as_record(row).get(column) if as_record(row) else None for column in columns]
-    )
+    if isinstance(row, list):
+        values = row
+    else:
+        record = as_record(row)
+        values = [record.get(column) if record else None for column in columns]
     event: dict[str, object] = {"properties": {}}
     properties = cast(dict[str, object], event["properties"])
     for index, column in enumerate(columns):
@@ -316,7 +318,10 @@ def get_frames(exception_list: object) -> list[dict[str, object]]:
         return []
     frames: list[dict[str, object]] = []
     for exception in exception_list:
-        stacktrace = as_record(as_record(exception).get("stacktrace") if as_record(exception) else None)
+        exception_record = as_record(exception)
+        if exception_record is None:
+            continue
+        stacktrace = as_record(exception_record.get("stacktrace"))
         exception_frames = stacktrace.get("frames") if stacktrace else None
         if isinstance(exception_frames, list):
             frames.extend(frame for frame in exception_frames if isinstance(frame, dict))
@@ -397,15 +402,23 @@ def build_sparkline(issue: dict[str, object]) -> list[float] | None:
     aggregations = as_record(issue.get("aggregations")) or {}
     volume_range = aggregations.get("volumeRange")
     if isinstance(volume_range, list):
-        numeric_values = [to_number(value) for value in volume_range]
-        if all(value is not None for value in numeric_values):
-            return cast(list[float], numeric_values)
+        numeric_values: list[float] = []
+        for value in volume_range:
+            numeric_value = to_number(value)
+            if numeric_value is None:
+                return None
+            numeric_values.append(numeric_value)
+        return numeric_values
     volume_buckets = aggregations.get("volume_buckets")
     if isinstance(volume_buckets, list):
-        values = [
-            to_number(record.get("value")) for bucket in volume_buckets if (record := as_record(bucket)) is not None
-        ]
-        numeric_values = [value for value in values if value is not None]
+        numeric_values = []
+        for bucket in volume_buckets:
+            record = as_record(bucket)
+            if record is None:
+                continue
+            value = to_number(record.get("value"))
+            if value is not None:
+                numeric_values.append(value)
         return numeric_values or None
     return None
 
