@@ -155,10 +155,10 @@ By default, `hogli start` runs a minimal set of services (enough for product ana
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
 
 ```bash
-hogli start -d
+hogli up -d
 ```
 
-This starts all services in the background and returns once the IPC socket is bound. Detached mode is useful for:
+`hogli up -d` is the preferred command for detached mode (`hogli start -d` is an equivalent alias). It starts all services in the background and returns once the IPC socket is bound. Detached mode is useful for:
 
 - Coder workspaces and remote development environments
 - CI pipelines and automated testing
@@ -167,8 +167,7 @@ This starts all services in the background and returns once the IPC socket is bo
 **Companion commands:**
 
 - `hogli wait` – blocks until all services are ready (useful in scripts)
-- `hogli stop` – gracefully stops the detached stack
-- `hogli up -d` and `hogli down` – aliases for `hogli start -d` and `hogli stop`
+- `hogli down` – gracefully stops the detached stack (preferred; `hogli stop` is an equivalent alias)
 
 ### Manual setup
 
