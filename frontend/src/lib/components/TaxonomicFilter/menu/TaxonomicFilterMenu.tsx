@@ -5,18 +5,25 @@
  *
  * Architecture:
  *   - One state machine at the top (`MenuFilterState`).
- *   - Trigger button is the *single* anchor for both the dropdown menu
- *     and the popover. The menu uses base-ui's own trigger registration;
- *     the popover anchors to the trigger ref via `Positioner.anchor`.
- *   - Each panel (Combobox / DwhTables / DwhConfig / HogQL) is a pure
- *     component; it receives data + callbacks. No registration hooks.
+ *   - Trigger button is anchor for both the dropdown menu (small list
+ *     options) and the popover (data panels). The DropdownMenuTrigger
+ *     is the visible button; PopoverTrigger is a transparent overlay
+ *     used solely as a Floating UI anchor.
+ *   - Popover dismiss treats clicks on the underlying trigger button as
+ *     "outside" since the PopoverTrigger overlay isn't the click target.
+ *     We cancel that specific outsidePress in `onOpenChange` so the
+ *     popover doesn't immediately re-close when we route a `selected`
+ *     user straight into a panel.
+ *   - Each panel (Combobox / DwhConfig / HogQL) is a pure component; it
+ *     receives data + callbacks.
  *
  * Consumer wraps it in `<TaxonomicFilterHeadless.Root>` so we can read
  * `groups` + `selectItem` via context (same orchestrator the legacy /
  * old headless components use).
  */
 import { useValues } from 'kea'
-import { ReactElement, useCallback, useMemo, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     Button,
@@ -88,6 +95,26 @@ export function TaxonomicFilterMenu({
     )
     const openHogql = useCallback(() => setState({ kind: 'hogql-edit' }), [])
 
+    /**
+     * Resolve the initial state when the trigger opens. If `selected` is
+     * set, jump straight into the panel that matches its group so the
+     * user lands on something editable (e.g. the HogQL editor pre-filled
+     * with the existing expression) instead of having to re-traverse the
+     * dropdown menu. With no selection we fall back to the menu.
+     */
+    const resolveOpenState = useCallback((): MenuFilterState => {
+        if (!selected) {
+            return { kind: 'menu' }
+        }
+        if (selected.group.type === TaxonomicFilterGroupType.HogQLExpression) {
+            return { kind: 'hogql-edit' }
+        }
+        if (selected.group.type === TaxonomicFilterGroupType.DataWarehouse) {
+            return { kind: 'dwh-config', table: selected.item, group: selected.group }
+        }
+        return { kind: 'combobox', drillTo: selected.group.type }
+    }, [selected])
+
     // -- Recent / Pinned shortcuts -- read from kea so menu items reflect
     // the live counts. Mapped back to entries via source group.
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
@@ -131,7 +158,7 @@ export function TaxonomicFilterMenu({
         typeof trigger === 'function' ? trigger(triggerState) : (trigger ?? <Button variant="outline">{label}</Button>)
 
     // -- Popover open derives from state. The dropdown menu is a separate
-    // component (DropdownMenu); the popover is open for any non-menu,
+    // overlay (DropdownMenu); the popover is open for any non-menu,
     // non-closed kind.
     const popoverOpen =
         state.kind === 'combobox' ||
@@ -139,12 +166,70 @@ export function TaxonomicFilterMenu({
         state.kind === 'dwh-config' ||
         state.kind === 'hogql-edit'
 
+    // Manual outside-click handling. base-ui Popover's automatic dismiss
+    // can't reliably distinguish a click on the visible trigger (the
+    // DropdownMenuTrigger button) from a click outside, because its own
+    // PopoverTrigger is a transparent overlay sibling. We cancel its
+    // outsidePress / focusOut firings (see `onOpenChange` below) and
+    // close manually here.
+    //
+    // The popover content lives in a portal and Quill's `PopoverContent`
+    // doesn't forward refs, so we walk the click target's ancestors
+    // looking for `[data-slot="popover-content"]` instead.
+    const triggerWrapRef = useRef<HTMLSpanElement | null>(null)
+
+    useEffect(() => {
+        if (!popoverOpen) {
+            return undefined
+        }
+        let attached = false
+        const handler = (event: PointerEvent): void => {
+            const target = event.target as Element | null
+            if (!target) {
+                return
+            }
+            if (target.closest?.('[data-slot="popover-content"]')) {
+                return
+            }
+            if (triggerWrapRef.current?.contains(target)) {
+                return
+            }
+            closeAll()
+        }
+        // Defer attach by one task — avoids catching the same click that
+        // just transitioned us into a popover state.
+        const timer = window.setTimeout(() => {
+            attached = true
+            document.addEventListener('pointerdown', handler, true)
+        }, 0)
+        return () => {
+            window.clearTimeout(timer)
+            if (attached) {
+                document.removeEventListener('pointerdown', handler, true)
+            }
+        }
+    }, [popoverOpen, closeAll])
+
     return (
         <DropdownMenu
             open={state.kind === 'menu'}
             onOpenChange={(open) => {
                 if (open) {
-                    openMenu()
+                    // Trigger click is the only way DropdownMenu's
+                    // onOpenChange(true) fires. Interpret it based on
+                    // current state: closed → resolve to a panel; in a
+                    // popover state → toggle the popover closed.
+                    setState((current) => {
+                        if (
+                            current.kind === 'combobox' ||
+                            current.kind === 'dwh-pick' ||
+                            current.kind === 'dwh-config' ||
+                            current.kind === 'hogql-edit'
+                        ) {
+                            return { kind: 'closed' }
+                        }
+                        return resolveOpenState()
+                    })
                     return
                 }
                 // Functional setState — when a menu item's onClick already
@@ -154,14 +239,25 @@ export function TaxonomicFilterMenu({
                 setState((current) => (current.kind === 'menu' ? { kind: 'closed' } : current))
             }}
         >
-            {/* Wrapper around the trigger button: a hidden `PopoverTrigger`
-                span overlays it (`absolute inset-0 pointer-events-none`)
-                purely as the popover's anchor. The visible button only
-                handles menu-trigger clicks; the overlay receives no
-                events but Floating UI uses its bounding rect. Clean
-                composition without compose-render-on-same-button. */}
-            <Popover open={popoverOpen} onOpenChange={(open) => !open && closeAll()}>
-                <span className="relative inline-flex">
+            <Popover
+                open={popoverOpen}
+                onOpenChange={(open, eventDetails) => {
+                    if (open) {
+                        return
+                    }
+                    // Esc still closes via base-ui; everything else
+                    // (outsidePress, focusOut, triggerHover, etc.) is
+                    // unreliable when the trigger button isn't the
+                    // PopoverTrigger element, so we cancel and let the
+                    // document pointerdown effect handle it.
+                    if (eventDetails.reason === 'escapeKey') {
+                        closeAll()
+                        return
+                    }
+                    eventDetails.cancel()
+                }}
+            >
+                <span ref={triggerWrapRef} className="relative inline-flex">
                     <DropdownMenuTrigger render={triggerEl} data-attr="taxonomic-filter-menu-trigger" />
                     <PopoverTrigger
                         render={<span aria-hidden tabIndex={-1} className="absolute inset-0 pointer-events-none" />}
@@ -171,10 +267,8 @@ export function TaxonomicFilterMenu({
                     align="start"
                     side="bottom"
                     sideOffset={4}
-                    className={cn('p-0 gap-0 w-(--anchor-width) min-w-[320px] h-[480px] overflow-hidden flex flex-col')}
+                    className={cn('p-0 gap-0 overflow-hidden flex flex-col w-[720px] h-[400px]')}
                 >
-                    {/* Render the active panel. `back` returns to the
-                        dropdown menu (per spec). */}
                     {state.kind === 'combobox' && (
                         <MenuFilterCombobox
                             drillTo={state.drillTo}
@@ -186,20 +280,19 @@ export function TaxonomicFilterMenu({
                                       : undefined
                             }
                             placeholder={placeholder ?? inputProps.placeholder}
+                            selectedEntry={selected ?? null}
                             onCommit={handleCommit}
                             onBack={openMenu}
                         />
                     )}
                     {state.kind === 'dwh-pick' && (
-                        // Reuse the combobox in single-group drill mode —
-                        // searchable, scrollable, no chips. `onCommit`
-                        // routes into the config form instead of
-                        // committing directly (DWH tables need column
-                        // setup before they're a valid selection).
                         <MenuFilterCombobox
                             drillTo={TaxonomicFilterGroupType.DataWarehouse}
                             title="Data warehouse tables"
                             placeholder="Search tables…"
+                            selectedEntry={
+                                selected?.group.type === TaxonomicFilterGroupType.DataWarehouse ? selected : null
+                            }
                             onCommit={(entry) => openDwhConfig(entry.item, entry.group)}
                             onBack={openMenu}
                         />
@@ -212,31 +305,50 @@ export function TaxonomicFilterMenu({
                             onBack={openDwhPick}
                         />
                     )}
-                    {state.kind === 'hogql-edit' && <MenuFilterHogQLEditor onCommit={handleCommit} onBack={openMenu} />}
+                    {state.kind === 'hogql-edit' && (
+                        <MenuFilterHogQLEditor
+                            initialExpression={
+                                selected?.group.type === TaxonomicFilterGroupType.HogQLExpression
+                                    ? selected.name
+                                    : undefined
+                            }
+                            onCommit={handleCommit}
+                            onBack={openMenu}
+                        />
+                    )}
                 </PopoverContent>
             </Popover>
             <DropdownMenuContent align="start" className="min-w-[240px]">
                 <DropdownMenuItem onClick={() => openCombobox('all')} data-attr="taxonomic-filter-menu-new">
                     New filter…
+                    <ChevronRight className="ml-auto size-3.5 text-tertiary" />
                 </DropdownMenuItem>
                 {recentEntries.length > 0 && (
                     <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openCombobox('recent')}>Recent</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openCombobox('recent')}>
+                            Recent
+                            <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                        </DropdownMenuItem>
                     </>
                 )}
                 {pinnedEntries.length > 0 && (
-                    <DropdownMenuItem onClick={() => openCombobox('pinned')}>Pinned</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => openCombobox('pinned')}>
+                        Pinned
+                        <ChevronRight className="ml-auto size-3.5 text-tertiary" />
+                    </DropdownMenuItem>
                 )}
                 {(hasDwh || hasHogql) && <DropdownMenuSeparator />}
                 {hasDwh && (
                     <DropdownMenuItem onClick={openDwhPick} data-attr="taxonomic-filter-menu-dwh">
                         Data warehouse tables
+                        <ChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
                 {hasHogql && (
                     <DropdownMenuItem onClick={openHogql} data-attr="taxonomic-filter-menu-hogql">
                         HogQL expression
+                        <ChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
             </DropdownMenuContent>

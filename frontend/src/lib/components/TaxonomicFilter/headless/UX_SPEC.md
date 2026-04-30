@@ -143,7 +143,7 @@ sheet was prototyped but parked.)
 
 ## Sizing & position
 
-- Popover height is **fixed** (`h-[480px]`) so view-stack swaps
+- Popover height is **fixed** (`h-[400px]`) so view-stack swaps
   (root → sub-page → root) don't reflow Floating UI's positioning.
 - Width = `--anchor-width` (matches trigger width), `min-w-[320px]`.
 - List inside scrolls; surrounding chrome (header, input, chips) is

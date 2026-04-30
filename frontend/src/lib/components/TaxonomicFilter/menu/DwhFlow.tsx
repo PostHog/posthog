@@ -51,12 +51,25 @@ export function MenuFilterDwhConfig({ table, group, onCommit, onBack }: MenuFilt
     const guess = (predicate: (col: string) => boolean): DwhColumnOption | null =>
         columns.find((c) => predicate(c.name)) ?? columns[0] ?? null
 
-    const [idField, setIdField] = useState<DwhColumnOption | null>(() => guess((c) => c === 'id' || c.endsWith('_id')))
-    const [timestampField, setTimestampField] = useState<DwhColumnOption | null>(() =>
-        guess((c) => c === 'timestamp' || c.includes('time') || c.includes('created') || c.includes('date'))
+    // Prefer the previously-saved column mapping when the form is
+    // re-opened from an existing selection — `handleCommit` merges the
+    // form values into `item`, so they roundtrip back here as
+    // `id_field` / `timestamp_field` / `distinct_id_field`.
+    const preset = (key: string): DwhColumnOption | null => {
+        const v = (table as unknown as Record<string, unknown>)[key]
+        return typeof v === 'string' ? columns.find((c) => c.name === v) ?? null : null
+    }
+
+    const [idField, setIdField] = useState<DwhColumnOption | null>(
+        () => preset('id_field') ?? guess((c) => c === 'id' || c.endsWith('_id'))
     )
-    const [distinctIdField, setDistinctIdField] = useState<DwhColumnOption | null>(() =>
-        guess((c) => c.includes('distinct'))
+    const [timestampField, setTimestampField] = useState<DwhColumnOption | null>(
+        () =>
+            preset('timestamp_field') ??
+            guess((c) => c === 'timestamp' || c.includes('time') || c.includes('created') || c.includes('date'))
+    )
+    const [distinctIdField, setDistinctIdField] = useState<DwhColumnOption | null>(
+        () => preset('distinct_id_field') ?? guess((c) => c.includes('distinct'))
     )
 
     const canSubmit = !!idField && !!timestampField && !!distinctIdField

@@ -50,7 +50,7 @@ import {
     useTaxonomicAutocomplete,
     useTaxonomicAutocompleteItemDetails,
 } from 'lib/components/TaxonomicFilter/headless'
-import { TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
+import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -339,6 +339,10 @@ export function TaxonomicFilterPreview(): JSX.Element {
 function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
     const [legacy, setLegacy] = useState<ScenarioSelection | null>(null)
     const [autocomplete, setAutocomplete] = useState<ScenarioSelection | null>(null)
+    // Track the menu rebuild's selection so re-opening the trigger jumps
+    // straight back into the panel that owns it (HogQL editor pre-fill,
+    // DWH config restore, drilled combobox).
+    const [menuSelected, setMenuSelected] = useState<MenuFilterEntry | null>(null)
 
     const handle =
         (setter: (s: ScenarioSelection | null) => void) =>
@@ -435,7 +439,11 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                         excludedProperties={scenario.excludedProperties}
                         onChange={handle(setAutocomplete)}
                     >
-                        <TaxonomicFilterMenu triggerLabel={scenario.label} />
+                        <TaxonomicFilterMenu
+                            triggerLabel={scenario.label}
+                            selected={menuSelected}
+                            onCommit={(entry) => setMenuSelected(entry)}
+                        />
                     </TaxonomicFilterHeadless.Root>
                 </div>
             </div>

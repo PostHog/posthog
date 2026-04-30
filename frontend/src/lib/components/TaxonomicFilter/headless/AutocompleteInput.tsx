@@ -75,7 +75,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { PropertyDefinitionType } from '~/types'
 
 import { useGroupList } from '../hooks/useGroupList'
-import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
+import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -898,7 +898,7 @@ function Content({ children, className }: TaxonomicAutocompleteContentProps): JS
         // Hard height pins the surface so view-stack swaps don't reflow.
         <PopoverContent
             className={cn(
-                'p-0 gap-0 w-(--anchor-width) min-w-[320px] h-[480px] overflow-hidden',
+                'p-0 gap-0 w-(--anchor-width) min-w-[320px] h-[400px] overflow-hidden',
                 className
             )}
         >
@@ -1653,7 +1653,13 @@ export function useTaxonomicAutocompleteItemDetails(
         const { item, group, name, friendlyLabel } = entry
         const title = friendlyLabel && friendlyLabel.length > 0 ? friendlyLabel : name
         const def = getCoreFilterDefinition(name, group.type)
-        const value = group.getValue?.(item) ?? null
+        // Fall back to the pinned context's stored value when `getValue`
+        // can't read it from the shrunk `{ name }` reducer payload — Actions
+        // and other groups whose `getValue` reads `id` (not `name`) would
+        // otherwise short-circuit to `null` and break pin/unpin from the
+        // pinned drill.
+        const value =
+            group.getValue?.(item) ?? (hasPinnedContext(item) ? item._pinnedContext.value : null) ?? null
         const definitionType = PROPERTY_GROUP_TYPE_TO_DEFINITION_TYPE[group.type]
         const propertyType = definitionType ? describeProperty(name, definitionType) ?? undefined : undefined
         const example = def?.examples?.[0] != null ? String(def.examples[0]) : undefined

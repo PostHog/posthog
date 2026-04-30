@@ -299,9 +299,10 @@ describe('useTaxonomicFilter', () => {
                 }),
             { wrapper }
         )
-        // Recent + Pinned auto-inject ahead of Events + Actions, so we have
-        // 4 visible tabs and the first 3 placeholders compose with " or other..."
-        expect(result.current.searchPlaceholder).toBe('recent, pinned, events or other...')
+        // Recent + Pinned auto-inject as META groups but are excluded from
+        // the placeholder — only content categories surface, joined into a
+        // simple "events, actions" label since there are only 2.
+        expect(result.current.searchPlaceholder).toBe('events, actions')
     })
 
     it('getGroupListInput returns shape compatible with useGroupList', () => {

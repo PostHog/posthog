@@ -12,9 +12,10 @@
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import FuseClass from 'fuse.js'
+import { Check, ChevronRight } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea } from '@posthog/quill'
+import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea, Separator } from '@posthog/quill'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -22,6 +23,7 @@ import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
 import { MenuFilterHeader } from './Header'
+import { PreviewPane } from './PreviewPane'
 import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
 
 const FUSE_OPTIONS = {
@@ -49,6 +51,8 @@ export interface MenuFilterComboboxProps {
     onBack: () => void
     /** Title shown in the header. Defaults to drill category name. */
     title?: string
+    /** Currently-committed selection — rendered with a checkmark + scrolled into view. */
+    selectedEntry?: MenuFilterEntry | null
 }
 
 export function MenuFilterCombobox({
@@ -58,6 +62,7 @@ export function MenuFilterCombobox({
     onCommit,
     onBack,
     title,
+    selectedEntry,
 }: MenuFilterComboboxProps): JSX.Element {
     // Sync our local query to the orchestrator's so remote-endpoint groups
     // (Pageview URLs, Screens, etc.) actually fetch — `useGroupList` reads
@@ -66,7 +71,51 @@ export function MenuFilterCombobox({
     const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
     const [activeChip, setActiveChip] = useState<DrillCategory>(drillTo)
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
+    const [highlightedEntry, setHighlightedEntry] = useState<MenuFilterEntry | null>(null)
     const inputRef = useRef<HTMLInputElement | null>(null)
+
+    // Stable DOM id for the selected row — must mirror `Row`'s `stableId`
+    // so the checkmark + scroll target can be derived identically here.
+    const selectedRowId = useMemo<string | null>(() => {
+        if (!selectedEntry) {
+            return null
+        }
+        const value = selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name
+        return `menu-filter-row-${selectedEntry.group.type}-${String(value)}`
+    }, [selectedEntry])
+
+    // Scroll the selected row into view after the list mounts. Polls a few
+    // animation frames because rows render after the underlying group's
+    // items resolve (remote endpoints), so the element won't exist on the
+    // first paint. Stops as soon as the node appears or after ~10 frames.
+    useEffect(() => {
+        if (!selectedRowId) {
+            return
+        }
+        let cancelled = false
+        let attempts = 0
+        const tick = (): void => {
+            if (cancelled) {
+                return
+            }
+            const el = document.getElementById(selectedRowId)
+            if (el) {
+                // `center` keeps a comfortable buffer above + below the
+                // selected row so it never lands flush against the edge
+                // of the scroll viewport (where the scroll-to button or
+                // the scrollbar fade can obscure it).
+                el.scrollIntoView({ block: 'center' })
+                return
+            }
+            if (attempts++ < 10) {
+                requestAnimationFrame(tick)
+            }
+        }
+        tick()
+        return () => {
+            cancelled = true
+        }
+    }, [selectedRowId])
 
     const reportItems = useCallback((type: string, next: TaxonomicDefinitionTypes[]): void => {
         setItemsByType((prev) => (prev[type] === next ? prev : { ...prev, [type]: next }))
@@ -171,79 +220,94 @@ export function MenuFilterCombobox({
                 inline
                 defaultOpen
                 autoHighlight="always"
+                // `keepHighlight` so moving the pointer off the list (into
+                // the preview pane to click Pin / Edit / View) doesn't
+                // reset to the first row and pull the preview out from
+                // under the user.
+                keepHighlight
                 openOnInputClick={false}
                 itemToStringValue={(entry: MenuFilterEntry) => entry.name}
+                onItemHighlighted={(entry) => setHighlightedEntry((entry as MenuFilterEntry | undefined) ?? null)}
             >
-                <div className="flex flex-col flex-1 min-h-0">
-                    <div className="p-2 border-b">
-                        <InputGroup>
-                            <Autocomplete.Input
-                                render={
-                                    <InputGroupInput
-                                        ref={inputRef}
-                                        autoFocus
-                                        data-attr="menu-filter-search"
-                                        placeholder={placeholder ?? 'Search…'}
-                                        onKeyDown={handleInputKeyDown}
-                                    />
-                                }
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                        </InputGroup>
-                    </div>
-                    {showChips && (
-                        <div role="tablist" className="flex flex-wrap gap-1 px-2 py-1 border-b">
-                            <ChipButton
-                                label="All"
-                                active={activeChip === 'all'}
-                                onSelect={() => {
-                                    setActiveChip('all')
-                                    inputRef.current?.focus()
-                                }}
-                            />
-                            {visibleChipGroups.map((g) => (
+                {/* Flex layout: list flexes, separator is 1px, preview is a
+                    fixed 300px column. `shrink-0` on the preview keeps it
+                    stable when the popover (or list contents) change width. */}
+                <div className="flex flex-1 min-h-0">
+                    <div className="flex flex-col flex-1 min-w-0 min-h-0">
+                        <div className="p-2 border-b">
+                            <InputGroup>
+                                <Autocomplete.Input
+                                    render={
+                                        <InputGroupInput
+                                            ref={inputRef}
+                                            autoFocus
+                                            data-attr="menu-filter-search"
+                                            placeholder={placeholder ?? 'Search…'}
+                                            onKeyDown={handleInputKeyDown}
+                                        />
+                                    }
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </InputGroup>
+                        </div>
+                        {showChips && (
+                            <div role="tablist" className="flex flex-wrap gap-1 px-2 py-1 border-b">
                                 <ChipButton
-                                    key={g.type}
-                                    label={g.name}
-                                    active={activeChip === g.type}
+                                    label="All"
+                                    active={activeChip === 'all'}
                                     onSelect={() => {
-                                        setActiveChip(g.type)
+                                        setActiveChip('all')
                                         inputRef.current?.focus()
                                     }}
                                 />
-                            ))}
-                        </div>
-                    )}
-                    {!drillItems && targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
-                    <ScrollArea className="flex-1 min-h-0" showScrollToButton={['bottom']}>
-                        <Autocomplete.List data-quill className="p-2 scroll-py-1">
-                            <Autocomplete.Empty className="px-2 py-3 text-xs text-secondary empty:hidden">
-                                {filtered.length === 0 && searchQuery
-                                    ? 'No matches'
-                                    : filtered.length === 0
-                                      ? 'No items'
-                                      : null}
-                            </Autocomplete.Empty>
-                            <Autocomplete.Collection>
-                                {(entry: MenuFilterEntry) => (
-                                    <Row
-                                        entry={entry}
-                                        // Group label only when truly mixed
-                                        // — drilled scopes already imply
-                                        // their group, the line is noise.
-                                        showGroupLabel={activeChip === 'all'}
-                                        // Recent/Pinned mix entries from
-                                        // many groups but no chip is shown,
-                                        // so surface the source group as
-                                        // the subtitle for context.
-                                        showGroupSubtitle={drillTo === 'recent' || drillTo === 'pinned'}
-                                        onCommit={onCommit}
+                                {visibleChipGroups.map((g) => (
+                                    <ChipButton
+                                        key={g.type}
+                                        label={g.name}
+                                        active={activeChip === g.type}
+                                        onSelect={() => {
+                                            setActiveChip(g.type)
+                                            inputRef.current?.focus()
+                                        }}
                                     />
-                                )}
-                            </Autocomplete.Collection>
-                        </Autocomplete.List>
-                    </ScrollArea>
+                                ))}
+                            </div>
+                        )}
+                        {!drillItems &&
+                            targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
+                        <ScrollArea className="flex-1 min-h-0 scroll-py-8" showScrollToButton={['bottom']}>
+                            <Autocomplete.List data-quill className="p-2 scroll-py-8">
+                                <Autocomplete.Empty className="px-2 py-3 text-xs text-secondary empty:hidden">
+                                    {filtered.length === 0 && searchQuery
+                                        ? 'No matches'
+                                        : filtered.length === 0
+                                          ? 'No items'
+                                          : null}
+                                </Autocomplete.Empty>
+                                <Autocomplete.Collection>
+                                    {(entry: MenuFilterEntry) => (
+                                        <Row
+                                            entry={entry}
+                                            showGroupLabel={activeChip === 'all'}
+                                            showGroupSubtitle={drillTo === 'recent' || drillTo === 'pinned'}
+                                            // DWH rows open the column-config
+                                            // form, not a final selection —
+                                            // signal that with a chevron.
+                                            opensSubmenu={drillTo === TaxonomicFilterGroupType.DataWarehouse}
+                                            selectedRowId={selectedRowId}
+                                            onCommit={onCommit}
+                                        />
+                                    )}
+                                </Autocomplete.Collection>
+                            </Autocomplete.List>
+                        </ScrollArea>
+                    </div>
+                    <Separator orientation="vertical" className="h-full hidden md:block" />
+                    <PreviewPane
+                        entry={highlightedEntry}
+                        className="hidden md:flex flex-col w-[300px] shrink-0 min-w-0"
+                    />
                 </div>
             </Autocomplete.Root>
         </div>
@@ -256,10 +320,14 @@ interface RowProps {
     showGroupLabel: boolean
     /** Replace the raw-name subtitle with the source group name. */
     showGroupSubtitle?: boolean
+    /** Show a trailing chevron when click drills to another panel (DWH config). */
+    opensSubmenu?: boolean
+    /** DOM id of the currently-selected row (for the trailing checkmark). */
+    selectedRowId?: string | null
     onCommit: CommitFn
 }
 
-function Row({ entry, showGroupLabel, showGroupSubtitle, onCommit }: RowProps): JSX.Element {
+function Row({ entry, showGroupLabel, showGroupSubtitle, opensSubmenu, selectedRowId, onCommit }: RowProps): JSX.Element {
     const { item, group } = entry
     const friendly = entry.friendlyLabel
     // URL detection — if the row's name parses as a URL, show the path
@@ -278,22 +346,30 @@ function Row({ entry, showGroupLabel, showGroupSubtitle, onCommit }: RowProps): 
             ? entry.name
             : undefined
     const stableId = `menu-filter-row-${group.type}-${String(group.getValue?.(item) ?? entry.name)}`
+    const isSelected = selectedRowId === stableId
     return (
         <Autocomplete.Item
             id={stableId}
             value={entry}
+            data-selected={isSelected || undefined}
             onClick={(e) => {
                 e.preventDefault()
                 onCommit(entry)
             }}
             className={cn(
-                'flex flex-col items-start gap-0 rounded-sm px-2 py-1 cursor-pointer outline-none',
-                'data-[highlighted]:bg-[var(--fill-selected)]'
+                'flex flex-row items-center gap-2 rounded-sm px-2 py-1 cursor-pointer outline-none',
+                'data-[highlighted]:bg-[var(--fill-selected)]',
             )}
         >
-            <span className="text-sm leading-tight truncate max-w-full">{title}</span>
-            {subtitle && <span className="text-xs text-tertiary/50 leading-tight truncate max-w-full">{subtitle}</span>}
-            {showGroupLabel && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{group.name}</MenuLabel>}
+            <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
+                <span className="text-sm leading-tight truncate max-w-full">{title}</span>
+                {subtitle && (
+                    <span className="text-xs text-tertiary/50 leading-tight truncate max-w-full">{subtitle}</span>
+                )}
+                {showGroupLabel && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{group.name}</MenuLabel>}
+            </div>
+            {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
+            {opensSubmenu && <ChevronRight className="size-3.5 text-tertiary shrink-0" />}
         </Autocomplete.Item>
     )
 }
@@ -359,12 +435,18 @@ function parseUrl(s: string): { host: string; pathTail: string } | null {
 }
 
 function getRawName(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup): string {
-    return (
-        group.getName?.(item) ??
-        ('name' in (item as unknown as Record<string, unknown>)
-            ? ((item as unknown as { name?: string }).name ?? '')
-            : '')
-    )
+    // Prefer the underlying `name` field — it's the raw identifier on
+    // most definitions (`$timestamp`, `event`, `properties.$browser`).
+    // Some groups override `getName` to return a humanized label (Event
+    // metadata maps `id` → `coreFilterDefinition.label`, returning
+    // "Timestamp" for `timestamp`); falling back to `getName` only when
+    // the item has no `name` keeps the raw → friendly → display chain
+    // working so the preview's "Sent as" surfaces the underlying key.
+    const itemName = (item as unknown as { name?: unknown }).name
+    if (typeof itemName === 'string' && itemName.length > 0) {
+        return itemName
+    }
+    return group.getName?.(item) ?? ''
 }
 
 function getFriendlyLabel(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup): string | undefined {

@@ -346,12 +346,18 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
     const activeGroup = useMemo(() => groups.find((g) => g.type === activeGroupType), [groups, activeGroupType])
 
     // ---- search placeholder -------------------------------------------------
+    // Skip META groups (Recent/Pinned/Suggested/HogQL/etc.) — they exist
+    // as shortcut surfaces, not as searchable content categories, and the
+    // dropdown-menu rebuild now exposes Recent/Pinned as their own entries.
+    // Listing them here just crowded the placeholder ("Search recent,
+    // pinned, events…") and pushed real content labels out of the slice.
     const searchPlaceholder = useMemo(() => {
-        const labels = groups
+        const contentGroups = groups.filter((g) => !META_GROUP_TYPES.has(g.type))
+        const labels = contentGroups
             .filter((g) => g.searchPlaceholder)
             .map((g) => g.searchPlaceholder as string)
             .slice(0, 3)
-        return labels.length === 0 ? '' : labels.join(', ') + (groups.length > 3 ? ' or other...' : '')
+        return labels.length === 0 ? '' : labels.join(', ') + (contentGroups.length > 3 ? ' or other...' : '')
     }, [groups])
 
     // ---- active-list registration for keyboard nav --------------------------
