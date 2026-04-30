@@ -215,6 +215,45 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
+    def test_no_repo_task_falls_back_to_team_github_integration_when_user_token_unusable(
+        self, mock_slack_cls, mock_execute_workflow
+    ):
+        Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={},
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.repository is None
+        assert task.github_integration is not None
+        assert task.github_user_integration is None
+        assert task.latest_run.state["pr_authorship_mode"] == "bot"
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_no_repo_task_prefers_user_github_integration(self, mock_slack_cls, mock_execute_workflow):
         UserIntegration.objects.create(
             user=self.user,

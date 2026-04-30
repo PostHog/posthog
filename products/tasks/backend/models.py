@@ -294,6 +294,7 @@ class Task(DeletedMetaFields, models.Model):
             RunSource,
             get_pr_authorship_mode,
             resolve_user_github_integration_for_task,
+            user_github_integration_is_usable,
         )
 
         github_integration = Integration.objects.filter(team=team, kind="github").first()
@@ -317,7 +318,8 @@ class Task(DeletedMetaFields, models.Model):
                 repository=repository,
                 allow_refresh=True,
             )
-            github_user_integration = user_github_integration.integration if user_github_integration else None
+            if user_github_integration_is_usable(user_github_integration):
+                github_user_integration = user_github_integration.integration if user_github_integration else None
 
         if repository:
             if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
