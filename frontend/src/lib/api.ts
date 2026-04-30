@@ -4220,15 +4220,20 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
+        async summarizeStream(
+            recordingId: SessionRecordingType['id'],
+            options?: ApiMethodOptions & { forceRestart?: boolean }
+        ): Promise<Response> {
+            const { forceRestart, ...apiOptions } = options ?? {}
             return await api.createResponse(
                 new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
-                // No data to provide except for the recording id.
-                // Could be extended later with the state of the filters to better understand the user's intent.
-                undefined,
-                // TODO: Understand if I need to provide any signal data here
-                {}
+                forceRestart ? { force_restart: true } : undefined,
+                apiOptions
             )
+        },
+
+        async cancelSummarize(recordingId: SessionRecordingType['id']): Promise<{ cancelled: boolean }> {
+            return await new ApiRequest().recording(recordingId).withAction('summarize/cancel').create()
         },
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
@@ -4239,11 +4244,18 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
-            return await new ApiRequest()
-                .recordings()
-                .withAction('batch_check_exists')
-                .create({ data: { session_ids: sessionIds } })
+        async batchCheckExists(
+            sessionIds: string[],
+            options?: { includeOutcomes?: boolean }
+        ): Promise<{
+            results: Record<string, boolean>
+            outcomes?: Record<string, { description?: string | null }>
+        }> {
+            const data: Record<string, unknown> = { session_ids: sessionIds }
+            if (options?.includeOutcomes) {
+                data.include_outcomes = true
+            }
+            return await new ApiRequest().recordings().withAction('batch_check_exists').create({ data })
         },
 
         async createExternalReference(
@@ -4929,6 +4941,22 @@ const api = {
                 .survey(surveyId)
                 .withAction('summary_headline')
                 .create({ data: { force_refresh: forceRefresh } })
+        },
+        async generateTranslations(
+            surveyId: Survey['id'],
+            data: {
+                target_language: string
+                source_language?: string
+                overwrite?: boolean
+                survey?: unknown
+            }
+        ): Promise<{
+            translations: Record<string, Record<string, string>>
+            questions: Array<{ id: string; translations: Record<string, Record<string, any>> }>
+            generated_field_paths: string[]
+            trace_id: string
+        }> {
+            return await new ApiRequest().survey(surveyId).withAction('generate_translations').create({ data })
         },
         async getSurveyStats({
             surveyId,
@@ -6035,6 +6063,39 @@ const api = {
         },
         async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
+        },
+        async getBlockedRuns(
+            hogFlowId: HogFlow['id'],
+            limit = 100,
+            offset = 0
+        ): Promise<{
+            results: {
+                instance_id: string
+                timestamp: string
+                action_id: string | null
+                event_uuid: string | null
+                message: string
+            }[]
+            has_next: boolean
+            limit: number
+            offset: number
+        }> {
+            return await new ApiRequest()
+                .hogFlow(hogFlowId)
+                .withAction('blocked_runs')
+                .withQueryString(`limit=${limit}&offset=${offset}`)
+                .get()
+        },
+        async replayBlockedRun(
+            hogFlowId: HogFlow['id'],
+            data: { event_uuid: string; action_id: string; instance_id: string }
+        ): Promise<{ status: string }> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_blocked_run').create({ data })
+        },
+        async replayAllBlockedRuns(
+            hogFlowId: HogFlow['id']
+        ): Promise<{ succeeded: number; failed: number; skipped: number }> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_all_blocked_runs').create()
         },
     },
     hogFlowTemplates: {

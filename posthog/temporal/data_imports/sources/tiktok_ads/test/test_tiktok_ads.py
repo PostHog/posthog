@@ -353,7 +353,7 @@ class TestTikTokAdsResumeBehavior:
 
     def _run_campaigns(self, manager: MagicMock, responses: list[Response]) -> MagicMock:
         with patch(
-            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}
@@ -474,7 +474,7 @@ class TestTikTokAdsReportChunkResumeBehavior:
     def _run_report(self, manager: MagicMock, responses: list[Response]) -> MagicMock:
         with (
             patch(
-                "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+                "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
             ) as MockSession,
             patch(
                 "posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads.TikTokReportResource.setup_report_resources",

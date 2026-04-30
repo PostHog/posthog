@@ -241,10 +241,6 @@ export interface OrganizationInviteApi {
     /** @maxLength 30 */
     first_name?: string
     readonly emailing_attempt_made: boolean
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
     level?: OrganizationMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
@@ -1241,14 +1237,10 @@ export interface ProjectBackwardCompatApi {
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
-    /**
-   * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+    /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
 * `0` - Sunday
-* `1` - Monday
-   * @minimum -32768
-   * @maximum 32767
-   */
+* `1` - Monday */
     week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.
@@ -2041,14 +2033,10 @@ export interface PatchedProjectBackwardCompatApi {
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
-    /**
-   * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+    /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
 * `0` - Sunday
-* `1` - Monday
-   * @minimum -32768
-   * @maximum 32767
-   */
+* `1` - Monday */
     week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.

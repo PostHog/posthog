@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconFilter } from '@posthog/icons'
+import { IconFilter, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
@@ -12,6 +12,7 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import type { HogQLFilters, HogQLQuery } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { queryUsesFiltersPlaceholder } from './sql-utils'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 const hasDateRange = (filters?: HogQLFilters): boolean => {
@@ -24,10 +25,6 @@ const hasPropertyFilters = (filters?: HogQLFilters): boolean => {
 
 const hasActiveFilters = (filters?: HogQLFilters): boolean => {
     return hasDateRange(filters) || hasPropertyFilters(filters) || !!filters?.filterTestAccounts
-}
-
-const queryUsesFiltersPlaceholder = (query: string | null): boolean => {
-    return !!query && (query.includes('{filters}') || query.includes('{filters.'))
 }
 
 export function QueryFiltersMenu(): JSX.Element | null {
@@ -43,6 +40,7 @@ export function QueryFiltersMenu(): JSX.Element | null {
     const filters = source.filters
     const hasFilters = hasActiveFilters(filters)
     const usesFiltersPlaceholder = queryUsesFiltersPlaceholder(queryInput ?? source.query)
+    const filtersMissingPlaceholder = hasFilters && !usesFiltersPlaceholder
 
     const setHogQLQuery = (query: HogQLQuery): void => {
         const nextSourceQuery = {
@@ -72,11 +70,19 @@ export function QueryFiltersMenu(): JSX.Element | null {
                     className={`${CLICK_OUTSIDE_BLOCK_CLASS} w-[360px] max-w-[calc(100vw-2rem)] p-2 space-y-3`}
                     onClick={(event) => event.stopPropagation()}
                 >
-                    <div className="text-xs text-muted">
-                        Use <code>{'{filters}'}</code> in your SQL query <code>where</code> clause to apply these
-                        filters. Supported source tables are <code>events</code>, <code>sessions</code>,{' '}
-                        <code>groups</code>.
-                    </div>
+                    {filtersMissingPlaceholder ? (
+                        <div className="text-xs text-warning">
+                            Filters are present, but this SQL query doesn't include a <code>{'{filters}'}</code> tag.
+                            Add it to your SQL query <code>where</code> clause to apply these filters. Supported source
+                            tables are <code>events</code>, <code>sessions</code>, <code>groups</code>.
+                        </div>
+                    ) : (
+                        <div className="text-xs text-muted">
+                            Use <code>{'{filters}'}</code> in your SQL query <code>where</code> clause to apply these
+                            filters. Supported source tables are <code>events</code>, <code>sessions</code>,{' '}
+                            <code>groups</code>.
+                        </div>
+                    )}
                     <div className="space-y-1">
                         <div className="text-xs font-semibold">Time range</div>
                         <DateRange query={source} setQuery={setHogQLQuery} />
@@ -125,7 +131,14 @@ export function QueryFiltersMenu(): JSX.Element | null {
                     </span>
                 }
                 data-attr="sql-editor-filters-button"
-                tooltip={usesFiltersPlaceholder ? undefined : 'Insert {filters} into your SQL query to apply filters'}
+                sideIcon={filtersMissingPlaceholder ? <IconWarning className="text-warning" /> : undefined}
+                tooltip={
+                    filtersMissingPlaceholder
+                        ? "Filters are present, but this SQL query doesn't include a {filters} tag"
+                        : usesFiltersPlaceholder
+                          ? undefined
+                          : 'Insert {filters} into your SQL query to apply filters'
+                }
             >
                 Filters
             </LemonButton>

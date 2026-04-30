@@ -9,7 +9,11 @@
 import * as zod from 'zod'
 
 export const FeatureFlagsCopyFlagsCreateParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50

@@ -26,6 +26,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from posthog.temporal.data_imports.sources.common.http import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
@@ -89,6 +90,14 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         await logger.adebug("Running import_data_activity")
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
+
+        bind_job_context(
+            team_id=inputs.team_id,
+            source_type=str(source_type),
+            external_data_source_id=inputs.source_id,
+            external_data_schema_id=inputs.schema_id,
+            external_data_job_id=inputs.run_id,
+        )
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,

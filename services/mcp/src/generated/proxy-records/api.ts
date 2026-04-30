@@ -12,14 +12,22 @@ import * as zod from 'zod'
  * List all reverse proxies configured for the organization. Returns proxy records along with the maximum number allowed by the current plan.
  */
 export const ProxyRecordsListParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 /**
  * Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.
  */
 export const ProxyRecordsCreateParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
@@ -33,7 +41,11 @@ export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
  */
 export const ProxyRecordsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 /**
@@ -41,7 +53,11 @@ export const ProxyRecordsRetrieveParams = /* @__PURE__ */ zod.object({
  */
 export const ProxyRecordsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 /**
@@ -49,5 +65,9 @@ export const ProxyRecordsDestroyParams = /* @__PURE__ */ zod.object({
  */
 export const ProxyRecordsRetryCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this proxy record.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
