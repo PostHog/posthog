@@ -127,7 +127,19 @@ def main():
         # prevents this shell from deleting a pod that another shell of yours
         # may still be using.
         if args.auto_delete and will_claim:
-            atexit.register(delete_pod, pod_name, namespace=namespace, context=selected_context, auto_yes=True)
+            # expected_label_key/value gate the delete on the pod still carrying our claim
+            # label, so a claim_pod() failure before any label was written (transient
+            # kubectl get/RBAC error, pod gone) doesn't shrink the pool by deleting an
+            # unclaimed pool pod from atexit.
+            atexit.register(
+                delete_pod,
+                pod_name,
+                namespace=namespace,
+                context=selected_context,
+                auto_yes=True,
+                expected_label_key=claimed_label_key,
+                expected_label_value=user_labels[claimed_label_key],
+            )
             # SIGTERM and SIGHUP bypass atexit by default; _exit_for_signal routes them
             # through sys.exit so the registered cleanup runs. SIGHUP fires on terminal
             # close (closing iTerm, SSH disconnect, killing a tmux pane). SIGINT raises
@@ -180,8 +192,16 @@ def main():
                             namespace=namespace,
                             context=selected_context,
                             auto_yes=True,
+                            expected_label_key=claimed_label_key,
+                            expected_label_value=user_labels[claimed_label_key],
                         )
             else:
+                # Drop the stale registration first. The except branch above
+                # registers cleanup for the *next* candidate before retrying;
+                # if we exhaust retries, that candidate was never claimed by us
+                # and atexit would otherwise delete a healthy unclaimed pool pod.
+                if args.auto_delete:
+                    atexit.unregister(delete_pod)
                 print(f"❌ Could not claim a pod after {MAX_CLAIM_RETRIES} race retries.")  # noqa: T201
                 sys.exit(1)
             if will_claim:
@@ -213,7 +233,10 @@ def main():
         sys.exit(rc)
     except KeyboardInterrupt:
         print("\n👋 Goodbye! \n \n Did something not work as expected? Ask in #team-infrastructure")  # noqa: T201
-        sys.exit(0)
+        # POSIX convention: SIGINT exits 128 + signum (130). sys.exit(0) here
+        # would mask Ctrl-C as a clean success to any wrapper checking $?, and
+        # is inconsistent with the SIGTERM/SIGHUP handlers which already use 128 + signum.
+        sys.exit(128 + signal.SIGINT)
 
 
 if __name__ == "__main__":

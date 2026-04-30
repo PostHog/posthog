@@ -264,18 +264,63 @@ def _safe_print(msg: str) -> None:
         pass
 
 
-def delete_pod(pod_name: str, *, namespace: str, context: str | None = None, auto_yes: bool = False):
+def delete_pod(
+    pod_name: str,
+    *,
+    namespace: str,
+    context: str | None = None,
+    auto_yes: bool = False,
+    expected_label_key: str | None = None,
+    expected_label_value: str | None = None,
+):
     """Delete the specified pod.
 
     With auto_yes=True, skip the [y/N] prompt and unconditionally delete.
     Uses --ignore-not-found so it is safe to call on a pod whose claim labels
     were never written or that has already been deleted.
 
+    When ``expected_label_key`` and ``expected_label_value`` are supplied, the
+    pod's current ``<key>`` label is checked first; if it does not match, the
+    delete is skipped. This guards the atexit path from deleting a healthy
+    unclaimed pool pod when ``claim_pod()`` failed before writing the claim
+    label (e.g. a transient kubectl/get failure on the very first call). If
+    the label check itself errors, the safe default is to skip the delete —
+    leaving an orphan to be reaped is preferable to silently shrinking the pool.
+
     Robust to a closed/hung-up controlling terminal: progress prints can fail
     silently, and kubectl's own stdout/stderr are captured so they can't trip
     on the same broken FDs. The kubectl delete is the load-bearing operation
     and runs even when the user's terminal is gone.
     """
+    if expected_label_key is not None and expected_label_value is not None:
+        try:
+            result = subprocess.run(
+                kubectl_cmd(
+                    "get",
+                    "pod",
+                    "-n",
+                    namespace,
+                    pod_name,
+                    "-o",
+                    f"jsonpath={{.metadata.labels.{expected_label_key}}}",
+                    "--ignore-not-found",
+                    context=context,
+                ),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            _safe_print(f"⚠️  Skipping delete of {pod_name}: could not verify claim label ({e.stderr or e})")
+            return
+        observed = result.stdout.strip()
+        if observed != expected_label_value:
+            _safe_print(
+                f"⚠️  Skipping delete of {pod_name}: "
+                f"{expected_label_key}='{observed}' (expected '{expected_label_value}')"
+            )
+            return
+
     if not auto_yes:
         try:
             response = input("\n❓ Would you like to delete this pod now? [y/N]: ").lower().strip()

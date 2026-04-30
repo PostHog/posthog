@@ -926,6 +926,85 @@ class TestToolbox(unittest.TestCase):
         mock_input.assert_called_once()
         mock_run.assert_not_called()
 
+    @patch("subprocess.run")
+    def test_delete_pod_skips_when_label_does_not_match(self, mock_run):
+        """When expected_label_* are passed (atexit path) and the label doesn't match,
+        the kubectl delete is skipped to protect against deleting an unclaimed pool pod
+        when claim_pod() failed before any label was written.
+        """
+        # kubectl get returns an empty label value (pod was never claimed).
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        delete_pod(
+            "toolbox-pod-1",
+            namespace="posthog",
+            auto_yes=True,
+            expected_label_key="toolbox-claimed",
+            expected_label_value="user_at_posthog.com",
+        )
+
+        # Exactly one kubectl call: the verification get. No delete was issued.
+        self.assertEqual(mock_run.call_count, 1)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("get", cmd)
+        self.assertNotIn("delete", cmd)
+
+    @patch("subprocess.run")
+    def test_delete_pod_proceeds_when_label_matches(self, mock_run):
+        """When the label check confirms our claim, delete_pod proceeds with the kubectl delete."""
+        # First call (get) returns the matching label value; second call (delete) succeeds.
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="user_at_posthog.com", stderr=""),
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        ]
+
+        delete_pod(
+            "toolbox-pod-1",
+            namespace="posthog",
+            auto_yes=True,
+            expected_label_key="toolbox-claimed",
+            expected_label_value="user_at_posthog.com",
+        )
+
+        self.assertEqual(mock_run.call_count, 2)
+        delete_cmd = mock_run.call_args_list[1][0][0]
+        self.assertIn("delete", delete_cmd)
+        self.assertIn("toolbox-pod-1", delete_cmd)
+
+    @patch("subprocess.run")
+    def test_delete_pod_skips_when_label_check_errors(self, mock_run):
+        """If the label-verification kubectl get errors out, default to NOT deleting.
+
+        Leaving an orphan to be reaped is preferable to silently shrinking the pool.
+        """
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["kubectl", "get"],
+            stderr="forbidden",
+        )
+
+        delete_pod(
+            "toolbox-pod-1",
+            namespace="posthog",
+            auto_yes=True,
+            expected_label_key="toolbox-claimed",
+            expected_label_value="user_at_posthog.com",
+        )
+
+        # Only the failing get call; no delete attempted.
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("subprocess.run")
+    def test_delete_pod_without_expected_label_skips_verification(self, mock_run):
+        """Without expected_label_*, no extra kubectl get is issued (interactive 'y' path)."""
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        delete_pod("toolbox-pod-1", namespace="posthog", auto_yes=True)
+
+        self.assertEqual(mock_run.call_count, 1)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("delete", cmd)
+
     @patch("builtins.print", side_effect=BrokenPipeError("hung-up PTY"))
     @patch("subprocess.run")
     def test_delete_pod_swallows_kubectl_failure_when_stdout_broken(self, mock_run, mock_print):
@@ -1214,9 +1293,16 @@ class TestToolbox(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 toolbox_script.main()
 
-        # atexit cleanup is registered with auto_yes=True and the resolved context.
+        # atexit cleanup is registered with auto_yes=True, resolved context, and the
+        # claim label so delete_pod can verify before deleting an unclaimed pool pod.
         m_atexit.assert_called_once_with(
-            m_delete, "toolbox-pod-1", namespace="posthog", context="posthog-dev", auto_yes=True
+            m_delete,
+            "toolbox-pod-1",
+            namespace="posthog",
+            context="posthog-dev",
+            auto_yes=True,
+            expected_label_key="toolbox-claimed",
+            expected_label_value="user_at_posthog.com",
         )
         # Both SIGTERM and SIGHUP route to _exit_for_signal.
         signal_calls = {c.args[0]: c.args[1] for c in m_signal.call_args_list}
@@ -1274,7 +1360,13 @@ class TestToolbox(unittest.TestCase):
                 toolbox_script.main()
 
         m_atexit.assert_called_once_with(
-            m_delete, "toolbox-pod-1", namespace="posthog", context="posthog-dev", auto_yes=True
+            m_delete,
+            "toolbox-pod-1",
+            namespace="posthog",
+            context="posthog-dev",
+            auto_yes=True,
+            expected_label_key="toolbox-claimed",
+            expected_label_value="user_at_posthog.com",
         )
         # update-claim path passes resource_version=None because we already own the pod.
         self.assertEqual(m_claim.call_args.kwargs["resource_version"], None)
@@ -1348,7 +1440,13 @@ class TestToolbox(unittest.TestCase):
         m_unregister.assert_called_with(m_delete)
 
     def test_main_gives_up_after_max_claim_retries(self):
-        """If every attempt races, main() exits 1 rather than looping forever."""
+        """If every attempt races, main() exits 1 rather than looping forever.
+
+        Also asserts that the stale atexit registration is cleared before the
+        terminal exit — otherwise atexit would fire delete_pod against an
+        unclaimed candidate pod and silently shrink the pool on every
+        retry-exhaustion.
+        """
         max_retries = toolbox_script.MAX_CLAIM_RETRIES
         patches = self._patch_main_collaborators()
         patches["get_toolbox_pod"] = patch.object(
@@ -1365,11 +1463,11 @@ class TestToolbox(unittest.TestCase):
             patches["get_toolbox_pod"],
             patches["claim_pod"] as m_claim,
             patches["connect_to_pod"],
-            patches["delete_pod"],
+            patches["delete_pod"] as m_delete,
             patches["select_context"],
             patches["validate_context"],
-            patch.object(toolbox_script.atexit, "register"),
-            patch.object(toolbox_script.atexit, "unregister"),
+            patch.object(toolbox_script.atexit, "register") as m_atexit,
+            patch.object(toolbox_script.atexit, "unregister") as m_unregister,
             patch.object(toolbox_script.signal, "signal"),
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete"]),
             patch.dict(os.environ, {}, clear=False),
@@ -1380,6 +1478,13 @@ class TestToolbox(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, 1)
         self.assertEqual(m_claim.call_count, max_retries)
+        # One register for the initial pre-claim arming, one per candidate after
+        # each lost race (max_retries - 1 in-loop + 1 final dead candidate when
+        # the final claim races) — and one matching unregister per register,
+        # including the final one before sys.exit(1).
+        self.assertEqual(m_atexit.call_count, m_unregister.call_count)
+        self.assertGreaterEqual(m_unregister.call_count, max_retries)
+        m_unregister.assert_called_with(m_delete)
 
     def test_main_race_resolves_to_already_claimed_skips_auto_delete(self):
         """If, after losing a race, the next get_toolbox_pod finds a pod already claimed by us,
