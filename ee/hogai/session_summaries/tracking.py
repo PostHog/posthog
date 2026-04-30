@@ -6,8 +6,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.models import Team, User
 
-SummarySource = Literal["chat", "api"]
-SummaryOrigin = Literal["dock", "api", "chat"]
+SummarySource = Literal["chat", "api", "dock"]
 SummaryType = Literal["single", "group"]
 
 
@@ -46,7 +45,6 @@ def capture_session_summary_started(
     team: Team,
     tracking_id: str,
     summary_source: SummarySource,
-    summary_origin: SummaryOrigin,
     summary_type: SummaryType,
     session_ids: list[str],
     video_based: bool = False,
@@ -61,7 +59,6 @@ def capture_session_summary_started(
             "ai_product": "session_replay",
             "tracking_id": tracking_id,
             "summary_source": summary_source,
-            "summary_origin": summary_origin,
             "summary_type": summary_type,
             "session_ids": session_ids,
             "session_count": len(session_ids),
@@ -78,7 +75,6 @@ def capture_session_summary_generated(
     team: Team,
     tracking_id: str,
     summary_source: SummarySource,
-    summary_origin: SummaryOrigin,
     summary_type: SummaryType,
     session_ids: list[str],
     video_based: bool = False,
@@ -93,7 +89,6 @@ def capture_session_summary_generated(
         "ai_product": "session_replay",
         "tracking_id": tracking_id,
         "summary_source": summary_source,
-        "summary_origin": summary_origin,
         "summary_type": summary_type,
         "session_ids": session_ids,
         "session_count": len(session_ids),
