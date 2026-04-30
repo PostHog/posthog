@@ -106,6 +106,13 @@
     }
 }
 
+.NotebookNode--in-selection {
+    .NotebookNode__box {
+        border-color: Highlight;
+        box-shadow: 0 0 0 1px Highlight;
+    }
+}
+
 .NotebookNodeTitle {
     padding: 0.25rem;
     overflow: hidden;
