@@ -72,15 +72,15 @@ def _create_partitioned_tables(apps, schema_editor):
             )::date
             LOOP
                 EXECUTE format(
-                    'CREATE TABLE IF NOT EXISTS sourcebatch_%s '
+                    'CREATE TABLE IF NOT EXISTS sourcebatch_%%s '
                     'PARTITION OF sourcebatch '
-                    'FOR VALUES FROM (%L) TO (%L)',
+                    'FOR VALUES FROM (%%L) TO (%%L)',
                     to_char(d, 'YYYYMMDD'), d, d + 1
                 );
                 EXECUTE format(
-                    'CREATE TABLE IF NOT EXISTS sourcebatchstatus_%s '
+                    'CREATE TABLE IF NOT EXISTS sourcebatchstatus_%%s '
                     'PARTITION OF sourcebatchstatus '
-                    'FOR VALUES FROM (%L) TO (%L)',
+                    'FOR VALUES FROM (%%L) TO (%%L)',
                     to_char(d, 'YYYYMMDD'), d, d + 1
                 );
             END LOOP;
@@ -231,14 +231,12 @@ class Migration(migrations.Migration):
             ],
             database_operations=[],
         ),
-        # Actual DDL: partitioned tables, indexes, default partitions,
-        # and pre-created daily partitions.
-        migrations.RunSQL(
-            sql=_create_partitioned_tables,
-            reverse_sql=_drop_all,
+        migrations.RunPython(
+            _create_partitioned_tables,
+            _drop_all,
         ),
-        migrations.RunSQL(
-            sql=_create_latest_status_view,
-            reverse_sql="DROP VIEW IF EXISTS v_latest_source_batch_status",
+        migrations.RunPython(
+            _create_latest_status_view,
+            lambda apps, schema_editor: schema_editor.execute("DROP VIEW IF EXISTS v_latest_source_batch_status"),
         ),
     ]
