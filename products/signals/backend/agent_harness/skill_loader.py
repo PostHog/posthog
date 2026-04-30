@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
+from products.signals.backend.agent_harness.tool_registry import (
+    AllowedToolsResolution,
+    validate_and_partition_allowed_tools,
+)
 
 # Naming contract for skills that steer a Signals-agent run.
 SIGNALS_AGENT_SKILL_PREFIX = "signals-agent-"
@@ -30,6 +34,16 @@ class LoadedSkill:
     allowed_tools: list[str]
     files: list[LoadedSkillFile]
     skill_id: str
+    # Partition of `allowed_tools` into harness-internal vs MCP candidates, validated at
+    # load time. Defaults to the empty / not-declared resolution so existing callers don't
+    # need to construct it explicitly during incremental adoption.
+    allowed_tools_resolution: AllowedToolsResolution = field(
+        default_factory=lambda: AllowedToolsResolution(
+            declared=False,
+            harness_tools=frozenset(),
+            mcp_tool_candidates=frozenset(),
+        )
+    )
 
 
 def is_signals_agent_skill(skill: LLMSkill) -> bool:
@@ -54,12 +68,18 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
             + (f" (version {version})" if version is not None else "")
         )
     file_rows = LLMSkillFile.objects.filter(skill=skill).only("path", "content_type").order_by("path")
+    raw_allowed_tools = list(skill.allowed_tools or [])
+    # Validate at load time so a typo in a skill body fails the run before we spawn a
+    # sandbox. Unknown harness names raise; unknown MCP-shaped names pass and are
+    # validated at agent-dispatch time once the sandbox surface is known.
+    resolution = validate_and_partition_allowed_tools(raw_allowed_tools)
     return LoadedSkill(
         name=skill.name,
         version=skill.version,
         body=skill.body,
         description=skill.description,
-        allowed_tools=list(skill.allowed_tools or []),
+        allowed_tools=raw_allowed_tools,
         files=[LoadedSkillFile(path=f.path, content_type=f.content_type) for f in file_rows],
         skill_id=str(skill.id),
+        allowed_tools_resolution=resolution,
     )
