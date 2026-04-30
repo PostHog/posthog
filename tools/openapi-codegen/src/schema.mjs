@@ -114,6 +114,9 @@ export function filterSchemaByOperationIds(fullSchema, operationIds, options = {
     // parameter definition can in turn reference component schemas via its inner ``schema``,
     // so we collect those refs and feed them into the schema resolution below.
     const filteredParameters = {}
+    // Set iteration visits items added mid-loop (insertion-order); schema refs
+    // added by collectSchemaRefs are skipped here by the startsWith guard and
+    // picked up by resolveNestedRefs below.
     for (const ref of refs) {
         if (!ref.startsWith('#/components/parameters/')) {
             continue

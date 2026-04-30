@@ -100,7 +100,8 @@ describe('filterSchemaByOperationIds', () => {
         const spec = buildSpec()
         spec.paths['/api/widgets/'].post.parameters = [
             { $ref: '#/components/parameters/ProjectIdPath' },
-            { $ref: '#/components/parameters/UnusedParam' },
+            { $ref: '#/components/parameters/FormatQuery' },
+            { $ref: '#/components/parameters/FilterParam' },
         ]
         spec.components.parameters = {
             ProjectIdPath: {
@@ -110,9 +111,9 @@ describe('filterSchemaByOperationIds', () => {
                 schema: { type: 'string' },
                 description: 'The project ID.',
             },
-            UnusedParam: {
+            FormatQuery: {
                 in: 'query',
-                name: 'unused',
+                name: 'format',
                 schema: { type: 'string' },
             },
             // Param that references a component schema — should pull that schema in too.
@@ -121,16 +122,19 @@ describe('filterSchemaByOperationIds', () => {
                 name: 'filter',
                 schema: { $ref: '#/components/schemas/WidgetCreateMeta' },
             },
+            UnreferencedParam: {
+                in: 'query',
+                name: 'stale',
+                schema: { type: 'string' },
+            },
         }
-        spec.paths['/api/widgets/'].post.parameters.push({ $ref: '#/components/parameters/FilterParam' })
 
         const filtered = filterSchemaByOperationIds(spec, new Set(['widgets_create']))
 
-        // Referenced params come along; unreferenced ones don't (UnusedParam is referenced too here,
-        // since the operation declares it — the test really checks that *referenced* params are kept).
         expect(filtered.components.parameters).toHaveProperty('ProjectIdPath')
-        expect(filtered.components.parameters).toHaveProperty('UnusedParam')
+        expect(filtered.components.parameters).toHaveProperty('FormatQuery')
         expect(filtered.components.parameters).toHaveProperty('FilterParam')
+        expect(filtered.components.parameters).not.toHaveProperty('UnreferencedParam')
         expect(filtered.components.parameters.ProjectIdPath.description).toBe('The project ID.')
 
         // FilterParam's inner schema ref should pull WidgetCreateMeta into the filtered schemas.
