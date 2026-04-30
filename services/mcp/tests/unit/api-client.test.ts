@@ -79,14 +79,14 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
-    it('folds mcpConsumer and mcpClientName into the User-Agent as <consumer>/<client>', async () => {
+    it('forwards mcpConsumer as x-posthog-mcp-consumer without altering User-Agent', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)
 
         const client = new ApiClient({
             apiToken: 'test-token-123',
             baseUrl: 'https://example.com',
-            mcpConsumer: 'posthog-code',
+            mcpConsumer: 'plugin',
             mcpClientName: 'claude-code',
         })
 
@@ -97,19 +97,19 @@ describe('ApiClient', () => {
 
         expect(mockFetch).toHaveBeenCalledOnce()
         const [, options] = mockFetch.mock.calls[0]!
-        // No x-posthog-mcp-consumer header is sent — the consumer signal is folded into the UA.
         expect(options.headers).toEqual({
             Authorization: 'Bearer test-token-123',
             'Content-Type': 'application/json',
-            'User-Agent': `posthog-code/claude-code ${USER_AGENT}`,
+            'User-Agent': USER_AGENT,
             'X-PostHog-Client': 'mcp',
             'x-posthog-mcp-client-name': 'claude-code',
+            'x-posthog-mcp-consumer': 'plugin',
         })
 
         vi.unstubAllGlobals()
     })
 
-    it('falls back to <consumer>/unknown when mcpClientName is missing', async () => {
+    it('forwards mcpConsumer alone when mcpClientName is missing', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)
 
@@ -122,7 +122,8 @@ describe('ApiClient', () => {
         await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
 
         const [, options] = mockFetch.mock.calls[0]!
-        expect(options.headers['User-Agent']).toBe(`slack/unknown ${USER_AGENT}`)
+        expect(options.headers['User-Agent']).toBe(USER_AGENT)
+        expect(options.headers['x-posthog-mcp-consumer']).toBe('slack')
 
         vi.unstubAllGlobals()
     })

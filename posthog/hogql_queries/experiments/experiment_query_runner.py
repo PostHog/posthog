@@ -73,8 +73,42 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
 
+# Minimum experiment runtime before auto-enabling precomputation. The
+# today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
+# entire current-day result, so for very young experiments freshly arriving
+# exposures stay invisible until that TTL elapses. The gate scopes that
+# trade-off to experiments where most of the data is already in past
+# (frozen) windows. Bypassed by an explicit PrecomputationMode.PRECOMPUTED
+# query override.
+#
+# Why 12h: covers the workday in which users launch experiments — that's
+# when they refresh the results page most often and the 15-min cache lag
+# would be most noticeable. Past that, refreshes drop off and the cost
+# saving from precomputation matters more than the freshness gap. Short
+# enough that experiments still hit the precomputed (fast) path on day two.
+MIN_PRECOMPUTATION_DURATION_SECONDS = 12 * 60 * 60  # 12 hours
+
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
+
+
+def experiment_has_min_runtime_for_precomputation(
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+) -> bool:
+    """Return True when the experiment has been running for at least
+    MIN_PRECOMPUTATION_DURATION_SECONDS.
+
+    For running experiments, elapsed time is measured against now. For
+    completed experiments (end_date in the past), the actual run length is
+    used. A future end_date (planned end) is ignored so we don't credit
+    runtime that hasn't happened yet.
+    """
+    if start_date is None:
+        return False
+    now = datetime.now(UTC)
+    effective_end = end_date if (end_date is not None and end_date <= now) else now
+    return (effective_end - start_date).total_seconds() >= MIN_PRECOMPUTATION_DURATION_SECONDS
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -123,6 +157,11 @@ class ExperimentQueryRunner(QueryRunner):
         # Check if this is a data warehouse query
         if isinstance(self.query.metric, ExperimentMeanMetric):
             self.is_data_warehouse_query = self.query.metric.source.kind == "ExperimentDataWarehouseNode"
+        elif isinstance(self.query.metric, ExperimentFunnelMetric):
+            # For funnel metrics, check if any step uses data warehouse
+            self.is_data_warehouse_query = any(
+                isinstance(step, ExperimentDataWarehouseNode) for step in self.query.metric.series
+            )
         elif isinstance(self.query.metric, ExperimentRatioMetric):
             # For ratio metrics, check if either numerator or denominator uses data warehouse
             numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
@@ -133,8 +172,6 @@ class ExperimentQueryRunner(QueryRunner):
             start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
             completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = start_is_dw or completion_is_dw
-        else:
-            self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
@@ -230,13 +267,19 @@ class ExperimentQueryRunner(QueryRunner):
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
     def _should_precompute(self) -> bool:
-        """Resolve whether to use precomputation: query-level override > team-level default."""
+        """Resolve whether to use precomputation: query-level override > team-level default + duration gate."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return True
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
             return False
 
-        return self._team_experiments_config.experiment_precomputation_enabled
+        if not self._team_experiments_config.experiment_precomputation_enabled:
+            return False
+
+        return experiment_has_min_runtime_for_precomputation(
+            self.experiment.start_date,
+            self.experiment.end_date,
+        )
 
     def _resolve_funnel_steps_data_disabled(self) -> bool:
         """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
@@ -297,11 +340,15 @@ class ExperimentQueryRunner(QueryRunner):
             except Exception:
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
-            # Precompute metric events for ordered funnel metrics
+            # Precompute metric events for ordered funnel metrics. CUPED extends the
+            # funnel scan back by `lookback_days` to source the pre-exposure covariate;
+            # the precomputed metric_events table only covers the experiment window, so
+            # skip precomputation here and let the builder issue a fresh scan.
             if (
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
+                and not self.cuped_config.enabled
             ):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)

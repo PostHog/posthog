@@ -2,16 +2,15 @@ import * as d3 from 'd3'
 import React, { useCallback, useMemo, useRef } from 'react'
 
 import { AxisLabels, measureLabelWidth } from '../overlays/AxisLabels'
-import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
+import { drawCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
-import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
-import { autoFormatYTick } from './scales'
+import { autoFormatYTick, seriesValueRange } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
 import type {
     ChartConfig,
@@ -21,6 +20,7 @@ import type {
     ChartTheme,
     CreateScalesFn,
     PointClickData,
+    ResolvedSeries,
     ResolveValueFn,
     Series,
     TooltipContext,
@@ -35,6 +35,24 @@ const OVERLAY_STYLE: React.CSSProperties = {
     pointerEvents: 'none',
 }
 
+const WRAPPER_STYLE_BASE: React.CSSProperties = {
+    position: 'relative',
+    width: '100%',
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+}
+const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'default' }
+const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
+
+const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
+const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    pointerEvents: 'none',
+}
+
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return <div style={OVERLAY_STYLE}>{children}</div>
 }
@@ -45,12 +63,20 @@ export interface ChartProps<Meta = unknown> {
     config?: ChartConfig
     theme: ChartTheme
     createScales: CreateScalesFn
-    draw: (args: ChartDrawArgs) => void
+    /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
+    drawStatic: (args: ChartDrawArgs) => void
+    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. */
+    drawHover: (args: ChartDrawArgs) => void
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
-    /** Resolves the y-value for a series at a given index. Defaults to series.data[index]. */
+    /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
+     *  Identity is read live for tooltip values and overlays, but the pinned-tooltip
+     *  rebuild only refires when `series`, `labels`, or `scales` change. Callers that
+     *  derive values from data not reflected in those (e.g. an external "%" toggle)
+     *  should ensure that toggle also updates `series` or the chart's scales — otherwise
+     *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
 }
 
@@ -62,7 +88,8 @@ export function Chart<Meta = unknown>({
     config,
     theme,
     createScales: createScalesFn,
-    draw,
+    drawStatic,
+    drawHover,
     tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
@@ -94,26 +121,17 @@ export function Chart<Meta = unknown>({
         if (hideYAxis) {
             return 0
         }
-        const allValues = series
-            .filter((s) => !s.visibility?.excluded)
-            .flatMap((s) => s.data)
-            .filter((v) => v != null && isFinite(v))
-        if (allValues.length === 0) {
+        const range = seriesValueRange(series)
+        if (range.count === 0) {
             return 0
         }
-        let min = Math.min(...allValues)
-        let max = Math.max(...allValues)
-        if (min > 0) {
-            min = 0
-        }
-        if (max < 0) {
-            max = 0
-        }
+        const min = range.min > 0 ? 0 : range.min
+        const max = range.max < 0 ? 0 : range.max
         const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
         if (ticks.length === 0) {
             return 0
         }
-        const domainMax = Math.abs(Math.max(...ticks))
+        const domainMax = Math.max(...ticks.map((t) => Math.abs(t)))
         const formatter = yTickFormatter ?? ((v: number) => autoFormatYTick(v, domainMax))
         let widest = 0
         for (const t of ticks) {
@@ -155,9 +173,9 @@ export function Chart<Meta = unknown>({
         return m
     }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
 
-    const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
-    const coloredSeries = useMemo(
+    const coloredSeries = useMemo<ResolvedSeries<Meta>[]>(
         () =>
             series.map((s, i) => ({
                 ...s,
@@ -208,18 +226,49 @@ export function Chart<Meta = unknown>({
         resolveValue,
     })
 
+    // Compose the chart-type's drawHover with a crosshair pass so per-mousemove
+    // hover indication stays entirely on the canvas — DOM-based overlays would
+    // force per-event style invalidation/layout that scales badly with chart
+    // content size. Crosshair drawn first so highlight rings render on top.
+    //
+    // drawHover is held via a ref so composedDrawHover stays referentially stable
+    // even when the parent recreates drawHover (e.g. stackedData changes). Without
+    // this, useChartDraw's hover effect re-fires on every drawHover identity change,
+    // and the resulting requestAnimationFrame churn can race with tooltip rendering.
+    const drawHoverRef = useRef(drawHover)
+    drawHoverRef.current = drawHover
+    const composedDrawHover = useCallback(
+        (args: ChartDrawArgs) => {
+            if (showCrosshair && theme.crosshairColor && args.hoverIndex >= 0) {
+                const x = args.scales.x(args.labels[args.hoverIndex])
+                if (x != null && isFinite(x)) {
+                    drawCrosshair(args.ctx, args.dimensions, x, theme.crosshairColor)
+                }
+            }
+            drawHoverRef.current(args)
+        },
+        [showCrosshair, theme.crosshairColor]
+    )
+
     useChartDraw({
         ctx,
+        overlayCtx,
         dimensions,
         scales,
         series: coloredSeries,
         labels,
         hoverIndex,
         theme,
-        draw,
+        drawStatic,
+        drawHover: composedDrawHover,
     })
 
-    const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
+    const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
+
+    const ariaLabel = useMemo(() => {
+        const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
+        return `Chart with ${visible} data series`
+    }, [coloredSeries])
 
     const canvasBounds = useCallback(
         (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
@@ -229,6 +278,12 @@ export function Chart<Meta = unknown>({
     // Wrap resolveValue in a ref + stable callback so callers don't have to memoize it.
     // An un-memoized arrow literal from a parent would otherwise invalidate the layout
     // context on every render and defeat the layout/hover split.
+    //
+    // The ref is written during render rather than via an effect because overlays read
+    // it during their render via `useChartLayout().resolveValue`; deferring the write
+    // would expose them to last-commit's value. This is safe under StrictMode/concurrent
+    // rendering: an aborted render that wrote the ref will be re-driven with the same
+    // props, so the kept render observes an idempotent state.
     const resolveValueRef = useRef<ResolveValueFn | undefined>(resolveValue)
     resolveValueRef.current = resolveValue
     const stableResolveValue = useCallback<ResolveValueFn>((s, i) => {
@@ -258,63 +313,43 @@ export function Chart<Meta = unknown>({
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
     return (
-        <ChartErrorBoundary>
-            <ChartLayoutContext.Provider value={layoutValue}>
-                <ChartHoverContext.Provider value={hoverValue}>
-                    <div
-                        ref={wrapperRef}
-                        className={className}
-                        style={{
-                            position: 'relative',
-                            width: '100%',
-                            flex: 1,
-                            minHeight: 0,
-                            overflow: 'hidden',
-                            cursor: cursorStyle,
-                        }}
-                        onMouseMove={handlers.onMouseMove}
-                        onMouseLeave={handlers.onMouseLeave}
-                        onClick={handlers.onClick}
-                    >
-                        <canvas
-                            ref={canvasRef}
-                            role="img"
-                            aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)} data series`}
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                cursor: cursorStyle,
-                            }}
-                        />
+        <ChartLayoutContext.Provider value={layoutValue}>
+            <ChartHoverContext.Provider value={hoverValue}>
+                <div
+                    ref={wrapperRef}
+                    className={className}
+                    style={wrapperStyle}
+                    onMouseMove={handlers.onMouseMove}
+                    onMouseLeave={handlers.onMouseLeave}
+                    onClick={handlers.onClick}
+                >
+                    <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
+                    <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
 
-                        {dimensions && scales && (
-                            <OverlayLayer>
-                                <AxisLabels
-                                    xTickFormatter={xTickFormatter}
-                                    yTickFormatter={resolvedYFormatter}
-                                    yRightTickFormatter={resolvedYRightFormatter}
-                                    hideXAxis={hideXAxis}
-                                    hideYAxis={hideYAxis}
-                                    axisColor={theme.axisColor}
+                    {dimensions && scales && (
+                        <OverlayLayer>
+                            <AxisLabels
+                                xTickFormatter={xTickFormatter}
+                                yTickFormatter={resolvedYFormatter}
+                                yRightTickFormatter={resolvedYRightFormatter}
+                                hideXAxis={hideXAxis}
+                                hideYAxis={hideYAxis}
+                                axisColor={theme.axisColor}
+                            />
+
+                            {children}
+
+                            {tooltipCtx && showTooltip && (
+                                <Tooltip
+                                    context={tooltipCtx}
+                                    renderTooltip={renderTooltip}
+                                    placement={tooltipPlacement}
                                 />
-
-                                {showCrosshair && <Crosshair color={theme.crosshairColor} />}
-
-                                {children}
-
-                                {tooltipCtx && showTooltip && (
-                                    <Tooltip
-                                        context={tooltipCtx}
-                                        renderTooltip={renderTooltip}
-                                        placement={tooltipPlacement}
-                                    />
-                                )}
-                            </OverlayLayer>
-                        )}
-                    </div>
-                </ChartHoverContext.Provider>
-            </ChartLayoutContext.Provider>
-        </ChartErrorBoundary>
+                            )}
+                        </OverlayLayer>
+                    )}
+                </div>
+            </ChartHoverContext.Provider>
+        </ChartLayoutContext.Provider>
     )
 }
