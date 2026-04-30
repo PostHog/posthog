@@ -519,11 +519,12 @@ db:
     db:restore-test-db:
         cmd: |
             set -e
-            set -o pipefail
             if [ ! -f .postgres-backups/schema-latest.sql.gz ]; then
                 echo "❌ No schema at .postgres-backups/schema-latest.sql.gz — run db:download-schema first"
                 exit 1
             fi
+            # Validate up front; substitutes for `set -o pipefail` (dash doesn't support it).
+            gunzip -t .postgres-backups/schema-latest.sql.gz
             docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
             docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
             gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
