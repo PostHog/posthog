@@ -302,10 +302,7 @@ def sync_execute(
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
 
-    # Runs after every other tagging hook so it can only fill, never override.
-    # Local import — event_usage pulls in Django models, imported before app registry is ready.
     from posthog.event_usage import EventSource
-
     if tags.product is None and tags.source == EventSource.MCP:
         tags.product = Product.MCP
 
