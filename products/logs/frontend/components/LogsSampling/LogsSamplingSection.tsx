@@ -22,8 +22,7 @@ export function LogsSamplingSection(): JSX.Element | null {
             <div className="space-y-3">
                 <p className="text-muted m-0">
                     Exclude noisy or sensitive lines before they are stored. Rules are evaluated in order during
-                    ingestion. Use pattern drops (regex on a path or one attribute) or drop by severity; hover ⓘ on the
-                    rule form for details.
+                    ingestion. Use pattern drops (regex on a path or one attribute) or drop by severity.
                 </p>
                 <LogsSamplingSectionTable />
             </div>

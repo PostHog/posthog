@@ -136,10 +136,6 @@ export function LogsSamplingForm(): JSX.Element {
                     <LemonTag>{ruleTypeLabel(samplingForm.rule_type)}</LemonTag>
                 </LemonField.Pure>
             )}
-            <p className="text-secondary text-xs -mt-2">
-                Grey text under fields is always visible. The <span className="text-secondary font-semibold">ⓘ</span>{' '}
-                beside a label opens more detail on hover.
-            </p>
             <LemonField.Pure
                 label="Scope: service name (optional)"
                 info="If set, the rule only runs for logs from this service.name. Leave empty to apply to all services."
