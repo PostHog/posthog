@@ -8,8 +8,14 @@ import type { ChartMargins, Series } from '../types'
 
 export const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
 
-interface UseChartMarginsOptions<Meta> {
-    series: Series<Meta>[]
+const COLLAPSED_AXIS_MARGIN = 8
+const MIN_LEFT_MARGIN = 20
+const MIN_RIGHT_MARGIN_DUAL_AXIS = 48
+const Y_LABEL_RIGHT_PADDING = 12
+const X_LABEL_EDGE_PADDING = 4
+
+interface UseChartMarginsOptions {
+    series: Series[]
     labels: string[]
     hideXAxis: boolean
     hideYAxis: boolean
@@ -17,14 +23,14 @@ interface UseChartMarginsOptions<Meta> {
     yTickFormatter?: (value: number) => string
 }
 
-export function useChartMargins<Meta>({
+export function useChartMargins({
     series,
     labels,
     hideXAxis,
     hideYAxis,
     xTickFormatter,
     yTickFormatter,
-}: UseChartMarginsOptions<Meta>): ChartMargins {
+}: UseChartMarginsOptions): ChartMargins {
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
             series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID)
@@ -70,20 +76,16 @@ export function useChartMargins<Meta>({
     }, [labels, xTickFormatter, hideXAxis])
 
     return useMemo<ChartMargins>(() => {
-        const m = { ...DEFAULT_MARGINS }
-        if (hideXAxis) {
-            m.bottom = 8
-        }
-        if (hideYAxis) {
-            m.left = 8
-        } else {
-            m.left = Math.max(20, Math.ceil(yLabelWidth) + 12, xLabelHalfWidth + 4)
-        }
-        if (hasMultipleAxes && !hideYAxis) {
-            m.right = Math.max(48, xLabelHalfWidth + 4)
-        } else {
-            m.right = Math.max(DEFAULT_MARGINS.right, xLabelHalfWidth + 4)
-        }
-        return m
+        const bottom = hideXAxis ? COLLAPSED_AXIS_MARGIN : DEFAULT_MARGINS.bottom
+        const left = hideYAxis
+            ? COLLAPSED_AXIS_MARGIN
+            : Math.max(
+                  MIN_LEFT_MARGIN,
+                  Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING,
+                  xLabelHalfWidth + X_LABEL_EDGE_PADDING
+              )
+        const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
+        const right = Math.max(rightFloor, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
+        return { top: DEFAULT_MARGINS.top, right, bottom, left }
     }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
 }
