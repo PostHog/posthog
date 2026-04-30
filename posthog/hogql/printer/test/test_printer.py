@@ -4776,32 +4776,32 @@ class TestPostgresPrinter(BaseTest):
     def test_opaque_table_function_from_introspected_metadata(self, name, query, expected):
         context = self._context_with_table_functions(name)
         printed = self._select(query, context=context)
-        self.assertIn(expected, printed)
+        assert expected in printed
 
     def test_opaque_table_function_unknown_name_still_errors(self):
         context = self._context_with_table_functions("unnest")
         with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM totally_made_up_function(1)", context=context)
-        self.assertIn("Unknown table", str(ctx.exception))
+        assert "Unknown table" in str(ctx.exception)
 
     def test_opaque_table_function_requires_args(self):
         context = self._context_with_table_functions("unnest")
         with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM unnest", context=context)
-        self.assertIn("Unknown table", str(ctx.exception))
+        assert "Unknown table" in str(ctx.exception)
 
     def test_opaque_table_function_rejects_empty_call(self):
         context = self._context_with_table_functions("unnest")
         with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM unnest()", context=context)
-        self.assertIn("requires at least 1 argument", str(ctx.exception))
+        assert "requires at least 1 argument" in str(ctx.exception)
 
     def test_opaque_table_function_falls_back_to_hardcoded_range_without_metadata(self):
         # Connections that haven't refreshed since this rolled out won't have
         # `available_table_functions` in their metadata. The hand-rolled RangeTable
         # / GenerateSeriesTable registrations keep those two working.
         printed = self._select("SELECT range FROM range(10)")
-        self.assertIn("range(10)", printed)
+        assert "range(10)" in printed
 
     @parameterized.expand(
         [

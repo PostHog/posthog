@@ -203,11 +203,11 @@ class TestLicenseAPI(APILicensedTest):
         else:
             response = self.client.delete(f"/api/license/{license_pk}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         patch_post.assert_not_called()
-        self.assertTrue(License.objects.filter(pk=license_pk).exists())
-        self.assertEqual(set(Team.objects.values_list("pk", flat=True)), teams_before)
-        self.assertEqual(set(Organization.objects.values_list("pk", flat=True)), orgs_before)
+        assert License.objects.filter(pk=license_pk).exists()
+        assert set(Team.objects.values_list("pk", flat=True)) == teams_before
+        assert set(Organization.objects.values_list("pk", flat=True)) == orgs_before
 
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")
@@ -228,11 +228,11 @@ class TestLicenseAPI(APILicensedTest):
         with self.is_cloud(True):
             response = self.client.delete(f"/api/license/{license_pk}/")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         patch_post.assert_not_called()
-        self.assertTrue(License.objects.filter(pk=license_pk).exists())
-        self.assertEqual(set(Team.objects.values_list("pk", flat=True)), teams_before)
-        self.assertEqual(set(Organization.objects.values_list("pk", flat=True)), orgs_before)
+        assert License.objects.filter(pk=license_pk).exists()
+        assert set(Team.objects.values_list("pk", flat=True)) == teams_before
+        assert set(Organization.objects.values_list("pk", flat=True)) == orgs_before
 
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")

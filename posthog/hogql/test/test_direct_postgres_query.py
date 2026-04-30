@@ -393,8 +393,8 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn(expected_sql_fragment, sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert expected_sql_fragment in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
         source = ExternalDataSource.objects.create(

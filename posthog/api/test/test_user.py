@@ -1949,18 +1949,15 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "already_verified",
-                "detail": "Email is already verified.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "already_verified",
+            "detail": "Email is already verified.",
+            "attr": None,
+        }
         # No email should have been sent for an already-verified address.
-        self.assertEqual(len(mail.outbox), 0)
+        assert len(mail.outbox) == 0
 
     def test_can_request_verification_for_pending_email_change(self):
         # An already-verified user who initiated an email change still needs to
@@ -1971,9 +1968,9 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ["new-address@posthog.com"])
+        assert response.status_code == status.HTTP_200_OK
+        assert len(mail.outbox) == 1
+        assert mail.outbox[0].to == ["new-address@posthog.com"]
 
 
 class TestUserTwoFactor(APIBaseTest):

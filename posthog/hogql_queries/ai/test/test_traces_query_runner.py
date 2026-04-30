@@ -629,13 +629,9 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         result_ids = [t.id for t in response.results]
-        self.assertEqual(
-            len(response.results),
-            5,
-            f"expected 5 in-window traces; got {len(response.results)}: {result_ids}",
-        )
+        assert len(response.results) == 5, f"expected 5 in-window traces; got {len(response.results)}: {result_ids}"
         for rid in result_ids:
-            self.assertTrue(rid.startswith("in_window_"), f"unexpected trace id {rid} in results")
+            assert rid.startswith("in_window_"), f"unexpected trace id {rid} in results"
 
     def test_overlap_semantics_trace_started_before_window(self):
         _create_person(distinct_ids=["person1"], team=self.team)

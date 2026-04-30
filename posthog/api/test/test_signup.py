@@ -1025,7 +1025,7 @@ class TestSignupAPI(APIBaseTest):
     def _complete_sso_for_email(self, mock_request, mock_sso_providers, email: str):
         mock_sso_providers.return_value = {"google-oauth2": True}
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
         mock_request.return_value.json.return_value = {"access_token": "123", "email": email, "sub": "123"}
@@ -1055,12 +1055,12 @@ class TestSignupAPI(APIBaseTest):
             self._setup_jit_domain_for_email(email)
 
             response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             squatter.refresh_from_db()
-            self.assertTrue(squatter.is_email_verified)
-            self.assertFalse(squatter.passkeys_enabled_for_2fa)
-            self.assertFalse(WebauthnCredential.objects.filter(user=squatter).exists())
+            assert squatter.is_email_verified
+            assert not squatter.passkeys_enabled_for_2fa
+            assert not WebauthnCredential.objects.filter(user=squatter).exists()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1075,11 +1075,11 @@ class TestSignupAPI(APIBaseTest):
             self._setup_jit_domain_for_email(email)
 
             response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             squatter.refresh_from_db()
-            self.assertTrue(squatter.is_email_verified)
-            self.assertFalse(squatter.has_usable_password())
+            assert squatter.is_email_verified
+            assert not squatter.has_usable_password()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1102,11 +1102,11 @@ class TestSignupAPI(APIBaseTest):
             self._setup_jit_domain_for_email(email)
 
             response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             existing.refresh_from_db()
-            self.assertTrue(existing.has_usable_password())
-            self.assertTrue(WebauthnCredential.objects.filter(user=existing).exists())
+            assert existing.has_usable_password()
+            assert WebauthnCredential.objects.filter(user=existing).exists()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1224,7 +1224,7 @@ class TestSignupAPI(APIBaseTest):
         )
         existing_user.is_email_verified = False
         existing_user.save()
-        self.assertTrue(existing_user.has_usable_password())
+        assert existing_user.has_usable_password()
 
         WebauthnCredential.objects.create(
             user=existing_user,
@@ -1238,7 +1238,7 @@ class TestSignupAPI(APIBaseTest):
         )
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -1249,13 +1249,13 @@ class TestSignupAPI(APIBaseTest):
         }
 
         response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         self.assertRedirects(response, "/")
 
         existing_user.refresh_from_db()
-        self.assertTrue(existing_user.is_email_verified)
-        self.assertFalse(existing_user.has_usable_password())
-        self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
+        assert existing_user.is_email_verified
+        assert not existing_user.has_usable_password()
+        assert not WebauthnCredential.objects.filter(user=existing_user).exists()
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
