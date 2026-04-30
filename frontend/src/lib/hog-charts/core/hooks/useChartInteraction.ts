@@ -32,7 +32,10 @@ function isTooltipContextEquivalent<Meta>(a: TooltipContext<Meta>, b: TooltipCon
     for (let i = 0; i < a.seriesData.length; i++) {
         const ai = a.seriesData[i]
         const bi = b.seriesData[i]
-        if (ai.value !== bi.value || ai.color !== bi.color || ai.series !== bi.series) {
+        // Compare series by stable `key` rather than identity: the parent rebuilds
+        // `coloredSeries` (and so each entry's `series` reference) on every render, so
+        // an identity check would defeat the equivalence bail.
+        if (ai.value !== bi.value || ai.color !== bi.color || ai.series.key !== bi.series.key) {
             return false
         }
     }
