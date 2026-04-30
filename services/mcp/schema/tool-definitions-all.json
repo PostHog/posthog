@@ -1648,7 +1648,7 @@
         }
     },
     "experiment-get": {
-        "description": "Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/stopped), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type (web/product).",
+        "description": "Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/paused/stopped — \"paused\" is a virtual value returned when the experiment is launched but its feature flag has been deactivated), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type (web/product).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment details",
@@ -1693,7 +1693,7 @@
         }
     },
     "experiment-list": {
-        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
+        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get all experiments",

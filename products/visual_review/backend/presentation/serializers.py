@@ -139,6 +139,8 @@ class ApproveRunInputSerializer(DataclassSerializer):
 
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
+    current_artifact = ArtifactSerializer(allow_null=True, required=False)
+
     class Meta:
         dataclass = SnapshotHistoryEntry
 
