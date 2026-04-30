@@ -535,7 +535,6 @@ const ConditionContent = ({
                                                 }}
                                                 options={[
                                                     {
-                                                        title: 'Individual users',
                                                         options: [
                                                             {
                                                                 value: PERSON,
