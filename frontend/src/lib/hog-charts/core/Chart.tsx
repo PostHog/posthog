@@ -21,6 +21,7 @@ import type {
     ChartTheme,
     CreateScalesFn,
     PointClickData,
+    ResolvedSeries,
     ResolveValueFn,
     Series,
     TooltipContext,
@@ -32,6 +33,24 @@ const OVERLAY_STYLE: React.CSSProperties = {
     left: 0,
     width: '100%',
     height: '100%',
+    pointerEvents: 'none',
+}
+
+const WRAPPER_STYLE_BASE: React.CSSProperties = {
+    position: 'relative',
+    width: '100%',
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+}
+const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'default' }
+const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
+
+const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
+const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
     pointerEvents: 'none',
 }
 
@@ -53,7 +72,12 @@ export interface ChartProps<Meta = unknown> {
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
-    /** Resolves the y-value for a series at a given index. Defaults to series.data[index]. */
+    /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
+     *  Identity is read live for tooltip values and overlays, but the pinned-tooltip
+     *  rebuild only refires when `series`, `labels`, or `scales` change. Callers that
+     *  derive values from data not reflected in those (e.g. an external "%" toggle)
+     *  should ensure that toggle also updates `series` or the chart's scales — otherwise
+     *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
 }
 
@@ -152,7 +176,7 @@ export function Chart<Meta = unknown>({
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
-    const coloredSeries = useMemo(
+    const coloredSeries = useMemo<ResolvedSeries<Meta>[]>(
         () =>
             series.map((s, i) => ({
                 ...s,
@@ -240,7 +264,12 @@ export function Chart<Meta = unknown>({
         drawHover: composedDrawHover,
     })
 
-    const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
+    const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
+
+    const ariaLabel = useMemo(() => {
+        const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
+        return `Chart with ${visible} data series`
+    }, [coloredSeries])
 
     const canvasBounds = useCallback(
         (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
@@ -250,6 +279,12 @@ export function Chart<Meta = unknown>({
     // Wrap resolveValue in a ref + stable callback so callers don't have to memoize it.
     // An un-memoized arrow literal from a parent would otherwise invalidate the layout
     // context on every render and defeat the layout/hover split.
+    //
+    // The ref is written during render rather than via an effect because overlays read
+    // it during their render via `useChartLayout().resolveValue`; deferring the write
+    // would expose them to last-commit's value. This is safe under StrictMode/concurrent
+    // rendering: an aborted render that wrote the ref will be re-driven with the same
+    // props, so the kept render observes an idempotent state.
     const resolveValueRef = useRef<ResolveValueFn | undefined>(resolveValue)
     resolveValueRef.current = resolveValue
     const stableResolveValue = useCallback<ResolveValueFn>((s, i) => {
@@ -285,39 +320,13 @@ export function Chart<Meta = unknown>({
                     <div
                         ref={wrapperRef}
                         className={className}
-                        style={{
-                            position: 'relative',
-                            width: '100%',
-                            flex: 1,
-                            minHeight: 0,
-                            overflow: 'hidden',
-                            cursor: cursorStyle,
-                        }}
+                        style={wrapperStyle}
                         onMouseMove={handlers.onMouseMove}
                         onMouseLeave={handlers.onMouseLeave}
                         onClick={handlers.onClick}
                     >
-                        <canvas
-                            ref={canvasRef}
-                            role="img"
-                            aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)} data series`}
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                cursor: cursorStyle,
-                            }}
-                        />
-                        <canvas
-                            ref={overlayCanvasRef}
-                            aria-hidden="true"
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                pointerEvents: 'none',
-                            }}
-                        />
+                        <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
+                        <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
 
                         {dimensions && scales && (
                             <OverlayLayer>

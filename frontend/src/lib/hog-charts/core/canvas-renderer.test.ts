@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 
 import { drawArea, drawGrid, drawLine, type DrawContext } from './canvas-renderer'
-import type { ChartDimensions, Series } from './types'
+import type { ChartDimensions, ResolvedSeries, Series } from './types'
 
 const dimensions: ChartDimensions = {
     width: 800,
@@ -12,7 +12,7 @@ const dimensions: ChartDimensions = {
     plotHeight: 352,
 }
 
-function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): Series {
+function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): ResolvedSeries {
     return { label: overrides.key, color: '#f00', ...overrides }
 }
 

@@ -44429,7 +44429,7 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * Filter by internal flag. Defaults to excluding internal tasks when not specified.
+     * When true, list internal tasks instead of user-facing ones. Honored only in debug environments; ignored in production. Defaults to excluding internal tasks.
      */
     internal?: boolean;
     /**
