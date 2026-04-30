@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
@@ -10,6 +10,7 @@ import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
+import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatters } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import type {
@@ -143,8 +144,7 @@ export function Chart<Meta = unknown>({
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
-    const drawHoverRef = useRef(drawHover)
-    drawHoverRef.current = drawHover
+    const drawHoverRef = useLatest(drawHover)
     const composedDrawHover = useMemo(
         () => composeDrawHoverWithCrosshair(() => drawHoverRef.current, theme.crosshairColor, showCrosshair),
         [showCrosshair, theme.crosshairColor]
