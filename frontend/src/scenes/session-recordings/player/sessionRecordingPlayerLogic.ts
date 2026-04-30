@@ -191,7 +191,7 @@ const NOSCRIPT_BLOCK_RE = /<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi
  * the heatmap iframe.
  */
 export function stripRrwebScriptShims(html: string): string {
-    if (!html || !html.includes('<noscript')) {
+    if (!html || !/<noscript\b/i.test(html)) {
         return html
     }
     return html.replace(NOSCRIPT_BLOCK_RE, '')
