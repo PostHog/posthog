@@ -448,6 +448,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 0)
 
+    @freeze_time("2024-12-02T00:00:00Z")
     def test_capture_range(self):
         """Test the capture range window includes events before and well after the trace start."""
         _create_person(distinct_ids=["person1"], team=self.team)

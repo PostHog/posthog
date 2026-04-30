@@ -59,10 +59,10 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
-    _trace_bounds: tuple[datetime, datetime] | None = None
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        self._trace_bounds: tuple[datetime, datetime] | None = None
 
     def _calculate(self):
         bounds = self._discover_trace_bounds()
