@@ -460,7 +460,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             if (values.sessionPlayerMetaData) {
                 actions.maybeLoadPropertiesForSessions([values.sessionPlayerMetaData])
             }
-            if (values.sessionPlayerMetaData?.has_summary && !values.sessionSummary && !values.sessionSummaryLoading) {
+            // Only auto-rehydrate when the server confirms the feature is enabled for this user.
+            // Otherwise the SSE stream returns a 400 on the flag check and surfaces a toast error
+            // for recordings that already have a stored summary but were viewed by a user outside
+            // the rollout cohort.
+            if (
+                values.sessionPlayerMetaData?.has_summary &&
+                values.sessionPlayerMetaData?.can_summarize &&
+                !values.sessionSummary &&
+                !values.sessionSummaryLoading
+            ) {
                 actions.summarizeSession()
             }
         },

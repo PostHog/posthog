@@ -1852,6 +1852,11 @@ export interface SessionRecordingType {
     recording_ttl?: number
     has_summary?: boolean
     summary_outcome?: { success?: boolean | null; description?: string | null } | null
+    /** Server-evaluated indicator for whether the AI session summary feature is enabled
+     * for the requesting user. Source of truth for the player summary dock visibility —
+     * the same check the `/summarize` endpoint enforces, exposed up-front so the UI
+     * never offers a button the backend would reject. */
+    can_summarize?: boolean
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
 }

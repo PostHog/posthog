@@ -7,8 +7,6 @@ import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { playerMetaLogic } from './player-meta/playerMetaLogic'
@@ -22,7 +20,6 @@ const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
 
 export function PlayerSummaryDock(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { logicProps, sessionRecordingId, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const {
         sessionSummary,
@@ -31,6 +28,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
         sessionSummaryError,
         sessionSummaryHasRetried,
         summaryDisabledReason,
+        sessionPlayerMetaData,
     } = useValues(playerMetaLogic(logicProps))
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
     const { openBySessionId } = useValues(sessionSummaryProgressLogic)
@@ -45,7 +43,11 @@ export function PlayerSummaryDock(): JSX.Element | null {
     }
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
 
-    const isEnabled = featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
+    // The dock is gated on the server-evaluated `can_summarize` field rather than the
+    // client-side feature flag because the backend re-evaluates the same flag and returns
+    // a 400 on miss. Trusting the server here keeps the two in sync — the user never sees
+    // a summarize button that would just produce a toast error.
+    const isEnabled = !!sessionPlayerMetaData?.can_summarize
     const hasSummary = !!sessionSummary
     const isOpen = !!openBySessionId[sessionRecordingId]
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)

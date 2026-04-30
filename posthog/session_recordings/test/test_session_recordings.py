@@ -776,6 +776,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "activity_score": None,
             "has_summary": False,
             "summary_outcome": None,
+            "can_summarize": False,
             "external_references": [],
         }
 
@@ -2118,6 +2119,66 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert call_kwargs["session_id"] == session_id
         assert call_kwargs["user"] == self.user
         assert call_kwargs["team"] == self.team
+
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_can_summarize_is_true_when_environment_and_flag_align(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["can_summarize"] is True
+
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_can_summarize_is_false_when_flag_disabled(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["can_summarize"] is False
+
+    @patch("posthog.session_recordings.session_recording_api.is_cloud", return_value=True)
+    @patch.dict(os.environ, {}, clear=True)
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_can_summarize_is_false_without_openai_key(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_is_cloud: MagicMock,
+    ):
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            distinct_id="user",
+            session_id=session_id,
+            timestamp=now() - timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["can_summarize"] is False
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",

@@ -218,6 +218,37 @@ def _get_session_ids_from_comment_search(
     return list(base_query.values_list("item_id", flat=True).distinct())
 
 
+def _summary_environment_is_ready() -> bool:
+    """Whether the environment can run AI session summaries at all (cloud or DEBUG, OpenAI key set)."""
+    return (settings.DEBUG or is_cloud()) and bool(os.environ.get("OPENAI_API_KEY"))
+
+
+def _summary_flag_enabled_for(user: User, team: Team) -> bool:
+    """Server-side evaluation of the ``replay-video-based-summarization`` feature flag.
+
+    Kept separate from the environment check so the ``summarize`` action can preserve
+    distinct error messages, while still letting the serializer expose a single
+    ``can_summarize`` boolean for the dock UI to gate on.
+    """
+    return bool(
+        posthoganalytics.feature_enabled(
+            "replay-video-based-summarization",
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def _user_can_summarize_session(user: User, team: Team) -> bool:
+    """Single source of truth for whether the AI session summary feature is available
+    to a given user in a given team. The dock UI gates on this server-evaluated value
+    so it never surfaces a button the backend would reject.
+    """
+    return _summary_environment_is_ready() and _summary_flag_enabled_for(user, team)
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -264,6 +295,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
     summary_outcome = serializers.SerializerMethodField()
+    can_summarize = serializers.SerializerMethodField(
+        help_text="Whether the AI session summary feature is enabled for the requesting user. "
+        "Computed server-side so the player UI does not show the summarize button when the backend would reject it."
+    )
     # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
     expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
     recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
@@ -308,6 +343,23 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     @extend_schema_field(OutcomeSerializer(allow_null=True))
     def get_summary_outcome(self, obj: SessionRecording) -> dict | None:
         return getattr(obj, "summary_outcome", None)
+
+    def get_can_summarize(self, obj: SessionRecording) -> bool:
+        # Skip in list views — the dock that consumes this field only renders for the active player.
+        view = self.context.get("view")
+        if view and getattr(view, "action", None) == "list":
+            return False
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+
+        team = getattr(view, "team", None) if view else None
+        if team is None:
+            return False
+
+        return _user_can_summarize_session(user, team)
 
     def get_external_references(self, obj: SessionRecording) -> list[dict]:
         """Load external references (linked issues) for this recording"""
@@ -362,6 +414,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "activity_score",
             "has_summary",
             "summary_outcome",
+            "can_summarize",
             "external_references",
         ]
 
@@ -1435,17 +1488,9 @@ class SessionRecordingViewSet(
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
-        if not environment_is_allowed or not has_openai_api_key:
+        if not _summary_environment_is_ready():
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled(
-            "replay-video-based-summarization",
-            str(user.distinct_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
+        if not _summary_flag_enabled_for(user, self.team):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
