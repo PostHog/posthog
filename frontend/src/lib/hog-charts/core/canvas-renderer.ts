@@ -1,5 +1,6 @@
 import * as d3 from 'd3'
 
+import { yTickCountForHeight } from './scales'
 import type { ChartDimensions, Series } from './types'
 
 export interface DrawContext {
@@ -288,7 +289,7 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
 
-    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.() ?? []
+    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(dimensions.plotHeight)) ?? []
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
@@ -301,6 +302,29 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
         ctx.stroke()
     }
+
+    const axisX = Math.round(dimensions.plotLeft) + 0.5
+    ctx.beginPath()
+    ctx.moveTo(axisX, dimensions.plotTop)
+    ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
+}
+
+export function drawCrosshair(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    x: number,
+    color: string
+): void {
+    // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
+    const lineX = Math.round(x) + 0.5
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.moveTo(lineX, dimensions.plotTop)
+    ctx.lineTo(lineX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
 }
 
 export function drawHighlightPoint(

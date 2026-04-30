@@ -461,6 +461,63 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('beforeUnmount disposes tracked Monaco models', () => {
+        function createTrackedModel(): { model: any; dispose: jest.Mock } {
+            const dispose = jest.fn()
+            const model = {
+                dispose,
+                isDisposed: () => false,
+                codeEditorLogic: { sentinel: true },
+            }
+            return { model, dispose }
+        }
+
+        it('clears codeEditorLogic and calls dispose on every tracked model when the logic unmounts', () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            const tracked = [createTrackedModel(), createTrackedModel()]
+            logic.cache.createdModels = tracked.map((t) => t.model)
+
+            logic.unmount()
+            logic = undefined as any
+
+            for (const { model, dispose } of tracked) {
+                expect(model.codeEditorLogic).toBeUndefined()
+                expect(dispose).toHaveBeenCalledTimes(1)
+            }
+        })
+
+        it('clears codeEditorLogic even when model.dispose throws', () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            const dispose = jest.fn(() => {
+                throw new Error('already disposed')
+            })
+            const model: any = {
+                dispose,
+                isDisposed: () => false,
+                codeEditorLogic: { sentinel: true },
+            }
+            logic.cache.createdModels = [model]
+
+            logic.unmount()
+            logic = undefined as any
+
+            expect(model.codeEditorLogic).toBeUndefined()
+            expect(dispose).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('getDisplayTypeToSaveInsight', () => {
         it.each([
             {
@@ -480,6 +537,13 @@ describe('sqlEditorLogic', () => {
             {
                 name: 'saves effective visualization when source query is auto',
                 outputTab: OutputTab.Visualization,
+                sourceQueryDisplay: ChartDisplayType.Auto,
+                effectiveVisualizationType: ChartDisplayType.BoldNumber,
+                expected: ChartDisplayType.BoldNumber,
+            },
+            {
+                name: 'saves visualization when both outputs are selected',
+                outputTab: OutputTab.Both,
                 sourceQueryDisplay: ChartDisplayType.Auto,
                 effectiveVisualizationType: ChartDisplayType.BoldNumber,
                 expected: ChartDisplayType.BoldNumber,
@@ -772,6 +836,24 @@ describe('sqlEditorLogic', () => {
 
             expect(router.values.hashParams.q).toEqual('SELECT 1')
             expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
+        })
+
+        it('uses both as the hash output tab when split view is selected', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setActiveTab(OutputTab.Both)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 1')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Both)
         })
     })
 

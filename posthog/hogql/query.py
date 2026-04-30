@@ -25,6 +25,11 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    GenerateSeriesTable,
+    OpaqueFunctionCallTable,
+    RangeTable,
+)
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
@@ -458,7 +463,14 @@ class HogQLQueryExecutor:
         if query_type is None:
             return None
 
-        base_table_types = extract_base_table_types(query_type)
+        # Dialect-level table functions (range, generate_series, introspected opaque calls)
+        # aren't bound to any source — they're standalone SQL any direct connection can run,
+        # so they shouldn't influence source dispatching or block table-less execution.
+        base_table_types = [
+            table_type
+            for table_type in extract_base_table_types(query_type)
+            if not isinstance(table_type.table, (RangeTable, GenerateSeriesTable, OpaqueFunctionCallTable))
+        ]
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types

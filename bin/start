@@ -162,7 +162,7 @@ else
     # Generate/regenerate config using hogli (defaults to product_analytics if no config exists)
     # HOGLI_PROCESS_MANAGER is picked up by dev:generate for telemetry
     if command -v hogli &>/dev/null; then
-        HOGLI_PROCESS_MANAGER="$PROCESS_MANAGER" hogli dev:generate 2>/dev/null || true
+        POSTHOG_TELEMETRY_OPT_OUT=1 HOGLI_PROCESS_MANAGER="$PROCESS_MANAGER" hogli dev:generate 2>/dev/null || true
     fi
 
     if [[ -f "$GENERATED_CONFIG" ]]; then
