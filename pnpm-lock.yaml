@@ -1823,7 +1823,7 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
+        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
       jest-image-snapshot:
         specifier: ^6.4.0
         version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.9.3)))
@@ -3417,7 +3417,7 @@ importers:
   services/mcp:
     dependencies:
       '@hono/node-server':
-        specifier: ^1.19.14
+        specifier: ^1.19.0
         version: 1.19.14(hono@4.12.14)
       '@modelcontextprotocol/ext-apps':
         specifier: ^1.5.0
@@ -3444,7 +3444,7 @@ importers:
         specifier: ^0.8.2
         version: 0.8.2
       hono:
-        specifier: ^4.12.14
+        specifier: ^4.11.8
         version: 4.12.14
       ioredis:
         specifier: ^4.28.5
@@ -3494,7 +3494,7 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))
+        version: 4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))
       ajv:
         specifier: ^8.17.1
         version: 8.17.1
@@ -22631,16 +22631,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
   unlayer-types@1.405.0:
     resolution: {integrity: sha512-KbrpkUDRnjCkF1HO7Ap1oiIl7xvqgUf5Du9erC5TiJODwPk3c6XO/wypycSSqu0V+05v1CfmvwmD9icDqXSkNg==}
-||||||| Common ancestor
-  unlayer-types@1.400.0:
-    resolution: {integrity: sha512-3x/DFE0UYvwNZ/S+8OZYjPKjEHscSFOwnnRNZNTRkLTRCugOkSS9owg1+7uinBdhwB+xYbAKIfxU9vS2dLLyFg==}
-=======
-  unlayer-types@1.404.0:
-    resolution: {integrity: sha512-L8cL9SYyOacGAasz0F23sTUA3/SuSUu0ZQEHI99JEe9HWiC/B1o5fuAfYewf6ZjjnVYkM2ztYTdXH+960lV+nQ==}
->>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -28654,13 +28646,7 @@ snapshots:
     dependencies:
       '@hapi/hoek': 9.3.0
 
-<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
-  '@hono/node-server@1.19.14(hono@4.11.8)':
-||||||| Common ancestor
-  '@hono/node-server@1.19.9(hono@4.11.8)':
-=======
   '@hono/node-server@1.19.14(hono@4.12.14)':
->>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
     dependencies:
       hono: 4.12.14
 
@@ -29717,19 +29703,9 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
     dependencies:
-<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
-      '@hono/node-server': 1.19.14(hono@4.11.8)
+      '@hono/node-server': 1.19.14(hono@4.12.14)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
-||||||| Common ancestor
-      '@hono/node-server': 1.19.9(hono@4.11.8)
-      ajv: 8.17.1
-      ajv-formats: 3.0.1(ajv@8.17.1)
-=======
-      '@hono/node-server': 1.19.14(hono@4.12.14)
-      ajv: 8.17.1
-      ajv-formats: 3.0.1(ajv@8.17.1)
->>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
       content-type: 1.0.5
       cors: 2.8.5
       cross-spawn: 7.0.6
@@ -36389,7 +36365,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitejs/plugin-react@4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0))':
+  '@vitejs/plugin-react@4.7.0(vite@5.4.21(@types/node@22.18.8)(less@4.2.2)(lightningcss@1.32.0)(sass-embedded@1.70.0)(terser@5.46.0))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
@@ -47015,13 +46991,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
       unlayer-types: 1.405.0
-||||||| Common ancestor
-      unlayer-types: 1.400.0
-=======
-      unlayer-types: 1.404.0
->>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
 
   react-error-overlay@6.0.9: {}
 
@@ -49477,13 +49447,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-<<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
   unlayer-types@1.405.0: {}
-||||||| Common ancestor
-  unlayer-types@1.400.0: {}
-=======
-  unlayer-types@1.404.0: {}
->>>>>>> Current commit: feat(mcp): add Hono MCP server for k8s deployment
 
   unpipe@1.0.0: {}
 
