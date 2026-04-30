@@ -226,7 +226,8 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
     const ref = useRef<HTMLDivElement | null>(null)
 
-    const isHighlighted = replyingCommentId === comment.id || editingComment?.id === comment.id
+    const isEditing = editingComment?.id === comment.id
+    const isHighlighted = replyingCommentId === comment.id || isEditing
 
     useEffect(() => {
         if (isHighlighted) {
@@ -246,10 +247,10 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
 
                     <div className="flex flex-col flex-1">
                         <CommentTopRow comment={comment} />
-                        <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>
+                        {!isEditing && <LemonMarkdown lowKeyHeadings>{getText(comment)}</LemonMarkdown>}
                     </div>
                 </div>
-                <CommentBottomRow comment={comment} />
+                {!isEditing && <CommentBottomRow comment={comment} />}
             </div>
 
             <CommentEditingForm comment={comment} />
