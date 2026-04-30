@@ -6,15 +6,6 @@ from posthog.email import EmailMessage, is_email_available
 from posthog.models import User
 from posthog.utils import absolute_uri
 
-from products.notifications.backend.facade.api import (
-    NotificationData,
-    NotificationType,
-    Priority,
-    TargetType,
-    create_notification,
-)
-from products.notifications.backend.facade.enums import NotificationOnlyResourceType
-
 if TYPE_CHECKING:
     from posthog.approvals.models import Approval, ChangeRequest
 
@@ -76,32 +67,6 @@ def _dispatch_realtime_requested(change_request: "ChangeRequest") -> None:
                 approver_id=str(approver_id),
                 error=str(e),
             )
-
-
-def _send_realtime_resolved(change_request: "ChangeRequest", *, title: str, body: str) -> None:
-    if not change_request.created_by_id:
-        return
-    try:
-        create_notification(
-            NotificationData(
-                team_id=change_request.team_id,
-                notification_type=NotificationType.APPROVAL_RESOLVED,
-                priority=Priority.NORMAL,
-                title=title[:100],
-                body=body[:200],
-                target_type=TargetType.USER,
-                target_id=str(change_request.created_by_id),
-                resource_type=NotificationOnlyResourceType.APPROVAL,
-                resource_id=str(change_request.id),
-                source_url=_build_change_request_url(change_request),
-            )
-        )
-    except Exception as e:
-        logger.exception(
-            "send_approval_resolved_notification.realtime_failed",
-            change_request_id=str(change_request.id),
-            error=str(e),
-        )
 
 
 def _send_approval_email(
@@ -230,10 +195,6 @@ def send_approval_decision_notification(
             error=str(e),
         )
 
-    title = f"{approver_name} approved your change" if is_approved else "Your change request was declined"
-    body = f"Action: {change_request.action_key}" if is_approved else f"Declined by {approver_name}"
-    _send_realtime_resolved(change_request, title=title, body=body)
-
 
 def send_approval_expired_notification(change_request: "ChangeRequest") -> None:
     """
@@ -260,12 +221,6 @@ def send_approval_expired_notification(change_request: "ChangeRequest") -> None:
             error=str(e),
         )
 
-    _send_realtime_resolved(
-        change_request,
-        title="Your change request expired",
-        body=f"Action: {change_request.action_key}",
-    )
-
 
 def send_approval_applied_notification(change_request: "ChangeRequest") -> None:
     """
@@ -291,9 +246,3 @@ def send_approval_applied_notification(change_request: "ChangeRequest") -> None:
             change_request_id=str(change_request.id),
             error=str(e),
         )
-
-    _send_realtime_resolved(
-        change_request,
-        title="Your change is now live",
-        body=f"Action: {change_request.action_key}",
-    )

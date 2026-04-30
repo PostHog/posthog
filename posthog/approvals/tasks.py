@@ -8,6 +8,7 @@ from structlog import get_logger
 
 from posthog.approvals.models import ChangeRequest, ChangeRequestState, ValidationStatus
 from posthog.approvals.notifications import send_approval_expired_notification
+from posthog.approvals.realtime import dispatch_approval_resolved_realtime
 
 logger = get_logger(__name__)
 
@@ -118,6 +119,11 @@ def expire_old_change_requests() -> dict[str, Any]:
 
             try:
                 send_approval_expired_notification(locked_cr)
+                dispatch_approval_resolved_realtime(
+                    locked_cr,
+                    title="Your change request expired",
+                    body=f"Action: {locked_cr.action_key}",
+                )
             except Exception as notification_error:
                 logger.warning(
                     "expire_old_change_requests.notification_failed",
