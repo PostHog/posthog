@@ -25,7 +25,7 @@ from pydantic import (
     RootModel,
     ValidationError as PydanticValidationError,
 )
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import relations, request, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -274,6 +274,24 @@ class QuerySchemaParser(JSONParser):
             return data
 
 
+class _DashboardsFromTilesManyField(serializers.ManyRelatedField):
+    def get_attribute(self, instance: Insight) -> list[int]:
+        return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+
+    def to_representation(self, iterable: list[int]) -> list[int]:
+        return list(iterable)
+
+
+class TeamScopedDashboardsField(TeamScopedPrimaryKeyRelatedField):
+    @classmethod
+    def many_init(cls, *args, **kwargs):
+        list_kwargs: dict[str, Any] = {"child_relation": cls(*args, **kwargs)}
+        for key in kwargs:
+            if key in relations.MANY_RELATION_KWARGS:
+                list_kwargs[key] = kwargs[key]
+        return _DashboardsFromTilesManyField(**list_kwargs)
+
+
 class DashboardTileBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardTile
@@ -411,7 +429,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = TeamScopedPrimaryKeyRelatedField(
+    dashboards = TeamScopedDashboardsField(
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -863,8 +881,6 @@ class InsightSerializer(InsightBasicSerializer):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
-        else:
-            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Dashboard | None = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
@@ -1265,6 +1281,18 @@ class InsightViewSet(
         span.set_attribute("posthog.order", request.query_params.get("order", ""))
         return super().list(request, *args, **kwargs)
 
+    def get_serializer(self, *args, **kwargs):
+        if (
+            self.action == "list"
+            and kwargs.get("many")
+            and not self._is_basic_request()
+            and args
+            and not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
+        ):
+            tiles = [tile for insight in args[0] for tile in insight.dashboard_tiles.all()]
+            self.user_permissions.set_preloaded_dashboard_tiles(tiles)
+        return super().get_serializer(*args, **kwargs)
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self._is_basic_request():
             return InsightBasicSerializer
@@ -1319,11 +1347,6 @@ class InsightViewSet(
             )
         else:
             queryset = queryset.prefetch_related(
-                Prefetch(
-                    # TODO deprecate this field entirely
-                    "dashboards",
-                    queryset=Dashboard.objects.all().select_related("team__organization"),
-                ),
                 Prefetch(
                     "dashboard_tiles",
                     queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
