@@ -1,5 +1,17 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal
+
+
+class LimitKey(StrEnum):
+    """Stable string identifiers for every entry in the catalog. Use these
+    at every call site to avoid typo'd lookups."""
+
+    MAX_DASHBOARDS_PER_TEAM = "analytics.max_dashboards_per_team"
+    MAX_INSIGHTS_PER_DASHBOARD = "analytics.max_insights_per_dashboard"
+    MAX_ALERTS_PER_TEAM = "analytics.max_alerts_per_team"
+    MAX_SUBSCRIPTIONS_PER_TEAM = "analytics.max_subscriptions_per_team"
+    MAX_ACTIONS_PER_TEAM = "analytics.max_actions_per_team"
 
 
 @dataclass(frozen=True)
@@ -19,28 +31,28 @@ class LimitDefinition:
 
 
 REGISTRY: dict[str, LimitDefinition] = {
-    "analytics.max_dashboards_per_team": LimitDefinition(
-        key="analytics.max_dashboards_per_team",
+    LimitKey.MAX_DASHBOARDS_PER_TEAM: LimitDefinition(
+        key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
         description="Saved dashboards in a project",
         default=500,
     ),
-    "analytics.max_insights_per_dashboard": LimitDefinition(
-        key="analytics.max_insights_per_dashboard",
+    LimitKey.MAX_INSIGHTS_PER_DASHBOARD: LimitDefinition(
+        key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
         description="Insight tiles attached to a single dashboard",
         default=100,
     ),
-    "analytics.max_alerts_per_team": LimitDefinition(
-        key="analytics.max_alerts_per_team",
+    LimitKey.MAX_ALERTS_PER_TEAM: LimitDefinition(
+        key=LimitKey.MAX_ALERTS_PER_TEAM,
         description="Alert configurations in a project",
         default=200,
     ),
-    "analytics.max_subscriptions_per_team": LimitDefinition(
-        key="analytics.max_subscriptions_per_team",
+    LimitKey.MAX_SUBSCRIPTIONS_PER_TEAM: LimitDefinition(
+        key=LimitKey.MAX_SUBSCRIPTIONS_PER_TEAM,
         description="Scheduled subscriptions in a project",
         default=200,
     ),
-    "analytics.max_actions_per_team": LimitDefinition(
-        key="analytics.max_actions_per_team",
+    LimitKey.MAX_ACTIONS_PER_TEAM: LimitDefinition(
+        key=LimitKey.MAX_ACTIONS_PER_TEAM,
         description="Saved actions in a project",
         default=500,
     ),

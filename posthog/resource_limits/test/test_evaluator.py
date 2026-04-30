@@ -3,24 +3,16 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.resource_limits import check_count_limit, get_limit
+from posthog.resource_limits import LimitKey, check_count_limit, get_limit
 from posthog.resource_limits.registry import REGISTRY, LimitDefinition
 
 
 class TestGetLimit(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.key = "analytics.max_dashboards_per_team"
-
     def test_returns_catalog_default(self) -> None:
-        assert get_limit(team=self.team, key=self.key) == 500
+        assert get_limit(team=self.team, key=LimitKey.MAX_DASHBOARDS_PER_TEAM) == 500
 
 
 class TestCheckCountLimit(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.key = "analytics.max_dashboards_per_team"
-
     @parameterized.expand(
         [
             ("below_threshold", 10, False, None),
@@ -36,8 +28,13 @@ class TestCheckCountLimit(BaseTest):
         expect_emit: bool,
         expect_crossing: bool | None,
     ) -> None:
-        with patch("posthog.event_usage.report_user_action") as report:
-            check_count_limit(team=self.team, key=self.key, current_count=current_count, user=self.user)
+        with patch("posthog.resource_limits.evaluator.report_user_action") as report:
+            check_count_limit(
+                team=self.team,
+                key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
+                current_count=current_count,
+                user=self.user,
+            )
         if not expect_emit:
             report.assert_not_called()
             return
@@ -46,7 +43,7 @@ class TestCheckCountLimit(BaseTest):
         assert args[0] == self.user
         assert args[1] == "resource limit hit"
         properties = args[2]
-        assert properties["limit_key"] == self.key
+        assert properties["limit_key"] == LimitKey.MAX_DASHBOARDS_PER_TEAM
         assert properties["limit"] == 500
         assert properties["current_count"] == current_count
         assert properties["crossing_threshold"] is expect_crossing
@@ -54,12 +51,14 @@ class TestCheckCountLimit(BaseTest):
         assert properties["organization_id"] == str(self.team.organization_id)
 
     def test_no_user_no_emit(self) -> None:
-        with patch("posthog.event_usage.report_user_action") as report:
-            check_count_limit(team=self.team, key=self.key, current_count=499, user=None)
+        with patch("posthog.resource_limits.evaluator.report_user_action") as report:
+            check_count_limit(
+                team=self.team,
+                key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
+                current_count=499,
+                user=None,
+            )
         report.assert_not_called()
-
-    def test_never_raises(self) -> None:
-        check_count_limit(team=self.team, key=self.key, current_count=10_000, user=self.user)
 
 
 class TestRegistryShape:

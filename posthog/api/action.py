@@ -29,7 +29,7 @@ from posthog.models.property.util import build_selector_regex
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.resource_limits import check_count_limit
+from posthog.resource_limits import LimitKey, check_count_limit
 
 from products.experiments.backend.models.experiment import Experiment
 
@@ -242,7 +242,7 @@ class ActionSerializer(
         current_count = Action.objects.filter(team_id=team.id, deleted=False).count()
         check_count_limit(
             team=team,
-            key="analytics.max_actions_per_team",
+            key=LimitKey.MAX_ACTIONS_PER_TEAM,
             current_count=current_count,
             user=self.context["request"].user,
         )

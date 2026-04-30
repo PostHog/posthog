@@ -102,6 +102,7 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
@@ -497,8 +498,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         new_dashboards = attrs.get("dashboards")
         if new_dashboards is not None:
-            from posthog.resource_limits import check_count_limit
-
             team = self.context["get_team"]()
             existing_dashboard_ids: set[int] = set()
             if self.instance is not None:
@@ -511,7 +510,7 @@ class InsightSerializer(InsightBasicSerializer):
                 current_tiles = DashboardTile.objects.filter(dashboard_id=dashboard.id).exclude(deleted=True).count()
                 check_count_limit(
                     team=team,
-                    key="analytics.max_insights_per_dashboard",
+                    key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
                     current_count=current_tiles,
                     user=self.context["request"].user,
                 )

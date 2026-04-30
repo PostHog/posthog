@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+from posthog.event_usage import report_user_action
 from posthog.resource_limits.registry import get_definition
 
 if TYPE_CHECKING:
@@ -28,11 +29,9 @@ def check_count_limit(
     the team crosses for the first time so a downstream PostHog Action can
     pick stream vs one-shot semantics via property filter.
 
-    Notification-only: this never raises and never blocks the caller. The
-    surrounding viewset proceeds with the create as usual.
+    Notification-only: this never raises ``LimitExceeded`` and never blocks
+    the caller. The surrounding viewset proceeds with the create as usual.
     """
-    from posthog.event_usage import report_user_action
-
     limit = get_limit(team=team, key=key)
     if limit is None or current_count + 1 < limit:
         return
