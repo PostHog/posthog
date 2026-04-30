@@ -2029,17 +2029,16 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             day_key = run_created_at.date().isoformat()
             key = (run_type, identifier)
             buckets = sparkline_by_key[key][day_key]
-            # mypy keeps narrowing `result` (the values_list element) to a
-            # Literal that excludes one of the comparison arms — direct
-            # equality checks against this variable get flagged as
-            # unreachable in either direction. `str(result)` is opaque to
-            # the narrower and lets the four-way classify run as written.
-            result_str = str(result)
+            # `tolerated_hash_match` is a nullable FK but django-stubs types
+            # the `_id` column as a non-optional UUID, so without this widen
+            # mypy thinks `is not None` always succeeds → flags every later
+            # branch as unreachable.
+            tol_match_id_opt: UUID | None = tol_match_id
             if is_quar:
                 buckets.quarantined += 1
-            elif tol_match_id is not None:
+            elif tol_match_id_opt is not None:
                 buckets.tolerated += 1
-            elif result_str == "unchanged":
+            elif result == "unchanged":
                 buckets.clean += 1
             else:
                 buckets.changed += 1
