@@ -76,20 +76,39 @@ user can click straight to the diff viewer.
 
 ### "Is the diff real or unrelated?"
 
-The most useful judgment a code-aware agent can add. Compare the **scope** of the visual diff against the
-**scope** of the code change. When a PR that touches `posthog/session_recordings/...` produces a diff on
-`scenes-app-settings-user--settings-user-profile`, that's a strong signal of flake / shared-component bleed
-/ stale baseline rather than a real regression.
+The most useful judgment a code-aware agent can add. Combine three signals: **scope match**, **flake history**,
+and **the actual rendered images**. The agent should look at the screenshots — not just describe metadata.
 
-1. `git diff master...HEAD --stat` (or against the PR's base branch) → list of touched paths.
-2. `visual-review-runs-snapshots-list { id }` filtered to `result: changed` → list of story identifiers.
-3. Cross-reference: does the file scope plausibly explain the story scope?
-4. If yes — recommend approving in the UI.
-   If no — escalate: "this diff is unrelated to the code, likely flake or shared-component change", and run
-   the flake check below before approving anything.
+1. **Scope check** — `git diff master...HEAD --stat` (or against the PR's base branch) → list of touched paths.
+   Cross-reference with `visual-review-runs-snapshots-list { id }` filtered to `result: changed` → story identifiers.
+   Stories are namespaced like `<area>-<scene>--<story>--<theme>`; e.g. `scenes-app-settings-user--settings-user-profile--dark`
+   maps to `frontend/src/scenes/settings/user/...`. Use this to translate story id → likely source path.
 
-Stories are namespaced like `<area>-<scene>--<story>--<theme>`. Example: `scenes-app-settings-user--settings-user-profile--dark`
-maps to `frontend/src/scenes/settings/user/...`. Use this to translate from story id → likely source path.
+2. **Visual inspection** — for each `changed` snapshot, the tool result contains `current_artifact.download_url`
+   and `baseline_artifact.download_url`. These are pre-signed S3 URLs to PNG files; pull them and look:
+
+   ```bash
+   curl -s -o /tmp/vr-baseline.png "<baseline_artifact.download_url>"
+   curl -s -o /tmp/vr-current.png "<current_artifact.download_url>"
+   ```
+
+   Then `Read` both files (the Read tool renders images visually) and compare. Things to call out:
+   - The actual visible delta (text changed, button moved, layout shift, color drift, missing element).
+   - Whether the change is consistent with the diff_pixel_count and diff_percentage in the metadata
+     (e.g. 54% diff but the images look near-identical → screenshot framing changed, not the UI).
+   - Whether the baseline and current have different dimensions (`width` / `height` fields). Mismatched
+     dimensions usually mean the story rendered to a different viewport or didn't fully render before
+     screenshot — a flake signal, not a regression.
+
+3. **Flake history** — run the flake check below for any story that looks suspect.
+
+4. **Verdict** — combine all three:
+   - Scope plausible + visible regression matches the code change → real diff, recommend approval.
+   - Scope mismatch + dimensions mismatch + frequent prior changes → flake, recommend tolerating the hash.
+   - Scope plausible + visible regression looks unintended → push a fix; do not approve.
+
+Always include a one-line description of what you saw in the images — the user uses this to decide whether to
+trust your verdict without opening the VR UI themselves.
 
 ### Flake check: "Has this story been changing?"
 
@@ -126,7 +145,7 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
 
 - Do not approve or tolerate snapshots from this skill — those endpoints are intentionally not exposed as
   MCP tools yet. Direct the user to the run's `_posthogUrl`.
-- Do not download or describe the screenshot images themselves; the artifact URLs in tool output are
-  pre-signed S3 links for the UI, not for agent inspection.
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.
+- Do not declare a verdict from metadata alone when `result: changed`. Pull the baseline and current PNGs
+  and look at them; metadata can only say "something changed", not whether the change is intended.
