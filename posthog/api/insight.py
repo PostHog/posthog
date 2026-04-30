@@ -379,11 +379,8 @@ class QueryFieldSerializer(serializers.Serializer):
 
 
 def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
-    """Throttle clock for `?refresh=force_blocking` on shared insights.
-
-    Falls back to ``created_at`` when ``last_refresh`` is null (cache_key rotation resets it),
-    keeping the clock monotonic. On DB error, returns ``now()`` so the gate fails closed.
-    """
+    """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
+    ``now()`` so the gate fails closed."""
     try:
         if dashboard_tile is not None:
             cs = next(iter(dashboard_tile.caching_states.all()), None)
@@ -396,7 +393,7 @@ def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTil
     except Exception:
         return datetime.now(UTC)
     if cs is None:
-        return None
+        return insight.created_at
     return cs.last_refresh or cs.created_at
 
 
