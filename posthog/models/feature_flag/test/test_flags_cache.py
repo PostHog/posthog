@@ -1976,6 +1976,38 @@ class TestManagementCommands(BaseTest):
         self.assertEqual(result["issue"], "MISSING_ETAG")
         self.assertIn("db_data", result)
 
+    def test_verify_uses_batched_etag_no_extra_redis_get(self):
+        """In the verifier hot path the etag must come from cache_batch_data, not
+        from a per-team Redis GET. Otherwise verify_and_fix_flags_cache_task
+        re-introduces an N+1 Redis round trip across ~hundreds of thousands of
+        teams every 30 minutes — exactly the load this PR is trying to reduce."""
+        from unittest.mock import patch
+
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flags_cache(self.team)
+
+        # Pre-fetch the batch (one MGET) the way the verifier does.
+        cache_batch_data = flags_hypercache.batch_get_from_cache([self.team])
+        db_batch_data = {self.team.id: _get_feature_flags_for_service(self.team)}
+
+        with patch.object(flags_hypercache, "get_etag", side_effect=AssertionError("no per-team etag GET")) as m:
+            result = verify_team_flags(
+                self.team,
+                db_batch_data=db_batch_data,
+                cache_batch_data=cache_batch_data,
+            )
+
+        assert m.call_count == 0
+        # And the result is sane: etag was present in the batch, status matches.
+        self.assertEqual(result["status"], "match")
+
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
         """Test that fix failures are properly reported."""

@@ -485,9 +485,11 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
 
         assert len(results) == 1
         assert self.team.id in results
-        data, source = results[self.team.id]
+        data, source, etag = results[self.team.id]
         assert source == "redis"
         assert data == self.sample_data
+        # enable_etag defaults to False, so the third element is None
+        assert etag is None
 
     def test_batch_get_from_cache_all_misses(self):
         """Test batch get when all teams have cache misses."""
@@ -501,9 +503,10 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
 
         assert len(results) == 1
         assert self.team.id in results
-        data, source = results[self.team.id]
+        data, source, etag = results[self.team.id]
         assert source == "miss"
         assert data is None
+        assert etag is None
 
     def test_batch_get_from_cache_partial_hits(self):
         """Test batch get with mix of hits and misses."""
@@ -524,12 +527,12 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         assert len(results) == 2
 
         # First team: hit
-        data1, source1 = results[self.team.id]
+        data1, source1, _ = results[self.team.id]
         assert source1 == "redis"
         assert data1 == self.sample_data
 
         # Second team: miss
-        data2, source2 = results[team2.id]
+        data2, source2, _ = results[team2.id]
         assert source2 == "miss"
         assert data2 is None
 
@@ -550,9 +553,9 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
 
         results = hc.batch_get_from_cache([self.team])
 
-        # Should return (None, "redis") not (None, "miss")
+        # Should return (None, "redis", None) not (None, "miss", ...)
         # This is the cached "empty" marker, not a cache miss
-        data, source = results[self.team.id]
+        data, source, _ = results[self.team.id]
         assert data is None
         assert source == "redis"
 
@@ -581,7 +584,7 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         assert cache_key in get_many_called_keys
         # Verify we got the expected result
         assert self.team.id in results
-        data, source = results[self.team.id]
+        data, source, _ = results[self.team.id]
         assert source == "redis"
         assert data == self.sample_data
 
@@ -596,9 +599,79 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         results = hc.batch_get_from_cache([self.team])
 
         # Should return miss, NOT load from S3
-        data, source = results[self.team.id]
+        data, source, _ = results[self.team.id]
         assert source == "miss"
         assert data is None
+
+    def test_batch_get_from_cache_returns_etag_when_enabled(self):
+        """When enable_etag=True the etag rides on the same MGET as the payload,
+        so callers (the verifier loop) get the etag without an extra Redis round
+        trip per team. This is the property that prevents an N+1 GET inside
+        verify_team_flags."""
+
+        def load_fn(team):
+            return {"default": "data"}
+
+        hc = HyperCache(namespace="test_batch_etag", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc.set_cache_value(self.team, self.sample_data)
+
+        results = hc.batch_get_from_cache([self.team])
+
+        data, source, etag = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+        # Real 16-char hex etag, not None
+        assert etag is not None
+        assert len(etag) == 16
+        assert all(c in "0123456789abcdef" for c in etag)
+
+    def test_batch_get_from_cache_etag_is_none_when_payload_present_without_etag(self):
+        """The MISSING_ETAG verifier branch fires when payload exists but the etag
+        key is absent. Confirm the batch surfaces that state as etag=None on a
+        cache hit, so verify_team_flags can detect it without a per-team GET."""
+
+        def load_fn(team):
+            return {"default": "data"}
+
+        hc = HyperCache(namespace="test_batch_no_etag", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc.set_cache_value(self.team, self.sample_data)
+        # Simulate the regression class: payload present, etag absent.
+        hc.cache_client.delete(hc.get_etag_key(self.team))
+
+        results = hc.batch_get_from_cache([self.team])
+
+        data, source, etag = results[self.team.id]
+        assert source == "redis"
+        assert data == self.sample_data
+        assert etag is None
+
+    def test_batch_get_from_cache_single_round_trip_with_etag(self):
+        """Etag fetch piggybacks on the existing get_many call — exactly one Redis
+        round trip per chunk regardless of whether enable_etag is True."""
+
+        def load_fn(team):
+            return {"default": "data"}
+
+        hc = HyperCache(namespace="test_batch_one_call", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc.set_cache_value(self.team, self.sample_data)
+
+        original_get_many = hc.cache_client.get_many
+        get_many_call_count = 0
+        captured_keys: list[list[str]] = []
+
+        def counting_get_many(keys):
+            nonlocal get_many_call_count
+            get_many_call_count += 1
+            captured_keys.append(list(keys))
+            return original_get_many(keys)
+
+        with patch.object(hc.cache_client, "get_many", side_effect=counting_get_many):
+            hc.batch_get_from_cache([self.team])
+
+        assert get_many_call_count == 1
+        # The single MGET fetched both the payload key and the etag key.
+        assert hc.get_cache_key(self.team) in captured_keys[0]
+        assert hc.get_etag_key(self.team) in captured_keys[0]
 
 
 class TestHyperCacheETagDisabled(HyperCacheTestBase):

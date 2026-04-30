@@ -736,9 +736,10 @@ def verify_team_flag_definitions(
     """
     hypercache = flag_definitions_hypercache if include_cohorts else flag_definitions_without_cohorts_hypercache
 
-    # Get cached data - use pre-loaded batch data if available
+    # Get cached data - use pre-loaded batch data if available.
+    # The third tuple element (etag) is unused for flag-definitions verification.
     if cache_batch_data and team.id in cache_batch_data:
-        cached_data, source = cache_batch_data[team.id]
+        cached_data, source, _ = cache_batch_data[team.id]
     else:
         cached_data, source = hypercache.get_from_cache_with_source(team)
 
