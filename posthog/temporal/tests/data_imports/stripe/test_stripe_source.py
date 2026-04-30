@@ -9,7 +9,11 @@ import stripe as stripe_lib
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StripeSourceConfig
-from posthog.temporal.data_imports.sources.stripe.constants import ACCOUNT_RESOURCE_NAME
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    ACCOUNT_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+)
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
@@ -401,6 +405,46 @@ def test_validate_credentials_mixed_403_and_unknown_raises_validation_error_with
 
     assert list(e.value.errors.keys()) == ["Charge"]
     assert list(e.value.missing_permissions.keys()) == ["Subscription"]
+
+
+@pytest.mark.parametrize(
+    "nested_table_name",
+    [CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME],
+)
+def test_validate_credentials_nested_resource_validates_via_parent(nested_table_name):
+    """Nested resources can't be listed without a parent customer ID. Validating them
+    must proxy to the Customer endpoint instead of raising a fake "<resource> does not exist"
+    error — which used to surface as "Stripe credentials lack permissions for CustomerPaymentMethod"
+    every time the user toggled the sync method on a nested table."""
+    mock_client = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("api_key", nested_table_name)
+
+    assert result is True
+    # The parent's list endpoint is the one we actually call.
+    mock_client.customers.list.assert_called_once_with(params={"limit": 1})
+
+
+@pytest.mark.parametrize(
+    "nested_table_name",
+    [CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME],
+)
+def test_validate_credentials_nested_resource_surfaces_parent_permission_error(nested_table_name):
+    """If the parent (Customer) scope is missing, validating a nested resource must report
+    the Customer permission gap rather than the nested table name — that's the actual scope
+    the customer needs to grant on Stripe."""
+    mock_client = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock(side_effect=stripe_lib.PermissionError(message="Forbidden"))
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
+        pytest.raises(StripePermissionError) as e,
+    ):
+        validate_credentials("api_key", nested_table_name)
+
+    assert list(e.value.missing_permissions.keys()) == ["Customer"]
 
 
 def test_validate_credentials_with_missing_table_name():

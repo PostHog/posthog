@@ -356,6 +356,19 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
 
+    # Nested resources (e.g. /v1/customers/:id/payment_methods) can't be listed without a parent
+    # customer ID, so we can't validate them with a top-level list call. Validate against the
+    # parent endpoint instead — it covers the customer scope they all share and avoids the
+    # "<resource> does not exist" branch below, which otherwise surfaces in the UI as a fake
+    # permission error every time someone toggles the sync method on one of these tables. The
+    # nested resource may still need additional scopes at sync time (e.g. rak_payment_method_read
+    # for /v1/customers/:id/payment_methods), but those will surface with a real 403 from the
+    # actual sync run instead of a misleading toast at setup.
+    NESTED_RESOURCE_PROXIES = {
+        CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: CUSTOMER_RESOURCE_NAME,
+        CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: CUSTOMER_RESOURCE_NAME,
+    }
+
     # Test access to all resources we're pulling
     resources_to_check = [
         {"name": ACCOUNT_RESOURCE_NAME, "method": client.accounts.list, "params": {"limit": 1}},
@@ -376,11 +389,15 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}
 
-    if table_name:
-        resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
+    # Resolve nested resource names to their parent before filtering — otherwise the filter
+    # produces an empty list and we wrongly conclude the table "does not exist".
+    effective_table_name = NESTED_RESOURCE_PROXIES.get(table_name, table_name) if table_name else None
 
-    if table_name and len(resources_to_check) == 0:
-        raise StripePermissionError({table_name: f"{table_name} does not exist"})
+    if effective_table_name:
+        resources_to_check = [r for r in resources_to_check if r.get("name") == effective_table_name]
+
+    if effective_table_name and len(resources_to_check) == 0:
+        raise StripePermissionError({effective_table_name: f"{effective_table_name} does not exist"})
 
     for resource in resources_to_check:
         resource_name = str(resource["name"])
