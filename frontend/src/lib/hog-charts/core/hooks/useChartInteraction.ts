@@ -34,8 +34,14 @@ function isTooltipContextEquivalent<Meta>(a: TooltipContext<Meta>, b: TooltipCon
         const bi = b.seriesData[i]
         // Compare series by stable `key` rather than identity: the parent rebuilds
         // `coloredSeries` (and so each entry's `series` reference) on every render, so
-        // an identity check would defeat the equivalence bail.
-        if (ai.value !== bi.value || ai.color !== bi.color || ai.series.key !== bi.series.key) {
+        // an identity check would defeat the equivalence bail. `label` is also compared
+        // because it's user-visible in the tooltip and can change while the key stays.
+        if (
+            ai.value !== bi.value ||
+            ai.color !== bi.color ||
+            ai.series.key !== bi.series.key ||
+            ai.series.label !== bi.series.label
+        ) {
             return false
         }
     }
