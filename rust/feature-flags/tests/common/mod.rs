@@ -249,24 +249,21 @@ impl ServerHandle {
                 ),
             );
 
-            let feature_flags_billing_limiter =
-                feature_flags::billing_limiters::FeatureFlagsLimiter::new(
-                    Duration::from_secs(5),
-                    redis_reader_client.clone(),
-                    QUOTA_LIMITER_CACHE_KEY.to_string(),
-                    None,
-                )
-                .unwrap();
+            let feature_flags_billing_limiter = feature_flags::billing::FeatureFlagsLimiter::new(
+                Duration::from_secs(5),
+                redis_reader_client.clone(),
+                QUOTA_LIMITER_CACHE_KEY.to_string(),
+                None,
+            )
+            .unwrap();
 
-            let session_replay_billing_limiter =
-                feature_flags::billing_limiters::SessionReplayLimiter::new(
-                    Duration::from_secs(5),
-                    redis_reader_client.clone(),
-                    QUOTA_LIMITER_CACHE_KEY.to_string(),
-                    None,
-                )
-                .unwrap();
-
+            let session_replay_billing_limiter = feature_flags::billing::SessionReplayLimiter::new(
+                Duration::from_secs(5),
+                redis_reader_client.clone(),
+                QUOTA_LIMITER_CACHE_KEY.to_string(),
+                None,
+            )
+            .unwrap();
             let cookieless_manager = Arc::new(common_cookieless::CookielessManager::new(
                 config.get_cookieless_config(),
                 redis_reader_client.clone(),
@@ -407,6 +404,13 @@ impl ServerHandle {
                     &[],
                 )),
                 Arc::new(NoOpCohortMembershipProvider),
+                // No background flusher: tests that need a flush call it
+                // directly. Avoids leaking a tokio task per test and keeps the
+                // mock Redis call log free of unrelated flusher writes.
+                Some(feature_flags::billing::BillingAggregator::for_tests(
+                    redis_writer_client.clone(),
+                    feature_flags::billing::BillingAggregatorConfig::default(),
+                )),
                 config,
             );
 
@@ -474,4 +478,23 @@ impl Drop for ServerHandle {
     fn drop(&mut self) {
         self.shutdown.cancel();
     }
+}
+
+/// Poll `HGET key field` for up to ~1s, returning the value as soon as the
+/// key exists. Panics on timeout. Use for the positive ("the write should
+/// land") case in billing aggregator tests — for the negative case, sleep
+/// one flush window and check.
+#[allow(dead_code)]
+pub async fn poll_for_billing_counter(
+    client: &Arc<dyn common_redis::Client + Send + Sync>,
+    key: &str,
+    field: &str,
+) -> String {
+    for _ in 0..40 {
+        if let Ok(v) = client.hget(key.to_string(), field.to_string()).await {
+            return v;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("billing counter at {key}:{field} did not appear within 1s");
 }

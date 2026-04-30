@@ -2225,6 +2225,7 @@ name = "common-redis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures-timer",
  "redis",
  "serde-pickle",
  "testcontainers",
