@@ -535,9 +535,11 @@ def verify_team_flags(
     if cache_batch_data and team.id in cache_batch_data:
         cached_data, source, cached_etag = cache_batch_data[team.id]
     else:
-        # Fall back to individual lookup (shouldn't happen in batch verification)
-        cached_data, source = flags_hypercache.get_from_cache_with_source(team)
-        cached_etag = flags_hypercache.get_etag(team)
+        # Single-team fallback (CLI verifier path; the management command does
+        # not pre-fetch cache_batch_data). Reuse the batch shape so payload +
+        # etag come from one MGET and stay consistent under concurrent writes.
+        batch = flags_hypercache.batch_get_from_cache([team])
+        cached_data, source, cached_etag = batch.get(team.id, (None, "miss", None))
 
     # Get flags from database - use db_batch_data if available to avoid N+1 queries
     if db_batch_data and team.id in db_batch_data:
@@ -569,8 +571,11 @@ def verify_team_flags(
     # Without an etag, the Rust feature-flags in-memory cache bypasses every
     # request for this team via the `etag_missing` branch. Surfacing this here
     # turns a silent perf regression into a counted verifier mismatch. The
-    # etag is fetched in the same MGET as the payload (see
-    # HyperCache.batch_get_from_cache), so this stays O(1) per batch.
+    # etag rides on the same MGET as the payload, so this stays O(1) per batch.
+    # Checked before the per-flag diff: a team with both missing etag AND
+    # drifted flags reports as MISSING_ETAG; the repair writes db_data back
+    # and fixes both, so ordering it first skips the diff loop on rollout
+    # when most teams hit this branch with valid data.
     if cached_etag is None:
         return {
             "status": "mismatch",
