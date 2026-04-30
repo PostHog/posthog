@@ -18,7 +18,7 @@ from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .batch_imports import BatchImport
-from .cohort import Cohort, CohortPeople, CohortCalculationHistory
+from .cohort import Cohort, CohortPeople, CohortCalculationHistory, CohortCSVImport
 from .column_configuration import ColumnConfiguration
 from .comment import Comment
 from .core_event import CoreEvent
@@ -119,6 +119,7 @@ __all__ = [
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
+    "CohortCSVImport",
     "ColumnConfiguration",
     "CoreEvent",
     "Dashboard",
