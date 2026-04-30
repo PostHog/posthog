@@ -514,22 +514,16 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        // Trigger OAuth introspection so the OAuth client name is cached before
-        // the useSingleExec decision below. Lovable / Replit-style vibe-coding
-        // platforms are detected by their OAuth application name, and we want
-        // that signal even when the caller pinned a project via header (which
-        // skips `setDefaultOrganizationAndProject`'s own getApiKey call).
-        // `getApiKey()` caches its result, so this is a no-op if it already ran.
-        const apiKeyPromise = context.stateManager.getApiKey().catch(() => undefined)
-
         const [flagVersion, toolFeatureFlags, singleExecFlagOn] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
-            apiKeyPromise,
+            // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
+            context.stateManager.getApiKey(),
         ])
 
         const oauthClientName = (await this.cache.get('clientName')) || undefined
+
         const clientProfile = new MCPClientProfile({
             clientName: this.mcpClientName,
             clientVersion: this.mcpClientVersion,
