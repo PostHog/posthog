@@ -69,6 +69,10 @@ class Ticket(UUIDTModel):
     teams_service_url = models.URLField(max_length=512, null=True, blank=True)  # Bot Connector endpoint for replies
     teams_tenant_id = models.CharField(max_length=64, null=True, blank=True)
 
+    # GitHub channel fields (only set for channel_source="github")
+    github_repo = models.CharField(max_length=256, null=True, blank=True)  # owner/repo
+    github_issue_number = models.PositiveIntegerField(null=True, blank=True)
+
     # Email channel fields (only set for channel_source="email")
     email_config = models.ForeignKey(
         "conversations.EmailChannel",
@@ -111,6 +115,11 @@ class Ticket(UUIDTModel):
             models.Index(
                 fields=["team", "teams_channel_id", "teams_conversation_id"],
                 name="posthog_con_teams_thread_idx",
+            ),
+            # GitHub issue lookup: find ticket by (team, github_repo, github_issue_number)
+            models.Index(
+                fields=["team", "github_repo", "github_issue_number"],
+                name="posthog_con_github_issue_idx",
             ),
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),

@@ -127,6 +127,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "email_from",
             "email_to",
             "cc_participants",
+            "github_repo",
+            "github_issue_number",
             "person",
             "tags",
         ]
@@ -152,6 +154,8 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "email_from",
             "email_to",
             "cc_participants",
+            "github_repo",
+            "github_issue_number",
             "person",
         ]
         extra_kwargs = {
