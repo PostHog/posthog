@@ -59,6 +59,10 @@ export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltL
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
 }
 
+export function clearLogicReference(model: editor.ITextModel): void {
+    ;(model as any).codeEditorLogic = undefined
+}
+
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -241,7 +245,7 @@ export function CodeEditor({
             // dispose. Doing it for shared models would break consumers
             // (e.g. hogQLAutocompleteProvider, hogQLMetadataProvider) that
             // read `model.codeEditorLogic` to look up logic state.
-            ;(model as any).codeEditorLogic = undefined
+            clearLogicReference(model)
             try {
                 model.dispose()
             } catch {

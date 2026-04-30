@@ -319,4 +319,19 @@ pub struct KafkaConfig {
     pub kafka_socket_send_buffer_bytes: u32, // socket.send.buffer.bytes
     #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
     pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
+
+    // Traces-cluster overrides (consumed by capture-logs). When unset, the
+    // traces producer reuses the corresponding `kafka_*` value above.
+    pub kafka_traces_hosts: Option<String>,
+    pub kafka_traces_tls: Option<bool>,
+    pub kafka_traces_client_id: Option<String>,
+    pub kafka_traces_compression_codec: Option<String>,
+    pub kafka_traces_producer_acks: Option<String>,
+    pub kafka_traces_producer_linger_ms: Option<u32>,
+    pub kafka_traces_producer_queue_mib: Option<u32>,
+    pub kafka_traces_message_timeout_ms: Option<u32>,
+    pub kafka_traces_producer_message_max_bytes: Option<u32>,
+    pub kafka_traces_producer_max_retries: Option<u32>,
+    pub kafka_traces_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_traces_metadata_max_age_ms: Option<u32>,
 }

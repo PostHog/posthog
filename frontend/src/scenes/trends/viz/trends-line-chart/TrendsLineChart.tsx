@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
@@ -33,6 +34,13 @@ import { TrendsTooltip } from './TrendsTooltip'
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+}
+
+const handleChartError = (error: Error, info: ErrorInfo): void => {
+    posthog.captureException(error, {
+        feature: 'trends-line-chart',
+        componentStack: info.componentStack ?? undefined,
+    })
 }
 
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
@@ -90,7 +98,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     // Dash the in-progress tail (mirrors LineGraph.tsx). Stickiness indices aren't dates.
     const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
 
-    const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
+    const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             (indexedResults ?? []).flatMap((r: IndexedTrendResult, index: number) => {
                 const isActiveSeries = !r.compare || r.compare_label !== 'previous'
@@ -223,7 +231,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
-    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, series), [goalLines, series])
 
     const getYAxisId = useCallback(
         (r: IndexedTrendResult) => {
@@ -324,13 +332,14 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     return (
         <LineChart
-            series={hogSeries}
+            series={series}
             labels={labels}
             config={chartConfig}
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
             className="LineGraph"
+            onError={handleChartError}
         >
             <ReferenceLines lines={referenceLines} />
             {insight.id ? (
