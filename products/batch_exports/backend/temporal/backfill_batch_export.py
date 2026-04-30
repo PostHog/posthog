@@ -551,23 +551,32 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 total_records_count=None,
                 interval_seconds=interval_seconds,
             )
-    except (ClickHouseQueryTimeoutError, ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError) as e:
-        if isinstance(e, ClickHouseQueryTimeoutError):
-            logger.warning(
-                "Backfill estimation query timed out, proceeding without estimate",
-                model=model,
-                timeout_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
-            )
-        elif isinstance(e, ClickHouseMemoryLimitExceededError):
-            logger.warning(
-                "Backfill estimation query exceeded memory limit, proceeding without estimate",
-                model=model,
-            )
-        else:
-            logger.warning(
-                "Backfill estimation query exceeded bytes-read limit, proceeding without estimate",
-                model=model,
-            )
+    except ClickHouseQueryTimeoutError:
+        logger.warning(
+            "Backfill estimation query timed out, proceeding without estimate",
+            model=model,
+            timeout_seconds=BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
+    except ClickHouseMemoryLimitExceededError:
+        logger.warning(
+            "Backfill estimation query exceeded memory limit, proceeding without estimate",
+            model=model,
+        )
+        return GetBackfillInfoOutputs(
+            adjusted_start_at=inputs.start_at,
+            total_records_count=None,
+            interval_seconds=interval_seconds,
+        )
+    except ClickHouseTooManyBytesError:
+        logger.warning(
+            "Backfill estimation query exceeded bytes-read limit, proceeding without estimate",
+            model=model,
+        )
         return GetBackfillInfoOutputs(
             adjusted_start_at=inputs.start_at,
             total_records_count=None,
