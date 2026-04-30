@@ -424,6 +424,90 @@ describe('consumer', () => {
             ])
         })
 
+        it('H1: should not call incrementalUnassign while a task pushed during the rebalance window is still running', async () => {
+            // Validates: the rebalance callback snapshots `this.backgroundTask` synchronously,
+            // but the main loop may still be inside `await eachBatch(...)` when the callback fires.
+            // When that await resolves, a new background task is pushed BEFORE the loop checks
+            // `isRebalancing`. That new task is excluded from the Promise.all snapshot, so
+            // `incrementalUnassign` can fire while it's still running on a revoked partition.
+            consumer['maxBackgroundTasks'] = 3
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Push two completed batches with controllable background tasks: queue = [t1, t2]
+            const p1 = triggerablePromise()
+            const p2 = triggerablePromise()
+
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: p1.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 1, partition: 0 })])
+            await delay(1)
+
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: p2.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 2, partition: 0 })])
+            await delay(1)
+
+            expect(consumer['backgroundTask']).toHaveLength(2)
+
+            // Set up a third batch where eachBatch is "in flight" — gated so we can hold the
+            // main loop inside the await right when we fire the rebalance callback.
+            const p3 = triggerablePromise()
+            const eachBatchGate = triggerablePromise()
+            eachBatch.mockImplementationOnce(async () => {
+                await eachBatchGate.promise
+                return { backgroundTask: p3.promise }
+            })
+
+            // Deliver the third batch; main loop's `await consume()` resolves and enters eachBatch,
+            // which is now blocked on eachBatchGate.
+            consumeCallback(null, [createKafkaMessage({ offset: 3, partition: 0 })])
+            await delay(1)
+
+            // Confirm we're in the window: queue still has only [t1, t2]; eachBatch awaiting gate.
+            expect(consumer['backgroundTask']).toHaveLength(2)
+
+            // Fire the revoke. Snapshot is taken NOW: Promise.all([t1, t2]).
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
+
+            // Release the gate — eachBatch resolves, main loop pushes t3 onto the queue.
+            eachBatchGate.resolve()
+            await delay(1)
+
+            // The new task is in the queue but NOT in the rebalance snapshot.
+            expect(consumer['backgroundTask']).toHaveLength(3)
+
+            // Resolve t1 and t2 (but not t3). Promise.all([t1, t2]) settles → .then(unassign) fires.
+            p1.resolve()
+            p2.resolve()
+            await delay(10)
+
+            // p1 and p2 should have stored their offsets (proving they completed).
+            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0, offset: 2 },
+            ])
+            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0, offset: 3 },
+            ])
+            // p3 must NOT have stored offsets yet — it's still pending.
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0, offset: 4 },
+            ])
+
+            // CORRECT behavior: incrementalUnassign must wait for ALL in-flight tasks holding
+            // un-committed offsets on the revoked partition, including t3.
+            // CURRENT behavior: incrementalUnassign fires while t3 is still running.
+            expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
+
+            // After we resolve t3, it should be safe to unassign.
+            p3.resolve()
+            await delay(10)
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0 },
+            ])
+        })
+
         it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
             defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = false
             // Create a consumer with feature disabled
