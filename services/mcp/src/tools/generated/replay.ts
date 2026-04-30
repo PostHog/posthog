@@ -50,7 +50,15 @@ const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithP
 
 const SessionRecordingSummarizeSchema = CreateSessionSummariesIndividuallyBody
 
-const sessionRecordingSummarize = (): ToolBase<typeof SessionRecordingSummarizeSchema, Schemas.SessionSummaries> =>
+interface SummarizeResult {
+    summaries: Schemas.SessionSummaries
+    recordings: Record<string, Schemas.SessionRecording>
+}
+
+const sessionRecordingSummarize = (): ToolBase<
+    typeof SessionRecordingSummarizeSchema,
+    WithPostHogUrl<SummarizeResult>
+> =>
     withUiApp('session-summary', {
         name: 'session-recording-summarize',
         schema: SessionRecordingSummarizeSchema,
@@ -63,12 +71,32 @@ const sessionRecordingSummarize = (): ToolBase<typeof SessionRecordingSummarizeS
             if (params.focus_area !== undefined) {
                 body['focus_area'] = params.focus_area
             }
-            const result = await context.api.request<Schemas.SessionSummaries>({
+            const summaries = await context.api.request<Schemas.SessionSummaries>({
                 method: 'POST',
                 path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/create_session_summaries_individually/`,
                 body,
             })
-            return result
+
+            // Fetch recording metadata for each session to provide stats in the UI
+            const sessionIds = params.session_ids ?? []
+            const recordings: Record<string, Schemas.SessionRecording> = {}
+            await Promise.all(
+                sessionIds.map(async (id) => {
+                    try {
+                        const rec = await context.api.request<Schemas.SessionRecording>({
+                            method: 'GET',
+                            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(id)}/`,
+                        })
+                        recordings[id] = rec
+                    } catch {
+                        // Recording may not exist, skip
+                    }
+                })
+            )
+
+            const firstId = sessionIds[0]
+            const replayPath = firstId ? `/replay/${firstId}` : '/replay'
+            return await withPostHogUrl(context, { summaries, recordings }, replayPath)
         },
     })
 
