@@ -97,9 +97,6 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
         return () => {
             observer.disconnect()
-            // Drop the cached ctx so a re-mount doesn't paint into a detached canvas.
-            setCanvasState(null)
-            rectRef.current = null
         }
     }, [])
 
