@@ -863,6 +863,18 @@ jobs:
                   path: schema.sql.gz
                   retention-days: 90
 
+            - name: Save schema to Actions cache for PR shards
+              # Seeds a Postgres schema cache that PR test jobs will read in a
+              # follow-up change to skip the full Django migrate. SHA-suffixed
+              # key + restore-keys prefix means the newest master cache always
+              # wins; LRU eviction handles cleanup. No PR-side consumer yet —
+              # this just establishes the cache so the follow-up lands hot.
+              if: github.event_name == 'push'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              with:
+                  path: schema.sql.gz
+                  key: posthog-schema-master-${{ github.sha }}
+
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'

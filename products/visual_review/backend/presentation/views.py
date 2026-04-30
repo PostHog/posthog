@@ -43,6 +43,7 @@ from .serializers import (
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     AutoApproveResultSerializer,
+    BaselineOverviewSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
@@ -72,7 +73,13 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
-    scope_object_read_actions = ["list", "retrieve", "list_quarantined", "thumbnail"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "list_quarantined",
+        "thumbnail",
+        "baselines",
+    ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -234,6 +241,27 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: BaselineOverviewSerializer},
+        description=(
+            "Snapshots overview for a repo: every identifier with a current baseline (latest "
+            "non-superseded master/main run per run_type), plus tolerate counts, active "
+            "quarantine state, and a 30-day stability sparkline. Capped at "
+            f"{contracts.BASELINE_OVERVIEW_MAX_ENTRIES} entries — sets `truncated` and "
+            "returns the most recently active when exceeded. Filtering / faceting / search are "
+            "all done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="baselines")
+    def baselines(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            api.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_baselines_overview(UUID(pk))
+        return Response(BaselineOverviewSerializer(instance=result).data)
+
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -282,26 +310,29 @@ class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
-class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """
-    Visual review runs.
+class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Listing/aggregation of runs scoped to a single repo.
 
-    A run represents a single CI execution that captures screenshots.
+    Run-by-id actions (retrieve, snapshots, approve, complete, etc.) live on
+    the flat `RunViewSet` so that direct links by run id keep working without
+    forcing the repo into the path.
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    scope_object_read_actions = ["list", "counts"]
     serializer_class = RunSerializer
 
     @extend_schema(
-        parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+        ],
         responses={200: RunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        """List runs for the team, optionally filtered by review state."""
+        """List runs in this repo, optionally filtered by review state."""
         review_state = request.query_params.get("review_state")
-        runs = api.list_runs(self.team_id, review_state=review_state)
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id)
         page = self.paginate_queryset(runs)
         if page is not None:
             serializer = RunSerializer(instance=page, many=True)
@@ -311,8 +342,23 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(responses={200: ReviewStateCountsSerializer})
     @action(detail=False, methods=["get"])
     def counts(self, request: Request, **kwargs) -> Response:
-        """Review state counts for the runs list."""
-        return Response(api.get_review_state_counts(self.team_id))
+        """Review state counts for runs in this repo."""
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
+
+
+@extend_schema(tags=[VISUAL_REVIEW_TAG])
+class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    Visual review runs.
+
+    A run represents a single CI execution that captures screenshots.
+    """
+
+    scope_object = "visual_review"
+    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
+    scope_object_read_actions = ["retrieve", "snapshots"]
+    serializer_class = RunSerializer
 
     @validated_request(
         request_serializer=CreateRunInputSerializer,
