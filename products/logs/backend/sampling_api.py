@@ -14,7 +14,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -53,7 +53,8 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         max_length=1024,
         help_text="Optional regex matched against a path-like log attribute when present.",
     )
-    scope_attribute_filters = serializers.JSONField(
+    scope_attribute_filters = serializers.ListField(
+        child=serializers.DictField(),
         required=False,
         default=list,
         help_text='Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}].',
@@ -64,7 +65,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     version = serializers.IntegerField(
         read_only=True, help_text="Incremented on each update for worker cache coherency."
     )
-    created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    created_by: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
 
     class Meta:
         model = LogsExclusionRule
@@ -122,12 +123,13 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
 
-    def perform_create(self, serializer: LogsSamplingRuleSerializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        s = cast(LogsSamplingRuleSerializer, serializer)
         user = cast(User, self.request.user)
         max_priority = LogsExclusionRule.objects.filter(team_id=self.team_id).aggregate(m=Max("priority"))["m"] or -1
-        raw_priority = serializer.validated_data.pop("priority", None)
+        raw_priority = s.validated_data.pop("priority", None)
         priority = max_priority + 1 if raw_priority is None else int(raw_priority)
-        instance = serializer.save(
+        instance = s.save(
             team_id=self.team_id,
             created_by=user if user.is_authenticated else None,
             priority=priority,
@@ -141,9 +143,10 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=self.request,
         )
 
-    def perform_update(self, serializer: LogsSamplingRuleSerializer) -> None:
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        s = cast(LogsSamplingRuleSerializer, serializer)
         user = cast(User, self.request.user)
-        instance = cast(LogsExclusionRule, serializer.save())
+        instance = cast(LogsExclusionRule, s.save())
         LogsExclusionRule.objects.filter(pk=instance.pk, team_id=self.team_id).update(version=F("version") + 1)
         instance.refresh_from_db(fields=["version", "updated_at"])
         report_user_action(
@@ -227,7 +230,7 @@ def handle_logs_sampling_rule_activity(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
             name=instance.name,
         ),
     )
