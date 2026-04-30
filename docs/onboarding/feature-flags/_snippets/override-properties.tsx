@@ -33,18 +33,22 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             )
         `,
         python: dedent`
-            posthog.get_feature_flag(
-                'flag-key',
+            flags = posthog.evaluate_flags(
                 'distinct_id_of_the_user',
                 person_properties={'property_name': 'value'},
                 groups={
                     'your_group_type': 'your_group_id',
-                    'another_group_type': 'your_group_id'},
+                    'another_group_type': 'your_group_id',
+                },
                 group_properties={
                     'your_group_type': {'group_property_name': 'value'},
-                    'another_group_type': {'group_property_name': 'value'}
+                    'another_group_type': {'group_property_name': 'value'},
                 },
             )
+
+            if flags.is_enabled('flag-key'):
+                # Do something differently for this user
+                pass
         `,
         php: dedent`
             PostHog::getFeatureFlag(

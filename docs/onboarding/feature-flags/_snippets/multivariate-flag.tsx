@@ -50,11 +50,12 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
             }
         `,
         python: dedent`
-            enabled_variant = posthog.get_feature_flag('flag-key', 'distinct_id_of_your_user')
+            flags = posthog.evaluate_flags('distinct_id_of_your_user')
+            enabled_variant = flags.get_flag('flag-key')
             if enabled_variant == 'variant-key': # replace 'variant-key' with the key of your variant
                 # Do something differently for this user
                 # Optional: fetch the payload
-                matched_flag_payload = posthog.get_feature_flag_payload('flag-key', 'distinct_id_of_your_user')
+                matched_flag_payload = flags.get_flag_payload('flag-key')
         `,
         php: dedent`
             $enabledVariant = PostHog::getFeatureFlag('flag-key', 'distinct_id_of_your_user')

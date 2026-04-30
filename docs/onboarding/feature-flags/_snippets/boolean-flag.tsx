@@ -45,11 +45,11 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
             }
         `,
         python: dedent`
-            is_my_flag_enabled = posthog.feature_enabled('flag-key', 'distinct_id_of_your_user')
-            if is_my_flag_enabled:
+            flags = posthog.evaluate_flags('distinct_id_of_your_user')
+            if flags.is_enabled('flag-key'):
                 # Do something differently for this user
                 # Optional: fetch the payload
-                matched_flag_payload = posthog.get_feature_flag_payload('flag-key', 'distinct_id_of_your_user')
+                matched_flag_payload = flags.get_flag_payload('flag-key')
         `,
         php: dedent`
             $isMyFlagEnabledForUser = PostHog::isFeatureEnabled('flag-key', 'distinct_id_of_your_user')

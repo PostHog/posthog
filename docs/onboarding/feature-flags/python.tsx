@@ -54,16 +54,16 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             **Note:** This step is only required for events captured using our server-side SDKs or API.
                         `}
                     </Markdown>
-                    <Tab.Group tabs={['Set send_feature_flags (recommended)', 'Include $feature property']}>
+                    <Tab.Group tabs={['Pass evaluated flags (recommended)', 'Include $feature property']}>
                         <Tab.List>
-                            <Tab>Set send_feature_flags (recommended)</Tab>
+                            <Tab>Pass evaluated flags (recommended)</Tab>
                             <Tab>Include $feature property</Tab>
                         </Tab.List>
                         <Tab.Panels>
                             <Tab.Panel>
                                 <Markdown>
                                     {dedent`
-                                        Set \`send_feature_flags\` to \`True\` in your capture call:
+                                        Pass the same \`flags\` snapshot that you used for branching. This attaches the exact flag values from that evaluation and doesn't make another \`/flags\` request:
                                     `}
                                 </Markdown>
                                 <CodeBlock
@@ -72,10 +72,12 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                             language: 'python',
                                             file: 'Python',
                                             code: dedent`
+                                                flags = posthog.evaluate_flags("distinct_id_of_the_user")
+
                                                 posthog.capture(
+                                                    "event_name",
                                                     distinct_id="distinct_id_of_the_user",
-                                                    event='event_name',
-                                                    send_feature_flags=True
+                                                    flags=flags,
                                                 )
                                             `,
                                         },
