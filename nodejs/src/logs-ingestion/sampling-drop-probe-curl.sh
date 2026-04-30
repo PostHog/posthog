@@ -9,8 +9,8 @@
 # Ingestion worker: LOGS_SAMPLING_ENABLED_TEAMS defaults to * (all teams). Set empty to disable sampling
 # evaluation globally, or comma-separated team ids to restrict. Restart worker after overriding env.
 #
-# Rules live in Postgres table logs_logsexclusionrule (API: project logs sampling rules).
-# Create rules in UI (Project settings → Logs → Sampling) or API; enable them.
+# Rules live in Postgres table logs_logsexclusionrule (API: project logs drop rules).
+# Create rules in UI (Project settings → Logs → Drop rules) or API; enable them.
 #
 # Logs UI filter: ph.probe.suite = sampling_drop_probe
 #                OR body contains "SAMPLE_DROP_PROBE"

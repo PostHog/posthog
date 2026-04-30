@@ -46,7 +46,7 @@ export interface LogsSamplingFormType {
 
 const DEFAULT_FORM: LogsSamplingFormType = {
     name: '',
-    enabled: false,
+    enabled: true,
     rule_type: RuleTypeEnumApi.PathDrop,
     scope_service: '',
     scope_path_pattern: '',
@@ -237,10 +237,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             (rule: LogsSamplingRuleApi | null) =>
                 Boolean(rule?.id) && rule?.rule_type !== RuleTypeEnumApi.SeveritySampling,
         ],
-        isLegacySeverityRule: [
-            () => [(_, props) => props.rule],
-            (rule: LogsSamplingRuleApi | null) => rule?.rule_type === RuleTypeEnumApi.SeveritySampling,
-        ],
+        isNewRule: [() => [(_, props) => props.rule], (rule: LogsSamplingRuleApi | null) => !rule],
     }),
 
     afterMount(({ actions, props }) => {
@@ -259,29 +256,16 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             submit: async (form) => {
                 const projectId = String(values.currentTeamId)
                 try {
-                    if (props.rule?.rule_type === RuleTypeEnumApi.SeveritySampling) {
-                        const patch: PatchedLogsSamplingRuleApi = {
-                            name: form.name.trim(),
-                            enabled: form.enabled,
-                            rule_type: props.rule.rule_type,
-                            scope_service: props.rule.scope_service ?? null,
-                            scope_path_pattern: props.rule.scope_path_pattern ?? null,
-                            scope_attribute_filters: (props.rule.scope_attribute_filters ?? []) as unknown[],
-                            config: (props.rule.config ?? {}) as Record<string, unknown>,
-                        }
-                        await logsSamplingRulesPartialUpdate(projectId, props.rule.id, patch)
-                        lemonToast.success('Drop rule updated')
-                        return
-                    }
                     const scope_service = form.scope_service.trim() || null
                     const scope_path_pattern = form.scope_path_pattern.trim() || null
+                    const scope_attribute_filters = (props.rule?.scope_attribute_filters ?? []) as unknown[]
                     const payload = {
                         name: form.name.trim(),
                         enabled: form.enabled,
                         rule_type: form.rule_type,
                         scope_service,
                         scope_path_pattern,
-                        scope_attribute_filters: [] as unknown[],
+                        scope_attribute_filters,
                         config: buildSamplingConfigPayload(form),
                     }
                     if (props.rule) {
