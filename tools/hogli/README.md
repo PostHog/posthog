@@ -232,8 +232,9 @@ triggered by pushing a `hogli-v*` tag from `master`.
    ```
 
 The workflow verifies the tag matches the `pyproject.toml` version, builds
-the sdist and wheel with `uv build`, and publishes via PyPI trusted
-publishing (OIDC) — no API tokens are involved.
+the sdist and wheel with `uv build`, publishes via PyPI trusted publishing
+(OIDC) — no API tokens — and creates a GitHub Release with auto-generated
+notes from the commits since the previous tag.
 
 To re-trigger after a failed publish, delete and recreate the tag:
 
