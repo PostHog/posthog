@@ -1,8 +1,9 @@
-import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { FeatureEndResult } from '../../../session-recording/sessions/session-feature-recorder'
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { SESSION_FEATURES_OUTPUT, SessionFeaturesOutput } from '../outputs'
 import { SessionFeatureStoreMetrics } from './metrics'
 
 interface KafkaMessage {
@@ -46,8 +47,7 @@ export interface DeletionFeatureBlock {
 
 export class SessionFeatureStore {
     constructor(
-        private producer: KafkaProducerWrapper,
-        private kafkaTopic: string,
+        private outputs: IngestionOutputs<SessionFeaturesOutput>,
         private enabled: boolean = false
     ) {
         logger.debug('🧠', 'session_feature_store_created', { enabled })
@@ -118,12 +118,15 @@ export class SessionFeatureStore {
             return
         }
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages,
-        })
-
-        await this.producer.flush()
+        // queueMessages awaits delivery acks for every message, so no separate flush is needed
+        // to guarantee messages are on Kafka before the batch offset is committed.
+        await this.outputs.queueMessages(
+            SESSION_FEATURES_OUTPUT,
+            messages.map((message) => ({
+                key: message.key,
+                value: Buffer.from(message.value),
+            }))
+        )
 
         logger.info('🧠', 'session_feature_store_stored', { count: messages.length })
     }
@@ -146,12 +149,13 @@ export class SessionFeatureStore {
             return
         }
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages,
-        })
-
-        await this.producer.flush()
+        await this.outputs.queueMessages(
+            SESSION_FEATURES_OUTPUT,
+            messages.map((message) => ({
+                key: message.key,
+                value: Buffer.from(message.value),
+            }))
+        )
 
         logger.info('🧠', 'session_feature_store_deletion_markers_stored', { count: messages.length })
     }

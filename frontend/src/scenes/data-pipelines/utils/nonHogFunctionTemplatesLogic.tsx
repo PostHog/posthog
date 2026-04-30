@@ -3,7 +3,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,6 +23,22 @@ export interface NonHogFunctionTemplatesLogicProps {
 type SourceDisplayStatus = {
     status: HogFunctionTemplateStatus
     descriptionEl: string | JSX.Element
+}
+
+// Returns whether a connector should appear in the source picker. A flagged source is hidden
+// when its flag is off, UNLESS the source is also marked `unreleasedSource` — in which case it
+// stays visible and renders as a "Notify me" / coming-soon entry via getSourceDisplayStatus.
+export function shouldShowConnector(
+    connector: Pick<SourceConfig, 'featureFlag' | 'unreleasedSource'>,
+    featureFlags: FeatureFlagsSet
+): boolean {
+    if (!connector.featureFlag) {
+        return true
+    }
+    if (featureFlags[connector.featureFlag as FeatureFlagKey]) {
+        return true
+    }
+    return !!connector.unreleasedSource
 }
 
 function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean | undefined): SourceDisplayStatus {
@@ -73,14 +89,9 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         hogFunctionTemplatesDataWarehouseSources: [
             (s) => [s.connectors, s.manualConnectors, s.featureFlags],
             (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
-                // A source gated behind a feature flag should be hidden entirely when the flag
-                // isn't enabled for the user — regardless of its releaseStatus.
-                const visibleConnectors = connectors.filter((connector: SourceConfig) => {
-                    if (!connector.featureFlag) {
-                        return true
-                    }
-                    return !!featureFlags[connector.featureFlag as FeatureFlagKey]
-                })
+                const visibleConnectors = connectors.filter((connector: SourceConfig) =>
+                    shouldShowConnector(connector, featureFlags)
+                )
                 const managed = visibleConnectors.map((connector: SourceConfig): HogFunctionTemplateType => {
                     const featureFlagDefined = !!connector.featureFlag
                     const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]

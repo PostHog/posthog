@@ -265,6 +265,21 @@ tools:
         response:
             include:
                 - count
+    logs-count-ranges:
+        operation: logs_count_ranges_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Count logs by time bucket
+        description_file: ./prompts/logs-count-ranges.md
+        response:
+            include:
+                - ranges
+                - interval
     logs-explain-log-with-ai-create:
         operation: logs_explainLogWithAI_create
         enabled: false

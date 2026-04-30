@@ -28,13 +28,18 @@ import { createStreamConnection } from './createStreamConnection'
 import { LiveMetricsSlidingWindow } from './LiveMetricsSlidingWindow'
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 import {
+    BOT_ELIGIBLE_EVENTS,
+    BOT_KEY_SEPARATOR,
     BotBreakdownItem,
     BrowserBreakdownItem,
     ChartDataPoint,
+    CITY_KEY_SEPARATOR,
+    CityBreakdownItem,
     CountryBreakdownItem,
     DeviceBreakdownItem,
     DIRECT_REFERRER,
     LiveGeoEvent,
+    parseBotKey,
     PathItem,
     ReferrerItem,
     SlidingWindowBucket,
@@ -52,6 +57,29 @@ const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
 const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 const COUNTRY_BREAKDOWN_LIMIT = 6
+const CITY_BREAKDOWN_LIMIT = 6
+
+const collapseTopWithOther = <T extends { count: number; percentage: number }>(
+    items: T[],
+    limit: number,
+    makeOther: (count: number, percentage: number) => T
+): T[] => {
+    if (items.length <= limit) {
+        return items
+    }
+    const top = items.slice(0, limit)
+    const rest = items.slice(limit)
+    let othersCount = 0
+    let othersPercentage = 0
+    for (const item of rest) {
+        othersCount += item.count
+        othersPercentage += item.percentage
+    }
+    if (othersCount === 0) {
+        return top
+    }
+    return [...top, makeOther(othersCount, othersPercentage)]
+}
 
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
@@ -117,6 +145,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             }
 
                             const isPageview = event.event === '$pageview'
+                            const isBotEligibleEvent = (BOT_ELIGIBLE_EVENTS as readonly string[]).includes(event.event)
                             const normalizedReferrer =
                                 isPageview &&
                                 referringDomain &&
@@ -145,12 +174,21 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
                             window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: isPageview ? 1 : 0,
+                                botEligibleEvents: isBotEligibleEvent ? 1 : 0,
                                 device: deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 browser: browser ? { deviceId: deviceKey, browserType: browser } : undefined,
                                 pathname: isPageview ? pathname : undefined,
                                 referringDomain: normalizedReferrer,
                                 bot: botData,
                             })
+
+                            // City breakdown rides on the regular event stream because the geo SSE
+                            // (which drives lat/lng + country) doesn't include city information.
+                            const cityName = event.properties?.$geoip_city_name as string | undefined
+                            const cityCountryCode = event.properties?.$geoip_country_code as string | undefined
+                            if (cityName) {
+                                window.addCityDataPoint(eventTs, cityName, cityCountryCode ?? '', event.distinct_id)
+                            }
                         }
                     }
 
@@ -260,26 +298,28 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         ],
         topCountryBreakdown: [
             (s) => [s.countryBreakdown],
-            (countryBreakdown: CountryBreakdownItem[]): CountryBreakdownItem[] => {
-                if (countryBreakdown.length <= COUNTRY_BREAKDOWN_LIMIT) {
-                    return countryBreakdown
-                }
-                const top = countryBreakdown.slice(0, COUNTRY_BREAKDOWN_LIMIT)
-                const rest = countryBreakdown.slice(COUNTRY_BREAKDOWN_LIMIT)
-                const othersCount = rest.reduce((sum, item) => sum + item.count, 0)
-                if (othersCount === 0) {
-                    return top
-                }
-                const othersPercentage = rest.reduce((sum, item) => sum + item.percentage, 0)
-                return [
-                    ...top,
-                    {
-                        country: 'Other',
-                        count: othersCount,
-                        percentage: othersPercentage,
-                    },
-                ]
-            },
+            (countryBreakdown: CountryBreakdownItem[]): CountryBreakdownItem[] =>
+                collapseTopWithOther(countryBreakdown, COUNTRY_BREAKDOWN_LIMIT, (count, percentage) => ({
+                    country: 'Other',
+                    count,
+                    percentage,
+                })),
+            { resultEqualityCheck: equal },
+        ],
+        cityBreakdown: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): CityBreakdownItem[] => slidingWindow.getCityBreakdown(),
+            { resultEqualityCheck: equal },
+        ],
+        topCityBreakdown: [
+            (s) => [s.cityBreakdown],
+            (cityBreakdown: CityBreakdownItem[]): CityBreakdownItem[] =>
+                collapseTopWithOther(cityBreakdown, CITY_BREAKDOWN_LIMIT, (count, percentage) => ({
+                    cityName: 'Other',
+                    countryCode: '',
+                    count,
+                    percentage,
+                })),
             { resultEqualityCheck: equal },
         ],
         topPaths: [
@@ -312,6 +352,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         totalBotEvents: [
             (s) => [s.slidingWindow, s.eventsVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBotEvents(),
+        ],
+        totalBotEligibleEvents: [
+            (s) => [s.slidingWindow, s.eventsVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalBotEligibleEvents(),
         ],
         liveUserCount: [
             (s) => [s.recentUsersByLastSeen],
@@ -374,7 +418,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     geoResponse,
                     recentUsersResponse,
                     botResponse,
-                ] = await loadQueryData(dateFrom, handoff, values.selectedHost)
+                    cityResponse,
+                ] = await loadQueryData(
+                    dateFrom,
+                    handoff,
+                    values.selectedHost,
+                    !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
+                )
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()
 
@@ -384,6 +434,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 addPathDataToBuckets(pathsResponse, bucketMap)
                 addReferrerDataToBuckets(referrerResponse, bucketMap)
                 addGeoDataToBuckets(geoResponse, bucketMap)
+                addCityDataToBuckets(cityResponse, bucketMap)
                 addBotDataToBuckets(botResponse, bucketMap)
 
                 actions.setInitialData(
@@ -412,10 +463,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-            url.searchParams.append(
-                'columns',
+            const baseColumns =
                 '$pathname,$current_url,$host,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
-            )
+            const cityColumns = values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
+                ? ',$geoip_city_name,$geoip_country_code'
+                : ''
+            url.searchParams.append('columns', `${baseColumns}${cityColumns}`)
             if (values.selectedHost) {
                 url.searchParams.append('property', `$host=${values.selectedHost}`)
             }
@@ -575,7 +628,8 @@ const startFlushInterval = (cache: FlushCache, actions: FlushActions): void => {
 const loadQueryData = async (
     dateFrom: Date,
     dateTo: Date,
-    host: string | null
+    host: string | null,
+    includeCity: boolean
 ): Promise<
     [
         HogQLQueryResponse,
@@ -586,17 +640,21 @@ const loadQueryData = async (
         HogQLQueryResponse,
         HogQLQueryResponse | null,
         HogQLQueryResponse,
+        HogQLQueryResponse | null,
     ]
 > => {
     const hostFilterClause = host ? `AND properties.$host = {host}` : ''
     const hostValues = host ? { host } : {}
+
+    const botEligibleEventsTuple = `(${BOT_ELIGIBLE_EVENTS.map((e) => `'${e}'`).join(', ')})`
 
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
                     toStartOfMinute(timestamp) AS minute_bucket,
                     arrayDistinct(groupArray(distinct_id)) AS distinct_ids,
-                    countIf(event = '$pageview') AS pageviews
+                    countIf(event = '$pageview') AS pageviews,
+                    countIf(event IN ${botEligibleEventsTuple}) AS bot_eligible_events
                 FROM events
                 WHERE
                     timestamp >= toDateTime({dateFrom})
@@ -744,29 +802,89 @@ const loadQueryData = async (
         },
     }
 
+    // Aggregate per-minute first then re-group so the response is bounded by the
+    // number of minutes in the window (not by the bot-name cardinality). Without this
+    // the default HogQL row cap (100) silently truncates high-traffic projects.
     const botQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `SELECT
-                    toStartOfMinute(timestamp) AS minute_bucket,
-                    \`$virt_bot_name\` AS bot_name,
-                    \`$virt_traffic_category\` AS bot_category,
-                    count() AS event_count
-                FROM events
-                WHERE
-                    timestamp >= toDateTime({dateFrom})
-                    AND timestamp <= toDateTime({dateTo})
-                    AND \`$virt_is_bot\` = true
-                    AND \`$virt_bot_name\` != ''
-                    AND event IN ('$pageview', '$pageleave', '$screen', '$http_log', '$autocapture')
-                    ${hostFilterClause}
-                GROUP BY minute_bucket, bot_name, bot_category
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(bot_key),
+                        groupArray(event_count)
+                    ) AS counts_by_bot
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        concat(
+                            \`$virt_bot_name\`,
+                            {botSeparator},
+                            ifNull(\`$virt_traffic_category\`, '')
+                        ) AS bot_key,
+                        count() AS event_count
+                    FROM events
+                    WHERE
+                        timestamp >= toDateTime({dateFrom})
+                        AND timestamp <= toDateTime({dateTo})
+                        AND \`$virt_is_bot\` = true
+                        AND \`$virt_bot_name\` != ''
+                        AND event IN ${botEligibleEventsTuple}
+                        ${hostFilterClause}
+                    GROUP BY
+                        minute_bucket,
+                        bot_key
+                )
+                GROUP BY minute_bucket
                 ORDER BY minute_bucket ASC`,
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            botSeparator: BOT_KEY_SEPARATOR,
             ...hostValues,
         },
     }
+
+    const cityQuery: HogQLQuery | null = includeCity
+        ? {
+              kind: NodeKind.HogQLQuery,
+              query: `SELECT
+                    minute_bucket,
+                    mapFromArrays(
+                        groupArray(city_key),
+                        groupArray(distinct_ids)
+                    ) AS ids_by_city
+                FROM
+                (
+                    SELECT
+                        toStartOfMinute(timestamp) AS minute_bucket,
+                        concat(
+                            properties.$geoip_city_name,
+                            {citySeparator},
+                            ifNull(properties.$geoip_country_code, '')
+                        ) AS city_key,
+                        arrayDistinct(groupArray(distinct_id)) AS distinct_ids
+                    FROM events
+                    WHERE
+                        timestamp >= toDateTime({dateFrom})
+                        AND timestamp <= toDateTime({dateTo})
+                        AND properties.$geoip_city_name IS NOT NULL
+                        AND properties.$geoip_city_name != ''
+                        ${hostFilterClause}
+                    GROUP BY
+                        minute_bucket,
+                        city_key
+                )
+                GROUP BY minute_bucket
+                ORDER BY minute_bucket ASC`,
+              values: {
+                  dateFrom: dateFrom.toISOString(),
+                  dateTo: dateTo.toISOString(),
+                  citySeparator: CITY_KEY_SEPARATOR,
+                  ...hostValues,
+              },
+          }
+        : null
 
     const recentUsersQuery: HogQLQuery | null = host
         ? {
@@ -796,6 +914,7 @@ const loadQueryData = async (
         performQuery(geoQuery),
         recentUsersQuery ? performQuery(recentUsersQuery) : Promise.resolve(null),
         performQuery(botQuery),
+        cityQuery ? performQuery(cityQuery) : Promise.resolve(null),
     ])
 }
 
@@ -811,13 +930,14 @@ const addUserDataToBuckets = (
     usersPageviewsResponse: HogQLQueryResponse,
     bucketMap: Map<number, SlidingWindowBucket>
 ): void => {
-    const usersResults = usersPageviewsResponse.results as [string, string[], number][]
+    const usersResults = usersPageviewsResponse.results as [string, string[], number, number][]
 
-    for (const [timestampStr, distinctIds, viewCount] of usersResults) {
+    for (const [timestampStr, distinctIds, viewCount, botEligibleCount] of usersResults) {
         const timestamp = Date.parse(timestampStr)
         const bucket = getOrCreateBucket(bucketMap, timestamp)
 
         bucket.pageviews = viewCount
+        bucket.botEligibleEvents = botEligibleCount ?? 0
         bucket.uniqueUsers = new Set<string>(distinctIds)
     }
 }
@@ -901,25 +1021,57 @@ const addGeoDataToBuckets = (geoResponse: HogQLQueryResponse, bucketMap: Map<num
     }
 }
 
-const addBotDataToBuckets = (botResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
-    const results = botResponse.results as [string, string, string, number][]
+const addCityDataToBuckets = (
+    cityResponse: HogQLQueryResponse | null,
+    bucketMap: Map<number, SlidingWindowBucket>
+): void => {
+    if (!cityResponse) {
+        return
+    }
+    const results = cityResponse.results as [string, Record<string, string[]>][]
 
-    for (const [timestampStr, botName, rawCategory, eventCount] of results) {
-        if (!botName) {
-            continue
-        }
+    for (const [timestampStr, idsByCityKey] of results) {
         const timestamp = Date.parse(timestampStr)
         const bucket = getOrCreateBucket(bucketMap, timestamp)
 
-        const categoryLabel = translateCategoryLabel(rawCategory)
+        if (!bucket.cities) {
+            bucket.cities = new Map<string, Set<string>>()
+        }
+
+        for (const [cityKey, distinctIds] of Object.entries(idsByCityKey)) {
+            const cityUsers = bucket.cities.get(cityKey) ?? new Set<string>()
+            for (const distinctId of distinctIds) {
+                cityUsers.add(distinctId)
+            }
+            bucket.cities.set(cityKey, cityUsers)
+        }
+    }
+}
+
+const addBotDataToBuckets = (botResponse: HogQLQueryResponse, bucketMap: Map<number, SlidingWindowBucket>): void => {
+    // Response shape: [[minute_bucket_iso, { 'BotName|||category': eventCount, ... }], ...]
+    const results = botResponse.results as [string, Record<string, number>][]
+
+    for (const [timestampStr, countsByBotKey] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
+
         if (!bucket.bots) {
             bucket.bots = new Map<string, { count: number; category: string }>()
         }
-        const existing = bucket.bots.get(botName)
-        bucket.bots.set(botName, {
-            count: (existing?.count ?? 0) + eventCount,
-            category: categoryLabel,
-        })
+
+        for (const [botKey, eventCount] of Object.entries(countsByBotKey)) {
+            const { botName, category: rawCategory } = parseBotKey(botKey)
+            if (!botName) {
+                continue
+            }
+            const categoryLabel = translateCategoryLabel(rawCategory)
+            const existing = bucket.bots.get(botName)
+            bucket.bots.set(botName, {
+                count: (existing?.count ?? 0) + eventCount,
+                category: categoryLabel,
+            })
+        }
     }
 }
 
@@ -942,6 +1094,7 @@ const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: num
 const createEmptyBucket = (): SlidingWindowBucket => {
     return {
         pageviews: 0,
+        botEligibleEvents: 0,
         newUserCount: 0,
         returningUserCount: 0,
         devices: new Map<string, Set<string>>(),
@@ -950,6 +1103,7 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         referrers: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
         countries: new Map<string, Set<string>>(),
+        cities: new Map<string, Set<string>>(),
         bots: new Map<string, { count: number; category: string }>(),
     }
 }

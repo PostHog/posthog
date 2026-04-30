@@ -143,6 +143,9 @@ tools:
     surveys-duplicate-to-projects-create:
         operation: surveys_duplicate_to_projects_create
         enabled: false
+    surveys-generate-translations-create:
+        operation: surveys_generate_translations_create
+        enabled: false
     surveys-get-all:
         operation: surveys_list
         enabled: true

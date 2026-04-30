@@ -44,6 +44,7 @@ class ReasoningEffort(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    XHIGH = "xhigh"
     MAX = "max"
 
 
@@ -51,6 +52,7 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.LOW,
     ReasoningEffort.MEDIUM,
     ReasoningEffort.HIGH,
+    ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
 )
 
@@ -71,12 +73,14 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
     ),
     "claude-opus-4-7": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
     ),
     "claude-sonnet-4-6": (
