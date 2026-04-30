@@ -4,11 +4,7 @@ import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
 
-/**
- * Narrow shape both IndexedTrendResult (kea) and TrendsResultItem (MCP)
- * satisfy. Type the inputs against this so the module never touches the
- * kea-specific superset.
- */
+// Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
     id?: string | number
     label?: string | null
@@ -24,45 +20,22 @@ export interface TrendsResultLike {
 export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> {
     display?: ChartDisplayType
     showMultipleYAxes?: boolean
-    /**
-     * Negative number — index from the end where the in-progress (dashed)
-     * tail begins. Mirrors LineGraph.tsx semantics. Pass undefined to
-     * skip the dashed tail entirely (MCP).
-     */
+    // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
     isStickiness?: boolean
-    /** Resolve the base color for a series. Kea passes getTrendsColor;
-     *  MCP passes a palette function. */
     getColor: (r: R, index: number) => string
-    /** Optional hidden gate. Returns true if the series should be hidden. */
     getHidden?: (r: R, index: number) => boolean
-    /** Build the meta payload attached to the main series. */
     buildMeta?: (r: R, index: number) => M
 }
 
-/**
- * Result of building a main series. Returned alongside the helpful
- * pre-computed values so the caller can build derived series (CI bands,
- * moving averages, trend lines) without recomputing color / yAxisId /
- * dashedFromIndex / excluded from scratch.
- */
 export interface BuiltTrendsSeries<M> {
     main: Series<M>
-    /** The original (un-dimmed) base color from getColor. Useful for
-     *  derived series that want to dim further with hexToRGBA. */
+    // Un-dimmed base color, exposed so derived series can dim further without re-resolving.
     baseColor: string
-    /** Where the dashed in-progress tail starts on this series, if any.
-     *  Already null for compare-previous and stickiness. */
     dashedFromIndex: number | undefined
     excluded: boolean
 }
 
-/**
- * Build the main canvas series for a single trends result. Mirrors the
- * inline construction in TrendsLineChart.tsx — same color dimming for
- * compare-previous, same dashed tail logic, same yAxisId selection,
- * same fill toggle for ActionsAreaGraph.
- */
 export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     r: R,
     index: number,
@@ -92,10 +65,6 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     return { main, baseColor, dashedFromIndex, excluded }
 }
 
-/**
- * Convenience: build main series for every result. Caller still needs to
- * append derived series (CI / MA / TL) themselves if desired.
- */
 export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
@@ -114,11 +83,7 @@ export interface BuildTrendsChartConfigOpts {
     yTickFormatter?: (value: number) => string
 }
 
-/**
- * Build the LineChartConfig from a flat options bag. No defaults are
- * applied for keys the caller didn't pass — they fall through to
- * undefined so hog-charts uses its own defaults.
- */
+// Undefined keys fall through to hog-charts defaults — don't add fallbacks here.
 export function buildTrendsChartConfig(opts: BuildTrendsChartConfigOpts): LineChartConfig {
     const tooltip =
         opts.pinnableTooltip !== undefined || opts.tooltipPlacement !== undefined
