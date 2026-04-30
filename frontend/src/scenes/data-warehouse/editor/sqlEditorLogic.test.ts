@@ -244,6 +244,19 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    it('does not count a commented filters placeholder as active', () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.setQueryInput('SELECT * FROM events\n-- WHERE {filters}')
+
+        expect(logic.values.hasFiltersPlaceholder).toBe(false)
+    })
+
     it('restores filters from the URL hash', async () => {
         const filters: HogQLFilters = {
             dateRange: {

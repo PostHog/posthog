@@ -35,7 +35,7 @@ import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
+import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -2169,7 +2169,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         hasFiltersPlaceholder: [
             (s) => [s.queryInput],
             (queryInput) => {
-                return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
+                return queryUsesFiltersPlaceholder(queryInput)
             },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
