@@ -1976,6 +1976,33 @@ class TestManagementCommands(BaseTest):
         self.assertEqual(result["issue"], "MISSING_ETAG")
         self.assertIn("db_data", result)
 
+    def test_verify_missing_etag_takes_priority_over_data_drift(self):
+        """Pin the verifier's priority: when a team has both a missing etag AND
+        drifted cached flags, MISSING_ETAG is reported, not DATA_MISMATCH. The
+        repair path writes db_data back and corrects both, so this is purely
+        about which signal surfaces first."""
+        from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        update_flags_cache(self.team)
+
+        # Drift the DB out of sync with the cache by bypassing signals.
+        FeatureFlag.objects.filter(id=flag.id).update(
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]}
+        )
+        # And remove the etag key. Now both MISSING_ETAG and DATA_MISMATCH apply.
+        flags_hypercache.cache_client.delete(flags_hypercache.get_etag_key(self.team))
+
+        result = verify_team_flags(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "MISSING_ETAG")
+
     def test_verify_uses_batched_etag_no_extra_redis_get(self):
         """In the verifier hot path the etag must come from cache_batch_data, not
         from a per-team Redis GET. Otherwise verify_and_fix_flags_cache_task
@@ -1997,14 +2024,14 @@ class TestManagementCommands(BaseTest):
         cache_batch_data = flags_hypercache.batch_get_from_cache([self.team])
         db_batch_data = {self.team.id: _get_feature_flags_for_service(self.team)}
 
-        with patch.object(flags_hypercache, "get_etag", side_effect=AssertionError("no per-team etag GET")) as m:
+        with patch.object(flags_hypercache, "get_etag") as m:
             result = verify_team_flags(
                 self.team,
                 db_batch_data=db_batch_data,
                 cache_batch_data=cache_batch_data,
             )
 
-        assert m.call_count == 0
+        assert m.call_count == 0, "verifier hot path called get_etag per-team"
         # And the result is sane: etag was present in the batch, status matches.
         self.assertEqual(result["status"], "match")
 
