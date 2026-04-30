@@ -21490,6 +21490,8 @@ export namespace Schemas {
       threshold_operator: string;
     }
 
+    export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
     /**
      * * `severity_sampling` - Severity-based reduction
     * `path_drop` - Path exclusion
@@ -21539,7 +21541,7 @@ export namespace Schemas {
        */
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-      scope_attribute_filters?: unknown;
+      scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
       /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
@@ -28274,6 +28276,8 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    export type PatchedLogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
     export interface PatchedLogsSamplingRule {
       /** Unique identifier for this sampling rule. */
       readonly id?: string;
@@ -28309,7 +28313,7 @@ export namespace Schemas {
        */
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
-      scope_attribute_filters?: unknown;
+      scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
       /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
@@ -41438,6 +41442,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      * @minLength 1
@@ -41512,6 +41517,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -41572,6 +41578,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      */
@@ -41634,6 +41641,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
