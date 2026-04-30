@@ -201,59 +201,86 @@ class TestLogsAPIShortCircuitsWhenLogsUnavailable(ClickhouseTestMixin, APIBaseTe
         super().setUp()
         cache.delete(f"team:{self.team.id}:has_logs")
 
-    def _patch_team_has_logs_false(self):
-        return patch("products.logs.backend.api.team_has_logs", return_value=False)
+    def _mark_logs_unavailable(self):
+        """Populate the cache sentinel that the cheap _logs_unavailable() check looks at."""
+        from products.logs.backend.has_logs_query_runner import (
+            HAS_LOGS_ERROR_CACHE_TTL,
+            HAS_LOGS_ERROR_SENTINEL,
+        )
+
+        cache.set(f"team:{self.team.id}:has_logs", HAS_LOGS_ERROR_SENTINEL, HAS_LOGS_ERROR_CACHE_TTL)
 
     def test_query_endpoint_returns_empty_when_logs_unavailable(self):
-        with self._patch_team_has_logs_false():
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/logs/query",
-                data={"query": {"dateRange": {"date_from": "-1h"}}},
-                format="json",
-            )
+        self._mark_logs_unavailable()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/query",
+            data={"query": {"dateRange": {"date_from": "-1h"}}},
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertEqual(body["results"], [])
         self.assertFalse(body["hasMore"])
 
     def test_sparkline_endpoint_returns_empty_when_logs_unavailable(self):
-        with self._patch_team_has_logs_false():
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/logs/sparkline",
-                data={"query": {"dateRange": {"date_from": "-1h"}}},
-                format="json",
-            )
+        self._mark_logs_unavailable()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/sparkline",
+            data={"query": {"dateRange": {"date_from": "-1h"}}},
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), [])
 
     def test_count_endpoint_returns_zero_when_logs_unavailable(self):
-        with self._patch_team_has_logs_false():
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/logs/count",
-                data={"query": {"dateRange": {"date_from": "-1h"}}},
-                format="json",
-            )
+        self._mark_logs_unavailable()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/count",
+            data={"query": {"dateRange": {"date_from": "-1h"}}},
+            format="json",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"count": 0})
 
     def test_attributes_endpoint_returns_empty_when_logs_unavailable(self):
-        with self._patch_team_has_logs_false():
-            response = self.client.get(f"/api/projects/{self.team.id}/logs/attributes")
+        self._mark_logs_unavailable()
+        response = self.client.get(f"/api/projects/{self.team.id}/logs/attributes")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": [], "count": 0})
 
     def test_values_endpoint_returns_empty_when_logs_unavailable(self):
-        with self._patch_team_has_logs_false():
-            response = self.client.get(f"/api/projects/{self.team.id}/logs/values?key=service.name")
+        self._mark_logs_unavailable()
+        response = self.client.get(f"/api/projects/{self.team.id}/logs/values?key=service.name")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": [], "refreshing": False})
 
     def test_services_endpoint_returns_empty_when_logs_unavailable(self):
-        with self._patch_team_has_logs_false():
+        self._mark_logs_unavailable()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/services",
+            data={"query": {"dateRange": {"date_from": "-1h"}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"services": [], "sparkline": []})
+
+    def test_query_endpoint_catches_unknown_table_and_marks_unavailable(self):
+        from products.logs.backend.has_logs_query_runner import HAS_LOGS_ERROR_SENTINEL
+
+        with patch("products.logs.backend.api.LogsQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = CHQueryErrorUnknownTable(
+                "Code: 60. DB::Exception: Unknown table 'logs'", code=60
+            )
+
             response = self.client.post(
-                f"/api/projects/{self.team.id}/logs/services",
+                f"/api/projects/{self.team.id}/logs/query",
                 data={"query": {"dateRange": {"date_from": "-1h"}}},
                 format="json",
             )
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"services": [], "sparkline": []})
+        body = response.json()
+        self.assertEqual(body["results"], [])
+        self.assertFalse(body["hasMore"])
+        # Subsequent calls should short-circuit via the cache sentinel.
+        self.assertEqual(cache.get(f"team:{self.team.id}:has_logs"), HAS_LOGS_ERROR_SENTINEL)

@@ -21,7 +21,11 @@ HAS_LOGS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
 HAS_LOGS_ERROR_CACHE_TTL = int(dt.timedelta(minutes=5).total_seconds())
 # Sentinel value distinct from a regular False so we only suppress the
 # ClickHouse query when it previously errored, not when it returned no rows.
-_HAS_LOGS_ERROR_SENTINEL = "error"
+HAS_LOGS_ERROR_SENTINEL = "error"
+
+
+def _has_logs_cache_key(team: Team) -> str:
+    return f"team:{team.id}:has_logs"
 
 
 class HasLogsQueryRunner:
@@ -50,20 +54,36 @@ def team_has_logs(team: Team) -> bool:
     the logs cluster. Errored answers are cached briefly to avoid hammering
     ClickHouse on every probe while the misconfiguration is in place.
     """
-    cache_key = f"team:{team.id}:has_logs"
+    cache_key = _has_logs_cache_key(team)
     cached = cache.get(cache_key)
     if cached is True:
         return True
-    if cached == _HAS_LOGS_ERROR_SENTINEL:
+    if cached == HAS_LOGS_ERROR_SENTINEL:
         return False
 
     try:
         has_logs = HasLogsQueryRunner(team).run()
     except Exception:
         logger.exception("has_logs_query_failed", team_id=team.id)
-        cache.set(cache_key, _HAS_LOGS_ERROR_SENTINEL, HAS_LOGS_ERROR_CACHE_TTL)
+        mark_logs_unavailable(team)
         return False
 
     if has_logs:
         cache.set(cache_key, True, HAS_LOGS_CACHE_TTL)
     return has_logs
+
+
+def logs_marked_unavailable(team: Team) -> bool:
+    """Cheap (cache-only) check used by query endpoints to short-circuit when
+    a previous probe or query already determined the logs cluster is misconfigured.
+
+    Does NOT issue any ClickHouse query, so it's safe to call on every request.
+    """
+    return cache.get(_has_logs_cache_key(team)) == HAS_LOGS_ERROR_SENTINEL
+
+
+def mark_logs_unavailable(team: Team) -> None:
+    """Mark the logs cluster as unavailable for this team. Used after a query
+    endpoint has caught a ClickHouse error so subsequent requests short-circuit
+    via the cache rather than re-running the failing query."""
+    cache.set(_has_logs_cache_key(team), HAS_LOGS_ERROR_SENTINEL, HAS_LOGS_ERROR_CACHE_TTL)

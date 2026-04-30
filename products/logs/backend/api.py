@@ -5,6 +5,7 @@ import datetime as dt
 
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
@@ -30,6 +31,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
@@ -45,7 +47,11 @@ from products.logs.backend.count_ranges_query_runner import (
     CountRangesQueryRunner,
 )
 from products.logs.backend.explain import LogExplainViewSet
-from products.logs.backend.has_logs_query_runner import team_has_logs
+from products.logs.backend.has_logs_query_runner import (
+    logs_marked_unavailable,
+    mark_logs_unavailable,
+    team_has_logs,
+)
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
@@ -56,6 +62,7 @@ from products.logs.backend.views_api import LogsViewViewSet
 __all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet", "LogsViewViewSet"]
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 
 
@@ -569,14 +576,25 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return {"type": "AND", "values": []}
 
     def _logs_unavailable(self) -> bool:
-        """Return True if the logs ClickHouse table/workload is unavailable for this team.
+        """Cheap (cache-only) check used to short-circuit query endpoints when a
+        previous probe or query already determined the logs cluster is misconfigured.
 
-        Used to short-circuit query endpoints with empty responses on self-hosted
-        instances that haven't provisioned the logs workload, instead of letting
-        the underlying ClickHouse error bubble up as a 500 to every cross-product
-        surface that probes log attributes (TaxonomicFilter, etc.).
+        Does NOT issue any ClickHouse query — adding a round-trip to every
+        endpoint would also slow down the happy path. The cache is populated
+        either by /logs/has_logs (via team_has_logs) or by the per-endpoint
+        try/except below catching CHQueryErrorUnknownTable.
         """
-        return not team_has_logs(self.team)
+        return logs_marked_unavailable(self.team)
+
+    def _logs_table_missing_response(self, exc: CHQueryErrorUnknownTable) -> None:
+        """Record that the logs cluster is misconfigured so future requests
+        short-circuit via the cache instead of re-running the failing query."""
+        logger.warning(
+            "logs_query_failed_table_missing",
+            team_id=self.team.id,
+            error=str(exc),
+        )
+        mark_logs_unavailable(self.team)
 
     @extend_schema(request=_LogsQueryRequestSerializer, responses={200: _LogsQueryResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
@@ -652,19 +670,32 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
-        if live_logs_checkpoint:
-            response = LogsQueryRunner(query, self.team).run(
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
-            )
-            results = list(response.results)
-        else:
-            results = list(
-                time_sliced_results(
-                    runner=LogsQueryRunner(query, self.team),
-                    order_by_earliest=order_by == LogsOrderBy.EARLIEST,
-                    make_runner=make_runner,
-                    analytics_props=analytics_props,
+        try:
+            if live_logs_checkpoint:
+                response = LogsQueryRunner(query, self.team).run(
+                    ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )
+                results = list(response.results)
+            else:
+                results = list(
+                    time_sliced_results(
+                        runner=LogsQueryRunner(query, self.team),
+                        order_by_earliest=order_by == LogsOrderBy.EARLIEST,
+                        make_runner=make_runner,
+                        analytics_props=analytics_props,
+                    )
+                )
+        except CHQueryErrorUnknownTable as exc:
+            self._logs_table_missing_response(exc)
+            return Response(
+                {
+                    "query": query,
+                    "results": [],
+                    "hasMore": False,
+                    "nextCursor": None,
+                    "maxExportableLogs": LOGS_MAX_EXPORT_ROWS,
+                },
+                status=200,
             )
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
@@ -727,10 +758,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except CHQueryErrorUnknownTable as exc:
+            self._logs_table_missing_response(exc)
+            return Response([], status=status.HTTP_200_OK)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
@@ -770,10 +805,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = CountQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except CHQueryErrorUnknownTable as exc:
+            self._logs_table_missing_response(exc)
+            return Response({"count": 0}, status=status.HTTP_200_OK)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
@@ -817,10 +856,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except CHQueryErrorUnknownTable as exc:
+            self._logs_table_missing_response(exc)
+            return Response({"ranges": [], "interval": "1m"}, status=status.HTTP_200_OK)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
@@ -861,10 +904,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = ServicesQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except CHQueryErrorUnknownTable as exc:
+            self._logs_table_missing_response(exc)
+            return Response({"services": [], "sparkline": []}, status=status.HTTP_200_OK)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
@@ -941,7 +988,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         runner = LogAttributesQueryRunner(team=self.team, query=query)
 
-        result = runner.calculate()
+        try:
+            result = runner.calculate()
+        except CHQueryErrorUnknownTable as exc:
+            self._logs_table_missing_response(exc)
+            return Response({"results": [], "count": 0}, status=status.HTTP_200_OK)
         return Response(
             {
                 "results": [r.model_dump(exclude_none=True) for r in result.results],
@@ -1019,7 +1070,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             runner = LogValuesQueryRunner(team=self.team, query=query)
 
-            result = runner.calculate()
+            try:
+                result = runner.calculate()
+            except CHQueryErrorUnknownTable as exc:
+                self._logs_table_missing_response(exc)
+                return Response({"results": [], "refreshing": False}, status=status.HTTP_200_OK)
             span.set_attribute("result_count", len(result.results))
             return Response(
                 {"results": [r.model_dump() for r in result.results], "refreshing": False},
