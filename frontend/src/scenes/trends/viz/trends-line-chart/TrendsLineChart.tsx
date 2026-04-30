@@ -36,6 +36,10 @@ interface TrendsLineChartProps {
     inSharedMode?: boolean
 }
 
+const handleChartError = (error: Error): void => {
+    posthog.captureException(error, { feature: 'trends-line-chart' })
+}
+
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -332,7 +336,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
             className="LineGraph"
-            onError={(error) => posthog.captureException(error, { feature: 'trends-line-chart' })}
+            onError={handleChartError}
         >
             <ReferenceLines lines={referenceLines} />
             {insight.id ? (

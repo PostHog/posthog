@@ -44,10 +44,10 @@ export interface LineChartProps<Meta = unknown> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-export function LineChart<Meta = unknown>(props: LineChartProps<Meta>): React.ReactElement {
+export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={props.onError}>
-            <LineChartInner {...props} />
+        <ChartErrorBoundary onError={onError}>
+            <LineChartInner {...rest} />
         </ChartErrorBoundary>
     )
 }
