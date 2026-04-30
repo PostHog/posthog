@@ -758,10 +758,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 + "\n".join(q["sql"][:300] for q in per_insight_m2m_lookups[:3])
             )
 
-            assert len(ctx.captured_queries) <= baseline_query_count + (n - 1), (
+            assert len(ctx.captured_queries) == baseline_query_count, (
                 f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline_query_count}; "
-                f"a real N+1 would grow much faster than {n - 1} extra. There may still be one fingerprint "
-                f"firing per insight worth investigating, but it's not the catastrophic 487-query path."
+                f"adding insights should not grow the per-request query count."
             )
 
     def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
