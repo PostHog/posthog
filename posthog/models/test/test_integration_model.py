@@ -193,6 +193,57 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": None,
             }
 
+    @parameterized.expand(
+        [
+            (
+                "json_error_body",
+                400,
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code does not exist or has expired.",
+                },
+                None,
+                '{"error":"invalid_grant","error_description":"Authorization code does not exist or has expired."}',
+                ["invalid_grant", "Authorization code does not exist"],
+            ),
+            (
+                "non_json_error_body",
+                502,
+                None,
+                ValueError("not json"),
+                "<html>Bad Gateway</html>",
+                ["salesforce"],
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.requests.post")
+    def test_oauth_token_exchange_failure_raises_validation_error(
+        self, _name, status_code, json_return, json_side_effect, body_text, expected_in_message, mock_post
+    ):
+        """A failed token exchange must surface a ValidationError (→ DRF 400 with `detail`) so the
+        frontend toast renders something useful. Covers both well-formed JSON error bodies (where
+        we extract `error_description`) and non-JSON bodies (where the helper falls back to the
+        raw text or a status-only message)."""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = status_code
+            if json_side_effect is not None:
+                mock_post.return_value.json.side_effect = json_side_effect
+            else:
+                mock_post.return_value.json.return_value = json_return
+            mock_post.return_value.text = body_text
+
+            with pytest.raises(ValidationError) as e:
+                OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+            message = str(e.value).lower()
+            for fragment in expected_in_message:
+                assert fragment.lower() in message
+
     @patch("posthog.models.integration.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):
         with self.settings(**self.mock_settings):
@@ -699,7 +750,7 @@ class TestOauthIntegrationModel(BaseTest):
             STRIPE_APP_SECRET_KEY="sk_live_secret",
             STRIPE_APP_SANDBOX_SECRET_KEY="",
         ):
-            with pytest.raises(Exception, match="Oauth error"):
+            with pytest.raises(ValidationError, match="OAuth failed"):
                 OauthIntegration.integration_from_oauth_response(
                     "stripe",
                     self.team.id,
@@ -727,7 +778,7 @@ class TestOauthIntegrationModel(BaseTest):
             STRIPE_APP_SECRET_KEY="sk_live_secret",
             STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
         ):
-            with pytest.raises(Exception, match="Oauth error"):
+            with pytest.raises(ValidationError, match="OAuth failed"):
                 OauthIntegration.integration_from_oauth_response(
                     "stripe",
                     self.team.id,
