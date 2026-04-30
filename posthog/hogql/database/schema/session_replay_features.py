@@ -10,17 +10,6 @@ from posthog.hogql.database.models import (
 
 
 class SessionReplayFeaturesTable(Table):
-    """
-    Per-session aggregate features (clicks, mouse stats, scroll, console errors, network requests, …).
-
-    The underlying ClickHouse table is an AggregatingMergeTree, so most numeric columns are
-    `SimpleAggregateFunction(sum|min|max, …)` — they read like the underlying scalar but should be
-    re-aggregated and `GROUP BY (team_id, session_id)` to combine across un-merged parts.
-
-    Two columns store `AggregateFunction(uniqExact, …)` state: `unique_url_count` and
-    `unique_click_target_count`. They're opaque without `uniqExactMerge(...)`.
-    """
-
     fields: dict[str, FieldOrTable] = {
         "session_id": StringDatabaseField(name="session_id", nullable=False),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -67,8 +56,6 @@ class SessionReplayFeaturesTable(Table):
         "max_scroll_y": FloatDatabaseField(name="max_scroll_y", nullable=False),
         "text_selection_count": IntegerDatabaseField(name="text_selection_count", nullable=False),
         "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
-        # `AggregateFunction(uniqExact, …)` state columns. Selecting them raw returns binary state — wrap with
-        # `uniqExactMerge(unique_url_count)` / `uniqExactMerge(unique_click_target_count)` to get a count.
         "unique_url_count": DatabaseField(name="unique_url_count", nullable=True),
         "unique_click_target_count": DatabaseField(name="unique_click_target_count", nullable=True),
     }
