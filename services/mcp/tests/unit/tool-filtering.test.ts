@@ -76,7 +76,7 @@ describe('Tool Filtering - Features', () => {
             expectedTools: ['get-llm-total-costs-for-project'],
         },
         {
-            features: ['posthog_ai'],
+            features: ['docs'],
             description: 'documentation tools',
             expectedTools: ['docs-search'],
         },
