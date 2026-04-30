@@ -381,17 +381,8 @@ class QueryFieldSerializer(serializers.Serializer):
 def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
     """Throttle clock for `?refresh=force_blocking` on shared insights.
 
-    Returns ``last_refresh`` when set, otherwise ``created_at``. ``last_refresh`` is reset to
-    ``NULL`` whenever an insight's ``cache_key`` changes (filter edit, materialized config tweak —
-    see ``posthog/caching/insight_caching_state.py:62``), so a naive ``last_refresh``-only check
-    would let any ``cache_key`` rotation reopen the cache-bypass window. Falling back to
-    ``created_at`` makes the throttle clock monotonic against rotation.
-
-    Reads from the prefetched ``caching_states`` relation when a tile is in scope (added to
-    ``DashboardSerializer.get_tiles`` to avoid an N+1 on shared dashboards). For shared insights
-    without a tile, issues a single point-lookup against the unique ``(insight_id, NULL)`` row.
-    On any DB error, returns ``datetime.now(UTC)`` so the gate fails closed (downgrades) — a
-    Postgres outage must not become a 500 on the public shared-insight surface.
+    Falls back to ``created_at`` when ``last_refresh`` is null (cache_key rotation resets it),
+    keeping the clock monotonic. On DB error, returns ``now()`` so the gate fails closed.
     """
     try:
         if dashboard_tile is not None:
@@ -988,13 +979,8 @@ class InsightSerializer(InsightBasicSerializer):
                         last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
                     )
 
-                # Shared rendering bypasses the frontend, so the scene-tag path in
-                # `posthog/api/query.py:_SCENE_TO_TAGS` never sets product/feature. Wrap the
-                # calculate call so the tags are scoped tightly to it and survive whatever
-                # `QueryRunner.run` does to the query-tag context internally. Authenticated
-                # paths are tagged via the FE's scene-tag flow already; setting them here too
-                # is a no-op overwrite to the same values used by the `_SCENE_TO_TAGS["Insight"]`
-                # mapping, so this doesn't change authenticated behavior.
+                # Shared rendering bypasses the FE scene-tag flow, so set product/feature
+                # tags here. No-op overwrite for authenticated paths (same values).
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT):
                     return calculate_for_query_based_insight(
                         insight,

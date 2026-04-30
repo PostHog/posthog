@@ -119,15 +119,9 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
 
 /**
- * Shared dashboard: if pessimistic `effectiveLastRefresh` (stalest tile) is older than this many minutes,
- * we may trigger one automatic `force_blocking` refresh after initial tile load (see `scheduleSharedDashboardStaleAutoForceIfEligible`).
- *
- * Aligned with `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` (the periodic refresh cadence) so the
- * staleness budget is consistent: viewers should never see data older than the periodic
- * interval. The first periodic tick fires 30 min after the user lands on the page; this
- * one-shot covers the cold-start window where the dashboard's last refresh is already older
- * than that interval. Backend `SHARED_FORCE_BLOCKING_MIN_AGE` is also pinned to this value,
- * asserted in `test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval`.
+ * Cold-start one-shot threshold: if data is older than this when a shared dashboard loads,
+ * trigger one immediate force_blocking refresh. Aligned with the periodic interval and the
+ * backend throttle (`SHARED_FORCE_BLOCKING_MIN_AGE`).
  */
 export const SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES = AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60
 
@@ -151,9 +145,8 @@ export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh:
 }
 
 /**
- * When a shared dashboard first loads and the stalest insight is too old, enqueue one forced refresh load-wide.
- * Throttling is implicit: the follow-up run uses `forceRefresh` + non-initial action, so this is not scheduled again;
- * after tiles refresh, `effectiveLastRefresh` should move forward and no longer pass the staleness check.
+ * Trigger one force_blocking refresh on initial shared-dashboard load if the stalest tile is too old.
+ * Idempotent across reloads since the follow-up run uses `forceRefresh` + non-initial action.
  */
 export function scheduleSharedDashboardStaleAutoForceIfEligible(options: {
     effectiveLastRefresh: Dayjs | null

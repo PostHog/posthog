@@ -1,4 +1,6 @@
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -41,6 +43,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
+    SHARED_FORCE_BLOCKING_MIN_AGE,
     ExecutionMode,
     QueryRunner,
     get_query_runner,
@@ -1099,24 +1102,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
         self.assertEqual(result, expected_mode)
 
     def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
-        """All three "staleness budget" constants for shared dashboards must be the same value:
-
-        - Backend `SHARED_FORCE_BLOCKING_MIN_AGE` (this module) — the server-side throttle.
-        - Frontend `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` — the periodic auto-refresh interval
-          fired by `SharedDashboardAutoRefresh` in `frontend/src/exporter/Exporter.tsx`.
-        - Frontend `SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES` — the cold-start one-shot
-          threshold in `dashboardUtils.ts:scheduleSharedDashboardStaleAutoForceIfEligible`.
-
-        These three values express the same staleness budget — "viewers should never see data
-        older than X minutes" — from three angles. If any drifts, either the periodic refresh
-        is silently throttled, or the one-shot misses cases the periodic mechanism wouldn't
-        catch in time, or both.
-        """
-        import re
-        from pathlib import Path
-
-        from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_MIN_AGE
-
+        """Backend throttle must match frontend auto-refresh interval — drift would silently throttle periodic refreshes."""
         frontend_file = (
             Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardUtils.ts"
         )
@@ -1129,24 +1115,18 @@ class TestSharedInsightsExecutionMode(BaseTest):
         assert interval_match, f"Could not find AUTO_REFRESH_INITIAL_INTERVAL_SECONDS in {frontend_file}"
         frontend_interval_minutes = int(interval_match.group(1)) // 60
 
-        # Frontend SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES is defined as
-        # `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60`, so we don't need to grep it separately —
-        # it's locked to the periodic interval at the source.
         stale_match = re.search(
             r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*/\s*60",
             source,
         )
         assert stale_match, (
-            f"SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES must be defined as "
-            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60 in {frontend_file} — otherwise the two "
-            f"frontend constants can drift independently."
+            f"SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES must be derived from "
+            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60 in {frontend_file}."
         )
 
         backend_minutes = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds() // 60)
         self.assertEqual(
             backend_minutes,
             frontend_interval_minutes,
-            f"Backend SHARED_FORCE_BLOCKING_MIN_AGE ({backend_minutes}m) must equal frontend "
-            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS ({frontend_interval_minutes}m). Drift breaks "
-            f"the shared-dashboard refresh contract — see the constant's comment for why.",
+            f"Backend ({backend_minutes}m) must equal frontend ({frontend_interval_minutes}m).",
         )
