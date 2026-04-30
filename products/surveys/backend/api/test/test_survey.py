@@ -137,6 +137,56 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
 
+    def test_can_create_survey_with_custom_language_code_translations(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Customer feedback survey",
+                "description": "Help us improve",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "single_choice",
+                        "question": "How satisfied are you?",
+                        "choices": ["Happy", "Unhappy"],
+                        "translations": {
+                            "ro-RO": {
+                                "question": "Cat de multumit esti?",
+                                "choices": ["Multumit", "Nemultumit"],
+                            },
+                            "custom-customer-locale": {
+                                "question": "Custom localized question",
+                                "choices": ["Custom happy", "Custom unhappy"],
+                            },
+                        },
+                    }
+                ],
+                "translations": {
+                    "ro-RO": {
+                        "name": "Sondaj de feedback",
+                        "thankYouMessageHeader": "Multumim!",
+                    },
+                    "custom-customer-locale": {
+                        "name": "Custom localized survey",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        questions = cast(list[dict[str, Any]], survey.questions)
+
+        assert survey.translations is not None
+        assert survey.translations["ro-RO"]["name"] == "Sondaj de feedback"
+        assert survey.translations["custom-customer-locale"]["name"] == "Custom localized survey"
+        assert questions[0]["translations"]["ro-RO"]["question"] == "Cat de multumit esti?"
+        assert questions[0]["translations"]["custom-customer-locale"]["choices"] == [
+            "Custom happy",
+            "Custom unhappy",
+        ]
+
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_returns_draft_patch(self, mock_generate_survey_translation):
