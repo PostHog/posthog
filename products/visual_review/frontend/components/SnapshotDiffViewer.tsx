@@ -1,20 +1,19 @@
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { VisualImageDiffViewer, type ComparisonMode, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { urls } from 'scenes/urls'
 
-import type {
-    QuarantinedIdentifierEntryApi,
-    SnapshotApi,
-    SnapshotHistoryEntryApi,
-    ToleratedHashEntryApi,
-} from '../generated/api.schemas'
+import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
+import { DiffPercentage } from './DiffPercentage'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
@@ -26,6 +25,7 @@ function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): J
                 type="button"
                 className="relative rounded border border-border overflow-hidden bg-bg-3000 w-full cursor-pointer hover:border-primary transition-colors"
                 onClick={onClick}
+                data-attr="visual-review-diff-minimap"
             >
                 {!loaded && <LemonSkeleton className="absolute inset-0" />}
                 <img
@@ -88,7 +88,12 @@ function QuarantineAction({
 
     return (
         <div>
-            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setIsOpen(true)}
+                data-attr="visual-review-quarantine-open"
+            >
                 Quarantine this identifier
             </LemonButton>
             <LemonModal
@@ -97,13 +102,18 @@ function QuarantineAction({
                 title="Quarantine snapshot"
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={() => setIsOpen(false)}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setIsOpen(false)}
+                            data-attr="visual-review-quarantine-cancel"
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton
                             type="primary"
                             disabledReason={!reason.trim() ? 'Reason is required' : undefined}
                             onClick={handleSubmit}
+                            data-attr="visual-review-quarantine-confirm"
                         >
                             Quarantine
                         </LemonButton>
@@ -173,8 +183,6 @@ function QuarantineAction({
 
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
-    snapshotHistory?: SnapshotHistoryEntryApi[]
-    snapshotHistoryLoading?: boolean
     toleratedHashes?: ToleratedHashEntryApi[]
     toleratedHashesLoading?: boolean
     onApprove?: () => void
@@ -185,6 +193,7 @@ interface SnapshotDiffViewerProps {
     onUnquarantine?: () => void
     commitSha?: string
     prNumber?: number | null
+    repoId?: string | null
     repoFullName?: string | null
     runType?: string
     githubRunId?: string | null
@@ -195,8 +204,6 @@ interface SnapshotDiffViewerProps {
 
 export function SnapshotDiffViewer({
     snapshot,
-    snapshotHistory,
-    snapshotHistoryLoading,
     toleratedHashes,
     toleratedHashesLoading,
     onApprove,
@@ -207,6 +214,7 @@ export function SnapshotDiffViewer({
     onUnquarantine,
     commitSha,
     prNumber,
+    repoId,
     repoFullName,
     runType,
     githubRunId,
@@ -214,7 +222,8 @@ export function SnapshotDiffViewer({
     onRecompute,
     recomputeDisabledReason,
 }: SnapshotDiffViewerProps): JSX.Element {
-    const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('sideBySide')
+    const { comparisonMode } = useValues(visualReviewPreferencesLogic)
+    const { setComparisonMode } = useActions(visualReviewPreferencesLogic)
     const baselineUrl = snapshot.baseline_artifact?.download_url
     const currentUrl = snapshot.current_artifact?.download_url
 
@@ -259,6 +268,7 @@ export function SnapshotDiffViewer({
                                 type="secondary"
                                 size="small"
                                 disabledReason="Leaving a snapshot unreviewed already blocks the PR. To fix it, update your code and rerun CI."
+                                data-attr="visual-review-snapshot-reject"
                             >
                                 Reject
                             </LemonButton>
@@ -279,11 +289,18 @@ export function SnapshotDiffViewer({
                                             secondaryButton: { children: 'Cancel' },
                                         })
                                     }}
+                                    data-attr="visual-review-snapshot-tolerate"
                                 >
                                     Tolerate
                                 </LemonButton>
                             )}
-                            <LemonButton type="primary" size="small" onClick={onApprove} loading={isApproving}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={onApprove}
+                                loading={isApproving}
+                                data-attr="visual-review-snapshot-accept"
+                            >
                                 Accept change
                             </LemonButton>
                         </>
@@ -438,6 +455,7 @@ export function SnapshotDiffViewer({
                                         size="xsmall"
                                         loading={isRecomputing}
                                         disabledReason={recomputeDisabledReason}
+                                        data-attr="visual-review-snapshot-recompute"
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: 'Re-trigger CI job?',
@@ -465,6 +483,19 @@ export function SnapshotDiffViewer({
                     <div>
                         <h4 className="text-xs font-semibold text-muted mb-2">Identifier</h4>
                         <div className="space-y-2">
+                            <div className="text-xs">
+                                {repoId && runType ? (
+                                    <Link
+                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        className="font-mono text-default break-all"
+                                        title="View history"
+                                    >
+                                        {snapshot.identifier}
+                                    </Link>
+                                ) : (
+                                    <span className="font-mono break-all">{snapshot.identifier}</span>
+                                )}
+                            </div>
                             {width && height && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Resolution</span>
@@ -476,48 +507,56 @@ export function SnapshotDiffViewer({
                             {snapshot.diff_percentage != null && snapshot.diff_percentage > 0 && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Diff</span>
-                                    <span className="font-mono">{Number(snapshot.diff_percentage.toFixed(2))}%</span>
+                                    <DiffPercentage value={snapshot.diff_percentage} suffix="" />
                                 </div>
                             )}
                             {snapshot.baseline_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Before</span>
-                                    <span className="font-mono">
-                                        {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
-                                    </span>
+                                    {repoId && runType ? (
+                                        <Link
+                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            className="font-mono"
+                                            title="View history"
+                                        >
+                                            {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
+                                        </Link>
+                                    ) : (
+                                        <span className="font-mono">
+                                            {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
+                                        </span>
+                                    )}
                                 </div>
                             )}
                             {snapshot.current_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">After</span>
-                                    <span className="font-mono">
-                                        {snapshot.current_artifact.content_hash.slice(0, 10)}…
-                                    </span>
+                                    {repoId && runType ? (
+                                        <Link
+                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            className="font-mono"
+                                            title="View history"
+                                        >
+                                            {snapshot.current_artifact.content_hash.slice(0, 10)}…
+                                        </Link>
+                                    ) : (
+                                        <span className="font-mono">
+                                            {snapshot.current_artifact.content_hash.slice(0, 10)}…
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            {repoId && runType && (
+                                <div className="pt-1">
+                                    <Link
+                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        className="text-xs"
+                                    >
+                                        View history →
+                                    </Link>
                                 </div>
                             )}
                         </div>
-                    </div>
-
-                    {/* History */}
-                    <div>
-                        <h4 className="text-xs font-semibold text-muted mb-2">History</h4>
-                        {snapshotHistoryLoading ? (
-                            <div className="space-y-2">
-                                <LemonSkeleton className="h-4 w-full" />
-                                <LemonSkeleton className="h-4 w-3/4" />
-                            </div>
-                        ) : snapshotHistory && snapshotHistory.length > 0 ? (
-                            <div className="space-y-1.5">
-                                {snapshotHistory.map((entry) => (
-                                    <div key={entry.run_id} className="flex items-center justify-between text-xs">
-                                        <span className="font-mono text-muted">{entry.commit_sha.slice(0, 7)}</span>
-                                        <SnapshotStatusIndicator result={entry.result} reviewState="" size="medium" />
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-xs text-muted">No history yet</p>
-                        )}
                     </div>
 
                     {/* Tolerated hashes */}
@@ -556,6 +595,7 @@ export function SnapshotDiffViewer({
                                 type="secondary"
                                 status="danger"
                                 size="small"
+                                data-attr="visual-review-unquarantine"
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Unquarantine this identifier?',

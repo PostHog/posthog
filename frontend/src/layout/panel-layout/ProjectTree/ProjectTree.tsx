@@ -130,7 +130,8 @@ export function ProjectTree({
     onItemCheckedOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems } = useValues(projectTreeDataLogic)
+    const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
+    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -203,6 +204,7 @@ export function ProjectTree({
     const showSortDropdown = root === 'project://'
 
     const isAIFirst = useFeatureFlag('AI_FIRST')
+    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
@@ -445,6 +447,20 @@ export function ProjectTree({
                     return false
                 }
 
+                // Sibling reorder within the Starred (shortcuts://) list. All the index/position
+                // math lives in the kea logic so the component can stay focused on rendering.
+                if (
+                    isStarredReorderEnabled &&
+                    typeof oldId === 'string' &&
+                    typeof newId === 'string' &&
+                    shortcutEntryIdMap.has(oldId) &&
+                    shortcutEntryIdMap.has(newId)
+                ) {
+                    const position = dragEvent.position === 'after' ? 'after' : 'before'
+                    reorderShortcutByDrag(oldId, newId, position)
+                    return
+                }
+
                 const items = searchTerm && searchResults.results ? searchResults.results : viableItems
                 const oldItem = items.find((i) => itemToId(i) === oldId)
                 const newItem = items.find((i) => itemToId(i) === newId)
@@ -468,10 +484,19 @@ export function ProjectTree({
                 }
             }}
             isItemDraggable={(item) => {
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return isStarredReorderEnabled
+                }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
+            getItemDropMode={(item) => (shortcutEntryIdMap.has(item.id) ? 'reorder' : 'onto')}
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
+
+                // Allow dropping onto other top-level starred items to reorder them.
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return isStarredReorderEnabled
+                }
 
                 // disable dropping for these IDS
                 if (!item.id.startsWith('project://')) {

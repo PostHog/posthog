@@ -1,0 +1,287 @@
+"""Manifest loading and discovery for hogli commands."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+def _find_repo_root() -> Path:
+    """Find repo root by walking up from cwd looking for hogli.yaml."""
+    # Check env var first
+    if env_manifest := os.environ.get("HOGLI_MANIFEST"):
+        p = Path(env_manifest).resolve()
+        if not p.is_file():
+            raise ValueError(f"HOGLI_MANIFEST={env_manifest!r} does not point to an existing file")
+        return p.parent
+
+    # Walk up from cwd looking for hogli.yaml
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        if (parent / "hogli.yaml").exists():
+            return parent
+
+    # Fallback to cwd if no manifest found
+    return current
+
+
+def _find_manifest_file(repo_root: Path) -> Path:
+    """Find manifest file location."""
+    # Env var takes precedence
+    if env_manifest := os.environ.get("HOGLI_MANIFEST"):
+        p = Path(env_manifest).resolve()
+        if not p.is_file():
+            raise ValueError(f"HOGLI_MANIFEST={env_manifest!r} does not point to an existing file")
+        return p
+
+    return repo_root / "hogli.yaml"
+
+
+REPO_ROOT = _find_repo_root()
+MANIFEST_FILE = _find_manifest_file(REPO_ROOT)
+
+
+class Manifest:
+    """Encapsulates manifest loading and discovery operations."""
+
+    def __init__(self) -> None:
+        """Load manifest from YAML file."""
+        self._children_map: dict[str, list[str]] = {}
+        self._data = self._load()
+
+    def _load(self) -> dict[str, Any]:
+        """Load scripts manifest from YAML file."""
+        if not MANIFEST_FILE.exists():
+            return {}
+        with open(MANIFEST_FILE) as f:
+            data = yaml.safe_load(f) or {}
+
+        # Resolve extends references after loading
+        self._resolve_extends(data)
+        return data
+
+    def _resolve_extends(self, data: dict[str, Any]) -> None:
+        """Resolve extends references in-place, merging base config with overrides.
+
+        Preserves the 'extends' key in config so cli.py can build parent-child tree.
+        Also builds children_map for quick lookup.
+        """
+        # Build flat command lookup: name -> config
+        all_commands: dict[str, dict[str, Any]] = {}
+        for category_key, category_commands in data.items():
+            if category_key == "metadata" or not isinstance(category_commands, dict):
+                continue
+            for cmd_name, config in category_commands.items():
+                if isinstance(config, dict):
+                    all_commands[cmd_name] = config
+
+        # Resolve extends for each command and build children map
+        for cmd_name, config in all_commands.items():
+            extends = config.get("extends")
+            if not extends:
+                continue
+
+            if extends not in all_commands:
+                raise ValueError(f"Command '{cmd_name}' extends unknown command '{extends}'")
+            if all_commands[extends].get("extends"):
+                raise ValueError(
+                    f"Command '{cmd_name}' extends '{extends}' which itself extends another command. "
+                    "Chained inheritance not supported."
+                )
+
+            # Build children map
+            if extends not in self._children_map:
+                self._children_map[extends] = []
+            self._children_map[extends].append(cmd_name)
+
+            base_config = all_commands[extends]
+            # Merge: base first, then overrides (keep 'extends' key for tree display)
+            merged = {**base_config, **config}
+            config.clear()
+            config.update(merged)
+
+        # Sort children for consistent ordering
+        for children in self._children_map.values():
+            children.sort()
+
+    @property
+    def data(self) -> dict[str, Any]:
+        """Get raw manifest data."""
+        return self._data
+
+    @property
+    def categories(self) -> list[dict[str, Any]]:
+        """Get category metadata as list."""
+        return self._data.get("metadata", {}).get("categories", [])
+
+    def get_category_title(self, category_key: str) -> str:
+        """Get title for a category key."""
+        cat = next((c for c in self.categories if c.get("key") == category_key), None)
+        return cat.get("title", category_key.replace("_", " ")) if cat else category_key.replace("_", " ")
+
+    @property
+    def services(self) -> dict[str, Any]:
+        """Get service metadata."""
+        return self._data.get("metadata", {}).get("services", {})
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Get hogli config section."""
+        return self._data.get("config", {})
+
+    @property
+    def commands_dir(self) -> Path | None:
+        """Get custom commands directory path.
+
+        Resolution order:
+        1. config.commands_dir in hogli.yaml (relative to repo root)
+        2. Default: hogli/ next to hogli.yaml
+
+        Returns None if no commands directory exists.
+        """
+        configured = self.config.get("commands_dir")
+        if configured:
+            path = (REPO_ROOT / configured).resolve()
+            try:
+                path.relative_to(REPO_ROOT.resolve())
+            except ValueError:
+                raise ValueError(f"config.commands_dir '{configured}' resolves outside the repo root")
+            if path.exists():
+                return path
+        # Default: hogli/ next to manifest
+        default_path = MANIFEST_FILE.parent / "hogli"
+        if default_path.exists():
+            return default_path
+        return None
+
+    @property
+    def scripts_dir(self) -> Path:
+        """Get scripts directory path for bin_script commands.
+
+        Resolution order:
+        1. config.scripts_dir in hogli.yaml (relative to repo root)
+        2. Default: bin/ in repo root
+
+        Always returns a path (may not exist).
+        """
+        configured = self.config.get("scripts_dir")
+        if configured:
+            path = (REPO_ROOT / configured).resolve()
+            try:
+                path.relative_to(REPO_ROOT.resolve())
+            except ValueError:
+                raise ValueError(f"config.scripts_dir '{configured}' resolves outside the repo root")
+            return path
+        return REPO_ROOT / "bin"
+
+    def get_category_for_command(self, command_name: str) -> str:
+        """Get category for a command based on which section it's placed in.
+
+        For manifest commands: Uses explicit placement in category sections.
+        For Click-only commands: Infers category from prefix matching.
+
+        Example:
+        - "test:python" in "tests:" section → "Run tests" category (explicit)
+        - "my:custom" Click command → looks for "my:" prefix → infers category (fallback)
+
+        Falls back to "commands" if not found in any category section.
+        """
+        # First, check if command is directly in a manifest section (explicit placement)
+        for category_key, commands in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(commands, dict):
+                continue
+
+            if command_name in commands:
+                return self.get_category_title(category_key)
+
+        # For Click-only commands not in manifest, infer from prefix
+        # This allows Click commands to be categorized based on related manifest commands
+        prefix = command_name.split(":")[0] if ":" in command_name else command_name
+
+        for category_key, commands in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(commands, dict):
+                continue
+
+            # Check if any manifest command shares this prefix
+            if any(cmd_name.startswith(f"{prefix}:") or cmd_name == prefix for cmd_name in commands.keys()):
+                return self.get_category_title(category_key)
+
+        # Fallback if command not found and no prefix match
+        return "commands"
+
+    def get_services_for_command(self, command_name: str, command_config: dict) -> list[tuple[str, str]]:
+        """Get service info for a command as (name, about) tuples.
+
+        If command has explicit 'services' field, use those.
+        Otherwise, try to match command prefix to a service name.
+        Returns list of (service_name, about) tuples.
+        """
+        # If explicit services specified, use those
+        explicit_services = command_config.get("services", [])
+        if explicit_services:
+            return [
+                (svc_info.get("name", svc), svc_info.get("about", ""))
+                for svc in explicit_services
+                if (svc_info := self.services.get(svc))
+            ]
+
+        # Try to match command prefix to service
+        prefix = command_name.split(":")[0]
+        if prefix in self.services:
+            svc_info = self.services[prefix]
+            return [(svc_info.get("name", prefix), svc_info.get("about", ""))]
+
+        return []
+
+    def get_all_commands(self) -> list[str]:
+        """Get all available commands from the manifest."""
+        commands: list[str] = []
+        for category_key, category in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(category, dict):
+                continue
+            commands.extend(category.keys())
+        return commands
+
+    def get_command_config(self, command_name: str) -> dict | None:
+        """Get configuration for a specific command."""
+        for category_key, category in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(category, dict):
+                continue
+            if command_name in category and isinstance(category[command_name], dict):
+                return category[command_name]
+        return None
+
+    def get_children_for_command(self, command_name: str) -> list[str]:
+        """Get child commands that extend this command."""
+        return self._children_map.get(command_name, [])
+
+
+# Singleton instance for convenience
+_manifest_instance: Manifest | None = None
+
+
+def get_manifest() -> Manifest:
+    """Get or create the manifest singleton."""
+    global _manifest_instance
+    if _manifest_instance is None:
+        _manifest_instance = Manifest()
+    return _manifest_instance
+
+
+# Legacy convenience functions for backwards compatibility
+def load_manifest() -> dict[str, Any]:
+    """Load scripts manifest from YAML file."""
+    return get_manifest().data
+
+
+def get_category_for_command(command_name: str) -> str:
+    """Infer category title for a command from its prefix."""
+    return get_manifest().get_category_for_command(command_name)
+
+
+def get_services_for_command(command_name: str, command_config: dict) -> list[tuple[str, str]]:
+    """Get service info for a command."""
+    return get_manifest().get_services_for_command(command_name, command_config)

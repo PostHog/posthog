@@ -356,6 +356,36 @@ export const QueryRunInputSchema = z.object({
     query: QueryRunQuerySchema,
 })
 
+export const HogQLSchemaInputSchema = z.object({
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
+})
+
+export const QueryValidateInputSchema = z.object({
+    query: z
+        .string()
+        .min(1)
+        .describe(
+            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
+        ),
+    language: z
+        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
+        .default('hogQL')
+        .describe(
+            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
+})
+
 // Entity Search
 export const EntitySearchSchema = z.object({
     query: z.string().min(1).describe('Search query to find entities by name or description'),

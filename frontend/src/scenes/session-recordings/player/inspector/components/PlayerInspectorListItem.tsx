@@ -44,13 +44,11 @@ import {
     InspectorListItem,
     InspectorListItemConsole,
     InspectorListItemEvent,
-    InspectorListItemLog,
     playerInspectorLogic,
 } from '../playerInspectorLogic'
 import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
-import { ItemLog, ItemLogDetail } from './ItemLog'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
@@ -167,10 +165,12 @@ function RowItemTitle({
     item,
     finalTimestamp,
     groupCount,
+    groupedItems,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     groupCount?: number
+    groupedItems?: InspectorListItem[]
 }): JSX.Element {
     return (
         <div className="flex items-center text-text-3000" data-attr="row-item-title">
@@ -181,7 +181,11 @@ function RowItemTitle({
             ) : item.type === 'app-state' ? (
                 <ItemAppState item={item} />
             ) : item.type === 'events' ? (
-                <ItemEvent item={item} groupCount={groupCount} />
+                <ItemEvent
+                    item={item}
+                    groupCount={groupCount}
+                    groupedItems={groupedItems as InspectorListItemEvent[] | undefined}
+                />
             ) : item.type === 'offline-status' ? (
                 <div className="flex w-full items-start p-2 text-xs font-light font-mono">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
@@ -200,8 +204,6 @@ function RowItemTitle({
                 <ItemInactivity item={item} />
             ) : item.type === 'session-change' ? (
                 <ItemSessionChange item={item} />
-            ) : item.type === 'logs' ? (
-                <ItemLog item={item} groupCount={groupCount} />
             ) : null}
         </div>
     )
@@ -219,12 +221,10 @@ function RowItemDetail({
     item,
     finalTimestamp,
     groupedItems,
-    sessionId,
 }: {
     item: InspectorListItem
     finalTimestamp: Dayjs | null
     groupedItems?: InspectorListItem[]
-    sessionId?: string
 }): JSX.Element | null {
     return (
         <div>
@@ -244,12 +244,6 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemAnyCommentDetail item={item} />
-            ) : item.type === 'logs' ? (
-                <ItemLogDetail
-                    item={item}
-                    groupedItems={groupedItems as InspectorListItemLog[] | undefined}
-                    sessionId={sessionId}
-                />
             ) : null}
         </div>
     )
@@ -260,11 +254,13 @@ const ListItemTitle = memo(function ListItemTitle({
     index,
     hoverRef,
     groupCount,
+    groupedItems,
 }: {
     item: InspectorListItem
     index: number
     hoverRef: React.RefObject<HTMLDivElement>
     groupCount?: number
+    groupedItems?: InspectorListItem[]
 }) {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
@@ -335,7 +331,12 @@ const ListItemTitle = memo(function ListItemTitle({
                         item.highlightColor === 'primary' && `bg-fill-success-highlight`
                     )}
                 >
-                    <RowItemTitle item={item} finalTimestamp={end} groupCount={groupCount} />
+                    <RowItemTitle
+                        item={item}
+                        finalTimestamp={end}
+                        groupCount={groupCount}
+                        groupedItems={groupedItems}
+                    />
                 </div>
             </div>
             {isExpanded && <RowItemMenu item={item} />}
@@ -379,12 +380,7 @@ const ListItemDetail = memo(function ListItemDetail({
             )}
         >
             <div className="text-xs">
-                <RowItemDetail
-                    item={item}
-                    finalTimestamp={end}
-                    groupedItems={groupedItems}
-                    sessionId={logicProps.sessionRecordingId}
-                />
+                <RowItemDetail item={item} finalTimestamp={end} groupedItems={groupedItems} />
                 <LemonDivider dashed />
 
                 <div
@@ -465,7 +461,13 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            <ListItemTitle item={item} index={index} hoverRef={hoverRef} groupCount={groupCount} />
+            <ListItemTitle
+                item={item}
+                index={index}
+                hoverRef={hoverRef}
+                groupCount={groupCount}
+                groupedItems={groupedItems}
+            />
 
             {isExpanded ? <ListItemDetail item={item} index={index} groupedItems={groupedItems} /> : null}
         </div>

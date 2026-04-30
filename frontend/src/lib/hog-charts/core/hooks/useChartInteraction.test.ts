@@ -327,6 +327,40 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(result.current.tooltipCtx?.seriesData[0].value).toBe(updatedSeries[0].data[initialIndex])
     })
 
+    it('keeps the same tooltipCtx reference when a rerender produces value-equal series', () => {
+        const { rerender, result } = renderHook(
+            ({ s }: { s: typeof series }) =>
+                useChartInteraction({
+                    scales,
+                    dimensions,
+                    labels,
+                    series: s,
+                    canvasRef: refs.canvasRef,
+                    wrapperRef: refs.wrapperRef,
+                    showTooltip: true,
+                    pinnable: true,
+                    resolveValue: (sr, i) => sr.data[i],
+                }),
+            { initialProps: { s: series } }
+        )
+
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+        act(() => {
+            result.current.handlers.onClick()
+        })
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        const initialCtx = result.current.tooltipCtx
+
+        // Rerender with new series array containing new object identities but identical
+        // values. The equivalence-bail in the rebuild effect should keep the prev ctx.
+        const sameValuesNewIdentity = series.map((s) => ({ ...s }))
+        rerender({ s: sameValuesNewIdentity })
+
+        expect(result.current.tooltipCtx).toBe(initialCtx)
+    })
+
     it('clears the pinned tooltip when labels shrink so the pinned dataIndex no longer exists', () => {
         const { rerender, result } = renderHook(
             ({ ls }: { ls: string[] }) =>
