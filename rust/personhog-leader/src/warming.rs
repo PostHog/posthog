@@ -38,11 +38,22 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = CoordResult<T>>,
 {
+    // `max_attempts = 0` would make the loop body never run and the
+    // trailing `unreachable!` panic the warming task. Clamp to at least
+    // one so a misconfigured env var still produces a single attempt
+    // and a real error on failure rather than a panic. `debug_assert`
+    // surfaces the misconfiguration during development.
+    debug_assert!(
+        policy.max_attempts >= 1,
+        "warming retry max_attempts must be >= 1; got {}",
+        policy.max_attempts,
+    );
+    let max_attempts = policy.max_attempts.max(1);
     let mut backoff = policy.initial_backoff;
-    for attempt in 1..=policy.max_attempts {
+    for attempt in 1..=max_attempts {
         match f().await {
             Ok(v) => return Ok(v),
-            Err(e) if attempt == policy.max_attempts => {
+            Err(e) if attempt == max_attempts => {
                 counter!(
                     "personhog_leader_warm_retries_exhausted_total",
                     "stage" => stage.to_string()
@@ -258,8 +269,11 @@ pub async fn warm_from_kafka(
         .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
 
     if hwm <= start_offset {
-        // Empty range — mark the partition as owned with an empty cache.
-        cache.create_partition(partition);
+        // Empty range — install an empty partition cache. Use the
+        // atomic install path so this matches the populated path's
+        // publication semantics (the partition becomes observable in
+        // a single dashmap insert).
+        cache.install_warmed_partition(partition, std::iter::empty());
         tracing::info!(partition, hwm, start_offset, "no messages to warm in range");
         return Ok(());
     }
@@ -311,6 +325,19 @@ pub async fn warm_from_kafka(
                 person_id: cached.id,
             };
             buffered.push((key, cached));
+        } else {
+            // The writer never produces null-payload (tombstone) records
+            // to `personhog_updates` today. If one ever appears it would
+            // semantically represent a deletion, but the warming pipeline
+            // has no concept of evictions — so we silently skip and
+            // surface the occurrence via metrics + logs so an operator
+            // notices if this assumption ever stops holding.
+            counter!("personhog_leader_warm_tombstones_skipped_total").increment(1);
+            tracing::warn!(
+                partition,
+                offset,
+                "skipped null-payload (tombstone) record; the writer is not expected to produce these"
+            );
         }
 
         // HWM is exclusive — it's one past the last offset present.
@@ -319,14 +346,16 @@ pub async fn warm_from_kafka(
         }
     }
 
-    // Commit the buffered records all at once. By the time another caller
-    // can observe `cache.has_partition(partition) == true`, every record
-    // is already in place.
+    // Atomic install: the populated `PersonCache` is built first, then a
+    // single `DashMap::insert` publishes it. The previous pattern
+    // (`create_partition` + per-record `put` loop) created a window
+    // where readers could observe `has_partition == true` while the
+    // cache was still being populated, and then fall through to PG —
+    // potentially returning stale values for records the writer hasn't
+    // yet persisted. Atomicity here removes the dependency on the
+    // protocol invariant ("no reads during Warming") for correctness.
     let count = buffered.len() as u64;
-    cache.create_partition(partition);
-    for (key, cached) in buffered {
-        cache.put(partition, key, cached);
-    }
+    cache.install_warmed_partition(partition, buffered);
 
     let elapsed = start.elapsed();
     tracing::info!(
@@ -439,5 +468,36 @@ mod tests {
         .await;
         assert!(result.is_ok());
         assert_eq!(attempts.load(Ordering::Acquire), 1);
+    }
+
+    /// `max_attempts = 0` is meaningless (would mean "never try") but
+    /// could arrive via a misconfigured env var. Clamp to 1 instead of
+    /// panicking via the trailing `unreachable!`. Build in release mode
+    /// to skip the `debug_assert` and exercise the runtime clamp.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    #[cfg(not(debug_assertions))]
+    async fn retry_clamps_zero_max_attempts_to_one() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let attempts = Arc::new(AtomicU32::new(0));
+        let a = Arc::clone(&attempts);
+        let zero_policy = WarmingRetryPolicy {
+            max_attempts: 0,
+            initial_backoff: Duration::from_millis(1),
+            max_backoff: Duration::from_millis(1),
+        };
+        let result: CoordResult<()> = with_warm_retry("test", 0, zero_policy, || {
+            let a = Arc::clone(&a);
+            async move {
+                a.fetch_add(1, Ordering::AcqRel);
+                Err(CoordError::invalid_state("always fails".to_string()))
+            }
+        })
+        .await;
+        assert!(result.is_err(), "must produce an Err, not panic");
+        assert_eq!(
+            attempts.load(Ordering::Acquire),
+            1,
+            "clamped to a single attempt"
+        );
     }
 }
