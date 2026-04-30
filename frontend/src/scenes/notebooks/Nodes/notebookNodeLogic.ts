@@ -1437,10 +1437,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 if (key === 'nodeId' || key.startsWith('__') || value == null) {
                     continue
                 }
-                // `title` is a built-in attr that uses TipTap's default raw-string parseHTML;
-                // every other attr round-trips through the per-attribute JSON parseHTML.
-                const encoded = key === 'title' ? String(value) : JSON.stringify(value)
-                element.setAttribute(key, encoded)
+                element.setAttribute(key, JSON.stringify(value))
             }
 
             const type = 'text/html'
