@@ -1489,14 +1489,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # is intentionally treated as a failure: timeouts and OOM are the dominant case at
                     # scale; the user-input limits inside it (EstimatedQueryExecutionTimeTooLong,
                     # QuerySizeExceeded) are a minority worth living with for now.
+                    # We deliberately do NOT pass execution_path here — whichever branch tag was set
+                    # before the raise (cache_hit / cache_miss / blocking / async_dispatched) stays
+                    # intact, so dashboards can attribute errors to the path they happened in. Errors
+                    # that fire before any branch tag is set (access-control denial, cache_manager
+                    # setup) leave execution_path unset, which is honest: we don't know which path
+                    # was attempted.
                     if error_category in (
                         QueryErrorCategory.USER_ERROR,
                         QueryErrorCategory.RATE_LIMITED,
                         QueryErrorCategory.CANCELLED,
                     ):
-                        slo.succeed(execution_path="error", error_category=error_category.value)
+                        slo.succeed(error_category=error_category.value)
                     else:
-                        slo.fail(execution_path="error", error_category=error_category.value)
+                        slo.fail(error_category=error_category.value)
                     raise
 
     def _execute_and_cache_blocking(

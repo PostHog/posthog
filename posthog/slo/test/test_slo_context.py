@@ -368,3 +368,21 @@ def test_slo_operation_full_rate_does_not_call_random(
     mock_random.assert_not_called()
     mock_emit_slo_started.assert_called_once()
     mock_emit_slo_completed.assert_called_once()
+
+
+@patch("posthog.slo.context.emit_slo_completed")
+@patch("posthog.slo.context.emit_slo_started")
+def test_slo_operation_failure_preserves_pre_raise_tags(
+    mock_emit_slo_started: MagicMock, mock_emit_slo_completed: MagicMock
+) -> None:
+    spec = _build_spec()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with slo_operation(spec=spec) as slo:
+            slo.tag(execution_path="blocking")
+            raise RuntimeError("boom")
+
+    mock_emit_slo_completed.assert_called_once()
+    completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+    assert completed_kwargs["properties"].outcome == SloOutcome.FAILURE
+    assert completed_kwargs["extra_properties"]["execution_path"] == "blocking"
