@@ -705,6 +705,90 @@ describe('clustersLogic', () => {
                     expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
                     expect(result[0].size).toBe(2)
                 })
+
+                it('narrows clusters by propertyFilteredItemIds (cohort / property filter)', () => {
+                    loadClustersAsCurrentRun()
+                    // Property filter alone — the eval-level branch isn't relevant here.
+                    logic.actions.loadPropertyFilteredItemIdsSuccess(new Set(['id-pass-a', 'id-fail-b']))
+
+                    // Without an active filter declared, anyFiltersActive is false, so
+                    // filteredSortedClusters short-circuits to the unfiltered list. Set
+                    // a property filter to make the gate true.
+                    logic.actions.setPropertyFilters([
+                        {
+                            type: 'person' as any,
+                            key: 'email',
+                            value: '@example.com',
+                            operator: 'icontains' as any,
+                        } as any,
+                    ])
+
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(2)
+                    const byId = Object.fromEntries(result.map((c) => [c.cluster_id, c]))
+                    // Cluster 0 keeps only id-pass-a; size becomes 1.
+                    expect(Object.keys(byId[0].traces).sort()).toEqual(['id-pass-a'])
+                    expect(byId[0].size).toBe(1)
+                    // Cluster 1 keeps only id-fail-b; size becomes 1.
+                    expect(Object.keys(byId[1].traces).sort()).toEqual(['id-fail-b'])
+                    expect(byId[1].size).toBe(1)
+                })
+
+                it('combines property and eval filters (intersection)', () => {
+                    loadClustersAsCurrentRun()
+                    setEvalLevelAndAttrs()
+                    // Property filter narrows to {id-pass-a, id-pass-b, id-fail-b}, eval verdict
+                    // narrows to {id-pass-a, id-pass-b}; the intersection should be {id-pass-a,
+                    // id-pass-b}, so cluster 1 (only id-fail-b survives the property filter,
+                    // but verdict 'pass' rules it out) drops entirely.
+                    logic.actions.loadPropertyFilteredItemIdsSuccess(new Set(['id-pass-a', 'id-pass-b', 'id-fail-b']))
+                    logic.actions.setEvalVerdictsFilter(['pass'])
+
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(1)
+                    expect(result[0].cluster_id).toBe(0)
+                    expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
+                })
+
+                it('treats null propertyFilteredItemIds as "no property filter applied"', () => {
+                    loadClustersAsCurrentRun()
+                    // Property filter set but loader returned null — e.g. cluster too large
+                    // for the row cap. We must show every cluster rather than empty out.
+                    logic.actions.setPropertyFilters([
+                        {
+                            type: 'person' as any,
+                            key: 'email',
+                            value: '@example.com',
+                            operator: 'icontains' as any,
+                        } as any,
+                    ])
+                    logic.actions.loadPropertyFilteredItemIdsSuccess(null)
+
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(2)
+                })
+            })
+
+            describe('propertyFiltersActive / anyFiltersActive', () => {
+                it('propertyFiltersActive flips with property filters and the test-accounts toggle', () => {
+                    expect(logic.values.propertyFiltersActive).toBe(false)
+
+                    logic.actions.setShouldFilterTestAccounts(true)
+                    expect(logic.values.propertyFiltersActive).toBe(true)
+
+                    logic.actions.setShouldFilterTestAccounts(false)
+                    logic.actions.setPropertyFilters([
+                        { type: 'cohort' as any, key: 'id', value: 7, operator: 'in' as any } as any,
+                    ])
+                    expect(logic.values.propertyFiltersActive).toBe(true)
+                })
+
+                it('anyFiltersActive is true when either filter family is active', () => {
+                    expect(logic.values.anyFiltersActive).toBe(false)
+
+                    logic.actions.setShouldFilterTestAccounts(true)
+                    expect(logic.values.anyFiltersActive).toBe(true)
+                })
             })
         })
     })

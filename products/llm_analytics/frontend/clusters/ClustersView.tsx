@@ -4,10 +4,14 @@ import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconQuestion, Ic
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { groupsModel } from '~/models/groupsModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ClusterCard } from './ClusterCard'
@@ -38,9 +42,14 @@ export function ClustersView(): JSX.Element {
         isScatterPlotExpanded,
         clusterMetrics,
         clusterMetricsLoading,
+        propertyFilters,
+        shouldFilterTestAccounts,
+        propertyFilteredItemIdsLoading,
     } = useValues(clustersLogic)
     const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
         useActions(clustersLogic)
+    const { setPropertyFilters, setShouldFilterTestAccounts } = useActions(clustersLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
     const { jobs } = useValues(clusteringJobsLogic)
@@ -334,13 +343,40 @@ export function ClustersView(): JSX.Element {
                 </div>
             )}
 
+            {/* Property filter bar — narrows clusters by cohort / person property / etc.
+                Hidden for evaluation-level runs because eval items key on $ai_evaluation
+                event UUIDs that don't carry the person/cohort fields these filters target;
+                the EvaluationFilterBar below handles that level instead. */}
+            {!currentRunLoading && sortedClusters.length > 0 && clusteringLevel !== 'evaluation' && (
+                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                    <PropertyFilters
+                        propertyFilters={propertyFilters}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                        ]}
+                        onChange={setPropertyFilters}
+                        pageKey={`llm-analytics-clusters-${effectiveRunId || 'none'}`}
+                    />
+                    <div className="flex-1" />
+                    {propertyFilteredItemIdsLoading && <Spinner className="text-sm" captureTime />}
+                    <TestAccountFilterSwitch
+                        checked={shouldFilterTestAccounts}
+                        onChange={setShouldFilterTestAccounts}
+                    />
+                </div>
+            )}
+
             {/* Eval-only post-hoc filter (renders below the scatter, above the cards) */}
             {!currentRunLoading && sortedClusters.length > 0 && <EvaluationFilterBar />}
 
             {/* Empty result after filtering */}
             {!currentRunLoading && sortedClusters.length > 0 && filteredSortedClusters.length === 0 && (
                 <div className="border rounded-lg p-6 text-center text-muted">
-                    No clusters match the current evaluation filters.
+                    No clusters match the current filters.
                 </div>
             )}
 

@@ -16,7 +16,14 @@ import { AnyPropertyFilter, Breadcrumb } from '~/types'
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
 import { loadClusterMetrics } from './clusterMetricsLoader'
-import { LLM_ANALYTICS_CLUSTER_URL_PATTERN, NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
+import {
+    FILTER_QUERY_MAX_ROWS,
+    LLM_ANALYTICS_CLUSTER_URL_PATTERN,
+    NOISE_CLUSTER_ID,
+    OUTLIER_COLOR,
+    SAFE_ID_RE,
+    TRACES_PER_PAGE,
+} from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
@@ -27,16 +34,6 @@ import {
     getTimestampBoundsFromRunId,
     parseClusterMetrics,
 } from './types'
-
-// Cluster items are keyed by UUIDs from precomputed clustering events. Restrict to
-// hex / dashes before interpolating into a HogQL `IN` literal so a malformed key
-// can't break out of the string. UUIDs already match this character set.
-const SAFE_ID_RE = /^[a-f0-9-]+$/i
-
-// Mirrors `MAX_SELECT_RETURNED_ROWS` in `posthog/hogql/constants.py`. EventsQuery rows above
-// this are silently truncated server-side, so the filter must either fit under the cap or
-// fall back to "no filtering" rather than show an arbitrary partial subset.
-const FILTER_QUERY_MAX_ROWS = 50000
 
 export interface ClusterDetailLogicProps {
     runId: string

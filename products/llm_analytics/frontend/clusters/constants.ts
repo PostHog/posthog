@@ -15,6 +15,16 @@ export const MAX_CLUSTERING_RUNS = 20
 // stays in lockstep with the actual route.
 export const LLM_ANALYTICS_CLUSTER_URL_PATTERN = '/llm-analytics/clusters/:runId/:clusterId'
 
+// Cluster items are keyed by UUIDs from precomputed clustering events. Restrict to
+// hex / dashes before interpolating into a HogQL `IN` literal so a malformed key
+// can't break out of the string. UUIDs already match this character set.
+export const SAFE_ID_RE = /^[a-f0-9-]+$/i
+
+// Mirrors `MAX_SELECT_RETURNED_ROWS` in `posthog/hogql/constants.py`. EventsQuery rows above
+// this are silently truncated server-side, so post-hoc property-filter queries against the
+// full set of cluster items must either fit under the cap or fall back to "no filtering".
+export const FILTER_QUERY_MAX_ROWS = 50000
+
 /**
  * Centroid detection for chart.js scatter datasets.
  *
