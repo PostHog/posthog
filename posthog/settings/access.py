@@ -80,9 +80,21 @@ For the safety of your instance, you must generate and set a unique key.
 SANDBOX_JWT_PRIVATE_KEY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY")
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
-SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
+DEFAULT_SALT_KEY = "0123456789abcdefghijklmnopqrstuvwxyz"
+SALT_KEY = get_list(os.getenv("SALT_KEY", DEFAULT_SALT_KEY))
 # We provide a default as it is needed for hobby deployments
-ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
+DEFAULT_ENCRYPTION_SALT_KEYS = "00beef0000beef0000beef0000beef00"
+ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", DEFAULT_ENCRYPTION_SALT_KEYS))
+
+if not DEBUG and not TEST and not STATIC_COLLECTION and ENCRYPTION_SALT_KEYS == [DEFAULT_ENCRYPTION_SALT_KEYS]:
+    logger.critical(
+        """
+You are using the default ENCRYPTION_SALT_KEYS in a production environment!
+This key encrypts integration tokens and other secrets at rest.
+For the safety of your instance, you must set ENCRYPTION_SALT_KEYS to a unique value.
+"""
+    )
+    sys.exit("[ERROR] Default ENCRYPTION_SALT_KEYS in production. Stopping Django server…\n")
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 if os.getenv("CORS_ALLOWED_ORIGINS", False):
