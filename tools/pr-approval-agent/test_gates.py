@@ -139,3 +139,26 @@ def test_no_false_positive(files: list[str], subject: str) -> None:
 def test_true_positive(files: list[str], subject: str, expected_category: str) -> None:
     result = detect_deny_categories(files, subject)
     assert expected_category in result, f"Expected '{expected_category}' in {result}"
+
+
+# ── Deny-list bypass via ignored_files ───────────────────────────
+
+
+def test_ignored_files_bypass_deny_list() -> None:
+    files = [
+        "posthog/migrations/1117_alter_integration_kind.py",
+        "posthog/migrations/max_migration.txt",
+    ]
+    ignored = set(files)
+
+    assert detect_deny_categories(files, "feat: add postgresql integration", ignored_files=ignored) == []
+
+
+def test_ignored_files_does_not_bypass_other_deny_list_files() -> None:
+    files = [
+        "posthog/migrations/1117_alter_integration_kind.py",
+        "posthog/migrations/1118_add_column.py",
+    ]
+    ignored = {"posthog/migrations/1117_alter_integration_kind.py"}
+
+    assert detect_deny_categories(files, "feat: integration field", ignored_files=ignored) == ["migrations"]

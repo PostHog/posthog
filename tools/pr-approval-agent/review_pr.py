@@ -43,6 +43,7 @@ from gates import (
     test_only,
 )
 from github import PRData, check_team_membership, fetch_pr
+from migration_risk import is_waiting_for_migration_check, safe_migration_files
 from reviewer import Reviewer
 
 try:
@@ -128,6 +129,16 @@ class Pipeline:
         self._classify()
         self._run_gates()
 
+        if self._waiting_for_migration_check():
+            # Migration analyzer hasn't classified the head commit yet. The
+            # `pr-approval-agent-on-migration-check.yml` bridge will retrigger
+            # this workflow when the check completes — leave the label on by
+            # surfacing WAITING (the workflow's label-strip step skips it).
+            self.final_verdict = "WAITING"
+            print(f"\n{_warn('WAITING')} — Migration risk check pending; will retry on completion")
+            self._capture_review_completed("WAITING", "")
+            return self.final_verdict
+
         gate_verdict = self._gate_verdict()
 
         if self.dry_run:
@@ -136,6 +147,14 @@ class Pipeline:
 
         self._llm_review(gate_verdict)
         return self.final_verdict
+
+    def _waiting_for_migration_check(self) -> bool:
+        return is_waiting_for_migration_check(
+            deny_categories=self.classification.get("deny_categories", []),
+            non_deny_gate_failures=[r.gate for r in self.gate_results if not r.passed and r.gate != "deny-list"],
+            check_runs=self.pr.check_runs,
+            pr_file_paths=self.pr.file_paths,
+        )
 
     def _gate_verdict(self) -> str:
         """Determine what gates say — this is authoritative."""
@@ -166,7 +185,8 @@ class Pipeline:
         top_dirs = file_info["top_dirs"]
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
-        deny = detect_deny_categories(file_paths, pr.title)
+        safe_migrations = safe_migration_files(pr.check_runs, file_paths)
+        deny = detect_deny_categories(file_paths, pr.title, ignored_files=safe_migrations)
         allow_only = is_allow_listed_only(file_paths)
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
@@ -198,6 +218,7 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
@@ -413,6 +434,7 @@ class Pipeline:
                 "breadth": self.classification["breadth"],
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
+                "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
             },
             "gates": [

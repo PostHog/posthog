@@ -102,6 +102,10 @@ Deny-listed categories where even a small diff can have high blast radius:
 | **public_api**     | openapi, api_schema, swagger, public_api                                                     |
 | **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc. |
 
+The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). See [migration_analysis/README.md](../../posthog/management/migration_analysis/README.md) for the check contract — the analyzer doesn't know stamphog reads it; we just consume the same CI signal humans see in the PR.
+
+If the check is still pending when stamphog runs (CI's analyzer hasn't finished yet), stamphog returns a `WAITING` verdict — no review is posted, the `stamphog` label stays on, and a separate workflow ([`pr-approval-agent-on-migration-check.yml`](../../.github/workflows/pr-approval-agent-on-migration-check.yml)) bounces the label when the check completes, retriggering review automatically. The two are coupled only through the public check contract; neither side names the other.
+
 ### Ownership
 
 Uses `.github/CODEOWNERS-soft` as context for the LLM (not a hard gate).
