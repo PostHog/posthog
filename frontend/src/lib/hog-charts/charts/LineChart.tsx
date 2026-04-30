@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
+import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
     computePercentStackData,
     computeStackData,
@@ -40,9 +41,18 @@ export interface LineChartProps<Meta = unknown> {
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-export function LineChart<Meta = unknown>({
+export function LineChart<Meta = unknown>(props: LineChartProps<Meta>): React.ReactElement {
+    return (
+        <ChartErrorBoundary onError={props.onError}>
+            <LineChartInner {...props} />
+        </ChartErrorBoundary>
+    )
+}
+
+function LineChartInner<Meta = unknown>({
     series,
     labels,
     config,

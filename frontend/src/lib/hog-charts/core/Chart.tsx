@@ -7,7 +7,6 @@ import { Tooltip } from '../overlays/Tooltip'
 import { drawCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
-import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
@@ -314,45 +313,43 @@ export function Chart<Meta = unknown>({
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
     return (
-        <ChartErrorBoundary>
-            <ChartLayoutContext.Provider value={layoutValue}>
-                <ChartHoverContext.Provider value={hoverValue}>
-                    <div
-                        ref={wrapperRef}
-                        className={className}
-                        style={wrapperStyle}
-                        onMouseMove={handlers.onMouseMove}
-                        onMouseLeave={handlers.onMouseLeave}
-                        onClick={handlers.onClick}
-                    >
-                        <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
-                        <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
+        <ChartLayoutContext.Provider value={layoutValue}>
+            <ChartHoverContext.Provider value={hoverValue}>
+                <div
+                    ref={wrapperRef}
+                    className={className}
+                    style={wrapperStyle}
+                    onMouseMove={handlers.onMouseMove}
+                    onMouseLeave={handlers.onMouseLeave}
+                    onClick={handlers.onClick}
+                >
+                    <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
+                    <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
 
-                        {dimensions && scales && (
-                            <OverlayLayer>
-                                <AxisLabels
-                                    xTickFormatter={xTickFormatter}
-                                    yTickFormatter={resolvedYFormatter}
-                                    yRightTickFormatter={resolvedYRightFormatter}
-                                    hideXAxis={hideXAxis}
-                                    hideYAxis={hideYAxis}
-                                    axisColor={theme.axisColor}
+                    {dimensions && scales && (
+                        <OverlayLayer>
+                            <AxisLabels
+                                xTickFormatter={xTickFormatter}
+                                yTickFormatter={resolvedYFormatter}
+                                yRightTickFormatter={resolvedYRightFormatter}
+                                hideXAxis={hideXAxis}
+                                hideYAxis={hideYAxis}
+                                axisColor={theme.axisColor}
+                            />
+
+                            {children}
+
+                            {tooltipCtx && showTooltip && (
+                                <Tooltip
+                                    context={tooltipCtx}
+                                    renderTooltip={renderTooltip}
+                                    placement={tooltipPlacement}
                                 />
-
-                                {children}
-
-                                {tooltipCtx && showTooltip && (
-                                    <Tooltip
-                                        context={tooltipCtx}
-                                        renderTooltip={renderTooltip}
-                                        placement={tooltipPlacement}
-                                    />
-                                )}
-                            </OverlayLayer>
-                        )}
-                    </div>
-                </ChartHoverContext.Provider>
-            </ChartLayoutContext.Provider>
-        </ChartErrorBoundary>
+                            )}
+                        </OverlayLayer>
+                    )}
+                </div>
+            </ChartHoverContext.Provider>
+        </ChartLayoutContext.Provider>
     )
 }

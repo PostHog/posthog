@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useMemo } from 'react'
 
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
@@ -90,7 +91,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     // Dash the in-progress tail (mirrors LineGraph.tsx). Stickiness indices aren't dates.
     const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
 
-    const hogSeries: Series<TrendsSeriesMeta>[] = useMemo(
+    const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             (indexedResults ?? []).flatMap((r: IndexedTrendResult, index: number) => {
                 const isActiveSeries = !r.compare || r.compare_label !== 'previous'
@@ -223,7 +224,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
-    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+    const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, series), [goalLines, series])
 
     const getYAxisId = useCallback(
         (r: IndexedTrendResult) => {
@@ -324,13 +325,14 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
 
     return (
         <LineChart
-            series={hogSeries}
+            series={series}
             labels={labels}
             config={chartConfig}
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
             className="LineGraph"
+            onError={(error) => posthog.captureException(error, { feature: 'trends-line-chart' })}
         >
             <ReferenceLines lines={referenceLines} />
             {insight.id ? (
