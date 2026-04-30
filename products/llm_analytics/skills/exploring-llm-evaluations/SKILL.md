@@ -39,7 +39,7 @@ AI-generated summary of pass/fail/N/A patterns across many runs.
 
 | Tool                                     | Purpose                                                        |
 | ---------------------------------------- | -------------------------------------------------------------- |
-| `posthog:llma-evaluations-list`          | List/search evaluation configs (filter by name, enabled flag)  |
+| `posthog:llma-evaluation-list`           | List/search evaluation configs (filter by name, enabled flag)  |
 | `posthog:llma-evaluation-get`            | Get a single evaluation config by UUID                         |
 | `posthog:llma-evaluation-create`         | Create a new `llm_judge` or `hog` evaluation                   |
 | `posthog:llma-evaluation-update`         | Update an existing evaluation (name, prompt, enabled, …)       |
@@ -77,7 +77,7 @@ when you eventually go to fix the evaluator (edit the prompt vs. edit the Hog so
 ### Step 1 — Find the evaluation
 
 ```json
-posthog:llma-evaluations-list
+posthog:llma-evaluation-list
 { "search": "hallucination", "enabled": true }
 ```
 
@@ -302,7 +302,7 @@ identical.
 
 ### "Why is evaluation X suddenly failing more?"
 
-1. `llma-evaluations-list` — confirm the evaluation is still enabled and unchanged
+1. `llma-evaluation-list` — confirm the evaluation is still enabled and unchanged
    (compare `evaluation_config.source` or `evaluation_config.prompt` to the version you
    expect)
 2. `llma-evaluation-summary-create` with `filter: "fail"` — get the dominant
@@ -383,7 +383,7 @@ Always surface the relevant link so the user can verify in the UI.
 - Pass `generation_ids: [...]` to scope a summary to a specific cohort of runs (max 250)
 - The `statistics` block in the summary response is computed from raw data, not the LLM
   — trust those counts even if a pattern's `frequency` field is qualitative
-- For rich filtering not supported by `llma-evaluations-list` (e.g. by author or model
+- For rich filtering not supported by `llma-evaluation-list` (e.g. by author or model
   configuration), fall back to `execute-sql` against the `evaluations` Postgres table or
   the `$ai_evaluation` ClickHouse events
 - When showing failure patterns to the user, always include 1-2 example trace links so

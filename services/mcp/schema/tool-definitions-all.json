@@ -2335,12 +2335,12 @@
             "readOnlyHint": true
         }
     },
-    "llma-clustering-jobs-list": {
-        "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
+    "llma-clustering-job-get": {
+        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "List clustering jobs",
-        "title": "List clustering jobs",
+        "summary": "Get clustering job",
+        "title": "Get clustering job",
         "required_scopes": ["llm_analytics:read"],
         "new_mcp": true,
         "annotations": {
@@ -2350,12 +2350,12 @@
             "readOnlyHint": true
         }
     },
-    "llma-clustering-jobs-retrieve": {
-        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
+    "llma-clustering-job-list": {
+        "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
-        "summary": "Get clustering job",
-        "title": "Get clustering job",
+        "summary": "List clustering jobs",
+        "title": "List clustering jobs",
         "required_scopes": ["llm_analytics:read"],
         "new_mcp": true,
         "annotations": {
@@ -2455,6 +2455,21 @@
             "readOnlyHint": true
         }
     },
+    "llma-evaluation-list": {
+        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluations",
+        "title": "List evaluations",
+        "required_scopes": ["evaluation:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llma-evaluation-report-create": {
         "description": "Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)\nand are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults\nto 'every_n' if omitted:\n\n- 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have\naccumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per\nUTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)\nand `daily_run_cap` are optional.\n- 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.\n'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock\ntimes survive DST transitions. `rrule` and `starts_at` are required in this mode;\n`timezone_name` defaults to 'UTC'.\n\n`delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',\nintegration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the\nsame team. Use `report_prompt_guidance` to steer the AI report's focus.",
         "category": "LLM analytics",
@@ -2515,7 +2530,22 @@
             "readOnlyHint": true
         }
     },
-    "llma-evaluation-report-runs-list": {
+    "llma-evaluation-report-list": {
+        "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List evaluation report configs",
+        "title": "List evaluation report configs",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-report-run-list": {
         "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2543,21 +2573,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llma-evaluation-reports-list": {
-        "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List evaluation report configs",
-        "title": "List evaluation report configs",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "llma-evaluation-run": {
@@ -2619,21 +2634,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llma-evaluations-list": {
-        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List evaluations",
-        "title": "List evaluations",
-        "required_scopes": ["evaluation:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "llma-prompt-create": {
@@ -2711,82 +2711,7 @@
             "readOnlyHint": false
         }
     },
-    "llma-review-queue-items-create": {
-        "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Create review queue item",
-        "title": "Create review queue item",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-review-queue-items-destroy": {
-        "description": "Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace can be queued again later if needed.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Delete review queue item",
-        "title": "Delete review queue item",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-review-queue-items-list": {
-        "description": "List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id, trace_id__in, search, and ordering so agents can find traces that are still queued for review.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "List review queue items",
-        "title": "List review queue items",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-review-queue-items-partial-update": {
-        "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Update review queue item",
-        "title": "Update review queue item",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-review-queue-items-retrieve": {
-        "description": "Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and timestamps for the pending review task.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Get review queue item",
-        "title": "Get review queue item",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-review-queues-create": {
+    "llma-review-queue-create": {
         "description": "Create a review queue for routing traces that still need review. Queue names must be unique among active queues in the current project.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2801,7 +2726,7 @@
             "readOnlyHint": false
         }
     },
-    "llma-review-queues-destroy": {
+    "llma-review-queue-delete": {
         "description": "Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments that still belong to it.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2816,7 +2741,97 @@
             "readOnlyHint": false
         }
     },
-    "llma-review-queues-list": {
+    "llma-review-queue-get": {
+        "description": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get review queue",
+        "title": "Get review queue",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-review-queue-item-create": {
+        "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create review queue item",
+        "title": "Create review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-review-queue-item-delete": {
+        "description": "Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace can be queued again later if needed.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete review queue item",
+        "title": "Delete review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-review-queue-item-get": {
+        "description": "Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and timestamps for the pending review task.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get review queue item",
+        "title": "Get review queue item",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-review-queue-item-list": {
+        "description": "List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id, trace_id__in, search, and ordering so agents can find traces that are still queued for review.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List review queue items",
+        "title": "List review queue items",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-review-queue-item-update": {
+        "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update review queue item",
+        "title": "Update review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-review-queue-list": {
         "description": "List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and timestamps. Supports queue-name search and ordering.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2831,7 +2846,7 @@
             "readOnlyHint": true
         }
     },
-    "llma-review-queues-partial-update": {
+    "llma-review-queue-update": {
         "description": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -2844,21 +2859,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llma-review-queues-retrieve": {
-        "description": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Get review queue",
-        "title": "Get review queue",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "llma-sentiment-create": {
@@ -3027,7 +3027,7 @@
         },
         "requires_ai_consent": true
     },
-    "llma-trace-reviews-create": {
+    "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -3042,7 +3042,7 @@
             "readOnlyHint": false
         }
     },
-    "llma-trace-reviews-destroy": {
+    "llma-trace-review-delete": {
         "description": "Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if needed.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -3057,7 +3057,22 @@
             "readOnlyHint": false
         }
     },
-    "llma-trace-reviews-list": {
+    "llma-trace-review-get": {
+        "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get trace review",
+        "title": "Get trace review",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-trace-review-list": {
         "description": "List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns comments, scores, reviewers, and timestamps.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -3072,7 +3087,7 @@
             "readOnlyHint": true
         }
     },
-    "llma-trace-reviews-partial-update": {
+    "llma-trace-review-update": {
         "description": "Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to clear only a matching pending queue item after the review is saved.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
@@ -3085,21 +3100,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llma-trace-reviews-retrieve": {
-        "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
-        "category": "LLM analytics",
-        "feature": "llm_analytics",
-        "summary": "Get trace review",
-        "title": "Get trace review",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "logs-alerts-create": {
