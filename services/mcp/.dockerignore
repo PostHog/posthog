@@ -1,0 +1,23 @@
+# Keep the build context tight — only the directories the build actually needs.
+# The build stage copies `services/mcp/` plus the workspace lockfile and root
+# package.json. Anything else here is ballast.
+
+**
+
+!package.json
+!tsconfig.json
+!worker-configuration.d.ts
+!types.d.ts
+!scripts/**
+!src/**
+!shared/**
+!public/**
+
+# Test/dev artefacts must NOT enter the production image.
+tests/**
+.env*
+dist/**
+.wrangler/**
+node_modules/**
+.vitest/**
+.turbo/**

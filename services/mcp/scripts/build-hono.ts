@@ -43,7 +43,10 @@ build({
     format: 'esm',
     outfile,
     sourcemap: true,
-    external: ['ioredis'],
+    // No externals: ioredis and every other prod dep is pure-JS (or has Node-target
+    // shims that esbuild handles). Bundling everything lets the runtime image ship
+    // a single .mjs with no node_modules at all.
+    external: [],
     plugins: [uiAppsStubPlugin, cloudflareWorkersShim],
     loader: {
         '.html': 'text',
@@ -53,8 +56,12 @@ build({
     define: {
         'process.env.NODE_ENV': '"production"',
     },
+    // Bundled CJS modules (e.g. ioredis using `require('util')` at runtime) call
+    // through to a global `require`. ESM modules don't have one, so we inject one
+    // via a banner. We import `createRequire` under an alias so the bundler's own
+    // CJS-interop shim (which also references `createRequire`) doesn't collide.
     banner: {
-        js: `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`,
+        js: `import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);`,
     },
 })
     .then(() => {

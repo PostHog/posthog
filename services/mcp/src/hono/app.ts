@@ -1,3 +1,4 @@
+import { serveStatic } from '@hono/node-server/serve-static'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import type { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js'
 import { Hono, type Context } from 'hono'
@@ -139,6 +140,14 @@ export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono
         c.set('redis', redis)
         await next()
     })
+
+    // MCP UI app static assets. The CF runtime serves these via the Workers
+    // Static Assets binding (`wrangler.jsonc`'s `assets.directory: ./public/`);
+    // here we serve them from disk so the same `${MCP_APPS_BASE_URL}/ui-apps/<app>/...`
+    // URL pattern works on both runtimes. `MCP_APPS_BASE_URL` advertises the
+    // origin to MCP clients — it must point at this pod's public URL (or any
+    // CDN that mirrors `public/ui-apps/`).
+    app.use('/ui-apps/*', serveStatic({ root: './public' }))
 
     app.get('/', (c) => c.html(PARSED_LANDING_HTML))
 

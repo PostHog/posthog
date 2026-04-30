@@ -1,5 +1,8 @@
 import { serve } from '@hono/node-server'
-import { Redis } from 'ioredis'
+// ioredis v4 is CJS with `module.exports.default = Redis` and no named `Redis`
+// export. Use the default import so esbuild's CJS-in-ESM interop resolves the
+// constructor when this file is bundled into a single .mjs.
+import Redis from 'ioredis'
 
 import { createApp } from './app'
 

@@ -99,60 +99,6 @@ await client.close()
 
 See also the main PostHog MCP docs for available tools and setup flows: [https://posthog.com/docs/model-context-protocol](https://posthog.com/docs/model-context-protocol)
 
-### Docker install
-
-If you prefer to use Docker instead of running npx directly:
-
-1. Build the Docker image:
-
-```bash
-pnpm docker:build
-# or
-docker build -t posthog-mcp .
-```
-
-2. Configure your MCP client with Docker:
-
-```json
-{
-  "mcpServers": {
-    "posthog": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--env",
-        "POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER}",
-        "--env",
-        "POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp}",
-        "posthog-mcp"
-      ],
-      "env": {
-        "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}",
-        "POSTHOG_REMOTE_MCP_URL": "https://mcp.posthog.com/mcp"
-      }
-    }
-  }
-}
-```
-
-3. Test Docker with MCP Inspector:
-
-```bash
-pnpm docker:inspector
-# or
-npx @modelcontextprotocol/inspector docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} posthog-mcp
-```
-
-**Environment Variables:**
-
-- `POSTHOG_AUTH_HEADER`: Your PostHog API token (required)
-- `POSTHOG_REMOTE_MCP_URL`: The MCP server URL (optional, defaults to `https://mcp.posthog.com/mcp`)
-
-This approach allows you to use the PostHog MCP server without needing Node.js or npm installed locally.
-
 ### Example Prompts
 
 Below are detailed examples showing realistic prompts and expected outputs:
