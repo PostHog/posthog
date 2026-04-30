@@ -218,6 +218,25 @@ metadata:
 - click
 - pyyaml
 
+## Releasing
+
+Releases are published to PyPI via `.github/workflows/publish-hogli.yml`,
+triggered by pushing a `hogli-v*` tag from `master`.
+
+1. Bump `version` in `tools/hogli/pyproject.toml` and merge to `master`.
+2. From `master`, tag and push:
+
+   ```bash
+   git tag hogli-v0.1.1
+   git push origin hogli-v0.1.1
+   ```
+
+The workflow verifies the tag matches the `pyproject.toml` version, builds
+the sdist and wheel with `uv build`, and publishes via PyPI trusted
+publishing (OIDC) — no API tokens are involved.
+
+Manual re-runs are available via the Actions tab (`workflow_dispatch`).
+
 ## License
 
 MIT

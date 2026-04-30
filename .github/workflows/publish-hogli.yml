@@ -1,0 +1,58 @@
+name: Publish hogli to PyPI
+
+on:
+    push:
+        tags:
+            - 'hogli-v*'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: publish-hogli-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    publish:
+        name: Build and publish
+        runs-on: ubuntu-22.04
+        timeout-minutes: 10
+        environment: pypi-hogli
+        permissions:
+            id-token: write
+            contents: read
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12'
+
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+
+            - name: Verify tag matches package version
+              if: github.event_name == 'push'
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#hogli-v}"
+                  pkg_version=$(python -c "import tomllib; print(tomllib.load(open('tools/hogli/pyproject.toml','rb'))['project']['version'])")
+                  if [[ "$tag_version" != "$pkg_version" ]]; then
+                      echo "::error::tag version ($tag_version) does not match tools/hogli/pyproject.toml version ($pkg_version)"
+                      exit 1
+                  fi
+
+            - name: Build sdist and wheel
+              run: uv build tools/hogli --out-dir dist
+
+            - name: Validate metadata
+              run: uvx twine check dist/*
+
+            - name: Publish to PyPI
+              uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+              with:
+                  packages-dir: dist
