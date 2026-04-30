@@ -1,11 +1,14 @@
+import json
+from typing import Any
+
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 
 
-def _make_producer(**kwargs) -> PostgresProducer:
-    defaults = {
+def _make_producer(**kwargs: Any) -> PostgresProducer:
+    defaults: dict[str, Any] = {
         "database_url": "postgres://unused:unused@localhost/unused",
         "team_id": 1,
         "job_id": "job-1",
@@ -34,23 +37,28 @@ def _make_batch_result(batch_index: int = 0) -> BatchWriteResult:
     )
 
 
+def _mock_conn(producer: PostgresProducer) -> Any:
+    return producer._conn
+
+
 class TestPostgresProducerSendBatch:
-    def test_inserts_row_on_send(self):
+    def test_inserts_row_on_send(self) -> None:
         producer = _make_producer()
         batch_result = _make_batch_result()
 
         producer.send_batch_notification(batch_result)
 
-        producer._conn.execute.assert_called_once()
-        sql = producer._conn.execute.call_args[0][0]
-        params = producer._conn.execute.call_args[0][1]
+        mock = _mock_conn(producer)
+        mock.execute.assert_called_once()
+        sql = mock.execute.call_args[0][0]
+        params = mock.execute.call_args[0][1]
         assert "INSERT INTO" in sql
         assert params["team_id"] == 1
         assert params["s3_path"] == "s3://bucket/path"
         assert params["row_count"] == 100
         assert params["batch_index"] == 0
 
-    def test_metadata_includes_optional_fields(self):
+    def test_metadata_includes_optional_fields(self) -> None:
         producer = _make_producer(
             primary_keys=["id"],
             partition_count=4,
@@ -61,9 +69,8 @@ class TestPostgresProducerSendBatch:
 
         producer.send_batch_notification(batch_result)
 
-        import json
-
-        params = producer._conn.execute.call_args[0][1]
+        mock = _mock_conn(producer)
+        params = mock.execute.call_args[0][1]
         metadata = json.loads(params["metadata"])
         assert metadata["primary_keys"] == ["id"]
         assert metadata["partition_count"] == 4
@@ -73,7 +80,7 @@ class TestPostgresProducerSendBatch:
 
 
 class TestPostgresProducerFlush:
-    def test_returns_count_and_resets(self):
+    def test_returns_count_and_resets(self) -> None:
         producer = _make_producer()
         producer.send_batch_notification(_make_batch_result(0))
         producer.send_batch_notification(_make_batch_result(1))
@@ -86,37 +93,39 @@ class TestPostgresProducerFlush:
         count = producer.flush()
         assert count == 0
 
-    def test_flush_with_no_batches(self):
+    def test_flush_with_no_batches(self) -> None:
         producer = _make_producer()
 
         assert producer.flush() == 0
 
 
 class TestPostgresProducerClose:
-    def test_closes_connection(self):
+    def test_closes_connection(self) -> None:
         producer = _make_producer()
-        type(producer._conn).closed = PropertyMock(return_value=False)
+        mock = _mock_conn(producer)
+        type(mock).closed = PropertyMock(return_value=False)
 
         producer.close()
 
-        producer._conn.close.assert_called_once()
+        mock.close.assert_called_once()
 
-    def test_close_idempotent(self):
+    def test_close_idempotent(self) -> None:
         producer = _make_producer()
-        type(producer._conn).closed = PropertyMock(return_value=True)
+        mock = _mock_conn(producer)
+        type(mock).closed = PropertyMock(return_value=True)
 
         producer.close()
 
-        producer._conn.close.assert_not_called()
+        mock.close.assert_not_called()
 
 
 class TestPostgresProducerProperties:
-    def test_sync_type_property(self):
+    def test_sync_type_property(self) -> None:
         producer = _make_producer(sync_type="incremental")
 
         assert producer.sync_type == "incremental"
 
-    def test_is_first_ever_sync_property(self):
+    def test_is_first_ever_sync_property(self) -> None:
         producer = _make_producer(is_first_ever_sync=True)
 
         assert producer.is_first_ever_sync is True

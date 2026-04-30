@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -11,8 +13,8 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db 
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
 
-def _make_batch(**overrides) -> PendingBatch:
-    defaults = {
+def _make_batch(**overrides: Any) -> PendingBatch:
+    defaults: dict[str, Any] = {
         "id": "00000000-0000-0000-0000-000000000001",
         "team_id": 1,
         "schema_id": "schema-1",
@@ -126,7 +128,7 @@ class TestProcessGroup:
         async def track_batch(batch):
             order.append(batch.batch_index)
 
-        consumer._process_batch = track_batch  # type: ignore[assignment]
+        consumer._process_batch = track_batch
 
         batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
 
@@ -177,7 +179,7 @@ class TestProcessGroup:
             if batch.batch_index == 0:
                 consumer._shutdown.set()
 
-        consumer._process_batch = track_and_shutdown  # type: ignore[assignment]
+        consumer._process_batch = track_and_shutdown
 
         batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
 
