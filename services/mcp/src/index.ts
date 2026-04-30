@@ -196,13 +196,26 @@ const handleRequest = async (
         return Response.redirect(redirectTo, redirect.status)
     }
 
+    // The legacy SSE transport (`/sse`) is deprecated in favor of `/mcp`
+    // (Streamable HTTP). Permanently redirect `/sse*` to the equivalent `/mcp*`.
+    // We tag the redirect Location with `_deprecated=sse` so the followup
+    // request on /mcp carries the marker — that lets us correlate
+    // success/failure on /mcp back to clients that came in via the deprecated
+    // path, even after the protocol-level handoff.
+    if (url.pathname === '/sse' || url.pathname.startsWith('/sse/')) {
+        const target = getPublicUrl(request)
+        target.pathname = '/mcp' + url.pathname.slice('/sse'.length)
+        target.searchParams.set('_deprecated', 'sse')
+        log.extend({ deprecation: 'sse', redirectTo: target.toString() })
+        return Response.redirect(target.toString(), 308)
+    }
+
     // OAuth Protected Resource Metadata (RFC 9728)
     // This endpoint tells MCP clients where to authenticate to get tokens.
     //
     // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
     // between the host and the path. For example:
     // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-    // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
     //
     // OAuth flow for MCP:
     // 1. Client connects to MCP server without a token
@@ -248,7 +261,6 @@ const handleRequest = async (
         // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
         // between the host and the resource path:
         // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
         const metadataUrl = getPublicUrl(request)
         metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
         metadataUrl.search = ''
@@ -284,9 +296,13 @@ const handleRequest = async (
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
     // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
-    // Tasks sandbox) when the wrapped MCP client's name is too generic to
-    // distinguish (e.g. both direct and sandboxed Claude Code send `claude-code`).
-    const mcpConsumer = sanitizeHeaderValue(request.headers.get('x-posthog-mcp-consumer') || undefined)
+    // Tasks sandbox, or an AI-tool plugin that auto-installs the MCP) when the
+    // wrapped MCP client's name is too generic to distinguish (e.g. both direct
+    // and sandboxed Claude Code send `claude-code`). Query-param fallback for
+    // clients that only let the user customize the URL, not headers.
+    const mcpConsumer = sanitizeHeaderValue(
+        request.headers.get('x-posthog-mcp-consumer') || url.searchParams.get('consumer') || undefined
+    )
 
     // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
     // request body (streamable-http only). The framework's async
@@ -343,13 +359,20 @@ const handleRequest = async (
         log.extend({ mcpClientName: clientInfo.clientName })
     }
 
+    // Marker set by the /sse → /mcp redirect handler above. Lets us correlate
+    // success/failure on this /mcp request back to clients that originated on
+    // the deprecated /sse path — both in worker logs and in the `mcp init`
+    // analytics event (via `RequestProperties.viaSseRedirect`).
+    const viaSseRedirect = url.searchParams.get('_deprecated') === 'sse'
+    if (viaSseRedirect) {
+        log.extend({ via: 'sse_redirect' })
+        Object.assign(ctx.props, { viaSseRedirect: true })
+    }
+
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
         Object.assign(ctx.props, { transport: 'streamable-http' })
         server = MCP.serve('/mcp').fetch(request, env, ctx)
-    } else if (url.pathname.startsWith('/sse')) {
-        Object.assign(ctx.props, { transport: 'sse' })
-        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 
     if (server !== null) {

@@ -35,6 +35,40 @@ _KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
 }
 
 
+# Canonical parameter component definitions for the highest-frequency path params. drf-spectacular
+# inlines these into every operation that uses them — ``project_id`` alone shows up ~1100 times in
+# the spec, with byte-identical schema and description each time. Hoisting them into
+# ``components.parameters`` and ``$ref``-ing them eliminates the repetition (smaller spec, single
+# source of truth, kills vacuum's ``description-duplication`` for these names) without changing
+# what downstream codegen produces.
+_SHARED_PATH_PARAMS: dict[str, dict[str, Any]] = {
+    "ProjectIdPath": {
+        "in": "path",
+        "name": "project_id",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/.",
+    },
+    "EnvironmentIdPath": {
+        "in": "path",
+        "name": "environment_id",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "Deprecated. Use /api/projects/{project_id}/ instead.",
+    },
+    "OrganizationIdPath": {
+        "in": "path",
+        "name": "organization_id",
+        "required": True,
+        "schema": {"type": "string"},
+        "description": "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/.",
+    },
+}
+
+# Reverse lookup keyed by the inlined parameter name.
+_SHARED_PATH_PARAM_REFS: dict[str, str] = {p["name"]: name for name, p in _SHARED_PATH_PARAMS.items()}
+
+
 class _FallbackSerializer(serializers.Serializer):
     """Fallback ``serializer_class`` for ViewSets whose methods declare their own
     ``@extend_schema``.  The component name "Fallback" is valid OpenAPI and will
@@ -1064,22 +1098,8 @@ def custom_postprocessing_hook(result, generator, request, public):
 
             if "parameters" in definition:
                 definition["parameters"] = [
-                    {
-                        "in": "path",
-                        "name": "project_id",
-                        "required": True,
-                        "schema": {"type": "string"},
-                        "description": "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/.",
-                    }
-                    if param["name"] == "project_id"
-                    else {
-                        "in": "path",
-                        "name": "environment_id",
-                        "required": True,
-                        "schema": {"type": "string"},
-                        "description": "Deprecated. Use /api/projects/{project_id}/ instead.",
-                    }
-                    if param["name"] == "environment_id"
+                    {"$ref": f"#/components/parameters/{_SHARED_PATH_PARAM_REFS[param['name']]}"}
+                    if param.get("name") in _SHARED_PATH_PARAM_REFS and param.get("in") == "path"
                     else param
                     for param in definition["parameters"]
                 ]
@@ -1120,10 +1140,17 @@ def custom_postprocessing_hook(result, generator, request, public):
     # ``operation-tag-defined`` rule requires this — operations that use undeclared tags
     # produce a finding per (operation, tag) pair (was 2962 findings for us).
     sorted_tags = sorted(set(all_tags))
+
+    # Hoist shared path parameter definitions into ``components.parameters`` so the per-operation
+    # ``$ref``s emitted earlier resolve correctly.
+    components = dict(result.get("components") or {})
+    components["parameters"] = {**(components.get("parameters") or {}), **_SHARED_PATH_PARAMS}
+
     return {
         **result,
         "info": {"title": "PostHog API", "version": "1.0.0", "description": ""},
         "paths": paths,
+        "components": components,
         "tags": [{"name": tag} for tag in sorted_tags],
         "x-tagGroups": [{"name": "All endpoints", "tags": sorted_tags}],
     }

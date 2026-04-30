@@ -79,7 +79,11 @@ class CIFollowUpDecision(StrEnum):
     NO_PR = "no_pr"
 
 
-INACTIVITY_TIMEOUT = timedelta(minutes=5)
+# Default 5 min in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
+# for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
+# shutdown for resume-flow testing). When overridden, the CI follow-up floor
+# below is bypassed so the timer actually fires that fast.
+INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 300)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
@@ -225,12 +229,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
         )
-        # When a CI follow-up is scheduled, ensure the inactivity timer can't
-        # race ahead of it — otherwise the short inactivity window would always
-        # fire first and CI fixes would be silently skipped.
+        # When CI follow-up is scheduled, the inactivity timer must outlive
+        # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
+        # env var bypasses the floor, but only when explicitly set AND short —
+        # so a misconfigured large value still respects the CI floor.
+        ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
+        testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
+            INACTIVITY_TIMEOUT < ci_follow_up_floor
+        )
         inactivity_timeout = (
-            max(INACTIVITY_TIMEOUT, CI_FOLLOW_UP_DELAY + timedelta(minutes=1))
-            if ci_follow_up_scheduled
+            max(INACTIVITY_TIMEOUT, ci_follow_up_floor)
+            if ci_follow_up_scheduled and not testing_override_active
             else INACTIVITY_TIMEOUT
         )
         possible_events: list[asyncio.Task[TaskEvent]] = [
@@ -541,8 +550,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         finally:
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
-                # Create a resume snapshot for interactive sandboxes before cleanup
-                if self._context and self._context.mode == "interactive":
+                # When `use_modal_resume_snapshots` is off, resume relies on the
+                # agent server's git-checkpoint mechanism instead. Read from
+                # context (captured at workflow start) so replay is deterministic
+                # against env-var flips.
+                if self._context and self._context.mode == "interactive" and self._context.use_modal_resume_snapshots:
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
                 await self._read_sandbox_logs(cleanup_sandbox_id)

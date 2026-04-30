@@ -53,6 +53,9 @@ class TaskProcessingContext:
     allowed_domains: list[str] | None = None
     json_schema: dict | None = None
     ci_prompt: str | None = None
+    # Captured at workflow start so a flag flip mid-run can't introduce
+    # nondeterminism (the workflow consults this in its finally block).
+    use_modal_resume_snapshots: bool = True
 
     @property
     def mode(self) -> str:
@@ -235,4 +238,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         allowed_domains=allowed_domains,
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
+        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
     )
