@@ -142,7 +142,7 @@ def _emit_log(
     elif record.status_code is not None and record.status_code >= 400:
         logger.warning(f"data_imports.http.request {record.url}", **fields)
     else:
-        logger.debug(f"data_imports.http.request: {record.url}", **fields)
+        logger.debug(f"data_imports.http.request {record.url}", **fields)
 
 
 def _emit_metrics(record: RequestRecord, *, host: str, ctx: JobContext | None) -> None:
