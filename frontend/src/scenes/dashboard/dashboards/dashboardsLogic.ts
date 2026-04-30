@@ -1,7 +1,8 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import api, { PaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
@@ -9,13 +10,14 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectClean } from 'lib/utils'
-import { createFuse } from 'lib/utils/fuseSearch'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
+import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { ActivityScope, Breadcrumb, DashboardBasicType, DashboardType } from '~/types'
 
 import type { dashboardsLogicType } from './dashboardsLogicType'
 
@@ -43,8 +45,6 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     shared: false,
     tags: [],
 }
-
-export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea-typegen
 
 /** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
 function urlSearchParamToString(value: unknown): string {
@@ -110,6 +110,43 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         ],
     }),
 
+    loaders({
+        searchedDashboards: [
+            null as DashboardBasicType[] | null,
+            {
+                /**
+                 * Server-side fuzzy full-text search via the dashboards list endpoint.
+                 * Returns null when there's no active search term, in which case the
+                 * dashboards selector falls back to the in-memory `dashboardsModel` list.
+                 */
+                loadSearchedDashboards: async ({ search }: { search: string }, breakpoint) => {
+                    const term = search.trim()
+                    if (!term) {
+                        return null
+                    }
+                    const teamId = teamLogic.values.currentTeamId
+                    if (teamId == null) {
+                        return null
+                    }
+                    // 250ms debounce so we don't fire a request on every keystroke.
+                    await breakpoint(250)
+                    const params = new URLSearchParams({
+                        search: term,
+                        limit: '200',
+                        exclude_generated: 'true',
+                    })
+                    const response: PaginatedResponse<DashboardType> = await api.get(
+                        `api/environments/${teamId}/dashboards/?${params.toString()}`
+                    )
+                    breakpoint()
+                    return (response.results ?? []).map(
+                        (dashboard) => getQueryBasedDashboard(dashboard) as DashboardBasicType
+                    )
+                },
+            },
+        ],
+    }),
+
     selectors({
         isFiltering: [
             (s) => [s.filters],
@@ -130,12 +167,19 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
         dashboards: [
-            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse, s.currentTab, s.user],
-            (dashboards, filters, fuse, currentTab, user) => {
-                let haystack = dashboards
-                if (filters.search) {
-                    haystack = fuse.search(filters.search).map((result) => result.item)
-                }
+            (s) => [
+                dashboardsModel.selectors.nameSortedDashboards,
+                s.searchedDashboards,
+                s.filters,
+                s.currentTab,
+                s.user,
+            ],
+            (allDashboards, searchedDashboards, filters, currentTab, user) => {
+                // When a search term is active we trust the server's relevance ranking
+                // (combined FTS rank + trigram similarity); otherwise we use the model's
+                // alphabetised list. This keeps the exact match at the top of the list.
+                let haystack: DashboardBasicType[] =
+                    filters.search && searchedDashboards ? searchedDashboards : allDashboards
                 if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
@@ -154,17 +198,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     haystack = haystack.filter((d) => filters.tags?.some((tag) => d.tags?.includes(tag)))
                 }
                 return haystack
-            },
-        ],
-
-        fuse: [
-            () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards): DashboardFuse => {
-                return createFuse<DashboardBasicType>(dashboards, {
-                    keys: ['key', 'name', 'description', 'tags'],
-                    // Without this, Fuse favors matches near the start of each field; tail tokens on long titles often miss `threshold`.
-                    ignoreLocation: true,
-                })
             },
         ],
 
@@ -227,9 +260,16 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             actions.setFilters({ search })
         },
     })),
-    listeners(() => ({
+    listeners(({ actions, values }) => ({
         bulkUpdateTagsSuccess: () => {
             dashboardsModel.actions.loadDashboards()
+        },
+        setFilters: ({ filters }) => {
+            // Only refetch when the search term itself changes; other filter changes are applied
+            // client-side on top of the existing search results (or the in-memory list).
+            if ('search' in filters) {
+                actions.loadSearchedDashboards({ search: values.filters.search })
+            }
         },
     })),
 ])

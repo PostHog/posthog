@@ -148,6 +148,87 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_names = {dashboard["name"] for dashboard in response["results"]}
         assert dashboard_names == {"tagged", "also tagged"}
 
+    def test_list_filter_by_search_returns_exact_match_first(self):
+        # Names chosen so an alphabetical sort would push the exact match below other matches.
+        self.dashboard_api.create_dashboard({"name": "Ad Sales"})
+        self.dashboard_api.create_dashboard({"name": "Email Sales"})
+        sales_id, _ = self.dashboard_api.create_dashboard({"name": "Sales"})
+        self.dashboard_api.create_dashboard({"name": "Sales Funnel"})
+        self.dashboard_api.create_dashboard({"name": "Salesforce sync"})
+        self.dashboard_api.create_dashboard({"name": "Weekly Sales"})
+        self.dashboard_api.create_dashboard({"name": "Unrelated"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales"})
+        result_names = [d["name"] for d in response["results"]]
+
+        assert result_names[0] == "Sales", f"expected exact match first, got {result_names}"
+        # Unrelated must be filtered out entirely.
+        assert "Unrelated" not in result_names
+
+    def test_list_filter_by_search_handles_typos(self):
+        # Trigram similarity should catch the transposition.
+        target_id, _ = self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
+        self.dashboard_api.create_dashboard({"name": "Unrelated"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "dahsboard"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert target_id in result_ids
+        assert all(d["name"] != "Unrelated" for d in response["results"])
+
+    def test_list_filter_by_search_supports_prefix_as_you_type(self):
+        target_id, _ = self.dashboard_api.create_dashboard({"name": "Marketing funnel"})
+        self.dashboard_api.create_dashboard({"name": "Engineering metrics"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Marke"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert target_id in result_ids
+        assert all(d["name"] != "Engineering metrics" for d in response["results"])
+
+    def test_list_filter_by_search_matches_description(self):
+        target_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Q4 review", "description": "Quarterly revenue dashboard"}
+        )
+        self.dashboard_api.create_dashboard({"name": "Unrelated", "description": "nothing here"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "revenue"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert target_id in result_ids
+
+    def test_list_filter_by_search_is_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization)
+        Dashboard.objects.create(team=other_team, name="Sales Funnel")
+        own_id, _ = self.dashboard_api.create_dashboard({"name": "Sales Funnel"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids == [own_id]
+
+    def test_list_filter_by_search_combines_with_tag_filter(self):
+        target_id, _ = self.dashboard_api.create_dashboard({"name": "Sales", "tags": ["finance"]})
+        self.dashboard_api.create_dashboard({"name": "Sales Funnel", "tags": ["marketing"]})
+        self.dashboard_api.create_dashboard({"name": "Other", "tags": ["finance"]})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales", "tags": ["finance"]})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids == [target_id]
+
+    def test_list_filter_by_search_only_unsafe_chars_does_not_500(self):
+        # `process_query` strips unsafe tsquery characters; the trigram path must still work.
+        self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
+
+        response = self.dashboard_api.list_dashboards(
+            query_params={"search": "&|!"},
+            expected_status=status.HTTP_200_OK,
+        )
+
+        # Trigram similarity is conservative — we only assert the request doesn't error and returns a list.
+        assert isinstance(response["results"], list)
+
     def test_list_includes_last_viewed_at_from_filesystem_logs(self):
         dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})
         dashboard_unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed"})

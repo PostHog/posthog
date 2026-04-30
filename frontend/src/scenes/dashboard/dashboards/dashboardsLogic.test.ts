@@ -167,28 +167,29 @@ describe('dashboardsLogic', () => {
         })
     })
 
-    it('shows correct dashboards when searching', async () => {
-        expectLogic(logic, () => {
-            logic.actions.setFilters({ search: 'needl' })
-        }).toMatchValues({
-            dashboards: truth((dashboards: DashboardType[]) => {
-                return dashboards.length === 1 && dashboards[0].name === 'needle'
-            }),
+    it('uses server-side search results when a search term is set', async () => {
+        // Search is now executed server-side (Postgres FTS + trigram similarity); the logic
+        // delegates ranking to the API and uses the returned list as-is. Here we mock the
+        // search endpoint and assert the selector swaps the in-memory list for the response.
+        const needleDashboard = allDashboards.find((d) => d.name === 'needle')!
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': (req) => {
+                    if (req.url.searchParams.get('search')) {
+                        return [200, { count: 1, next: null, previous: null, results: [needleDashboard] }]
+                    }
+                    return [200, { count: 7, next: null, previous: null, results: allDashboards }]
+                },
+            },
         })
-    })
 
-    it.each([['Nova'], ['nova'], ['NOVA']])(
-        'search matches a token at the end of a long dashboard name — case "%s"',
-        (search) => {
-            expectLogic(logic, () => {
-                logic.actions.setFilters({ search })
-            }).toMatchValues({
-                dashboards: truth((dashboards: DashboardType[]) => {
-                    return dashboards.length === 1 && dashboards[0].name === 'VMS Feature - History Browser - Nova'
-                }),
-            })
-        }
-    )
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ search: 'needl' })
+        }).toDispatchActions(['loadSearchedDashboardsSuccess'])
+
+        expect(logic.values.dashboards).toHaveLength(1)
+        expect(logic.values.dashboards[0].name).toBe('needle')
+    })
 
     it('syncs search to URL when setSearch is called', async () => {
         await expectLogic(logic, () => {

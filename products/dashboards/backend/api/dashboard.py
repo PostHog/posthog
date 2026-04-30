@@ -6,11 +6,24 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib.postgres.search import TrigramSimilarity
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models import (
+    CharField,
+    Count,
+    DateTimeField,
+    ExpressionWrapper,
+    F,
+    FilteredRelation,
+    FloatField,
+    Prefetch,
+    Q,
+    QuerySet,
+    Value,
+)
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -21,7 +34,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from opentelemetry import trace
 from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
@@ -47,6 +60,7 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.full_text_search import build_rank
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -1029,6 +1043,25 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Fuzzy full-text search across `name` and `description`. "
+                    "Combines weighted Postgres full-text search (name weight A, description weight C, "
+                    "with prefix-as-you-type matching on the last token) with trigram similarity on `name` "
+                    "(handles typos and transpositions). Results are ordered by relevance score, then "
+                    "pinned status, then name. When omitted, dashboards are ordered by pinned status then "
+                    "alphabetical name."
+                ),
+            ),
+        ],
+    ),
+)
 @extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
@@ -1056,11 +1089,57 @@ class DashboardsViewSet(
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().filter_queryset(queryset)
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = self._apply_search(queryset, search)
+
         tags = self.request.query_params.getlist("tags")
-        if not tags:
+        if tags:
+            queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+
+        return queryset
+
+    @staticmethod
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        """
+        Fuzzy full-text search ranking.
+
+        Combines Postgres weighted FTS (`build_rank`) with trigram similarity on `name`.
+        FTS handles tokens, prefix-as-you-type and weights name above description; trigram
+        catches typos/transpositions that FTS misses (e.g. "dahsboard" -> "dashboard"). A row
+        is kept if either signal matches; rows are ordered by the combined score, then pinned,
+        then name.
+        """
+        search = search.strip()
+        if not search:
             return queryset
 
-        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
+        rank = build_rank({"name": "A", "description": "C"}, search, config="simple")
+        name_similarity = TrigramSimilarity("name", search)
+
+        queryset = queryset.annotate(_dashboard_name_similarity=name_similarity)
+
+        if rank is None:
+            # `process_query` stripped the term to nothing (e.g. only unsafe characters)
+            # so we can only rely on trigram matching.
+            return queryset.filter(_dashboard_name_similarity__gt=0.2).order_by(
+                "-_dashboard_name_similarity",
+                "-pinned",
+                "name",
+            )
+
+        return (
+            queryset.annotate(_dashboard_search_rank=rank)
+            .filter(Q(_dashboard_search_rank__gt=0.05) | Q(_dashboard_name_similarity__gt=0.2))
+            .annotate(
+                _dashboard_search_score=ExpressionWrapper(
+                    F("_dashboard_search_rank") + F("_dashboard_name_similarity"),
+                    output_field=FloatField(),
+                )
+            )
+            .order_by("-_dashboard_search_score", "-pinned", "name")
+        )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):
