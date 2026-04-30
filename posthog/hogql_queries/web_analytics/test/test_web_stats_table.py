@@ -1,6 +1,7 @@
 import math
 from collections import defaultdict
 from typing import Any, Optional
+from unittest.mock import patch
 
 import unittest
 from freezegun import freeze_time
@@ -249,7 +250,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             )
             self.team.path_cleaning_filters = path_cleaning_filters or []
             runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
-            return runner.calculate()
+            with patch(
+                "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+                return_value=False,
+            ):
+                return runner.calculate()
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_stats_table_query(
