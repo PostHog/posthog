@@ -301,19 +301,25 @@ export function PropertyValue({
         )
     }
 
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
-    )
+    // For flag properties, preserve original typed values (boolean true/false or string variants)
+    // For other properties, convert to strings for display
+    const rawValues = value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
+    const formattedValues = isFlagDependencyProperty
+        ? rawValues
+        : rawValues.map((label) =>
+              String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+          )
 
     if (!editable) {
         if (isGroupKeyProperty && groupKeyNames) {
-            const rawValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-                String
-            )
-            const displayValues = rawValues.map((key) => groupKeyNames[key] || key)
+            const displayRawValues = rawValues.map(String)
+            const displayValues = displayRawValues.map((key) => groupKeyNames[key] || key)
             return <>{displayValues.join(' or ')}</>
         }
-        return <>{formattedValues.join(' or ')}</>
+        const displayFormattedValues = rawValues.map((label) =>
+            String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+        )
+        return <>{displayFormattedValues.join(' or ')}</>
     }
 
     if (isDurationProperty) {
@@ -437,7 +443,10 @@ export function PropertyValue({
                         : undefined
                 }
                 onChange={(nextVal) => {
-                    const newValues = nextVal.filter((v) => !formattedValues.includes(String(v)))
+                    // For flag properties, compare typed values directly; for others, compare as strings
+                    const newValues = isFlagDependencyProperty
+                        ? nextVal.filter((v) => !formattedValues.some((fv) => fv === v))
+                        : nextVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
                         const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
                         const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
