@@ -141,6 +141,10 @@ class RecipientResult:
 @dataclasses.dataclass
 class DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+    # Non-fatal failure tag surfaced on the SLO completion event when the activity
+    # returns cleanly (no raise). The workflow merges this into
+    # `inputs.slo.completion_properties` so slo-failures-daily can filter on it.
+    error_type: str | None = None
 
 
 @dataclasses.dataclass

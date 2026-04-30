@@ -40,7 +40,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
-from ee.tasks.subscriptions.auto_disable import re_enable_validation_message
+from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 
@@ -181,7 +181,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # without-integration cases.
         is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
         if is_re_enabling:
-            error_message = re_enable_validation_message(target_type, integration_id)
+            error_message = validate_re_enable(target_type, integration_id)
             if error_message:
                 raise ValidationError({"enabled": [error_message]})
 

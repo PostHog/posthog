@@ -18,11 +18,11 @@ NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline 
 logger = structlog.get_logger(__name__)
 
 
-def re_enable_validation_message(target_type: str | None, integration_id: int | None) -> str | None:
-    """Return a user-facing error message if a subscription with this target configuration
-    cannot be re-enabled, else None. Mirrors the alert pattern in
-    `posthog.tasks.alerts.utils.validate_alert_config` — one shared rule set for both
-    the API serializer and (in future) the temporal activity's permanent-failure check.
+def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
+    """Validate that a subscription with this target configuration can be re-enabled.
+    Returns None when re-enable is OK, or a user-facing error message when it would
+    fail (rejected up-front so the next delivery doesn't just auto-disable again).
+    Mirrors the `validate_alert_config` pattern in posthog.tasks.alerts.utils.
     """
     if target_type and target_type not in SUPPORTED_TARGET_TYPES:
         return (

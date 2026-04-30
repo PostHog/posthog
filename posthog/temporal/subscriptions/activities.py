@@ -314,7 +314,7 @@ async def _auto_disable_and_return(
     )
     _capture_delivery_failed_event(subscription, ApplicationError(reason, non_retryable=True))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
-    return DeliverSubscriptionResult(recipient_results=recipient_results)
+    return DeliverSubscriptionResult(recipient_results=recipient_results, error_type=error_type)
 
 
 @temporalio.activity.defn
@@ -361,8 +361,8 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         # transient condition (TTL sweep, prior export crash, S3 race). Genuine
         # deletion is filtered upstream in create_export_assets and the workflow
         # short-circuits to SKIPPED before this activity runs. So: don't auto-disable;
-        # surface the failure on the SLO completion event (workflow tags `error_type`
-        # from recipient_results) and let the next scheduled delivery retry.
+        # surface the failure on the SLO completion event via `error_type` and let
+        # the next scheduled delivery retry.
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
         recipient_results.append(
             RecipientResult(
@@ -375,7 +375,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
             subscription,
             ApplicationError(NO_ASSETS_REASON, non_retryable=True),
         )
-        return DeliverSubscriptionResult(recipient_results=recipient_results)
+        return DeliverSubscriptionResult(recipient_results=recipient_results, error_type="no_assets")
 
     if subscription.target_type == "email":
         emails = subscription.target_value.split(",")
@@ -614,8 +614,8 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
 @temporalio.activity.defn
 async def advance_next_delivery_date(subscription_id: int) -> None:
     subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
-    # Disabled subs (auto-disabled this run, paused by user) don't get a future
-    # delivery date — avoids showing a misleading "next delivery" in the UI.
+    # Disabled subs (e.g. auto-disabled this run / paused by user) don't get a
+    # future delivery date — avoids showing a misleading "next delivery" in the UI.
     if not subscription.enabled:
         return
     subscription.set_next_delivery_date(subscription.next_delivery_date)
