@@ -353,6 +353,45 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         # The series label is the "::"-joined string form, mirroring the frontend.
         assert [r["label"] for r in breakdown_results] == ["false", "true"]
 
+    @parameterized.expand(
+        [
+            ("legacy_bool", "Bool", True),
+            ("legacy_nullable_bool", "Nullable(Bool)", True),
+            ("legacy_string", "String", False),
+            ("introspected_bool", {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"}, True),
+        ]
+    )
+    def test_data_warehouse_breakdown_field_boolean_detection_supports_column_metadata_shapes(
+        self, _name: str, column_metadata: str | dict[str, str], expected: bool
+    ) -> None:
+        DataWarehouseTable.objects.create(
+            name="test_table_bool_metadata",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"bool_prop": column_metadata},
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="test_table_bool_metadata",
+                    table_name="test_table_bool_metadata",
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown="bool_prop",
+                breakdown_type=BreakdownType.DATA_WAREHOUSE,
+            ),
+        )
+
+        assert TrendsQueryRunner(team=self.team, query=trends_query)._is_breakdown_filter_field_boolean() is expected
+
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
 

@@ -39,6 +39,10 @@ class CustomPromptSandboxContext:
     repository: str | None = None
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
+    model: str | None = None
+    """Override the agent model (e.g. ``"claude-opus-4-7"``). Falls back to the
+    agent server's default when ``None``. Used by evals to pin a specific
+    model so cross-run comparisons are stable."""
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -90,6 +94,7 @@ async def _create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        model=context.model,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

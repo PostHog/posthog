@@ -40,22 +40,35 @@ export const experimentsCreateBodyNameMax = 400
 export const experimentsCreateBodyDescriptionMax = 3000
 
 export const experimentsCreateBodyArchivedDefault = false
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemKindDefault = `ExperimentMetric`
-export const experimentsCreateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemSeriesItemPropertiesItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSeriesItemPropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemSourcePropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsOneItemStartEventPropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemTypeDefault = `event`
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -136,7 +149,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         event: zod.string().describe('Custom exposure event name.'),
                         kind: zod
                             .enum(['ExperimentEventExposureConfig'])
-                            .default(experimentsCreateBodyExposureCriteriaOneExposureConfigKindDefault),
+                            .default(experimentsCreateBodyExposureCriteriaOneExposureConfigOneKindDefault),
                         properties: zod
                             .array(
                                 zod.object({
@@ -179,11 +192,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             'icontains_multi',
                                             'not_icontains_multi',
                                         ])
-                                        .nullish(),
+                                        .default(
+                                            experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
+                                        ),
                                     type: zod
                                         .enum(['event'])
                                         .default(
-                                            experimentsCreateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault
+                                            experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
                                         )
                                         .describe('Event properties'),
                                     value: zod
@@ -256,11 +271,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -276,7 +293,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: completion event.'),
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
@@ -328,11 +346,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -348,8 +368,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
-                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: denominator source.'),
+                    goal: zod
+                        .enum(['increase', 'decrease'])
+                        .nullish()
+                        .describe('Whether higher or lower values indicate success.'),
                     kind: zod.enum(['ExperimentMetric']).default(experimentsCreateBodyMetricsOneItemKindDefault),
                     metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                     name: zod.string().nullish().describe('Human-readable metric name.'),
@@ -403,11 +427,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -423,7 +449,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: numerator source.'),
                     retention_window_end: zod.number().nullish(),
                     retention_window_start: zod.number().nullish(),
                     retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
@@ -478,7 +505,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ])
-                                                .nullish(),
+                                                .default(
+                                                    experimentsCreateBodyMetricsOneItemSeriesItemPropertiesItemOperatorDefault
+                                                ),
                                             type: zod
                                                 .enum(['event'])
                                                 .default(
@@ -551,10 +580,14 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemSourceOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
-                                            .default(experimentsCreateBodyMetricsOneItemSourcePropertiesItemTypeDefault)
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemSourceOnePropertiesItemTypeDefault
+                                            )
                                             .describe('Event properties'),
                                         value: zod
                                             .union([
@@ -569,7 +602,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For mean metrics: event source.'),
                     start_event: zod
                         .object({
                             event: zod
@@ -620,11 +654,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsOneItemStartEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsOneItemStartEventPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsOneItemStartEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -640,7 +676,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: start event.'),
                     start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
                     uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
                 })
@@ -703,11 +740,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -723,7 +762,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: completion event.'),
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
@@ -775,11 +815,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -795,8 +837,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
-                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: denominator source.'),
+                    goal: zod
+                        .enum(['increase', 'decrease'])
+                        .nullish()
+                        .describe('Whether higher or lower values indicate success.'),
                     kind: zod
                         .enum(['ExperimentMetric'])
                         .default(experimentsCreateBodyMetricsSecondaryOneItemKindDefault),
@@ -852,11 +898,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -872,7 +920,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: numerator source.'),
                     retention_window_end: zod.number().nullish(),
                     retention_window_start: zod.number().nullish(),
                     retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
@@ -927,7 +976,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ])
-                                                .nullish(),
+                                                .default(
+                                                    experimentsCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemOperatorDefault
+                                                ),
                                             type: zod
                                                 .enum(['event'])
                                                 .default(
@@ -1000,11 +1051,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1020,7 +1073,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For mean metrics: event source.'),
                     start_event: zod
                         .object({
                             event: zod
@@ -1071,11 +1125,13 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault
+                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1091,7 +1147,8 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: start event.'),
                     start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
                     uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
                 })
@@ -1157,22 +1214,35 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemKindDefault = `ExperimentMetric`
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesItemPropertiesItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesItemPropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemSourcePropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventPropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemTypeDefault = `event`
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1249,7 +1319,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         event: zod.string().describe('Custom exposure event name.'),
                         kind: zod
                             .enum(['ExperimentEventExposureConfig'])
-                            .default(experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigKindDefault),
+                            .default(experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOneKindDefault),
                         properties: zod
                             .array(
                                 zod.object({
@@ -1292,11 +1362,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             'icontains_multi',
                                             'not_icontains_multi',
                                         ])
-                                        .nullish(),
+                                        .default(
+                                            experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
+                                        ),
                                     type: zod
                                         .enum(['event'])
                                         .default(
-                                            experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault
+                                            experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
                                         )
                                         .describe('Event properties'),
                                     value: zod
@@ -1369,11 +1441,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1389,7 +1463,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: completion event.'),
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
@@ -1441,11 +1516,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1461,8 +1538,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
-                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: denominator source.'),
+                    goal: zod
+                        .enum(['increase', 'decrease'])
+                        .nullish()
+                        .describe('Whether higher or lower values indicate success.'),
                     kind: zod.enum(['ExperimentMetric']).default(experimentsPartialUpdateBodyMetricsOneItemKindDefault),
                     metric_type: zod.enum(['funnel', 'mean', 'ratio', 'retention']),
                     name: zod.string().nullish().describe('Human-readable metric name.'),
@@ -1516,11 +1597,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1536,7 +1619,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: numerator source.'),
                     retention_window_end: zod.number().nullish(),
                     retention_window_start: zod.number().nullish(),
                     retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
@@ -1591,7 +1675,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ])
-                                                .nullish(),
+                                                .default(
+                                                    experimentsPartialUpdateBodyMetricsOneItemSeriesItemPropertiesItemOperatorDefault
+                                                ),
                                             type: zod
                                                 .enum(['event'])
                                                 .default(
@@ -1664,11 +1750,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemSourcePropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1684,7 +1772,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For mean metrics: event source.'),
                     start_event: zod
                         .object({
                             event: zod
@@ -1735,11 +1824,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsOneItemStartEventPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1755,7 +1846,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: start event.'),
                     start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
                     uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
                 })
@@ -1818,11 +1910,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1838,7 +1932,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: completion event.'),
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
@@ -1890,11 +1985,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1910,8 +2007,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
-                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: denominator source.'),
+                    goal: zod
+                        .enum(['increase', 'decrease'])
+                        .nullish()
+                        .describe('Whether higher or lower values indicate success.'),
                     kind: zod
                         .enum(['ExperimentMetric'])
                         .default(experimentsPartialUpdateBodyMetricsSecondaryOneItemKindDefault),
@@ -1967,11 +2068,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -1987,7 +2090,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: numerator source.'),
                     retention_window_end: zod.number().nullish(),
                     retention_window_start: zod.number().nullish(),
                     retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
@@ -2042,7 +2146,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ])
-                                                .nullish(),
+                                                .default(
+                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemOperatorDefault
+                                                ),
                                             type: zod
                                                 .enum(['event'])
                                                 .default(
@@ -2115,11 +2221,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2135,7 +2243,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For mean metrics: event source.'),
                     start_event: zod
                         .object({
                             event: zod
@@ -2186,11 +2295,13 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault
+                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2206,7 +2317,8 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: start event.'),
                     start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
                     uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
                 })
@@ -2293,22 +2405,35 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
 export const experimentsDuplicateCreateBodyArchivedDefault = false
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigKindDefault = `ExperimentEventExposureConfig`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault = `ExperimentEventExposureConfig`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemKindDefault = `ExperimentMetric`
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesItemPropertiesItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesItemPropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemSourcePropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventPropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault = `ExperimentMetric`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault = `event`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -2389,7 +2514,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         event: zod.string().describe('Custom exposure event name.'),
                         kind: zod
                             .enum(['ExperimentEventExposureConfig'])
-                            .default(experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigKindDefault),
+                            .default(experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneKindDefault),
                         properties: zod
                             .array(
                                 zod.object({
@@ -2432,11 +2557,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             'icontains_multi',
                                             'not_icontains_multi',
                                         ])
-                                        .nullish(),
+                                        .default(
+                                            experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
+                                        ),
                                     type: zod
                                         .enum(['event'])
                                         .default(
-                                            experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigPropertiesItemTypeDefault
+                                            experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
                                         )
                                         .describe('Event properties'),
                                     value: zod
@@ -2509,11 +2636,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2529,7 +2658,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: completion event.'),
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
@@ -2581,11 +2711,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2601,8 +2733,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
-                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: denominator source.'),
+                    goal: zod
+                        .enum(['increase', 'decrease'])
+                        .nullish()
+                        .describe('Whether higher or lower values indicate success.'),
                     kind: zod
                         .enum(['ExperimentMetric'])
                         .default(experimentsDuplicateCreateBodyMetricsOneItemKindDefault),
@@ -2658,11 +2794,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2678,7 +2816,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: numerator source.'),
                     retention_window_end: zod.number().nullish(),
                     retention_window_start: zod.number().nullish(),
                     retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
@@ -2733,7 +2872,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ])
-                                                .nullish(),
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsOneItemSeriesItemPropertiesItemOperatorDefault
+                                                ),
                                             type: zod
                                                 .enum(['event'])
                                                 .default(
@@ -2806,11 +2947,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemSourcePropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2826,7 +2969,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For mean metrics: event source.'),
                     start_event: zod
                         .object({
                             event: zod
@@ -2877,11 +3021,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2897,7 +3043,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: start event.'),
                     start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
                     uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
                 })
@@ -2960,11 +3107,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -2980,7 +3129,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: completion event.'),
                     conversion_window: zod.number().nullish().describe('Conversion window duration.'),
                     denominator: zod
                         .object({
@@ -3032,11 +3182,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -3052,8 +3204,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
-                    goal: zod.enum(['increase', 'decrease']).nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: denominator source.'),
+                    goal: zod
+                        .enum(['increase', 'decrease'])
+                        .nullish()
+                        .describe('Whether higher or lower values indicate success.'),
                     kind: zod
                         .enum(['ExperimentMetric'])
                         .default(experimentsDuplicateCreateBodyMetricsSecondaryOneItemKindDefault),
@@ -3109,11 +3265,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -3129,7 +3287,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For ratio metrics: numerator source.'),
                     retention_window_end: zod.number().nullish(),
                     retention_window_start: zod.number().nullish(),
                     retention_window_unit: zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']).nullish(),
@@ -3184,7 +3343,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ])
-                                                .nullish(),
+                                                .default(
+                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesItemPropertiesItemOperatorDefault
+                                                ),
                                             type: zod
                                                 .enum(['event'])
                                                 .default(
@@ -3257,11 +3418,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourcePropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -3277,7 +3440,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For mean metrics: event source.'),
                     start_event: zod
                         .object({
                             event: zod
@@ -3328,11 +3492,13 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 'icontains_multi',
                                                 'not_icontains_multi',
                                             ])
-                                            .nullish(),
+                                            .default(
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemOperatorDefault
+                                            ),
                                         type: zod
                                             .enum(['event'])
                                             .default(
-                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventPropertiesItemTypeDefault
+                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesItemTypeDefault
                                             )
                                             .describe('Event properties'),
                                         value: zod
@@ -3348,7 +3514,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .nullish()
                                 .describe('Event property filters to narrow which events are counted.'),
                         })
-                        .nullish(),
+                        .nullish()
+                        .describe('For retention metrics: start event.'),
                     start_handling: zod.enum(['first_seen', 'last_seen']).nullish(),
                     uuid: zod.string().nullish().describe('Unique identifier. Auto-generated if omitted.'),
                 })
