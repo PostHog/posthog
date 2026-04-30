@@ -750,7 +750,7 @@
         }
     },
     "dashboard-get": {
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params to apply one-off overrides without persisting changes.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get dashboard",
@@ -765,7 +765,7 @@
         }
     },
     "dashboard-insights-run": {
-        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Use this after dashboard-get to see the actual data behind each insight tile.",
+        "description": "Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or 'json' for raw query results. Supports variables_override (JSON object with {\"variable_id\": {\"value\": \"new_value\"}}) and filters_override query params to run insights with one-off overrides without persisting changes to the dashboard. Use dashboard-get to see the dashboard's current variables and their IDs.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Run dashboard insights",

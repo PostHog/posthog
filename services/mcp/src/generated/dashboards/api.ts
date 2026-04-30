@@ -78,7 +78,19 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.'
+        ),
     format: zod.enum(['json', 'txt']).optional(),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.'
+        ),
 })
 
 export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -175,6 +187,12 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys (e.g., date_from, date_to).'
+        ),
     format: zod.enum(['json', 'txt']).optional(),
     output_format: zod
         .enum(['json', 'optimized'])
@@ -187,5 +205,11 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         .optional()
         .describe(
             "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates."
+        ),
+    variables_override: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable. Use dashboard-get to see the dashboard\'s current variables and their IDs.'
         ),
 })

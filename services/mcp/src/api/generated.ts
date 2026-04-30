@@ -37585,7 +37585,15 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
+    /**
+     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsRetrieveFormat = typeof EnvironmentsDashboardsRetrieveFormat[keyof typeof EnvironmentsDashboardsRetrieveFormat];
@@ -37681,6 +37689,10 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys (e.g., date_from, date_to).
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -37690,6 +37702,10 @@ export namespace Schemas {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
+    /**
+     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable. Use dashboard-get to see the dashboard's current variables and their IDs.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsRunInsightsRetrieveFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveFormat];
@@ -37730,7 +37746,19 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsStreamTilesRetrieveFormat;
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile.
+     */
+    layoutSize?: EnvironmentsDashboardsStreamTilesRetrieveLayoutSize;
+    /**
+     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsStreamTilesRetrieveFormat = typeof EnvironmentsDashboardsStreamTilesRetrieveFormat[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveFormat];
@@ -37739,6 +37767,14 @@ export namespace Schemas {
     export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize];
+
+
+    export const EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = {
+      Sm: 'sm',
+      Xs: 'xs',
     } as const;
 
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
@@ -41636,7 +41672,15 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.
+     */
+    filters_override?: string;
     format?: DashboardsRetrieveFormat;
+    /**
+     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsRetrieveFormat = typeof DashboardsRetrieveFormat[keyof typeof DashboardsRetrieveFormat];
@@ -41732,6 +41776,10 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRunInsightsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys (e.g., date_from, date_to).
+     */
+    filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -41741,6 +41789,10 @@ export namespace Schemas {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
+    /**
+     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable. Use dashboard-get to see the dashboard's current variables and their IDs.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsRunInsightsRetrieveFormat = typeof DashboardsRunInsightsRetrieveFormat[keyof typeof DashboardsRunInsightsRetrieveFormat];
@@ -41781,7 +41833,19 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsStreamTilesRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.
+     */
+    filters_override?: string;
     format?: DashboardsStreamTilesRetrieveFormat;
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile.
+     */
+    layoutSize?: DashboardsStreamTilesRetrieveLayoutSize;
+    /**
+     * JSON object to override dashboard variables for this request only (does not persist). Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsStreamTilesRetrieveFormat = typeof DashboardsStreamTilesRetrieveFormat[keyof typeof DashboardsStreamTilesRetrieveFormat];
@@ -41790,6 +41854,14 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsStreamTilesRetrieveLayoutSize = typeof DashboardsStreamTilesRetrieveLayoutSize[keyof typeof DashboardsStreamTilesRetrieveLayoutSize];
+
+
+    export const DashboardsStreamTilesRetrieveLayoutSize = {
+      Sm: 'sm',
+      Xs: 'xs',
     } as const;
 
     export type DashboardsBulkUpdateTagsCreateParams = {

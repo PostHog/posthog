@@ -11,6 +11,7 @@ import {
     DashboardsReorderTilesCreateBody,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
+    DashboardsRetrieveQueryParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunInsightsRetrieveQueryParams,
 } from '@/generated/dashboards/api'
@@ -122,7 +123,9 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
     },
 })
 
-const DashboardGetSchema = DashboardsRetrieveParams.omit({ project_id: true })
+const DashboardGetSchema = DashboardsRetrieveParams.omit({ project_id: true }).extend(
+    DashboardsRetrieveQueryParams.omit({ format: true }).shape
+)
 
 const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
     name: 'dashboard-get',
@@ -132,6 +135,10 @@ const dashboardGet = (): ToolBase<typeof DashboardGetSchema, WithPostHogUrl<Sche
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                filters_override: params.filters_override,
+                variables_override: params.variables_override,
+            },
         })
         const filtered = omitResponseFields(result, [
             'effective_restriction_level',
@@ -190,8 +197,10 @@ const dashboardInsightsRun = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_insights/`,
             query: {
+                filters_override: params.filters_override,
                 output_format: params.output_format,
                 refresh: params.refresh,
+                variables_override: params.variables_override,
             },
         })
         return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
