@@ -15483,7 +15483,7 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
-    export type ErrorTrackingRecommendationMeta = {[key: string]: unknown};
+    export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
 
     export interface ErrorTrackingRecommendation {
       readonly id: string;
