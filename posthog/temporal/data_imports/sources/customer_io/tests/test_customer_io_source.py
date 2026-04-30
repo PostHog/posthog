@@ -1,5 +1,11 @@
+from collections.abc import Iterable
+from typing import Literal, cast
+
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -14,7 +20,7 @@ from posthog.temporal.data_imports.sources.customer_io.source import CustomerIOS
 from posthog.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
 
 
-def _config(app_api_key: str = "test-key", region: str = "us") -> CustomerIOSourceConfig:
+def _config(app_api_key: str = "test-key", region: Literal["us", "eu"] = "us") -> CustomerIOSourceConfig:
     return CustomerIOSourceConfig(app_api_key=app_api_key, region=region)
 
 
@@ -27,10 +33,12 @@ class TestCustomerIOSourceConfigFields:
         assert names == {"app_api_key", "region"}
 
         api_key_field = next(f for f in cfg.fields if f.name == "app_api_key")
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.required is True
         assert api_key_field.secret is True
 
         region_field = next(f for f in cfg.fields if f.name == "region")
+        assert isinstance(region_field, SourceFieldSelectConfig)
         assert region_field.required is True
         assert region_field.defaultValue == "us"
         assert {opt.value for opt in region_field.options} == {"us", "eu"}
@@ -151,7 +159,7 @@ class TestCustomerIOSourcePipelineDispatch:
         assert response.primary_keys == ["id"]
 
         # Verify the items() iterator triggers iterate_list_endpoint with the right endpoint.
-        rows = list(response.items())
+        rows = list(cast(Iterable[dict[str, int]], response.items()))
         assert rows == [{"id": 1}, {"id": 2}]
         mock_iter.assert_called_once()
         kwargs = mock_iter.call_args.kwargs
@@ -165,11 +173,12 @@ class TestCustomerIOSourcePipelineDispatch:
         inputs.schema_name = "email_events"
         inputs.logger = MagicMock()
 
+        sentinel = cast(SourceResponse, "WEBHOOK_RESPONSE")
         # Stub the webhook manager so we don't need a real one.
-        with patch.object(source, "_webhook_source_response", return_value="WEBHOOK_RESPONSE") as mock_webhook:
+        with patch.object(source, "_webhook_source_response", return_value=sentinel) as mock_webhook:
             result = source.source_for_pipeline(_config(app_api_key="key"), inputs)
 
-        assert result == "WEBHOOK_RESPONSE"
+        assert result is sentinel
         mock_webhook.assert_called_once_with(inputs)
 
     @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.iterate_list_endpoint")

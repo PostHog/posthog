@@ -65,8 +65,6 @@ def _events_for_resources(resource_names: list[str]) -> list[str]:
 
 def _format_http_error(error: requests.HTTPError) -> str:
     response = error.response
-    if response is None:
-        return str(error)
     status_code = response.status_code
     if status_code == 401:
         return (
