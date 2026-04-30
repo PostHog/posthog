@@ -178,7 +178,20 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "for non-drafts."
         ),
     )
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
+            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
+            "feature_flag.active, not stored), 'stopped' (ended)."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    def get_status(self, instance: Experiment) -> str:
+        if instance.is_paused:
+            return "paused"
+        return instance.status or instance.computed_status.value
 
     class Meta:
         model = Experiment
@@ -246,7 +259,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def get_feature_flag(self, obj):
         from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
-        return MinimalFeatureFlagSerializer(obj.feature_flag, read_only=True).data if obj.feature_flag else None
+        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
