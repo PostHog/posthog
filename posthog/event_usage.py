@@ -312,6 +312,8 @@ _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
+    if request.headers.get("X-Posthog-Client") == "mcp":
+        return EventSource.MCP
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""

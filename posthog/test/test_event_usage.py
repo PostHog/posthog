@@ -240,6 +240,20 @@ class TestGetEventSource(BaseTest):
         request = SimpleNamespace(META={}, headers={}, session=SimpleNamespace(session_key=None))
         assert get_event_source(request) == EventSource.API
 
+    def test_x_posthog_client_mcp_header_returns_mcp_source(self):
+        factory = APIRequestFactory()
+        request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert get_event_source(request) == EventSource.MCP
+
+    def test_x_posthog_client_mcp_header_takes_precedence_over_user_agent(self):
+        factory = APIRequestFactory()
+        request = factory.get(
+            "/fake",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+            HTTP_USER_AGENT="posthog/terraform-provider 1.0",
+        )
+        assert get_event_source(request) == EventSource.MCP
+
 
 class TestGetMcpProperties(BaseTest):
     def test_extracts_all_mcp_headers(self):
