@@ -307,15 +307,10 @@ def stripe_source(
 
 
 class StripePermissionError(Exception):
-    """Raised when Stripe API key is valid but lacks read permission for a resource."""
+    """Raised when Stripe API key is valid but lacks read permission for one or more resources (403)."""
 
-    def __init__(self, missing_permissions: dict[str, str], permission_only: Optional[set[str]] = None):
+    def __init__(self, missing_permissions: dict[str, str]):
         self.missing_permissions = missing_permissions
-        # Resources that failed with a clean stripe.PermissionError (403). Callers can use this
-        # to decide whether to include the verbose underlying Stripe message in user-facing output:
-        # 403s are self-explanatory ("missing X read scope"), so a bare resource name suffices,
-        # while unknown errors should be surfaced verbatim because the cause is non-obvious.
-        self.permission_only = permission_only if permission_only is not None else set(missing_permissions.keys())
         message = f"Stripe API key lacks permissions for: {', '.join(missing_permissions.keys())}"
         super().__init__(message)
 
@@ -326,6 +321,21 @@ class StripeAuthenticationError(Exception):
     def __init__(self, stripe_message: str):
         self.stripe_message = stripe_message
         super().__init__(stripe_message)
+
+
+class StripeValidationError(Exception):
+    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
+    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
+    decide whether to surface the verbose underlying message — permission errors are
+    self-explanatory from the resource name, but unknown errors need the raw detail."""
+
+    def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
+        self.errors = errors
+        # If we also collected legitimate 403s before hitting the unknown error, keep them on the
+        # exception so callers can report both classes of failure in a single message.
+        self.missing_permissions = missing_permissions or {}
+        message = f"Stripe validation failed for: {', '.join(errors.keys())}"
+        super().__init__(message)
 
 
 def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
@@ -356,7 +366,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     ]
 
     missing_permissions: dict[str, str] = {}
-    permission_only: set[str] = set()
+    errors: dict[str, str] = {}
 
     if table_name:
         resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
@@ -377,14 +387,19 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
             # and headers — way too noisy when the cause ("missing X read scope") is already obvious
             # from the resource name.
             missing_permissions[resource_name] = getattr(e, "user_message", None) or str(e)
-            permission_only.add(resource_name)
         except Exception as e:
-            # Treat unknown errors as permission failures so the user still gets actionable output,
-            # but include the raw Stripe message so they can see what actually went wrong.
-            missing_permissions[resource_name] = str(e)
+            # Anything else (network, schema, rate limit, unexpected Stripe API change) is not a
+            # permission problem — track separately so callers can render the verbose underlying
+            # message instead of pretending it's a missing scope.
+            errors[resource_name] = str(e)
 
+    # Errors take precedence over permission gaps because they indicate something went genuinely
+    # wrong rather than a configuration issue the customer can self-serve. We still pass any
+    # collected 403s along so the caller can report both in one message.
+    if errors:
+        raise StripeValidationError(errors, missing_permissions=missing_permissions)
     if missing_permissions:
-        raise StripePermissionError(missing_permissions, permission_only=permission_only)
+        raise StripePermissionError(missing_permissions)
 
     return True
 

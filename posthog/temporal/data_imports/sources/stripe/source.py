@@ -49,6 +49,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
+    StripeValidationError,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -291,20 +292,22 @@ If automatic creation failed due to a permissions error and you're using a restr
                 f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
             )
         except StripePermissionError as e:
-            # Pure 403s are self-explanatory — the resource name already tells the customer which
-            # Stripe scope to enable, and Stripe's verbose error (request id, status, headers)
-            # bloats the toast without adding signal. Only surface the underlying message for
-            # resources that failed with a non-permission exception (network, schema, rate limit,
-            # etc.) where the cause isn't obvious from the resource name alone.
-            unknown = {name: msg for name, msg in e.missing_permissions.items() if name not in e.permission_only}
-            resources = ", ".join(e.missing_permissions.keys())
-            if not unknown:
-                return False, f"Stripe credentials lack permissions for {resources}"
-            details = "; ".join(f"{name}: {msg.splitlines()[0][:200]}" for name, msg in unknown.items())
+            # 403s are self-explanatory — the resource name tells the customer which Stripe scope
+            # to enable. Stripe's verbose error (request id, status, headers) bloats the toast
+            # without adding signal, so render a plain resource list.
             return (
                 False,
-                f"Stripe credentials lack permissions for {resources}. Additional errors — {details}",
+                f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}",
             )
+        except StripeValidationError as e:
+            # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
+            # surface the underlying Stripe message verbatim — the cause isn't obvious from the
+            # resource name. Fold any 403s collected before the unknown error into the same toast.
+            details = "; ".join(f"{name}: {msg.splitlines()[0][:200]}" for name, msg in e.errors.items())
+            message = f"Stripe validation failed — {details}"
+            if e.missing_permissions:
+                message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
+            return False, message
         except Exception as e:
             return False, str(e)
 
