@@ -45,7 +45,13 @@ from ee.hogai.session_summaries.tracking import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.models.session_summaries import SessionGroupSummary
-from ee.models.team_session_summaries_config import PRODUCT_CONTEXT_MAX_LENGTH, TeamSessionSummariesConfig
+from ee.models.team_session_summaries_config import (
+    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
+    CUSTOM_TAG_NAME_MAX_LENGTH,
+    CUSTOM_TAGS_MAX_COUNT,
+    PRODUCT_CONTEXT_MAX_LENGTH,
+    TeamSessionSummariesConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -63,6 +69,7 @@ class SessionSummariesSerializer(serializers.Serializer):
 
 
 _PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
+_CUSTOM_TAG_NAME_RE = re.compile(rf"^[a-z0-9_]{{1,{CUSTOM_TAG_NAME_MAX_LENGTH}}}$")
 
 
 class SessionSummariesConfigSerializer(serializers.ModelSerializer):
@@ -76,14 +83,36 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
             "replay page."
         ),
     )
+    custom_tags = serializers.DictField(
+        child=serializers.CharField(allow_blank=False, max_length=CUSTOM_TAG_DESCRIPTION_MAX_LENGTH),
+        required=False,
+        help_text=(
+            f"Team-defined tags layered on top of the fixed taxonomy, as a {{name: description}} map. "
+            f"Names must be lowercase snake_case (max {CUSTOM_TAG_NAME_MAX_LENGTH} chars), descriptions "
+            f"max {CUSTOM_TAG_DESCRIPTION_MAX_LENGTH} chars, max {CUSTOM_TAGS_MAX_COUNT} entries."
+        ),
+    )
 
     class Meta:
         model = TeamSessionSummariesConfig
-        fields = ["product_context"]
+        fields = ["product_context", "custom_tags"]
 
     def validate_product_context(self, value: str) -> str:
         # Prevent prompt injection via the <product_context> wrapper in the summary prompt.
         return _PRODUCT_CONTEXT_WRAPPER_TAG_RE.sub("", value).strip()
+
+    def validate_custom_tags(self, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > CUSTOM_TAGS_MAX_COUNT:
+            raise exceptions.ValidationError(f"At most {CUSTOM_TAGS_MAX_COUNT} custom tags are allowed.")
+        cleaned: dict[str, str] = {}
+        for name, description in value.items():
+            if not _CUSTOM_TAG_NAME_RE.match(name):
+                raise exceptions.ValidationError(
+                    f"Invalid tag name '{name}': must be lowercase snake_case, "
+                    f"1-{CUSTOM_TAG_NAME_MAX_LENGTH} chars, [a-z0-9_]."
+                )
+            cleaned[name] = description.strip()
+        return cleaned
 
 
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
