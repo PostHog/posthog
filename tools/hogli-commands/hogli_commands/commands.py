@@ -113,6 +113,54 @@ def _infer_process_manager(command: str | None) -> str | None:
     return None
 
 
+_DOCKER_SOCKET_PATH = "/var/run/docker.sock"
+
+
+def _read_docker_socket_fingerprint() -> tuple[str | None, bool]:
+    """Return ``(symlink_target, exists)`` for the system docker socket.
+
+    ``symlink_target`` is ``None`` when the path is not a symlink (or missing).
+    Split out so tests can patch this without monkeypatching ``os.readlink``
+    globally.
+    """
+    try:
+        return os.readlink(_DOCKER_SOCKET_PATH), True
+    except OSError:
+        return None, os.path.exists(_DOCKER_SOCKET_PATH)
+
+
+def _infer_container_runtime() -> str | None:
+    """Best-effort detection of the active Docker-compatible container runtime.
+
+    Filesystem-only — no subprocesses, so this stays cheap to call on every
+    invocation.  Looks at ``DOCKER_HOST`` first, then the symlink target of
+    ``/var/run/docker.sock`` (macOS runtimes typically symlink that path into a
+    per-user directory under ``$HOME`` whose name identifies the runtime).
+    """
+    fingerprint = os.environ.get("DOCKER_HOST", "")
+
+    if not fingerprint:
+        link_target, sock_exists = _read_docker_socket_fingerprint()
+        if link_target is None:
+            # Not a symlink: a real socket file means a native daemon (Linux),
+            # missing means no runtime is reachable.
+            return "docker_engine" if sock_exists else None
+        fingerprint = link_target
+
+    f = fingerprint.lower()
+    if "orbstack" in f:
+        return "orbstack"
+    if "/.docker/run/" in f or "docker-desktop" in f or "docker/desktop" in f:
+        return "docker_desktop"
+    if "colima" in f:
+        return "colima"
+    if "/.rd/" in f or "rancher" in f:
+        return "rancher_desktop"
+    if "podman" in f:
+        return "podman"
+    return "other"
+
+
 _POSTHOG_DEV_CACHE_TTL_SECONDS = 30 * 86400  # 30 days
 
 
@@ -171,6 +219,7 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
         "is_worktree": (REPO_ROOT / ".git").is_file(),
         "is_posthog_dev": _is_posthog_dev(),
         "process_manager": _infer_process_manager(command),
+        "container_runtime": _infer_container_runtime(),
     }
 
 
