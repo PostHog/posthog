@@ -48,7 +48,12 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
+from posthog.event_usage import (
+    EventSource,
+    get_event_source,
+    get_request_analytics_properties,
+    report_user_or_team_action,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -102,7 +107,7 @@ _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
 }
 
 
-def _infer_query_tags(query: BaseModel) -> dict[str, Product | ProductKey | Feature]:
+def _infer_query_tags(query: BaseModel, request: Request | None = None) -> dict[str, Product | ProductKey | Feature]:
     scene = getattr(getattr(query, "tags", None), "scene", None) or ""
     if mapped := _SCENE_TO_TAGS.get(scene):
         return mapped
@@ -112,6 +117,11 @@ def _infer_query_tags(query: BaseModel) -> dict[str, Product | ProductKey | Feat
     # so unmapped scenes don't trip UntaggedQueryError in DEBUG.
     if getattr(getattr(query, "tags", None), "productKey", None):
         return {"feature": Feature.QUERY}
+    # MCP queries without a scene or productKey are MCP-specific (e.g. raw HogQL
+    # via query-run). Product-specific tools inject tags.productKey so that the
+    # branch above fires instead. source=mcp is already set by CHQueries middleware.
+    if request is not None and get_event_source(request) == EventSource.MCP:
+        return {"product": Product.MCP, "feature": Feature.QUERY}
     return {}
 
 
@@ -220,16 +230,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             # QueryRunner.run or QueryRunner.calculate before sync_execute fires. Scenes not
             # registered in `_infer_query_tags` stay untagged — they surface as
             # UntaggedQueryError in DEBUG, which is the signal to add them.
-            inferred_tags = _infer_query_tags(query)
-            if not inferred_tags and request.headers.get("x-posthog-client") == "mcp":
-                # MCP queries without a scene or productKey are MCP-specific (e.g. raw HogQL
-                # via query-run). Product-specific tools inject tags.productKey so that
-                # _infer_query_tags returns a non-empty dict above. source=mcp is already set
-                # by the CHQueries middleware for all MCP requests.
-                # Note: this header is client-supplied and not authenticated. Impact is
-                # attribution-only — a spoofed value can pollute `product=mcp` metrics but
-                # cannot bypass authorization.
-                inferred_tags = {"product": Product.MCP, "feature": Feature.QUERY}
+            inferred_tags = _infer_query_tags(query, request)
             if inferred_tags:
                 tag_queries(**inferred_tags)
             self._tag_client_query_id(client_query_id)

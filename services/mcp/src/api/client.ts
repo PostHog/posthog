@@ -17,14 +17,15 @@ import { isShortId } from '@/tools/insights/utils'
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
-// Maps query kinds to the productKey value used by `_infer_query_tags` on the Python
-// side. Values mirror the frontend `ProductKey` enum (e.g. `session_replay`, not
-// `replay`) so attribution stays consistent with queries originating from the web app.
-// `HogQLQuery` is intentionally omitted — those land via the raw query-run path and
-// fall through to the `product=mcp` backend default. New product-specific query kinds
-// must be added here; an unmapped kind silently attributes to MCP rather than the
-// owning product.
-const QUERY_KIND_TO_PRODUCT_KEY: Record<string, string> = {
+// Maps query kinds to the productKey used by `_infer_query_tags` on the Python side.
+// Values mirror the frontend `ProductKey` enum (e.g. `session_replay`, not `replay`)
+// so attribution stays consistent with queries originating from the web app.
+//
+// `null` means the kind is intentionally untagged — it falls through to the backend
+// `product=mcp` default. New product-specific query kinds must be added here; an entry
+// missing from this map silently attributes to MCP rather than the owning product.
+const QUERY_KIND_TO_PRODUCT_KEY: Record<string, string | null> = {
+    // Product analytics
     TrendsQuery: 'product_analytics',
     AssistantTrendsQuery: 'product_analytics',
     AssistantTrendsActorsQuery: 'product_analytics',
@@ -38,14 +39,22 @@ const QUERY_KIND_TO_PRODUCT_KEY: Record<string, string> = {
     AssistantPathsQuery: 'product_analytics',
     StickinessQuery: 'product_analytics',
     AssistantStickinessQuery: 'product_analytics',
+    // Error tracking
     ErrorTrackingQuery: 'error_tracking',
+    // LLM analytics
     LLMTracesQuery: 'llm_analytics',
     AssistantTracesQuery: 'llm_analytics',
     AssistantTraceQuery: 'llm_analytics',
+    // Session replay
     RecordingsQuery: 'session_replay',
     SessionRecordingListQuery: 'session_replay',
+    // Experiments
     ExperimentQuery: 'experiments',
     ExperimentExposureQuery: 'experiments',
+    // Raw HogQL — no product tag; backend MCP default applies
+    HogQLQuery: null,
+    HogQLMetadata: null,
+    HogQLAstQuery: null,
 }
 
 function injectProductKey(query: Record<string, unknown>): Record<string, unknown> {
@@ -54,6 +63,7 @@ function injectProductKey(query: Record<string, unknown>): Record<string, unknow
         return query
     }
     const productKey = QUERY_KIND_TO_PRODUCT_KEY[kind]
+    // null = explicitly untagged; undefined = unknown kind. Both skip injection.
     if (!productKey) {
         return query
     }
