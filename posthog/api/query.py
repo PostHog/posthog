@@ -289,7 +289,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 else status.HTTP_200_OK
             )
 
-            if request.headers.get("x-posthog-client") == "mcp":
+            if get_event_source(request) == EventSource.MCP:
                 formatted = self._try_format_for_llm(query, result)
                 if formatted is not None:
                     result["formatted_results"] = formatted
