@@ -230,10 +230,12 @@ def mock_paddle_client():
 
 @pytest.fixture
 def mock_customer_io_client():
-    """Mock the raw `requests.get` call inside the Customer.io api_client.
+    """Mock the Customer.io App API session inside `api_client`.
 
-    The Customer.io source skips the REST framework patched by `_execute_run` and
-    talks to the App API via plain `requests.get`, so it needs its own fixture.
+    The Customer.io source skips the REST framework patched by `_execute_run`
+    and talks to the App API through a tracked `requests.Session` returned by
+    `_session(api_key)`. We patch that helper to return a stub session whose
+    `.get(...)` yields a canned payload.
     """
     response_data: dict[str, Any] = {"payload": {}}
 
@@ -248,16 +250,17 @@ def mock_customer_io_client():
         def raise_for_status(self):
             pass
 
+    class _StubSession:
+        def get(self, *args, **kwargs):
+            return MockResponse(response_data["payload"])
+
     def set_response(payload: dict) -> None:
         response_data["payload"] = payload
 
-    def fake_get(url: str, *args, **kwargs):
-        return MockResponse(response_data["payload"])
-
     with (
         mock.patch(
-            "posthog.temporal.data_imports.sources.customer_io.api_client.requests.get",
-            side_effect=fake_get,
+            "posthog.temporal.data_imports.sources.customer_io.api_client._session",
+            return_value=_StubSession(),
         ),
         mock.patch(
             "posthog.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
