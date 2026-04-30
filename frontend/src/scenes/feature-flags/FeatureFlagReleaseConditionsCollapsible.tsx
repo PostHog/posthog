@@ -19,12 +19,12 @@ import {
     IconCollapse,
     IconCopy,
     IconExpand,
-    IconFilter,
     IconInfo,
     IconLaptop,
     IconPeople,
     IconPerson,
     IconPlus,
+    IconTarget,
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
@@ -516,7 +516,12 @@ const ConditionContent = ({
 
                                     {isTargetingV2Enabled && groupTypes.size > 0 && !isDeviceTargeting && (
                                         <div>
-                                            <LemonLabel className="mb-1">Target by</LemonLabel>
+                                            <LemonLabel
+                                                className="mb-1"
+                                                info="Pick the entity this condition matches against. Users targets individual people by their distinct ID. Each group type targets a custom group (organization, project, etc.) — every member of a matching group gets the same value, so the flag stays stable across that group's users."
+                                            >
+                                                Target by
+                                            </LemonLabel>
                                             <LemonSelect<AggregationValue>
                                                 size="small"
                                                 data-attr={`condition-set-${index}-aggregation`}
@@ -543,7 +548,7 @@ const ConditionContent = ({
                                         </div>
                                     )}
                                     <div>
-                                        <LemonLabel className="mb-1">Match filters</LemonLabel>
+                                        <LemonLabel className="mb-1">Filters</LemonLabel>
                                         <PropertyFilters
                                             orFiltering={true}
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
@@ -911,11 +916,12 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const v2MatchByOptions = [
         {
             value: 'properties',
-            icon: <IconFilter className="text-base shrink-0" />,
+            icon: <IconTarget className="text-base shrink-0" />,
             label: 'Properties',
             description: showGroupsOptions
                 ? 'Target by user or group property filters. Each condition picks its own targeting type.'
                 : 'Target by user property filters.',
+            badge: { type: 'warning' as const, text: 'BETA' },
         },
         ...(onBucketingIdentifierChange
             ? [
@@ -924,6 +930,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                       icon: <IconLaptop className="text-base shrink-0" />,
                       label: 'Device',
                       description: 'Stable assignment per device. Good fit for experiments on anonymous users.',
+                      badge: { type: 'warning' as const, text: 'BETA' },
                       learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
                   },
               ]
