@@ -4,6 +4,8 @@ import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
 
+const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
+
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
     id?: string | number
@@ -48,7 +50,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
         isInProgress && isActiveSeries ? r.data.length + (opts.incompletenessOffsetFromEnd as number) : undefined
     const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     const baseColor = opts.getColor(r, index)
-    const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
+    const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     const main: Series<M> = {
