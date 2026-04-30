@@ -29,6 +29,8 @@ export interface LogsSamplingFormType {
     rule_type: RuleTypeEnumApi
     scope_service: string
     scope_path_pattern: string
+    /** When set, path_drop patterns match only this log attribute key; empty uses default path-like keys. */
+    path_drop_match_attribute_key: string
     path_drop_patterns: string
     severity_debug: SeverityActionChoice
     severity_debug_rate: number
@@ -45,9 +47,10 @@ export interface LogsSamplingFormType {
 const DEFAULT_FORM: LogsSamplingFormType = {
     name: '',
     enabled: false,
-    rule_type: RuleTypeEnumApi.SeveritySampling,
+    rule_type: RuleTypeEnumApi.PathDrop,
     scope_service: '',
     scope_path_pattern: '',
+    path_drop_match_attribute_key: '',
     path_drop_patterns: '',
     severity_debug: 'keep',
     severity_debug_rate: 0.5,
@@ -101,6 +104,8 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
     if (rule.rule_type === RuleTypeEnumApi.PathDrop) {
         const patterns = (cfg.patterns as string[]) || []
         form.path_drop_patterns = patterns.join('\n')
+        const mak = cfg.match_attribute_key
+        form.path_drop_match_attribute_key = typeof mak === 'string' ? mak : ''
     }
     if (rule.rule_type === RuleTypeEnumApi.SeveritySampling) {
         const actionsObj = cfg.actions as Record<string, unknown> | undefined
@@ -137,7 +142,12 @@ export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<s
             .split('\n')
             .map((s) => s.trim())
             .filter(Boolean)
-        return { patterns }
+        const key = form.path_drop_match_attribute_key.trim()
+        const out: Record<string, unknown> = { patterns }
+        if (key !== '') {
+            out.match_attribute_key = key
+        }
+        return out
     }
     const always: Record<string, unknown> = {}
     const sg = form.always_keep_status_gte.trim()
@@ -190,7 +200,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             null as { estimated_reduction_pct: number; notes: string } | null,
             {
                 runSimulateNow: async () => {
-                    if (!props.rule?.id) {
+                    if (!props.rule?.id || props.rule.rule_type === RuleTypeEnumApi.SeveritySampling) {
                         return null
                     }
                     const projectId = String(values.currentTeamId)
@@ -222,12 +232,20 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
     })),
 
     selectors({
-        canSimulate: [() => [(_, props) => props.rule], (rule: LogsSamplingRuleApi | null) => Boolean(rule?.id)],
+        canSimulate: [
+            () => [(_, props) => props.rule],
+            (rule: LogsSamplingRuleApi | null) =>
+                Boolean(rule?.id) && rule?.rule_type !== RuleTypeEnumApi.SeveritySampling,
+        ],
+        isLegacySeverityRule: [
+            () => [(_, props) => props.rule],
+            (rule: LogsSamplingRuleApi | null) => rule?.rule_type === RuleTypeEnumApi.SeveritySampling,
+        ],
     }),
 
     afterMount(({ actions, props }) => {
         actions.resetSamplingForm(buildSamplingFormDefaults(props.rule))
-        if (props.rule?.id) {
+        if (props.rule?.id && props.rule.rule_type !== RuleTypeEnumApi.SeveritySampling) {
             actions.scheduleSimulate()
         }
     }),
@@ -240,25 +258,39 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             }),
             submit: async (form) => {
                 const projectId = String(values.currentTeamId)
-                const scope_service = form.scope_service.trim() || null
-                const scope_path_pattern = form.scope_path_pattern.trim() || null
-                const payload = {
-                    name: form.name.trim(),
-                    enabled: form.enabled,
-                    rule_type: form.rule_type,
-                    scope_service,
-                    scope_path_pattern,
-                    scope_attribute_filters: [] as unknown[],
-                    config: buildSamplingConfigPayload(form),
-                }
                 try {
+                    if (props.rule?.rule_type === RuleTypeEnumApi.SeveritySampling) {
+                        const patch: PatchedLogsSamplingRuleApi = {
+                            name: form.name.trim(),
+                            enabled: form.enabled,
+                            rule_type: props.rule.rule_type,
+                            scope_service: props.rule.scope_service ?? null,
+                            scope_path_pattern: props.rule.scope_path_pattern ?? null,
+                            scope_attribute_filters: (props.rule.scope_attribute_filters ?? []) as unknown[],
+                            config: (props.rule.config ?? {}) as Record<string, unknown>,
+                        }
+                        await logsSamplingRulesPartialUpdate(projectId, props.rule.id, patch)
+                        lemonToast.success('Drop rule updated')
+                        return
+                    }
+                    const scope_service = form.scope_service.trim() || null
+                    const scope_path_pattern = form.scope_path_pattern.trim() || null
+                    const payload = {
+                        name: form.name.trim(),
+                        enabled: form.enabled,
+                        rule_type: form.rule_type,
+                        scope_service,
+                        scope_path_pattern,
+                        scope_attribute_filters: [] as unknown[],
+                        config: buildSamplingConfigPayload(form),
+                    }
                     if (props.rule) {
                         const patch: PatchedLogsSamplingRuleApi = payload
                         await logsSamplingRulesPartialUpdate(projectId, props.rule.id, patch)
-                        lemonToast.success('Sampling rule updated')
+                        lemonToast.success('Drop rule updated')
                     } else {
                         const created = await logsSamplingRulesCreate(projectId, payload as never)
-                        lemonToast.success('Sampling rule created')
+                        lemonToast.success('Drop rule created')
                         router.actions.push(urls.logsSamplingDetail(created.id))
                     }
                 } catch (e: any) {
