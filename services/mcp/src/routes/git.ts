@@ -22,6 +22,7 @@ import { type FileTree, GitRepoCache, handleInfoRefs, handleUploadPack } from '@
 import type { RequestLogger } from '@/lib/logging'
 import {
     type BundleEntry,
+    type RecommendSkill,
     type SkillEntry,
     buildBundlePluginFiles,
     buildCorePluginFiles,
@@ -39,6 +40,7 @@ const repoCache = new GitRepoCache()
 let cachedArchive: Unzipped | null = null
 let cachedSkills: SkillEntry[] | null = null
 let cachedBundles: BundleEntry[] | null = null
+let cachedRecommendSkill: RecommendSkill | null = null
 let cachedMarketplaceJson: string | null = null
 
 async function getArchive(env?: Record<string, string | undefined>): Promise<Unzipped> {
@@ -70,12 +72,14 @@ function getSkills(archive: Unzipped): SkillEntry[] {
     return cachedSkills
 }
 
-function getBundles(archive: Unzipped): BundleEntry[] {
+function getBundlesAndRecommendSkill(archive: Unzipped): { bundles: BundleEntry[]; recommendSkill: RecommendSkill | null } {
     if (cachedBundles) {
-        return cachedBundles
+        return { bundles: cachedBundles, recommendSkill: cachedRecommendSkill }
     }
-    cachedBundles = extractBundlesFromArchive(archive)
-    return cachedBundles
+    const result = extractBundlesFromArchive(archive)
+    cachedBundles = result.bundles
+    cachedRecommendSkill = result.recommendSkill
+    return result
 }
 
 function deriveAnonymousId(request: Request): string {
@@ -154,7 +158,7 @@ export async function handleGitRequest(
     if (url.pathname === '/marketplace.json' && request.method === 'GET') {
         log.extend({ route: 'marketplace.json' })
         const archive = await getArchive(env as unknown as Record<string, string | undefined>)
-        const bundles = getBundles(archive)
+        const { bundles } = getBundlesAndRecommendSkill(archive)
 
         if (!cachedMarketplaceJson) {
             cachedMarketplaceJson = buildMarketplaceJson(bundles, baseUrl)
@@ -228,18 +232,17 @@ export async function handleGitRequest(
     let files: FileTree
     let cacheKey: string
 
+    const { bundles, recommendSkill } = getBundlesAndRecommendSkill(archive)
+
     if (pluginType === 'marketplace') {
-        const bundles = getBundles(archive)
         const marketplaceContent = buildMarketplaceJson(bundles, baseUrl)
         files = { '.claude-plugin/marketplace.json': marketplaceContent }
         cacheKey = 'marketplace'
     } else if (pluginType === 'core') {
         const version = skills[0]?.version ?? '0.0.0'
-        const bundles = getBundles(archive)
-        files = buildCorePluginFiles(version, bundles)
+        files = buildCorePluginFiles(version, recommendSkill)
         cacheKey = 'core'
     } else if (pluginType === 'bundle') {
-        const bundles = getBundles(archive)
         const bundle = bundles.find((b) => b.name === itemName)
         if (!bundle) {
             return new Response('Unknown bundle', { status: 404 })
@@ -266,7 +269,6 @@ export async function handleGitRequest(
     // Bare path — Claude Code probes the URL before cloning
     if (gitAction === '' && request.method === 'GET') {
         if (pluginType === 'marketplace') {
-            const bundles = getBundles(archive)
             const content = buildMarketplaceJson(bundles, baseUrl)
             return new Response(content, {
                 headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' },
