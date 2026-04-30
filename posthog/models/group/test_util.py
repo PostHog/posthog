@@ -9,7 +9,8 @@ from parameterized import parameterized
 
 from posthog.models.group.util import get_group_by_key, get_groups_by_identifiers, get_groups_by_type_indices
 
-# Patch targets for lazy imports inside the functions
+# Patched at source because util.py uses lazy `from X import Y` inside each function body —
+# there is no module-level binding on util to patch. If these move to top-level imports, patch at call site instead.
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 _CONVERTER_PATCH = "posthog.personhog_client.converters.proto_group_to_model"
 _ROUTING_TOTAL_PATCH = "posthog.models.group.util.PERSONHOG_ROUTING_TOTAL"
