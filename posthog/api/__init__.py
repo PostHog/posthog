@@ -94,6 +94,7 @@ from products.llm_analytics.backend.api import (
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
+    TaggerViewSet,
     TraceReviewViewSet,
 )
 from products.llm_analytics.backend.api.skills import LLMSkillViewSet
@@ -1332,6 +1333,13 @@ environments_router.register(
     r"evaluations",
     EvaluationViewSet,
     "environment_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"taggers",
+    TaggerViewSet,
+    "environment_taggers",
     ["team_id"],
 )
 

@@ -42,17 +42,17 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(Node.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join
     # CohortPeople is in persons_db, Cohort is in default db
     cohort_ids = list(Cohort.objects.filter(team_id__in=team_ids).values_list("id", flat=True))
-    _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))
+    _raw_delete(CohortPeople.objects.filter(cohort_id__in=cohort_ids))  # nosemgrep: no-direct-persons-db-orm
 
-    _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
-    _raw_delete(Group.objects.filter(team_id__in=team_ids))
-    _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))
+    _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
+    _raw_delete(Group.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
+    _raw_delete(GroupTypeMapping.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
 
     # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
     # Falls back to ORM batch deletion when personhog is not available.
@@ -98,8 +98,8 @@ def _delete_persons_for_team_via_personhog(team_id: int) -> None:
 def _delete_persons_for_team_via_orm(team_id: int) -> None:
     from posthog.models.person import Person, PersonDistinctId
 
-    _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))
-    _raw_delete_batch(Person.objects.filter(team_id=team_id))
+    _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
+    _raw_delete_batch(Person.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
 
 
 def _raw_delete(queryset: Any):

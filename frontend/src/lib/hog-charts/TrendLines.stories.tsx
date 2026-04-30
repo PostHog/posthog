@@ -1,22 +1,16 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { buildTheme } from 'lib/charts/utils/theme'
 import { LineChart } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
 import { trendLine } from 'lib/statistics'
+
+import { Stage, useReactiveTheme } from './story-helpers'
 
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const CONFIG: LineChartConfig = {
     showGrid: true,
     showCrosshair: false,
-}
-
-function Stage({ children }: { children: React.ReactNode }): JSX.Element {
-    return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 280, width: 480, display: 'flex', flexDirection: 'column' }}>{children}</div>
-    )
 }
 
 function trendLineOverlay(parent: Series, fitUpTo?: number): Series {
@@ -41,11 +35,11 @@ type Story = StoryObj<{}>
 
 export const WithTrendLine: Story = {
     render: () => {
-        const theme = buildTheme()
+        const theme = useReactiveTheme()
         const base: Series = {
             key: 'visits',
             label: 'Visits',
-            color: 'var(--brand-blue)',
+            color: theme.colors[0],
             data: [20, 35, 28, 60, 45, 70, 52],
             points: { radius: 3 },
         }
@@ -60,18 +54,18 @@ export const WithTrendLine: Story = {
 
 export const MultiSeriesWithTrendLines: Story = {
     render: () => {
-        const theme = buildTheme()
+        const theme = useReactiveTheme()
         const visits: Series = {
             key: 'visits',
             label: 'Visits',
-            color: 'var(--brand-blue)',
+            color: theme.colors[0],
             data: [40, 42, 44, 43, 55, 57, 66],
             points: { radius: 3 },
         }
         const signups: Series = {
             key: 'signups',
             label: 'Signups',
-            color: 'var(--brand-red)',
+            color: theme.colors[1],
             data: [38, 36, 30, 32, 28, 22, 18],
             points: { radius: 3 },
         }
@@ -86,7 +80,7 @@ export const MultiSeriesWithTrendLines: Story = {
 
 export const TrendLineWithIncompletePeriod: Story = {
     render: () => {
-        const theme = buildTheme()
+        const theme = useReactiveTheme()
         // First 5 buckets show a steady climb (fit target); last 2 are artificially low
         // because the period is still in progress — they'd pull the slope down if included.
         const data = [20, 25, 35, 40, 50, 15, 8]
@@ -95,7 +89,7 @@ export const TrendLineWithIncompletePeriod: Story = {
         const base: Series = {
             key: 'visits',
             label: 'Visits',
-            color: 'var(--brand-blue)',
+            color: theme.colors[0],
             data,
             points: { radius: 3 },
             stroke: { partial: { fromIndex } },

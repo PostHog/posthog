@@ -123,6 +123,11 @@ class ExperimentQueryRunner(QueryRunner):
         # Check if this is a data warehouse query
         if isinstance(self.query.metric, ExperimentMeanMetric):
             self.is_data_warehouse_query = self.query.metric.source.kind == "ExperimentDataWarehouseNode"
+        elif isinstance(self.query.metric, ExperimentFunnelMetric):
+            # For funnel metrics, check if any step uses data warehouse
+            self.is_data_warehouse_query = any(
+                isinstance(step, ExperimentDataWarehouseNode) for step in self.query.metric.series
+            )
         elif isinstance(self.query.metric, ExperimentRatioMetric):
             # For ratio metrics, check if either numerator or denominator uses data warehouse
             numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
@@ -133,8 +138,6 @@ class ExperimentQueryRunner(QueryRunner):
             start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
             completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = start_is_dw or completion_is_dw
-        else:
-            self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
@@ -297,11 +300,15 @@ class ExperimentQueryRunner(QueryRunner):
             except Exception:
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
-            # Precompute metric events for ordered funnel metrics
+            # Precompute metric events for ordered funnel metrics. CUPED extends the
+            # funnel scan back by `lookback_days` to source the pre-exposure covariate;
+            # the precomputed metric_events table only covers the experiment window, so
+            # skip precomputation here and let the builder issue a fresh scan.
             if (
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
+                and not self.cuped_config.enabled
             ):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)

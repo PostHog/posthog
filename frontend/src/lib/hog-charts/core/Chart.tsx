@@ -2,16 +2,16 @@ import * as d3 from 'd3'
 import React, { useCallback, useMemo, useRef } from 'react'
 
 import { AxisLabels, measureLabelWidth } from '../overlays/AxisLabels'
-import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
+import { drawCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
-import { autoFormatYTick } from './scales'
+import { autoFormatYTick, seriesValueRange } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
 import type {
     ChartConfig,
@@ -45,7 +45,10 @@ export interface ChartProps<Meta = unknown> {
     config?: ChartConfig
     theme: ChartTheme
     createScales: CreateScalesFn
-    draw: (args: ChartDrawArgs) => void
+    /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
+    drawStatic: (args: ChartDrawArgs) => void
+    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. */
+    drawHover: (args: ChartDrawArgs) => void
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -62,7 +65,8 @@ export function Chart<Meta = unknown>({
     config,
     theme,
     createScales: createScalesFn,
-    draw,
+    drawStatic,
+    drawHover,
     tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
@@ -94,26 +98,17 @@ export function Chart<Meta = unknown>({
         if (hideYAxis) {
             return 0
         }
-        const allValues = series
-            .filter((s) => !s.visibility?.excluded)
-            .flatMap((s) => s.data)
-            .filter((v) => v != null && isFinite(v))
-        if (allValues.length === 0) {
+        const range = seriesValueRange(series)
+        if (range.count === 0) {
             return 0
         }
-        let min = Math.min(...allValues)
-        let max = Math.max(...allValues)
-        if (min > 0) {
-            min = 0
-        }
-        if (max < 0) {
-            max = 0
-        }
+        const min = range.min > 0 ? 0 : range.min
+        const max = range.max < 0 ? 0 : range.max
         const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
         if (ticks.length === 0) {
             return 0
         }
-        const domainMax = Math.abs(Math.max(...ticks))
+        const domainMax = Math.max(...ticks.map((t) => Math.abs(t)))
         const formatter = yTickFormatter ?? ((v: number) => autoFormatYTick(v, domainMax))
         let widest = 0
         for (const t of ticks) {
@@ -155,7 +150,7 @@ export function Chart<Meta = unknown>({
         return m
     }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
 
-    const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
     const coloredSeries = useMemo(
         () =>
@@ -208,15 +203,34 @@ export function Chart<Meta = unknown>({
         resolveValue,
     })
 
+    // Compose the chart-type's drawHover with a crosshair pass so per-mousemove
+    // hover indication stays entirely on the canvas — DOM-based overlays would
+    // force per-event style invalidation/layout that scales badly with chart
+    // content size. Crosshair drawn first so highlight rings render on top.
+    const composedDrawHover = useCallback(
+        (args: ChartDrawArgs) => {
+            if (showCrosshair && theme.crosshairColor && args.hoverIndex >= 0) {
+                const x = args.scales.x(args.labels[args.hoverIndex])
+                if (x != null && isFinite(x)) {
+                    drawCrosshair(args.ctx, args.dimensions, x, theme.crosshairColor)
+                }
+            }
+            drawHover(args)
+        },
+        [drawHover, showCrosshair, theme.crosshairColor]
+    )
+
     useChartDraw({
         ctx,
+        overlayCtx,
         dimensions,
         scales,
         series: coloredSeries,
         labels,
         hoverIndex,
         theme,
-        draw,
+        drawStatic,
+        drawHover: composedDrawHover,
     })
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
@@ -287,6 +301,16 @@ export function Chart<Meta = unknown>({
                                 cursor: cursorStyle,
                             }}
                         />
+                        <canvas
+                            ref={overlayCanvasRef}
+                            aria-hidden="true"
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                pointerEvents: 'none',
+                            }}
+                        />
 
                         {dimensions && scales && (
                             <OverlayLayer>
@@ -298,8 +322,6 @@ export function Chart<Meta = unknown>({
                                     hideYAxis={hideYAxis}
                                     axisColor={theme.axisColor}
                                 />
-
-                                {showCrosshair && <Crosshair color={theme.crosshairColor} />}
 
                                 {children}
 

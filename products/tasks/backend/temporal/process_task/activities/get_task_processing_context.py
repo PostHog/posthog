@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import close_old_connections
 
 import posthoganalytics
 from temporalio import activity
@@ -12,6 +14,11 @@ from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
+
+
+def close_old_database_connections() -> None:
+    if not settings.TEST:
+        close_old_connections()
 
 
 @dataclass
@@ -35,6 +42,8 @@ class TaskProcessingContext:
     github_integration_id: int | None
     repository: str | None
     distinct_id: str
+    origin_product: str | None = None
+    environment: str | None = None
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
@@ -78,6 +87,11 @@ class TaskProcessingContext:
         value = (self.state or {}).get("reasoning_effort")
         return value if isinstance(value, str) else None
 
+    @property
+    def run_source(self) -> str | None:
+        value = (self.state or {}).get("run_source")
+        return value if isinstance(value, str) else None
+
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
         sandbox_environment_id = self.sandbox_environment_id
@@ -104,8 +118,11 @@ class TaskProcessingContext:
             "run_id": self.run_id,
             "team_id": self.team_id,
             "repository": self.repository,
+            "origin_product": self.origin_product,
+            "environment": self.environment,
             "distinct_id": self.distinct_id,
             "mode": self.mode,
+            "run_source": self.run_source,
             "sandbox_environment_id": self.sandbox_environment_id,
             "runtime_adapter": self.runtime_adapter,
             "provider": self.provider,
@@ -120,6 +137,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     """Fetch task details and create the processing context for the workflow."""
     run_id = input.run_id
     log_with_activity_context("Fetching task processing context", run_id=run_id)
+    close_old_database_connections()
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
@@ -182,6 +200,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         team_id=task.team_id,
         repository=task.repository,
+        origin_product=task.origin_product,
+        environment=task_run.environment,
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
@@ -204,6 +224,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         github_integration_id=task.github_integration_id,
         repository=task.repository,
         distinct_id=distinct_id,
+        origin_product=task.origin_product,
+        environment=task_run.environment,
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,

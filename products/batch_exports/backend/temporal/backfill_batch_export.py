@@ -24,7 +24,11 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseMemoryLimitExceededError,
+    ClickHouseTooManyBytesError,
+    get_client,
+)
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -531,9 +535,9 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 total_records_count=None,
                 interval_seconds=interval_seconds,
             )
-    except ClickHouseMemoryLimitExceededError:
+    except (ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError):
         logger.warning(
-            "Backfill estimation query exceeded memory limit, proceeding without estimate",
+            "Backfill estimation query exceeded resource limits, proceeding without estimate",
             model=model,
         )
         return GetBackfillInfoOutputs(
