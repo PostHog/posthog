@@ -1,4 +1,5 @@
 import os
+import time
 import subprocess
 from urllib.parse import quote_plus
 
@@ -12,6 +13,14 @@ from django.db import connections
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+
+# Per-migration timings captured via monkey-patch of MigrationExecutor.apply_migration.
+# Populated only when Django actually runs migrations (i.e. without --reuse-db, or when
+# the test database is missing/stale). Reported in pytest_terminal_summary.
+_MIGRATION_TIMINGS: list[tuple[str, float]] = []
+# Accumulated wrapper setup/teardown seconds across all package activations.
+_DB_SETUP_TIMINGS: dict[str, float] = {"wrapper_setup_seconds": 0.0, "wrapper_teardown_seconds": 0.0}
+_DB_SETUP_INVOCATIONS: dict[str, int] = {"setup": 0, "teardown": 0}
 
 
 def create_clickhouse_tables():
@@ -328,7 +337,23 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
-    yield from _django_db_setup(django_db_keepdb, django_db_blocker)
+    # The inner `django_db_setup` parameter (pytest-django's session-scoped fixture)
+    # has already run Django's `migrate` by the time we get here. Per-migration
+    # timings landed in _MIGRATION_TIMINGS via the monkey-patch in pytest_configure.
+    # Time the wrapper itself (clickhouse tables + sqlx persons migrations + drops).
+    setup_start = time.perf_counter()
+    gen = _django_db_setup(django_db_keepdb, django_db_blocker)
+    next(gen)
+    _DB_SETUP_TIMINGS["wrapper_setup_seconds"] += time.perf_counter() - setup_start
+    _DB_SETUP_INVOCATIONS["setup"] += 1
+    try:
+        yield
+    finally:
+        teardown_start = time.perf_counter()
+        for _ in gen:
+            pass
+        _DB_SETUP_TIMINGS["wrapper_teardown_seconds"] += time.perf_counter() - teardown_start
+        _DB_SETUP_INVOCATIONS["teardown"] += 1
 
 
 @pytest.fixture(autouse=True)
@@ -445,6 +470,64 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+    # Monkey-patch MigrationExecutor.apply_migration to record per-migration timings.
+    # Surfaces "what's slow in Django migrations?" in pytest_terminal_summary, instead
+    # of letting the cost hide inside the first test's setup phase.
+    from django.db.migrations.executor import MigrationExecutor
+
+    if not getattr(MigrationExecutor, "_posthog_timing_patched", False):
+        original_apply = MigrationExecutor.apply_migration
+
+        def timed_apply_migration(self, state, migration, *args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return original_apply(self, state, migration, *args, **kwargs)
+            finally:
+                _MIGRATION_TIMINGS.append((str(migration), time.perf_counter() - start))
+
+        MigrationExecutor.apply_migration = timed_apply_migration
+        MigrationExecutor._posthog_timing_patched = True
+
+
+def pytest_collection_modifyitems(config, items):
+    """Run the db-setup-timing sentinel first so the package-scoped django_db_setup
+    fixture's cost is attributed to it (and visible in --durations) rather than to
+    whichever test happened to be collected first."""
+    sentinel_idx = next(
+        (i for i, item in enumerate(items) if "db_setup_timing" in item.keywords),
+        None,
+    )
+    if sentinel_idx is not None and sentinel_idx != 0:
+        items.insert(0, items.pop(sentinel_idx))
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print db-setup timing details so they don't hide inside the first test's setup."""
+    if not _MIGRATION_TIMINGS and not _DB_SETUP_TIMINGS:
+        return
+
+    tr = terminalreporter
+
+    if _MIGRATION_TIMINGS:
+        total = sum(d for _, d in _MIGRATION_TIMINGS)
+        tr.write_sep("=", f"django migrations: {len(_MIGRATION_TIMINGS)} applied in {total:.2f}s", bold=True)
+        slowest = sorted(_MIGRATION_TIMINGS, key=lambda x: -x[1])[:25]
+        for name, dur in slowest:
+            tr.write_line(f"  {dur:7.3f}s  {name}")
+        if len(_MIGRATION_TIMINGS) > len(slowest):
+            tr.write_line(f"  ... ({len(_MIGRATION_TIMINGS) - len(slowest)} faster migrations not shown)")
+
+    if any(_DB_SETUP_TIMINGS.values()):
+        tr.write_sep("=", "db setup wrapper (clickhouse + sqlx persons)", bold=True)
+        tr.write_line(
+            f"  {_DB_SETUP_TIMINGS['wrapper_setup_seconds']:7.3f}s  setup    "
+            f"({_DB_SETUP_INVOCATIONS['setup']} package activation(s))"
+        )
+        tr.write_line(
+            f"  {_DB_SETUP_TIMINGS['wrapper_teardown_seconds']:7.3f}s  teardown "
+            f"({_DB_SETUP_INVOCATIONS['teardown']} package activation(s))"
+        )
 
 
 def _runs_on_internal_pr() -> bool:
