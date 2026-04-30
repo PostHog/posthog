@@ -1,10 +1,10 @@
 use super::*;
 use clickhouse_types::{Column, DataTypeNode};
 
-use crate::codec::chunk::write_chunk_header;
-use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
-use crate::io::propval::read_propval;
-use crate::types::BreakdownShape;
+use funnels::codec::chunk::write_chunk_header;
+use funnels::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
+use funnels::io::propval::read_propval;
+use funnels::types::{BreakdownShape, Bytes, PropVal};
 use std::io::Cursor;
 use uuid::Uuid;
 
@@ -81,7 +81,7 @@ fn rowbinary_steps_round_trip_strict_wire() {
     let mut out = out_bytes.as_slice();
 
     // send_chunk_header is input-only; output is plain RBWNAT.
-    let out_cols = crate::codec::header::read_block_header(&mut out).unwrap();
+    let out_cols = funnels::codec::header::read_block_header(&mut out).unwrap();
     assert_eq!(out_cols.len(), 1);
     assert_eq!(out_cols[0].name, "result");
 

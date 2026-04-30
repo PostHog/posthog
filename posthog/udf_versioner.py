@@ -9,7 +9,7 @@ from xml.etree.ElementTree import Comment
 
 import defusedxml.ElementTree as ET
 
-UDF_VERSION = 12  # Last modified by: @aspicer, 2026-04-20 (RowBinary default, JSON retained as _json mirrors)
+UDF_VERSION = 13  # Last modified by: @aspicer, 2026-04-30 (RowBinary chunk-buffered output to recover trends p99)
 
 # Clean up all versions less than this
 EARLIEST_UDF_VERSION = 11

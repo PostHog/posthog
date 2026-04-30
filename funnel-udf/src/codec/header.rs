@@ -5,6 +5,31 @@ use clickhouse_types::{Column, DataTypeNode};
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
 
+// Skips a block header off the wire without allocating Strings or building
+// `DataTypeNode` trees. The columns sent in every chunk in an executable_pool
+// process are identical (ClickHouse's schema for a given UDF is fixed for the
+// lifetime of the process), so after the first chunk we cache the parsed
+// columns and use this skipper for the rest. Eliminates ~8 String/Replace/
+// DataTypeNode::new per chunk — the dominant per-call overhead at the
+// production tiny-call shape.
+//
+// Uses a stack scratch buffer so typical short names/types skip with zero
+// heap allocation. Falls back to a heap Vec for unusually long type strings.
+pub fn skip_block_header<R: RowBinaryRead + ?Sized>(r: &mut R) -> CodecResult<()> {
+    let n = r.read_varint()? as usize;
+    let mut scratch = [0u8; 256];
+    for _ in 0..(2 * n) {
+        let len = r.read_varint()? as usize;
+        if len <= scratch.len() {
+            r.read_exact(&mut scratch[..len])?;
+        } else {
+            let mut big = vec![0u8; len];
+            r.read_exact(&mut big)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn read_block_header<R: RowBinaryRead + ?Sized>(r: &mut R) -> CodecResult<Vec<Column>> {
     let n = r.read_varint()? as usize;
     let mut names = Vec::with_capacity(n);

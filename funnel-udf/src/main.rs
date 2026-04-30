@@ -1,24 +1,14 @@
 #![allow(unstable_name_collisions)]
 
-mod codec;
-mod io;
-mod parsing;
-mod steps;
-mod trends;
-mod types;
-mod unordered_steps;
-mod unordered_trends;
-
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::ExitCode;
 
-pub use types::{Bytes, PropVal};
-
-use crate::codec::chunk::read_chunk_header;
-use crate::codec::header::{read_block_header, write_block_header};
-use crate::codec::CodecResult;
-use crate::types::BreakdownShape;
+use funnels::codec::chunk::read_chunk_header;
+use funnels::codec::header::{read_block_header, skip_block_header, write_block_header};
+use funnels::codec::CodecResult;
+use funnels::types::BreakdownShape;
+use funnels::{io, steps, trends};
 
 #[derive(Clone, Copy, Debug)]
 enum Mode {
@@ -30,6 +20,12 @@ enum Mode {
 enum Format {
     Json,
     RowBinary,
+    // Experimental: RowBinary WITHOUT the per-chunk RBWNAT block header on
+    // either side. Used by the bench harness to measure how much remaining
+    // per-call overhead lives in the (already-cached) header read+write vs
+    // everything else. Not wired up to the deployed XML — this is a
+    // measurement-only mode.
+    RawRowBinary,
 }
 
 struct Cli {
@@ -60,6 +56,7 @@ fn parse_cli(argv: &[String]) -> std::result::Result<Cli, String> {
             "trends" => mode = Some(Mode::Trends),
             "--json" => format = Format::Json,
             "--rowbinary" => format = Format::RowBinary,
+            "--raw-rowbinary" => format = Format::RawRowBinary,
             _ if s.starts_with("--variant=") => {
                 shape = Some(match &s["--variant=".len()..] {
                     "plain" => BreakdownShape::NullableString,
@@ -100,6 +97,17 @@ fn run_rowbinary<R: BufRead, W: Write>(
     mode: Mode,
     shape: BreakdownShape,
 ) -> CodecResult<()> {
+    // Cache the parsed input columns from the first chunk's header. ClickHouse
+    // sends the same RBWNAT block header on every chunk in an executable_pool
+    // process (the schema for a given UDF doesn't vary across calls), so after
+    // the first parse we skip-read the bytes on subsequent calls — saving ~8
+    // String allocations + ~8 DataTypeNode tree builds per chunk. The output
+    // header is rebuilt per chunk (same as v12) — caching it caused a small
+    // but consistent regression at very large chunk sizes for reasons we
+    // didn't fully isolate (likely BufWriter state interaction with the
+    // ordering change). Input caching is the bigger win anyway.
+    let mut cached_columns: Option<Vec<clickhouse_types::Column>> = None;
+
     // One loop iteration per UDF invocation. executable_pool keeps us alive
     // across invocations to skip fork/exec; each invocation's input/output is
     // self-contained (own `N\n` chunk header, own RBWNAT block header + rows).
@@ -108,13 +116,18 @@ fn run_rowbinary<R: BufRead, W: Write>(
             Some(n) => n,
             None => return Ok(()),
         };
-        let columns = read_block_header(reader)?;
+        if cached_columns.is_none() {
+            cached_columns = Some(read_block_header(reader)?);
+        } else {
+            skip_block_header(reader)?;
+        }
+        let columns: &[clickhouse_types::Column] = cached_columns.as_deref().unwrap();
 
         match mode {
             Mode::Steps => {
                 let mut results = Vec::with_capacity(n as usize);
                 for _ in 0..n {
-                    let args = io::steps_io::read_args(reader, shape, &columns)?;
+                    let args = io::steps_io::read_args(reader, shape, columns)?;
                     results.push(steps::run(&args));
                 }
                 let out_cols = io::steps_io::output_columns(shape);
@@ -126,7 +139,7 @@ fn run_rowbinary<R: BufRead, W: Write>(
             Mode::Trends => {
                 let mut results = Vec::with_capacity(n as usize);
                 for _ in 0..n {
-                    let args = io::trends_io::read_args(reader, shape, &columns)?;
+                    let args = io::trends_io::read_args(reader, shape, columns)?;
                     results.push(trends::run(&args));
                 }
                 let out_cols = io::trends_io::output_columns(shape);
@@ -138,6 +151,118 @@ fn run_rowbinary<R: BufRead, W: Write>(
         }
         writer.flush()?;
     }
+}
+
+// Experimental: RowBinary minus the per-chunk RBWNAT block headers entirely.
+// The schema is fixed by the variant CLI arg, so we synthesize the input
+// columns once at startup; output is just rows back-to-back. Bench-only —
+// the deployed XML still uses RowBinaryWithNamesAndTypes.
+fn run_raw_rowbinary<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    mode: Mode,
+    shape: BreakdownShape,
+) -> CodecResult<()> {
+    let mut out_buf: Vec<u8> = Vec::with_capacity(64 * 1024);
+
+    // Synthesize columns once (mirrors what read_block_header would have
+    // produced from the wire). Used by the existing read_args paths so we
+    // don't have to fork the parsers.
+    let columns = match mode {
+        Mode::Steps => synth_steps_columns(shape),
+        Mode::Trends => synth_trends_columns(shape),
+    };
+
+    loop {
+        let n = match read_chunk_header(reader)? {
+            Some(n) => n,
+            None => return Ok(()),
+        };
+
+        out_buf.clear();
+        match mode {
+            Mode::Steps => {
+                let mut results = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    let args = io::steps_io::read_args(reader, shape, &columns)?;
+                    results.push(steps::run(&args));
+                }
+                for r in &results {
+                    io::steps_io::write_results(&mut out_buf, r, shape)?;
+                }
+            }
+            Mode::Trends => {
+                let mut results = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    let args = io::trends_io::read_args(reader, shape, &columns)?;
+                    results.push(trends::run(&args));
+                }
+                for r in &results {
+                    io::trends_io::write_results(&mut out_buf, r, shape)?;
+                }
+            }
+        }
+        writer.write_all(&out_buf)?;
+        writer.flush()?;
+    }
+}
+
+fn shape_input_type(shape: BreakdownShape) -> clickhouse_types::DataTypeNode {
+    use clickhouse_types::DataTypeNode;
+    match shape {
+        BreakdownShape::NullableString => DataTypeNode::Nullable(Box::new(DataTypeNode::String)),
+        BreakdownShape::ArrayString => DataTypeNode::Array(Box::new(DataTypeNode::String)),
+        BreakdownShape::U64 => DataTypeNode::UInt64,
+    }
+}
+
+fn synth_steps_columns(shape: BreakdownShape) -> Vec<clickhouse_types::Column> {
+    use clickhouse_types::{Column, DataTypeNode};
+    let bd = shape_input_type(shape);
+    vec![
+        Column::new("num_steps".into(), DataTypeNode::UInt8),
+        Column::new("conversion_window_limit".into(), DataTypeNode::UInt64),
+        Column::new("breakdown_attribution_type".into(), DataTypeNode::String),
+        Column::new("funnel_order_type".into(), DataTypeNode::String),
+        Column::new("prop_vals".into(), DataTypeNode::Array(Box::new(bd.clone()))),
+        Column::new(
+            "optional_steps".into(),
+            DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
+        ),
+        Column::new(
+            "value".into(),
+            DataTypeNode::Array(Box::new(DataTypeNode::Tuple(vec![
+                DataTypeNode::Nullable(Box::new(DataTypeNode::Float64)),
+                DataTypeNode::UUID,
+                bd,
+                DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
+            ]))),
+        ),
+    ]
+}
+
+fn synth_trends_columns(shape: BreakdownShape) -> Vec<clickhouse_types::Column> {
+    use clickhouse_types::{Column, DataTypeNode};
+    let bd = shape_input_type(shape);
+    vec![
+        Column::new("from_step".into(), DataTypeNode::UInt8),
+        Column::new("to_step".into(), DataTypeNode::UInt8),
+        Column::new("num_steps".into(), DataTypeNode::UInt8),
+        Column::new("conversion_window_limit".into(), DataTypeNode::UInt64),
+        Column::new("breakdown_attribution_type".into(), DataTypeNode::String),
+        Column::new("funnel_order_type".into(), DataTypeNode::String),
+        Column::new("prop_vals".into(), DataTypeNode::Array(Box::new(bd.clone()))),
+        Column::new(
+            "value".into(),
+            DataTypeNode::Array(Box::new(DataTypeNode::Tuple(vec![
+                DataTypeNode::Nullable(Box::new(DataTypeNode::Float64)),
+                DataTypeNode::UInt64,
+                DataTypeNode::UUID,
+                bd,
+                DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
+            ]))),
+        ),
+    ]
 }
 
 fn main() -> ExitCode {
@@ -164,6 +289,8 @@ fn main() -> ExitCode {
         Format::RowBinary => {
             run_rowbinary(&mut reader, &mut writer, cli.mode, cli.shape).map_err(Into::into)
         }
+        Format::RawRowBinary => run_raw_rowbinary(&mut reader, &mut writer, cli.mode, cli.shape)
+            .map_err(Into::into),
     };
 
     match result {

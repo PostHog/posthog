@@ -8,24 +8,29 @@ const VARINT_MAX_BYTES: usize = 10;
 
 pub trait RowBinaryRead: Read {
     /// Reads `N` bytes — the caller decodes them with the right `from_le_bytes`.
+    #[inline]
     fn read_le<const N: usize>(&mut self) -> CodecResult<[u8; N]> {
         let mut b = [0u8; N];
         self.read_exact(&mut b)?;
         Ok(b)
     }
 
+    #[inline]
     fn read_u8(&mut self) -> CodecResult<u8> {
         Ok(self.read_le::<1>()?[0])
     }
 
+    #[inline]
     fn read_u64_le(&mut self) -> CodecResult<u64> {
         Ok(u64::from_le_bytes(self.read_le()?))
     }
 
+    #[inline]
     fn read_f64_le(&mut self) -> CodecResult<f64> {
         Ok(f64::from_le_bytes(self.read_le()?))
     }
 
+    #[inline]
     fn read_varint(&mut self) -> CodecResult<u64> {
         let mut acc: u64 = 0;
         for i in 0..VARINT_MAX_BYTES {
@@ -43,6 +48,7 @@ pub trait RowBinaryRead: Read {
     // ClickHouse `String` is byte-typed: user-data fields (breakdown keys, event
     // properties) can hold arbitrary bytes. Protocol fields go through from_utf8_lossy
     // at the call site — never enforce UTF-8 here.
+    #[inline]
     fn read_bytes(&mut self) -> CodecResult<Vec<u8>> {
         let len = self.read_varint()? as usize;
         let mut buf = vec![0u8; len];
@@ -52,13 +58,16 @@ pub trait RowBinaryRead: Read {
 
     // ClickHouse writes UUID as two little-endian u64s (high half then low half),
     // not the RFC 4122 big-endian byte order that `uuid::Uuid` uses.
+    #[inline]
     fn read_uuid(&mut self) -> CodecResult<Uuid> {
         let hi = self.read_u64_le()?;
         let lo = self.read_u64_le()?;
         Ok(Uuid::from_u64_pair(hi, lo))
     }
 
-    #[cfg(test)]
+    // Mirrors `write_array` and is used by tests and the bench harness to
+    // decode a chunk's output for verification.
+    #[inline]
     fn read_array<T, F>(&mut self, mut inner: F) -> CodecResult<Vec<T>>
     where
         F: FnMut(&mut Self) -> CodecResult<T>,
@@ -75,30 +84,36 @@ pub trait RowBinaryRead: Read {
 impl<R: Read + ?Sized> RowBinaryRead for R {}
 
 pub trait RowBinaryWrite: Write {
+    #[inline]
     fn write_u8(&mut self, v: u8) -> CodecResult<()> {
         self.write_all(&[v])?;
         Ok(())
     }
 
+    #[inline]
     fn write_i8(&mut self, v: i8) -> CodecResult<()> {
         self.write_u8(v as u8)
     }
 
+    #[inline]
     fn write_u32_le(&mut self, v: u32) -> CodecResult<()> {
         self.write_all(&v.to_le_bytes())?;
         Ok(())
     }
 
+    #[inline]
     fn write_u64_le(&mut self, v: u64) -> CodecResult<()> {
         self.write_all(&v.to_le_bytes())?;
         Ok(())
     }
 
+    #[inline]
     fn write_f64_le(&mut self, v: f64) -> CodecResult<()> {
         self.write_all(&v.to_le_bytes())?;
         Ok(())
     }
 
+    #[inline]
     fn write_varint(&mut self, mut v: u64) -> CodecResult<()> {
         loop {
             let b = (v & 0x7f) as u8;
@@ -111,19 +126,27 @@ pub trait RowBinaryWrite: Write {
         }
     }
 
+    #[inline]
     fn write_bytes(&mut self, b: &[u8]) -> CodecResult<()> {
         self.write_varint(b.len() as u64)?;
         self.write_all(b)?;
         Ok(())
     }
 
+    // Issue the UUID's 16 bytes in a single write_all so writers that pay
+    // per-call overhead (BufWriter) don't see two separate fill checks per
+    // UUID. Wire format unchanged: still hi LE then lo LE.
+    #[inline]
     fn write_uuid(&mut self, u: Uuid) -> CodecResult<()> {
         let (hi, lo) = u.as_u64_pair();
-        self.write_u64_le(hi)?;
-        self.write_u64_le(lo)?;
+        let mut buf = [0u8; 16];
+        buf[..8].copy_from_slice(&hi.to_le_bytes());
+        buf[8..].copy_from_slice(&lo.to_le_bytes());
+        self.write_all(&buf)?;
         Ok(())
     }
 
+    #[inline]
     fn write_array<T, F>(&mut self, items: &[T], mut inner: F) -> CodecResult<()>
     where
         F: FnMut(&mut Self, &T) -> CodecResult<()>,

@@ -1,5 +1,4 @@
 use std::io::BufRead;
-#[cfg(test)]
 use std::io::Write;
 
 use crate::codec::{CodecError, CodecResult};
@@ -24,7 +23,9 @@ pub fn read_chunk_header<R: BufRead>(r: &mut R) -> CodecResult<Option<u64>> {
         .map_err(|_| CodecError::InvalidChunkHeader(trimmed.to_string()))
 }
 
-#[cfg(test)]
+// Mirror of read_chunk_header for tests and the bench harness — production
+// emits chunks back to ClickHouse via the executable_pool itself, not by
+// calling this helper, so this is a debug/bench-side utility.
 pub fn write_chunk_header<W: Write>(w: &mut W, n: u64) -> CodecResult<()> {
     writeln!(w, "{n}")?;
     Ok(())
