@@ -6243,6 +6243,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "opensearch-indexer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "common-redis",
+ "envconfig",
+ "health",
+ "metrics",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "openssl"
 version = "0.10.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
