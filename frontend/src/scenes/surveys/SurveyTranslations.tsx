@@ -73,8 +73,16 @@ const REGION_DISPLAY_NAME_OVERRIDES: Record<string, string> = {
     US: 'US',
 }
 
+
 export function getSurveyLanguageLabel(languageCode: string): string {
-    const [baseLanguageCode, regionCode] = languageCode.split('-')
+    const hyphenIndex = languageCode.indexOf('-')
+    if (hyphenIndex === -1) {
+        const languageName = LANGUAGE_CODE_TO_NAME[languageCode] ?? languageCode
+        return `${languageName} (${languageCode})`
+    }
+    const baseLanguageCode = languageCode.substring(0, hyphenIndex)
+    const regionCode = languageCode.substring(hyphenIndex + 1)
+
     const languageName = LANGUAGE_CODE_TO_NAME[baseLanguageCode] ?? baseLanguageCode
 
     if (!regionCode) {
