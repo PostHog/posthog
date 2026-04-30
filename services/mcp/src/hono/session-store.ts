@@ -1,31 +1,24 @@
-import type { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js'
 import type { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 
 import { MAX_SESSIONS_PER_INSTANCE, SESSION_TTL_MS } from './constants'
-import type { HonoMcpServer } from './mcp-server'
 import { SessionRegistry } from './session-registry'
 
-export type SseEntry = { transport: SSEServerTransport; server: HonoMcpServer }
-
-// Bundles the two transport-specific session registries with a shared capacity
-// guard. Lazy TTL eviction lives in `SessionRegistry`; this layer adds the
-// global pod cap and the contention sweep.
+// Streamable HTTP transports keyed by session id. Lazy TTL eviction lives in
+// `SessionRegistry`; this layer adds the global pod cap and a contention sweep.
+//
+// SSE intentionally has no equivalent — see services/mcp/src/hono/streamable-handler.ts
+// for the only transport this Hono runtime serves. Stateful SSE would need
+// pod-pinning at the ingress, which we explicitly opted out of.
 export class SessionStore {
     readonly streamable = new SessionRegistry<WebStandardStreamableHTTPServerTransport>(SESSION_TTL_MS)
-    readonly sse = new SessionRegistry<SseEntry>(SESSION_TTL_MS)
 
     /** Returns true if a new session can be reserved. Compacts stale entries on contention. */
     reserve(): boolean {
-        if (this.total() < MAX_SESSIONS_PER_INSTANCE) {
+        if (this.streamable.size < MAX_SESSIONS_PER_INSTANCE) {
             return true
         }
         // At capacity — sweep stale entries before rejecting.
         this.streamable.compact()
-        this.sse.compact()
-        return this.total() < MAX_SESSIONS_PER_INSTANCE
-    }
-
-    private total(): number {
-        return this.streamable.size + this.sse.size
+        return this.streamable.size < MAX_SESSIONS_PER_INSTANCE
     }
 }

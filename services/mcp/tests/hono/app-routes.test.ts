@@ -159,14 +159,6 @@ describe('Hono App Routes', () => {
             expect(body.resource).toContain('/mcp')
         })
 
-        it('should return metadata for /sse path', async () => {
-            const app = createApp(mockRedis)
-            const res = await app.request('/.well-known/oauth-protected-resource/sse')
-            expect(res.status).toBe(200)
-            const body = (await res.json()) as Record<string, any>
-            expect(body.resource).toContain('/sse')
-        })
-
         it('should use oauth.posthog.com as authorization server', async () => {
             const app = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-protected-resource/mcp')
@@ -283,24 +275,6 @@ describe('Hono App Routes', () => {
         })
     })
 
-    describe('MCP auth on /sse', () => {
-        it('should return 401 with WWW-Authenticate when no token', async () => {
-            const app = createApp(mockRedis)
-            const res = await app.request('/sse', { method: 'GET' })
-            expect(res.status).toBe(401)
-            expect(res.headers.get('WWW-Authenticate')).toContain('oauth-protected-resource/sse')
-        })
-
-        it('should return 401 for invalid token prefix on SSE', async () => {
-            const app = createApp(mockRedis)
-            const res = await app.request('/sse', {
-                method: 'GET',
-                headers: { Authorization: 'Bearer invalid' },
-            })
-            expect(res.status).toBe(401)
-        })
-    })
-
     describe('OAuth redirect routes', () => {
         it('should redirect /.well-known/oauth-authorization-server', async () => {
             const app = createApp(mockRedis)
@@ -340,37 +314,6 @@ describe('Hono App Routes', () => {
             const res = await app.request('/token', { method: 'POST', redirect: 'manual' })
             expect(res.status).toBe(307)
             expect(res.headers.get('Location')).toContain('/oauth/token')
-        })
-    })
-
-    describe('SSE endpoint', () => {
-        it('should return 400 for POST without sessionId', async () => {
-            const app = createApp(mockRedis)
-            const res = await app.request('/sse', {
-                method: 'POST',
-                headers: { Authorization: 'Bearer phx_test', 'Content-Type': 'application/json' },
-                body: '{}',
-            })
-            expect(res.status).toBe(400)
-        })
-
-        it('should return 404 for POST with non-existent session', async () => {
-            const app = createApp(mockRedis)
-            const res = await app.request('/sse?sessionId=fake', {
-                method: 'POST',
-                headers: { Authorization: 'Bearer phx_test', 'Content-Type': 'application/json' },
-                body: '{}',
-            })
-            expect(res.status).toBe(404)
-        })
-
-        it('should return 405 for unsupported method (DELETE)', async () => {
-            const app = createApp(mockRedis)
-            const res = await app.request('/sse', {
-                method: 'DELETE',
-                headers: { Authorization: 'Bearer phx_test' },
-            })
-            expect(res.status).toBe(405)
         })
     })
 

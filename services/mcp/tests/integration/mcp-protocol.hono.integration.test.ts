@@ -2,11 +2,7 @@ import { afterAll, beforeAll } from 'vitest'
 
 import { startHonoHarness } from './harness/hono'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
-import {
-    defineMcpProtocolTests,
-    defineSseProtocolTests,
-    defineUiAppProtocolTests,
-} from './mcp-protocol-suite'
+import { defineMcpProtocolTests, defineUiAppProtocolTests } from './mcp-protocol-suite'
 
 // End-to-end MCP protocol test against the Hono runtime.
 //   - Real `@hono/node-server` listener (TCP + HTTP semantics, not `app.request`)
@@ -36,6 +32,8 @@ const harnessFor = () => ({
     token2: env.apiToken2,
 })
 
+// SSE transport intentionally not exercised here — the Hono runtime only
+// supports Streamable HTTP. SSE coverage lives in the Cloudflare integration
+// test (`mcp-protocol.cf.integration.test.ts`), which still serves it.
 defineMcpProtocolTests('Hono (real stack)', harnessFor)
-defineSseProtocolTests('Hono (real stack)', harnessFor)
 defineUiAppProtocolTests('Hono (real stack)', harnessFor)

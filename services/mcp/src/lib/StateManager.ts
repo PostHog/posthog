@@ -38,12 +38,13 @@ export class StateManager {
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
-            // Real API returns `null` for unscoped keys; normalize so callers can rely on arrays.
-            const data = apiKeyResult.data
+            const { scopes, scoped_teams, scoped_organizations } = apiKeyResult.data
+            // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
+            // normalize at the boundary — downstream code treats these as arrays.
             return {
-                ...data,
-                scoped_teams: data.scoped_teams ?? [],
-                scoped_organizations: data.scoped_organizations ?? [],
+                scopes,
+                scoped_teams: scoped_teams ?? [],
+                scoped_organizations: scoped_organizations ?? [],
             }
         }
 
@@ -66,8 +67,8 @@ export class StateManager {
 
         return {
             scopes: scope ? scope.split(' ') : [],
-            scoped_teams,
-            scoped_organizations,
+            scoped_teams: scoped_teams ?? [],
+            scoped_organizations: scoped_organizations ?? [],
         }
     }
 

@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers'
 <<<<<<< New base: refactor stuff, start adding client tests
 import type { CloudRegion } from '@/tools/types'
 
+<<<<<<< New base: update stuff to remove sse
 import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
@@ -114,6 +115,48 @@ export {
 import { resolveAuthorizationServerUrl } from './oauth-constants'
 >>>>>>> Current commit: refactor stuff, start adding client tests
 
+||||||| Common ancestor
+import packageJson from '../../package.json'
+
+export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
+
+export interface GetUserAgentOptions {
+    clientUserAgent?: string | undefined
+}
+
+export function getUserAgent(opts: GetUserAgentOptions = {}): string {
+    const { clientUserAgent } = opts
+
+    if (clientUserAgent) {
+        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
+        if (match) {
+            return `${USER_AGENT}; for ${match[0]}`
+        }
+    }
+
+    return USER_AGENT
+}
+
+// Region-specific PostHog API base URLs
+export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
+export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
+
+// Normalize a string to a valid CloudRegion, defaulting to 'us'
+export const toCloudRegion = (value: string | undefined | null): CloudRegion => {
+    const normalized = value?.toLowerCase()
+    if (normalized === 'eu') {
+        return 'eu'
+    }
+    return 'us'
+}
+
+// Get the PostHog base URL for a region
+export const getBaseUrlForRegion = (region: CloudRegion): string => {
+    return region === 'eu' ? POSTHOG_EU_BASE_URL : POSTHOG_US_BASE_URL
+}
+
+=======
+>>>>>>> Current commit: update stuff to remove sse
 /**
  * Custom API base URL for self-hosted PostHog instances.
  *
@@ -123,6 +166,7 @@ import { resolveAuthorizationServerUrl } from './oauth-constants'
  */
 export const CUSTOM_API_BASE_URL = env.POSTHOG_API_BASE_URL
 
+<<<<<<< New base: update stuff to remove sse
 <<<<<<< New base: refactor stuff, start adding client tests
 const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
 
@@ -253,3 +297,91 @@ export const OAUTH_SCOPES_SUPPORTED = [
 =======
 export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(CUSTOM_API_BASE_URL)
 >>>>>>> Current commit: refactor stuff, start adding client tests
+||||||| Common ancestor
+// OAuth Protected Resource Metadata (RFC 9728)
+// Scopes that this resource server supports
+export const OAUTH_SCOPES_SUPPORTED = [
+    'openid',
+    'profile',
+    'email',
+    'alert:read',
+    'alert:write',
+    'annotation:read',
+    'annotation:write',
+    'action:read',
+    'action:write',
+    'activity_log:read',
+    'approvals:read',
+    'comment:read',
+    'cohort:read',
+    'cohort:write',
+    'dashboard:read',
+    'dashboard:write',
+    'early_access_feature:read',
+    'early_access_feature:write',
+    'endpoint:read',
+    'endpoint:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'event_definition:read',
+    'event_definition:write',
+    'evaluation:read',
+    'external_data_source:read',
+    'external_data_source:write',
+    'evaluation:write',
+    'experiment:read',
+    'experiment:write',
+    'feature_flag:read',
+    'feature_flag:write',
+    'group:read',
+    'hog_flow:read',
+    'hog_function:read',
+    'hog_function:write',
+    'insight:read',
+    'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
+    'integration:read',
+    'integration:write',
+    'llm_analytics:read',
+    'llm_analytics:write',
+    'llm_prompt:read',
+    'llm_prompt:write',
+    'llm_skill:read',
+    'llm_skill:write',
+    'logs:read',
+    'logs:write',
+    'notebook:read',
+    'notebook:write',
+    'organization:read',
+    'organization:write',
+    'organization_member:read',
+    'person:read',
+    'person:write',
+    'project:read',
+    'project:write',
+    'property_definition:read',
+    'query:read',
+    'session_recording:read',
+    'session_recording:write',
+    'session_recording_playlist:read',
+    'session_recording_playlist:write',
+    'subscription:read',
+    'subscription:write',
+    'survey:read',
+    'survey:write',
+    'task:read',
+    'ticket:read',
+    'ticket:write',
+    'usage_metric:read',
+    'usage_metric:write',
+    'user:read',
+    'user:write',
+    'warehouse_table:read',
+    'warehouse_view:read',
+    'warehouse_view:write',
+    'web_analytics:read',
+] as const
+=======
+export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(CUSTOM_API_BASE_URL)
+>>>>>>> Current commit: update stuff to remove sse
