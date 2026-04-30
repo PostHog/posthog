@@ -9,7 +9,6 @@ from datetime import timedelta
 from typing import ClassVar, cast
 from urllib.parse import quote
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.http import StreamingHttpResponse
@@ -682,10 +681,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "detail": "Some pending_user_artifact_ids are invalid for this run",
-            "missing_artifact_ids": ["artifact-123"],
-        }
+        assert response.json() == {"detail": "Some pending_user_artifact_ids are invalid for this run", "missing_artifact_ids": ["artifact-123"]}
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -702,9 +698,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "error": "Only queued or not_started cloud runs can be started (current status: completed)"
-        }
+        assert response.json() == {"error": "Only queued or not_started cloud runs can be started (current status: completed)"}
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1640,8 +1634,19 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         assert str(self.external_task.id) in task_ids
         assert str(self.internal_task.id) not in task_ids
 
-    def test_list_internal_true_shows_only_internal_tasks(self):
+    def test_list_internal_true_is_ignored_in_production(self):
+        # DEBUG is False in tests by default, so ?internal=true must not surface internal tasks.
         response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        assert response.status_code == status.HTTP_200_OK
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        assert str(self.external_task.id) in task_ids
+        assert str(self.internal_task.id) not in task_ids
+
+    def test_list_internal_true_shows_only_internal_tasks_in_debug(self):
+        with self.settings(DEBUG=True):
+            response = self.client.get("/api/projects/@current/tasks/?internal=true")
         assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
@@ -1742,12 +1747,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "'UTC+99' is not a valid IANA timezone.",
-            "attr": "timezone",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "'UTC+99' is not a valid IANA timezone.", "attr": "timezone"}
 
     def test_create_automation_rejects_invalid_cron_expression(self):
         response = self.client.post(
@@ -1763,13 +1763,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "Only standard 5-field cron expressions are supported "
-            "(minute hour day month weekday). Example: '0 9 * * 1-5'.",
-            "attr": "cron_expression",
-        }
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Only standard 5-field cron expressions are supported " "(minute hour day month weekday). Example: '0 9 * * 1-5'.", "attr": "cron_expression"}
 
     def test_create_automation_rolls_back_task_when_automation_create_fails(self):
         serializer = TaskAutomationSerializer(
@@ -1791,9 +1785,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             with self.assertRaises(RuntimeError):
                 serializer.save()
 
-        assert not Task.objects.filter(
-            team=self.team, title="Daily PRs", origin_product=Task.OriginProduct.AUTOMATION
-        ).exists()
+        assert not Task.objects.filter(team=self.team, title="Daily PRs", origin_product=Task.OriginProduct.AUTOMATION).exists()
 
     @patch("products.tasks.backend.api.sync_automation_schedule")
     def test_update_automation(self, mock_sync_schedule):
@@ -2172,10 +2164,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
-        assert run.output == {
-            "head_branch": "posthog-code/update-readme",
-            "pr_url": "https://github.com/org/repo/pull/2",
-        }
+        assert run.output == {"head_branch": "posthog-code/update-readme", "pr_url": "https://github.com/org/repo/pull/2"}
 
     def test_partial_update_does_not_restore_stale_state(self):
         task = self.create_task()
@@ -3210,6 +3199,272 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @patch("posthog.storage.object_storage.read_bytes")
+    def test_download_artifact_walks_resume_chain(self, mock_read_bytes):
+        """A resumed run can download an artifact owned by the run it was forked from.
+
+        Cloud→cloud resume creates a new TaskRun with state.resume_from_run_id pointing
+        to the prior run; the prior run owns the git checkpoint pack/index artifacts.
+        """
+        mock_read_bytes.return_value = b"prior run pack bytes"
+        task = self.create_task()
+        prior_storage_path = "tasks/artifacts/team_1/task_x/run_prior/abc_pack.pack"
+
+        prior_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            artifacts=[
+                {
+                    "id": uuid.uuid4().hex,
+                    "name": "checkpoint.pack",
+                    "type": "artifact",
+                    "content_type": "application/x-git-packed-objects",
+                    "storage_path": prior_storage_path,
+                }
+            ],
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run.id)},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{new_run.id}/artifacts/download/",
+            {"storage_path": prior_storage_path},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.content == b"prior run pack bytes"
+        mock_read_bytes.assert_called_once_with(prior_storage_path, missing_ok=True)
+
+    def test_find_artifact_in_resume_chain_direct_hit(self):
+        """Finds artifact on the run itself without walking the chain."""
+
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_a/artifact.pack"
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+
+        artifact = run.find_artifact_in_resume_chain(storage_path)
+        assert artifact is not None
+        assert artifact["storage_path"] == storage_path  # type: ignore
+
+    def test_find_artifact_in_resume_chain_miss(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
+        assert run.find_artifact_in_resume_chain("tasks/missing.pack") is None
+
+    def test_find_artifact_in_resume_chain_walks_one_hop(self):
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_prior/artifact.pack"
+        prior_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run.id)},
+        )
+
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
+        assert artifact is not None
+
+    def test_find_artifact_in_resume_chain_walks_multiple_hops(self):
+        """Resumed-from-resumed-from chain still resolves."""
+
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_root/artifact.pack"
+        root_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        middle_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(root_run.id)},
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(middle_run.id)},
+        )
+
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
+        assert artifact is not None
+
+    def test_find_artifact_in_resume_chain_handles_cycle(self):
+        """A self-referencing or circular resume chain doesn't loop forever."""
+
+        task = self.create_task()
+        run_a = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
+        run_b = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(run_a.id)},
+        )
+        # Patch run_a to point back at run_b — circular.
+        run_a.state = {"resume_from_run_id": str(run_b.id)}
+        run_a.save(update_fields=["state"])
+
+        result = run_b.find_artifact_in_resume_chain("tasks/missing.pack")
+        assert result is None
+
+    def test_find_artifact_in_resume_chain_does_not_cross_tasks(self):
+        """Resume chain lookup is scoped to the same task — sibling tasks are invisible."""
+
+        task_a = self.create_task(title="A")
+        task_b = self.create_task(title="B")
+        storage_path = "tasks/artifacts/team_1/task_a/run/artifact.pack"
+
+        prior_run_on_a = TaskRun.objects.create(
+            task=task_a,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        # Run on task B references a run from task A — should not resolve.
+        run_on_b = TaskRun.objects.create(
+            task=task_b,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run_on_a.id)},
+        )
+
+        assert run_on_b.find_artifact_in_resume_chain(storage_path) is None
+
+    def test_walk_resume_chain_single_run(self):
+        """A run with no resume_from_run_id resolves to a 1-element chain."""
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+
+        chain = run.get_resume_chain()
+        assert [r.id for r in chain] == [run.id]
+
+    def test_walk_resume_chain_multi_hop_ordered_oldest_first(self):
+        """Chain returns oldest-ancestor → ... → parent → this in order."""
+
+        task = self.create_task()
+        root = TaskRun.objects.create(task=task, team=self.team)
+        middle = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(root.id)})
+        leaf = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(middle.id)})
+
+        chain = leaf.get_resume_chain()
+        assert [r.id for r in chain] == [root.id, middle.id, leaf.id]
+
+    def test_walk_resume_chain_handles_cycle(self):
+        """A circular `resume_from_run_id` chain doesn't loop forever."""
+
+        task = self.create_task()
+        run_a = TaskRun.objects.create(task=task, team=self.team)
+        run_b = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run_a.id)})
+        run_a.state = {"resume_from_run_id": str(run_b.id)}
+        run_a.save(update_fields=["state"])
+
+        chain = run_b.get_resume_chain()
+        assert {r.id for r in chain} == {run_a.id, run_b.id}
+
+    def test_walk_resume_chain_respects_max_depth(self):
+        task = self.create_task()
+        prior: TaskRun | None = None
+        runs: list[TaskRun] = []
+        for _ in range(5):
+            current = TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                state={"resume_from_run_id": str(prior.id)} if prior else {},
+            )
+            runs.append(current)
+            prior = current
+
+        chain = runs[-1].get_resume_chain(max_depth=2)
+        # max_depth=2 means we walk at most 2 hops back from the leaf, so the
+        # chain should contain exactly 3 entries (leaf + 2 ancestors).
+        assert len(chain) == 3
+
+    def test_walk_resume_chain_does_not_cross_tasks(self):
+        task_a = self.create_task(title="A")
+        task_b = self.create_task(title="B")
+
+        run_on_a = TaskRun.objects.create(task=task_a, team=self.team)
+        run_on_b = TaskRun.objects.create(task=task_b, team=self.team, state={"resume_from_run_id": str(run_on_a.id)})
+
+        chain = run_on_b.get_resume_chain()
+        # Walker is scoped via `task_run.task.runs.filter(...)` so a stale
+        # cross-task `resume_from_run_id` is silently dropped.
+        assert [r.id for r in chain] == [run_on_b.id]
+
+    @parameterized.expand(
+        [
+            (
+                "chained_returns_ancestors_first",
+                True,  # has_ancestor
+                {"a": '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}\n'},
+                '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}\n',
+                [
+                    '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}',
+                    '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}',
+                ],
+            ),
+            (
+                "unchained_returns_only_own_log",
+                False,
+                {},
+                '{"hello":"world"}\n',
+                ['{"hello":"world"}'],
+            ),
+            (
+                "skips_missing_ancestor_logs",
+                True,
+                {"a": None},
+                '{"only":"b"}\n',
+                ['{"only":"b"}'],
+            ),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_walks_resume_chain(
+        self,
+        _name: str,
+        has_ancestor: bool,
+        ancestor_logs: dict[str, str | None],
+        own_log: str,
+        expected_lines: list[str],
+        mock_read,
+    ):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team) if has_ancestor else None
+        target_state = {"resume_from_run_id": str(ancestor.id)} if ancestor else {}
+        target = TaskRun.objects.create(task=task, team=self.team, state=target_state)
+
+        def fake_read(path: str, missing_ok: bool = False) -> str | None:
+            if ancestor and path == ancestor.log_url:
+                return ancestor_logs.get("a")
+            if path == target.log_url:
+                return own_log
+            return None
+
+        mock_read.side_effect = fake_read
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.content.decode("utf-8").splitlines() == expected_lines
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_returns_jwt(self):
         get_sandbox_jwt_public_key.cache_clear()
@@ -4019,13 +4274,9 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             self.fail(f"Unsupported method: {method}")
 
         if should_have_access:
-            assert response.status_code != status.HTTP_403_FORBIDDEN, (
-                f"Expected access but got 403 for {scope} on {method} {url}"
-            )
+            assert response.status_code != status.HTTP_403_FORBIDDEN, f"Expected access but got 403 for {scope} on {method} {url}"
         else:
-            assert response.status_code == status.HTTP_403_FORBIDDEN, (
-                f"Expected 403 but got {response.status_code} for {scope} on {method} {url}"
-            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403 but got {response.status_code} for {scope} on {method} {url}"
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):

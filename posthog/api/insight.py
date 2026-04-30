@@ -17,6 +17,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import (
     BaseModel,
@@ -121,6 +122,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
@@ -1228,6 +1230,15 @@ class InsightViewSet(
     def _is_basic_request(self) -> bool:
         return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
 
+    @tracer.start_as_current_span("insight_api_list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        span = trace.get_current_span()
+        span.set_attribute("posthog.team_id", self.team_id)
+        span.set_attribute("posthog.basic", self._is_basic_request())
+        span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
+        span.set_attribute("posthog.order", request.query_params.get("order", ""))
+        return super().list(request, *args, **kwargs)
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self._is_basic_request():
             return InsightBasicSerializer
@@ -1562,7 +1573,7 @@ class InsightViewSet(
             INSIGHT_ID_PATH_PARAMETER,
             OpenApiParameter(
                 name="refresh",
-                enum=list(ExecutionMode),
+                enum=[*ExecutionMode],
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""

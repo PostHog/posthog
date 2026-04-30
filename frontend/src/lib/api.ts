@@ -4239,11 +4239,18 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
-            return await new ApiRequest()
-                .recordings()
-                .withAction('batch_check_exists')
-                .create({ data: { session_ids: sessionIds } })
+        async batchCheckExists(
+            sessionIds: string[],
+            options?: { includeOutcomes?: boolean }
+        ): Promise<{
+            results: Record<string, boolean>
+            outcomes?: Record<string, { description?: string | null }>
+        }> {
+            const data: Record<string, unknown> = { session_ids: sessionIds }
+            if (options?.includeOutcomes) {
+                data.include_outcomes = true
+            }
+            return await new ApiRequest().recordings().withAction('batch_check_exists').create({ data })
         },
 
         async createExternalReference(

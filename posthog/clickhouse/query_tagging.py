@@ -358,12 +358,21 @@ def reset_query_tags():
 
 
 class QueryCounter:
+    SLOW_QUERY_THRESHOLD_S = 0.05
+
     def __init__(self):
         self.total_query_time = 0.0
+        self.count = 0
+        self.max_query_time = 0.0
+        self.slow_count = 0
 
     @property
     def query_time_ms(self):
         return self.total_query_time * 1000
+
+    @property
+    def max_query_time_ms(self):
+        return self.max_query_time * 1000
 
     def __call__(self, execute, *args, **kwargs):
         import time
@@ -373,7 +382,13 @@ class QueryCounter:
         try:
             return execute(*args, **kwargs)
         finally:
-            self.total_query_time += time.perf_counter() - start_time
+            elapsed = time.perf_counter() - start_time
+            self.total_query_time += elapsed
+            self.count += 1
+            if elapsed > self.max_query_time:
+                self.max_query_time = elapsed
+            if elapsed > self.SLOW_QUERY_THRESHOLD_S:
+                self.slow_count += 1
 
 
 @contextmanager

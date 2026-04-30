@@ -1,7 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
@@ -250,19 +249,7 @@ class TestExperimentCRUD(APILicensedTest):
         mock_report_user_action.assert_called_once()
         assert mock_report_user_action.call_args.args[0] == self.user
         assert mock_report_user_action.call_args.args[1] == "experiment created"
-        assert mock_report_user_action.call_args.args[2] == {
-            "experiment_id": response.json()["id"],
-            "experiment_name": "Tracked Experiment",
-            "feature_flag_key": ff_key,
-            "type": "product",
-            "status": "draft",
-            "metrics_count": 0,
-            "secondary_metrics_count": 0,
-            "has_description": False,
-            "variant_count": 2,
-            "created_at": ANY,
-            "creation_mode": "new",
-        }
+        assert mock_report_user_action.call_args.args[2] == {"experiment_id": response.json()["id"], "experiment_name": "Tracked Experiment", "feature_flag_key": ff_key, "type": "product", "status": "draft", "metrics_count": 0, "secondary_metrics_count": 0, "has_description": False, "variant_count": 2, "created_at": ANY, "creation_mode": "new"}
         assert mock_report_user_action.call_args.kwargs["team"] == self.team
         assert mock_report_user_action.call_args.kwargs["request"] is not None
 
@@ -455,10 +442,7 @@ class TestExperimentCRUD(APILicensedTest):
         assert response.json()["name"] == "Test Experiment"
         assert response.json()["feature_flag_key"] == ff_key
         web_experiment_id = response.json()["id"]
-        assert WebExperiment.objects.get(pk=web_experiment_id).variants == {
-            "test": {"rollout_percentage": 50},
-            "control": {"rollout_percentage": 50},
-        }
+        assert WebExperiment.objects.get(pk=web_experiment_id).variants == {"test": {"rollout_percentage": 50}, "control": {"rollout_percentage": 50}}
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -523,9 +507,7 @@ class TestExperimentCRUD(APILicensedTest):
         holdout_id = response.json()["id"]
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Test Experiment holdout"
-        assert response.json()["filters"] == [
-            {"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}
-        ]
+        assert response.json()["filters"] == [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}]
 
         # Generate draft experiment to be part of holdout
         ff_key = "a-b-tests"
@@ -621,11 +603,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         assert created_ff.filters["holdout"] == {"id": holdout_2_id, "exclusion_percentage": 5}
-        assert created_ff.filters["multivariate"]["variants"] == [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-            {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-            {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
-        ]
+        assert created_ff.filters["multivariate"]["variants"] == [{"key": "control", "name": "Control Group", "rollout_percentage": 33}, {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33}, {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34}]
 
         # remove holdouts
         response = self.client.patch(
@@ -694,12 +672,7 @@ class TestExperimentCRUD(APILicensedTest):
         assert response.json()["description"] == "Test description"
         saved_metric_uuid = response.json()["query"]["uuid"]
         assert saved_metric_uuid
-        assert response.json()["query"] == {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview"},
-            "uuid": saved_metric_uuid,
-        }
+        assert response.json()["query"] == {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}, "uuid": saved_metric_uuid}
         assert response.json()["created_by"]["id"] == self.user.pk
 
         # Generate experiment to have saved metric
@@ -737,12 +710,7 @@ class TestExperimentCRUD(APILicensedTest):
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         assert saved_metric is not None
         assert saved_metric.id == saved_metric_id
-        assert saved_metric.query == {
-            "kind": "ExperimentMetric",
-            "metric_type": "mean",
-            "source": {"kind": "EventsNode", "event": "$pageview"},
-            "uuid": saved_metric_uuid,
-        }
+        assert saved_metric.query == {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}, "uuid": saved_metric_uuid}
 
         # Now try updating experiment with new saved metric
         response = self.client.post(
@@ -1040,19 +1008,11 @@ class TestExperimentCRUD(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"] == "2025-02-01T00:00:00Z"
         assert response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"] == ""
-        assert (
-            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"] == "2025-02-01T00:00:00Z"
-        )
+        assert response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"] == "2025-02-01T00:00:00Z"
         assert response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"] == ""
-        assert (
-            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"]
-            == "2025-02-01T00:00:00Z"
-        )
+        assert response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"] == "2025-02-01T00:00:00Z"
         assert response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"] == ""
-        assert (
-            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"]
-            == "2025-02-01T00:00:00Z"
-        )
+        assert response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"] == "2025-02-01T00:00:00Z"
         assert response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"] == ""
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
@@ -2054,11 +2014,11 @@ class TestExperimentCRUD(APILicensedTest):
 
             assert result["count"] == 2
 
-            results_list = sorted(
-                [(res["key"], res["experiment_set"]) for res in result["results"]], key=lambda x: x[0]
+            assert sorted(
+                [(res["key"], res["experiment_set"]) for res in result["results"]],
+            ) == sorted(
+                [("flag_0", []), (ff_key, [created_experiment])],
             )
-            expected_list = sorted([("flag_0", []), (ff_key, [created_experiment])], key=lambda x: x[0])
-            assert results_list == expected_list
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
@@ -2128,18 +2088,7 @@ class TestExperimentCRUD(APILicensedTest):
         assert cached_flags is not None
         assert 1 == len(cached_flags)
         assert cached_flags[0].key == ff_key
-        assert cached_flags[0].filters == {
-            "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                    {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                    {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
-                ]
-            },
-            "holdout": None,
-            "aggregation_group_type_index": None,
-        }
+        assert cached_flags[0].filters == {"groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}], "multivariate": {"variants": [{"key": "control", "name": "Control Group", "rollout_percentage": 33}, {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33}, {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34}]}, "holdout": None, "aggregation_group_type_index": None}
 
         # Now try updating FF with a different variant count (original has 3, this has 2)
         response = self.client.patch(
@@ -2162,18 +2111,7 @@ class TestExperimentCRUD(APILicensedTest):
         assert cached_flags is not None
         assert 1 == len(cached_flags)
         assert cached_flags[0].key == ff_key
-        assert cached_flags[0].filters == {
-            "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                    {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                    {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
-                ]
-            },
-            "holdout": None,
-            "aggregation_group_type_index": None,
-        }
+        assert cached_flags[0].filters == {"groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}], "multivariate": {"variants": [{"key": "control", "name": "Control Group", "rollout_percentage": 33}, {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33}, {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34}]}, "holdout": None, "aggregation_group_type_index": None}
 
         # Now try changing FF rollout %s
         response = self.client.patch(
@@ -2210,18 +2148,7 @@ class TestExperimentCRUD(APILicensedTest):
         assert cached_flags is not None
         assert 1 == len(cached_flags)
         assert cached_flags[0].key == ff_key
-        assert cached_flags[0].filters == {
-            "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                    {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                    {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
-                ]
-            },
-            "holdout": None,
-            "aggregation_group_type_index": None,
-        }
+        assert cached_flags[0].filters == {"groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}], "multivariate": {"variants": [{"key": "control", "name": "Control Group", "rollout_percentage": 33}, {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33}, {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34}]}, "holdout": None, "aggregation_group_type_index": None}
 
     def test_create_draft_experiment_with_filters(self) -> None:
         ff_key = "a-b-tests"
@@ -2380,10 +2307,7 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["detail"]
-            == "Feature flag must have at least 2 variants (control and at least one test variant)"
-        )
+        assert response.json()["detail"] == "Feature flag must have at least 2 variants (control and at least one test variant)"
 
     def test_create_experiment_with_parameters_insufficient_variants(self):
         response = self.client.post(
@@ -2400,10 +2324,7 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert (
-            response.json()["detail"]
-            == "Feature flag must have at least 2 variants (control and at least one test variant)"
-        )
+        assert response.json()["detail"] == "Feature flag must have at least 2 variants (control and at least one test variant)"
 
     def test_create_experiment_with_valid_existing_feature_flag(self):
         feature_flag = FeatureFlag.objects.create(
@@ -2551,10 +2472,7 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(id=experiment_id)
         assert experiment.parameters is not None
         parameters = cast(dict[str, Any], experiment.parameters)
-        assert parameters["feature_flag_variants"] == [
-            {"key": "control", "rollout_percentage": 10},
-            {"key": "test", "rollout_percentage": 90},
-        ]
+        assert parameters["feature_flag_variants"] == [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}]
         assert parameters["aggregation_group_type_index"] == 1
 
         # Update the experiment with an unrelated change
@@ -2565,14 +2483,8 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Verify that the feature flag variants and groups remain unchanged
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
-        assert feature_flag.filters["multivariate"]["variants"] == [
-            {"key": "control", "rollout_percentage": 10},
-            {"key": "test", "rollout_percentage": 90},
-        ]
-        assert feature_flag.filters["groups"] == [
-            {"properties": [], "rollout_percentage": 99, "aggregation_group_type_index": 1},
-            {"properties": [], "rollout_percentage": 1, "aggregation_group_type_index": 1},
-        ]
+        assert feature_flag.filters["multivariate"]["variants"] == [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}]
+        assert feature_flag.filters["groups"] == [{"properties": [], "rollout_percentage": 99, "aggregation_group_type_index": 1}, {"properties": [], "rollout_percentage": 1, "aggregation_group_type_index": 1}]
 
         # Test removing aggregation_group_type_index
         response = self.client.patch(
@@ -2636,9 +2548,7 @@ class TestExperimentCRUD(APILicensedTest):
         exposure_config = cast(dict[str, Any], exposure_criteria["exposure_config"])
         assert exposure_criteria["filterTestAccounts"]
         assert exposure_config["event"] == "$pageview"
-        assert exposure_config["properties"] == [
-            {"key": "plan", "operator": "is_not", "value": "free", "type": "event"}
-        ]
+        assert exposure_config["properties"] == [{"key": "plan", "operator": "is_not", "value": "free", "type": "event"}]
 
     def test_update_experiment_exposure_config_invalid(self):
         feature_flag = FeatureFlag.objects.create(
@@ -2975,12 +2885,8 @@ class TestExperimentCRUD(APILicensedTest):
         def remove_fingerprints(metrics):
             return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
 
-        assert remove_fingerprints(duplicate_experiment["metrics"]) == remove_fingerprints(
-            original_experiment["metrics"]
-        )
-        assert remove_fingerprints(duplicate_experiment["metrics_secondary"]) == remove_fingerprints(
-            original_experiment["metrics_secondary"]
-        )
+        assert remove_fingerprints(duplicate_experiment["metrics"]) == remove_fingerprints(original_experiment["metrics"])
+        assert remove_fingerprints(duplicate_experiment["metrics_secondary"]) == remove_fingerprints(original_experiment["metrics_secondary"])
         assert duplicate_experiment["stats_config"] == original_experiment["stats_config"]
         assert duplicate_experiment["exposure_criteria"] == original_experiment["exposure_criteria"]
 
@@ -3311,9 +3217,7 @@ class TestExperimentCRUD(APILicensedTest):
             return [{k: v for k, v in metric.items() if k != "fingerprint"} for metric in metrics or []]
 
         assert remove_fingerprints(copied_experiment["metrics"]) == remove_fingerprints(original_experiment["metrics"])
-        assert remove_fingerprints(copied_experiment["metrics_secondary"]) == remove_fingerprints(
-            original_experiment["metrics_secondary"]
-        )
+        assert remove_fingerprints(copied_experiment["metrics_secondary"]) == remove_fingerprints(original_experiment["metrics_secondary"])
         assert copied_experiment["stats_config"] == original_experiment["stats_config"]
         assert copied_experiment["exposure_criteria"] == original_experiment["exposure_criteria"]
 
@@ -3991,7 +3895,7 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
         )
         assert pause_response.status_code == status.HTTP_200_OK
-        assert pause_response.json()["status"] == "running"
+        assert pause_response.json()["status"] == "paused"
         assert not pause_response.json()["feature_flag"]["active"]
 
         # Verify flag is now inactive
@@ -4007,6 +3911,7 @@ class TestExperimentCRUD(APILicensedTest):
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/pause/",
         )
         assert pause_response.status_code == status.HTTP_200_OK
+        assert pause_response.json()["status"] == "paused"
 
         # Resume
         resume_response = self.client.post(
@@ -4562,68 +4467,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         cohort = response.json()["cohort"]
         assert cohort["name"] == 'Users exposed to experiment "Test Experiment"'
         assert cohort["experiment_set"] == [created_experiment]
-        assert cohort["filters"] == {
-            "properties": {
-                "type": "OR",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "bytecode": [
-                                    "_H",
-                                    1,
-                                    32,
-                                    "custom_exposure_event",
-                                    32,
-                                    "event",
-                                    1,
-                                    1,
-                                    11,
-                                    32,
-                                    "bonk",
-                                    32,
-                                    "bonk",
-                                    32,
-                                    "properties",
-                                    1,
-                                    2,
-                                    11,
-                                    32,
-                                    "x",
-                                    32,
-                                    "y",
-                                    44,
-                                    2,
-                                    32,
-                                    "$current_url",
-                                    32,
-                                    "properties",
-                                    1,
-                                    2,
-                                    21,
-                                    3,
-                                    2,
-                                    3,
-                                    2,
-                                ],
-                                "conditionHash": "605645c960b2c67c",
-                                "event_filters": [
-                                    {"key": "bonk", "type": "event", "value": "bonk"},
-                                    {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
-                                ],
-                                "event_type": "events",
-                                "explicit_datetime": "2024-01-01T10:23:00+00:00",
-                                "key": "custom_exposure_event",
-                                "negation": False,
-                                "type": "behavioral",
-                                "value": "performed_event",
-                            }
-                        ],
-                    }
-                ],
-            }
-        }
+        assert cohort["filters"] == {"properties": {"type": "OR", "values": [{"type": "OR", "values": [{"bytecode": ["_H", 1, 32, "custom_exposure_event", 32, "event", 1, 1, 11, 32, "bonk", 32, "bonk", 32, "properties", 1, 2, 11, 32, "x", 32, "y", 44, 2, 32, "$current_url", 32, "properties", 1, 2, 21, 3, 2, 3, 2], "conditionHash": "605645c960b2c67c", "event_filters": [{"key": "bonk", "type": "event", "value": "bonk"}, {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"}], "event_type": "events", "explicit_datetime": "2024-01-01T10:23:00+00:00", "key": "custom_exposure_event", "negation": False, "type": "behavioral", "value": "performed_event"}]}]}}
 
         cohort_id = cohort["id"]
 
@@ -4799,19 +4643,14 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         self.maxDiff = None
         target_filter = cohort["filters"]["properties"]["values"][0]["values"][0]
-        assert target_filter["event_filters"] == [
-            {"key": "bonk", "type": "event", "value": "bonk"},
-            {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
-        ], cohort["filters"]
+        assert target_filter["event_filters"] == [{"key": "bonk", "type": "event", "value": "bonk"}, {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"}], cohort["filters"]
         assert target_filter["event_type"] == "actions"
         assert target_filter["key"] == action1.id
         assert target_filter["type"] == "behavioral"
         assert target_filter["value"] == "performed_event"
         explicit_datetime = parser.isoparse(target_filter["explicit_datetime"])
 
-        assert explicit_datetime <= datetime.now(UTC) - timedelta(days=5) and explicit_datetime >= datetime.now(
-            UTC
-        ) - timedelta(days=5, hours=1)
+        assert explicit_datetime <= datetime.now(UTC) - timedelta(days=5) and explicit_datetime >= datetime.now(UTC) - timedelta(days=5, hours=1)
 
         cohort_id = cohort["id"]
 
@@ -4930,8 +4769,8 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         stats_config = response.json()["stats_config"]
-        assert stats_config["bayesian"]["ci_level"] == pytest.approx(0.90, abs=10 ** (-7) * 0.5)
-        assert stats_config["frequentist"]["alpha"] == pytest.approx(0.10, abs=10 ** (-7) * 0.5)
+        assert stats_config["bayesian"]["ci_level"] == pytest.approx(0.90)
+        assert stats_config["frequentist"]["alpha"] == pytest.approx(0.10)
 
     def test_experiment_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment activity logs show the correct user for both creation and updates."""

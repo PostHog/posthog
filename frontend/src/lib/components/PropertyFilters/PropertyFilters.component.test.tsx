@@ -4,6 +4,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -430,6 +433,91 @@ describe('PropertyFilters recent selections', () => {
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
             expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/pricing/i)
+        })
+    })
+
+    describe('category dropdown inside property modal', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: clicking the inline category trigger does not close the property modal',
+            async (variant) => {
+                useSetupMocks()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                    [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+                })
+
+                renderFilters({
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ],
+                })
+
+                await openNewFilter()
+
+                const trigger = await screen.findByTestId(`taxonomic-category-dropdown-trigger-${variant}`)
+                await userEvent.click(trigger)
+
+                expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+            }
+        )
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: picking a category in the inline dropdown does not close the property modal',
+            async (variant) => {
+                useSetupMocks()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                    [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+                })
+
+                renderFilters({
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ],
+                })
+
+                await openNewFilter()
+
+                const trigger = await screen.findByTestId(`taxonomic-category-dropdown-trigger-${variant}`)
+                await userEvent.click(trigger)
+
+                const item = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
+                await userEvent.click(item)
+
+                expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+            }
+        )
+
+        it('control: clicking outside the property modal closes it', async () => {
+            useSetupMocks()
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await openNewFilter()
+
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+
+            await userEvent.click(document.body)
+
+            await waitFor(() => {
+                expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument()
+            })
         })
     })
 })
