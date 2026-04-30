@@ -17,9 +17,9 @@ analytics, experiments, and integrations like Linear, GitHub, and Zendesk.
 
 The Inbox lives at `/inbox` in the PostHog UI; this skill is the agent-facing equivalent.
 
-**Inbox is new** — many users haven't set it up yet. Don't assume an inbox has reports, or that any
-signal sources are configured. The first workflow below tells you how to detect this and what to
-say. Always handle the empty / unconfigured case **before** trying to fulfil the user's request.
+Don't assume the user's project has reports, or that any signal sources are configured — plenty
+of projects don't have Inbox set up. Always run the setup-check workflow below before answering
+the user's actual question.
 
 ## When to use this skill
 
