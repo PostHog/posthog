@@ -1,7 +1,4 @@
-import time
 from typing import TYPE_CHECKING, Optional, cast
-
-import structlog
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -40,8 +37,6 @@ from posthog.temporal.data_imports.sources.slack.slack import (
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
-
-logger = structlog.get_logger(__name__)
 
 
 @SourceRegistry.register
@@ -177,34 +172,15 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             for name, endpoint_config in ENDPOINTS.items()
         ]
 
-        t0 = time.monotonic()
         integration = self.get_oauth_integration(config.slack_integration_id, team_id)
-        get_integration_ms = int((time.monotonic() - t0) * 1000)
-
         access_token = integration.access_token
         if not access_token:
             raise ValueError("Slack access token not found")
 
         msg_config = messages_endpoint_config()
-        t1 = time.monotonic()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
-        webhook_flag_ms = int((time.monotonic() - t1) * 1000)
-
         authed_user = (integration.config or {}).get("authed_user", {}).get("id")
-        t2 = time.monotonic()
         channels = get_channels(access_token, authed_user)
-        get_channels_ms = int((time.monotonic() - t2) * 1000)
-
-        logger.info(
-            "Slack get_schemas timings",
-            team_id=team_id,
-            integration_id=config.slack_integration_id,
-            get_oauth_integration_ms=get_integration_ms,
-            is_webhook_feature_flag_enabled_ms=webhook_flag_ms,
-            get_channels_ms=get_channels_ms,
-            channel_count=len(channels),
-        )
-
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
