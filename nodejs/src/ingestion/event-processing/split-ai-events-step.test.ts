@@ -601,5 +601,31 @@ describe('split-ai-events-step', () => {
             expect(await runForTeam(config, 1)).toBe(2)
             expect(await runForTeam(config, 999_999)).toBe(2)
         })
+
+        it('bucketing stays stable for team ids past the f64-precision threshold (~3.4M)', async () => {
+            // Without Math.imul, `teamId * 2654435761` loses precision past 2^53, shifting
+            // the bucket by ±1 for teamIds ≳ 3.4M. teamId 3_393_265 lands in bucket 77
+            // under the corrected implementation; the naive multiplication would produce 76.
+            const noRollout: SplitAiEventsStepConfig = {
+                enabled: true,
+                enabledTeams: [],
+                enabledPercentage: 77,
+                stripHeavyTeams: [],
+            }
+            const fullRollout: SplitAiEventsStepConfig = {
+                enabled: true,
+                enabledTeams: [],
+                enabledPercentage: 78,
+                stripHeavyTeams: [],
+            }
+            // bucket 77, threshold 77 → not routed; threshold 78 → routed.
+            expect(await runForTeam(noRollout, 3_393_265)).toBe(1)
+            expect(await runForTeam(fullRollout, 3_393_265)).toBe(2)
+            // High teamIds still respect 0% and 100% boundaries.
+            for (const teamId of [10_000_000, 50_000_000, 99_999_999]) {
+                expect(await runForTeam({ ...noRollout, enabledPercentage: 0 }, teamId)).toBe(1)
+                expect(await runForTeam({ ...noRollout, enabledPercentage: 100 }, teamId)).toBe(2)
+            }
+        })
     })
 })

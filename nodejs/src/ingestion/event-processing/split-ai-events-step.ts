@@ -110,7 +110,7 @@ function clampPercentage(pct: number): number {
  * team ids don't cluster into the same bucket.
  */
 function teamRolloutBucket(teamId: number): number {
-    return ((teamId * 2654435761) >>> 0) % 100
+    return (Math.imul(teamId, 2654435761) >>> 0) % 100
 }
 
 function isTeamRouted(teams: number[] | '*', percentage: number, teamId: number): boolean {
