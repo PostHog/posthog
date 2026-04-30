@@ -90,6 +90,10 @@ class Feature(StrEnum):
     MIGRATION = "migration"
     MANAGEMENT_COMMAND = "management_command"
     LLM_ANALYTICS = "llm_analytics"
+    # Endpoints product features
+    ENDPOINT_EXECUTION = "endpoint_execution"  # external API callers (personal_api_key or oauth)
+    ENDPOINT_PLAYGROUND = "endpoint_playground"  # frontend Playground tab (browser session auth)
+    ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
 
 
 class TemporalTags(BaseModel):

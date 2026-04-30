@@ -14,79 +14,32 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
-    dataset-items-create:
-        operation: dataset_items_create
-        enabled: false
-    dataset-items-destroy:
-        operation: dataset_items_destroy
-        enabled: false
-    dataset-items-list:
-        operation: dataset_items_list
-        enabled: false
-    dataset-items-partial-update:
-        operation: dataset_items_partial_update
-        enabled: false
-    dataset-items-retrieve:
-        operation: dataset_items_retrieve
-        enabled: false
-    dataset-items-update:
-        operation: dataset_items_update
-        enabled: false
-    datasets-create:
-        operation: datasets_create
-        enabled: false
-    datasets-destroy:
-        operation: datasets_destroy
-        enabled: false
-    datasets-list:
-        operation: datasets_list
-        enabled: false
-    datasets-partial-update:
-        operation: datasets_partial_update
-        enabled: false
-    datasets-retrieve:
-        operation: datasets_retrieve
-        enabled: false
-    datasets-update:
-        operation: datasets_update
-        enabled: false
-    evaluation-runs-create:
-        operation: evaluation_runs_create
-        enabled: false
-    evaluations-create:
-        operation: evaluations_create
-        enabled: false
-    evaluations-destroy:
-        operation: evaluations_destroy
-        enabled: false
-    evaluations-list:
-        operation: evaluations_list
-        enabled: false
-    evaluations-partial-update:
-        operation: evaluations_partial_update
-        enabled: false
-    evaluations-retrieve:
-        operation: evaluations_retrieve
-        enabled: false
-    evaluations-test-hog-create:
-        operation: evaluations_test_hog_create
-        enabled: false
-    evaluations-update:
-        operation: evaluations_update
-        enabled: false
-    llm-analytics-clustering-config-retrieve:
+    llma-clustering-config-get:
         operation: llm_analytics_clustering_config_retrieve
         enabled: false
-    llm-analytics-clustering-config-set-event-filters-create:
+    llma-clustering-config-set-event-filters:
         operation: llm_analytics_clustering_config_set_event_filters_create
         enabled: false
-    llm-analytics-clustering-jobs-create:
+    llma-clustering-job-create:
         operation: llm_analytics_clustering_jobs_create
         enabled: false
-    llm-analytics-clustering-jobs-destroy:
+    llma-clustering-job-delete:
         operation: llm_analytics_clustering_jobs_destroy
         enabled: false
-    llm-analytics-clustering-jobs-list:
+    llma-clustering-job-get:
+        operation: llm_analytics_clustering_jobs_retrieve
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get clustering job
+        description: >
+            Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or
+            generation), event filters, enabled status, and timestamps.
+    llma-clustering-job-list:
         operation: llm_analytics_clustering_jobs_list
         enabled: true
         scopes:
@@ -101,11 +54,228 @@ tools:
             level (trace or generation) and event filters that scope which traces are included in clustering runs.
             Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or
             execute-sql to query them.
-    llm-analytics-clustering-jobs-partial-update:
+    llma-clustering-job-update:
         operation: llm_analytics_clustering_jobs_partial_update
         enabled: false
-    llm-analytics-clustering-jobs-retrieve:
-        operation: llm_analytics_clustering_jobs_retrieve
+    llma-clustering-job-update-full:
+        operation: llm_analytics_clustering_jobs_update
+        enabled: false
+    llma-clustering-run-create:
+        operation: llm_analytics_clustering_runs_create
+        enabled: false
+    llma-dataset-create:
+        operation: datasets_create
+        enabled: false
+    llma-dataset-delete:
+        operation: datasets_destroy
+        enabled: false
+    llma-dataset-get:
+        operation: datasets_retrieve
+        enabled: false
+    llma-dataset-item-create:
+        operation: dataset_items_create
+        enabled: false
+    llma-dataset-item-delete:
+        operation: dataset_items_destroy
+        enabled: false
+    llma-dataset-item-get:
+        operation: dataset_items_retrieve
+        enabled: false
+    llma-dataset-item-list:
+        operation: dataset_items_list
+        enabled: false
+    llma-dataset-item-update:
+        operation: dataset_items_partial_update
+        enabled: false
+    llma-dataset-item-update-full:
+        operation: dataset_items_update
+        enabled: false
+    llma-dataset-list:
+        operation: datasets_list
+        enabled: false
+    llma-dataset-update:
+        operation: datasets_partial_update
+        enabled: false
+    llma-dataset-update-full:
+        operation: datasets_update
+        enabled: false
+    llma-evaluation-config-get:
+        operation: llm_analytics_evaluation_config_retrieve
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation config
+        description: >
+            Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge
+            evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the
+            team has either trial credits available or an active provider key configured — without one, llm_judge runs
+            will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.
+    llma-evaluation-config-set-active-key:
+        operation: llm_analytics_evaluation_config_set_active_key_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set active evaluation provider key
+        description: >
+            Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing
+            provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't
+            pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from
+            the PostHog UI before retrying.
+    llma-evaluation-create:
+        operation: evaluations_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create evaluation
+        description: >
+            Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration
+            (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When
+            enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation'
+            events.
+    llma-evaluation-delete:
+        operation: evaluations_destroy
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete evaluation
+        description: >
+            Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical
+            evaluation results ($ai_evaluation events) are preserved.
+        soft_delete: true
+    llma-evaluation-get:
+        operation: evaluations_retrieve
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation
+        description: >
+            Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config,
+            output type, enabled status, and model configuration.
+    llma-evaluation-judge-models:
+        operation: llm_analytics_models_retrieve
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List supported llm_judge models
+        description: >
+            List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter
+            (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the
+            list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry
+            returns the model id and whether it is available on PostHog trial credits. Call this before creating an
+            llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is
+            chosen.
+    llma-evaluation-list:
+        operation: evaluations_list
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluations
+        description: >
+            List all LLM evaluations for the current project. Optionally filter by name/description search or enabled
+            status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other
+            criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog'
+            (deterministic Hog code). Results are stored as '$ai_evaluation' events.
+    llma-evaluation-report-create:
+        operation: llm_analytics_evaluation_reports_create
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create evaluation report config
+        description: |
+            Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)
+            and are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults
+            to 'every_n' if omitted:
+
+            - 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have
+            accumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per
+            UTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)
+            and `daily_run_cap` are optional.
+            - 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.
+            'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock
+            times survive DST transitions. `rrule` and `starts_at` are required in this mode;
+            `timezone_name` defaults to 'UTC'.
+
+            `delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',
+            integration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the
+            same team. Use `report_prompt_guidance` to steer the AI report's focus.
+        include_params:
+            - evaluation
+            - frequency
+            - delivery_targets
+            - enabled
+            - trigger_threshold
+            - cooldown_minutes
+            - daily_run_cap
+            - rrule
+            - starts_at
+            - timezone_name
+            - max_sample_size
+            - report_prompt_guidance
+    llma-evaluation-report-delete:
+        operation: llm_analytics_evaluation_reports_destroy
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete evaluation report config
+        description: >
+            Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views;
+            historical report runs are preserved. Equivalent to calling llma-evaluation-report-update with deleted=true
+            — that update path is the canonical way to soft-delete and is the only option when you also want to change
+            other fields in the same call.
+        soft_delete: true
+    llma-evaluation-report-generate:
+        operation: llm_analytics_evaluation_reports_generate_create
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Trigger evaluation report generation
+        description: >
+            Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow
+            that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns
+            202 on success. Duplicate requests within the same minute are coalesced — only one report is generated.
+            Rate-limited by daily_run_cap.
+    llma-evaluation-report-get:
+        operation: llm_analytics_evaluation_reports_retrieve
         enabled: true
         scopes:
             - llm_analytics:read
@@ -113,47 +283,72 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get clustering job
+        title: Get evaluation report config
         description: >
-            Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or
-            generation), event filters, enabled status, and timestamps.
-    llm-analytics-clustering-jobs-update:
-        operation: llm_analytics_clustering_jobs_update
-        enabled: false
-    llm-analytics-clustering-runs-create:
-        operation: llm_analytics_clustering_runs_create
-        enabled: false
-    llm-analytics-evaluation-config-retrieve:
-        operation: llm_analytics_evaluation_config_retrieve
-        enabled: false
-    llm-analytics-evaluation-config-set-active-key-create:
-        operation: llm_analytics_evaluation_config_set_active_key_create
-        enabled: false
-    llm-analytics-evaluation-reports-create:
-        operation: llm_analytics_evaluation_reports_create
-        enabled: false
-    llm-analytics-evaluation-reports-destroy:
-        operation: llm_analytics_evaluation_reports_destroy
-        enabled: false
-    llm-analytics-evaluation-reports-generate-create:
-        operation: llm_analytics_evaluation_reports_generate_create
-        enabled: false
-    llm-analytics-evaluation-reports-list:
+            Get a specific evaluation report configuration by UUID. Returns the full config including frequency,
+            delivery targets, trigger thresholds, and schedule settings.
+    llma-evaluation-report-list:
         operation: llm_analytics_evaluation_reports_list
-        enabled: false
-    llm-analytics-evaluation-reports-partial-update:
-        operation: llm_analytics_evaluation_reports_partial_update
-        enabled: false
-    llm-analytics-evaluation-reports-retrieve:
-        operation: llm_analytics_evaluation_reports_retrieve
-        enabled: false
-    llm-analytics-evaluation-reports-runs-list:
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluation report configs
+        description: >
+            List all evaluation report configurations for the current project. Optionally filter by evaluation UUID
+            using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are
+            generated and delivered (email or Slack).
+    llma-evaluation-report-run-list:
         operation: llm_analytics_evaluation_reports_runs_list
-        enabled: false
-    llm-analytics-evaluation-reports-update:
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluation report runs
+        description: >
+            List the run history for a specific evaluation report config. Each run record includes the generated report
+            content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery
+            error details.
+    llma-evaluation-report-update:
+        operation: llm_analytics_evaluation_reports_partial_update
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation report config
+        description: >
+            Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email
+            or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold
+            (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set
+            deleted=true to soft-delete the config.
+    llma-evaluation-report-update-full:
         operation: llm_analytics_evaluation_reports_update
         enabled: false
-    llm-analytics-evaluation-summary-create:
+    llma-evaluation-run:
+        operation: evaluation_runs_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run evaluation
+        description: >
+            Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that
+            asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a
+            workflow_id and status "started". Pair with execute-sql to query results: SELECT * FROM events WHERE event =
+            '$ai_evaluation'.
+    llma-evaluation-summary-create:
         operation: llm_analytics_evaluation_summary_create
         enabled: true
         scopes:
@@ -171,43 +366,202 @@ tools:
             Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour —
             use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.
         requires_ai_consent: true
-    llm-analytics-models-retrieve:
-        operation: llm_analytics_models_retrieve
+    llma-evaluation-test-hog:
+        operation: evaluations_test_hog_create
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Test Hog evaluation code
+        description: >
+            Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns
+            per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code
+            before creating or updating a 'hog' type evaluation.
+    llma-evaluation-update:
+        operation: evaluations_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation
+        description: >
+            Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config
+            (prompt or Hog source), or change the model configuration.
+    llma-evaluation-update-full:
+        operation: evaluations_update
         enabled: false
-    llm-analytics-provider-key-validations-create:
-        operation: llm_analytics_provider_key_validations_create
+    llma-prompt-archive:
+        operation: llm_prompts_name_archive_create
         enabled: false
-    llm-analytics-provider-keys-assign-create:
+    llma-prompt-create:
+        operation: llm_prompts_create
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create prompt
+        description: >
+            Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
+            object).
+        include_params:
+            - name
+            - prompt
+    llma-prompt-duplicate:
+        operation: llm_prompts_name_duplicate_create
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate prompt
+        description: >
+            Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new
+            prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after
+            creation.
+    llma-prompt-get:
+        operation: llm_prompts_name_retrieve
+        enabled: true
+        scopes:
+            - llm_prompt:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get prompt
+        description: |
+            Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.
+            The response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful
+            as a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,
+            or `content=preview` for a short `prompt_preview` snippet instead of the full prompt.
+    llma-prompt-list:
+        operation: llm_prompts_list
+        enabled: true
+        scopes:
+            - llm_prompt:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        input_schema: PromptListInputSchema
+        response_type: |-
+            Omit<Schemas.PaginatedLLMPromptListList, 'results'> & {
+              results: (Omit<Schemas.LLMPromptList, 'prompt'> & { prompt?: unknown })[]
+            }
+        title: List prompts
+        description: >
+            List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt
+            summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes
+            `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of
+            contents, and pair with `content=none` to keep responses small.
+    llma-prompt-resolve:
+        operation: llm_prompts_resolve_name_retrieve
+        enabled: false
+    llma-prompt-update:
+        operation: llm_prompts_name_partial_update
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update prompt
+        description: |
+            Publish a new version of an existing LLM prompt by name. Name is immutable after creation.
+            You can either provide the full prompt content via 'prompt', or use 'edits' for incremental
+            find/replace updates. Each edit must have 'old' (text to find, must match exactly once) and
+            'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'
+            may be provided.
+        include_params:
+            - prompt
+            - edits
+            - base_version
+    llma-provider-key-assign:
         operation: llm_analytics_provider_keys_assign_create
         enabled: false
-    llm-analytics-provider-keys-create:
+    llma-provider-key-create:
         operation: llm_analytics_provider_keys_create
         enabled: false
-    llm-analytics-provider-keys-dependent-configs-retrieve:
-        operation: llm_analytics_provider_keys_dependent_configs_retrieve
-        enabled: false
-    llm-analytics-provider-keys-destroy:
+    llma-provider-key-delete:
         operation: llm_analytics_provider_keys_destroy
         enabled: false
-    llm-analytics-provider-keys-list:
-        operation: llm_analytics_provider_keys_list
+    llma-provider-key-dependent-configs-get:
+        operation: llm_analytics_provider_keys_dependent_configs_retrieve
         enabled: false
-    llm-analytics-provider-keys-partial-update:
-        operation: llm_analytics_provider_keys_partial_update
-        enabled: false
-    llm-analytics-provider-keys-retrieve:
+    llma-provider-key-get:
         operation: llm_analytics_provider_keys_retrieve
         enabled: false
-    llm-analytics-provider-keys-trial-evaluations-retrieve:
+    llma-provider-key-list:
+        operation: llm_analytics_provider_keys_list
+        enabled: false
+    llma-provider-key-trial-evaluations-get:
         operation: llm_analytics_provider_keys_trial_evaluations_retrieve
         enabled: false
-    llm-analytics-provider-keys-update:
+    llma-provider-key-update:
+        operation: llm_analytics_provider_keys_partial_update
+        enabled: false
+    llma-provider-key-update-full:
         operation: llm_analytics_provider_keys_update
         enabled: false
-    llm-analytics-provider-keys-validate-create:
+    llma-provider-key-validate:
         operation: llm_analytics_provider_keys_validate_create
         enabled: false
-    llm-analytics-review-queue-items-create:
+    llma-provider-key-validation-create:
+        operation: llm_analytics_provider_key_validations_create
+        enabled: false
+    llma-review-queue-create:
+        operation: llm_analytics_review_queues_create
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: reviews?queue_id={id}
+        title: Create review queue
+        description: >
+            Create a review queue for routing traces that still need review. Queue names must be unique among active
+            queues in the current project.
+    llma-review-queue-delete:
+        operation: llm_analytics_review_queues_destroy
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete review queue
+        description: >
+            Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments
+            that still belong to it.
+    llma-review-queue-get:
+        operation: llm_analytics_review_queues_retrieve
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: reviews?queue_id={id}
+        title: Get review queue
+        description: |
+            Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.
+        mcp_version: 1
+    llma-review-queue-item-create:
         operation: llm_analytics_review_queue_items_create
         enabled: true
         scopes:
@@ -221,7 +575,7 @@ tools:
         description: >
             Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if
             the trace already has an active review or is already pending in any review queue.
-    llm-analytics-review-queue-items-destroy:
+    llma-review-queue-item-delete:
         operation: llm_analytics_review_queue_items_destroy
         enabled: true
         scopes:
@@ -234,7 +588,22 @@ tools:
         description: >
             Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace
             can be queued again later if needed.
-    llm-analytics-review-queue-items-list:
+    llma-review-queue-item-get:
+        operation: llm_analytics_review_queue_items_retrieve
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        title: Get review queue item
+        description: >
+            Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and
+            timestamps for the pending review task.
+        mcp_version: 1
+    llma-review-queue-item-list:
         operation: llm_analytics_review_queue_items_list
         enabled: true
         scopes:
@@ -250,7 +619,7 @@ tools:
             List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id,
             trace_id__in, search, and ordering so agents can find traces that are still queued for review.
         mcp_version: 1
-    llm-analytics-review-queue-items-partial-update:
+    llma-review-queue-item-update:
         operation: llm_analytics_review_queue_items_partial_update
         enabled: true
         scopes:
@@ -264,49 +633,7 @@ tools:
         description: >
             Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace
             has already been reviewed and can no longer stay queued.
-    llm-analytics-review-queue-items-retrieve:
-        operation: llm_analytics_review_queue_items_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: traces/{trace_id}
-        title: Get review queue item
-        description: >
-            Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and
-            timestamps for the pending review task.
-        mcp_version: 1
-    llm-analytics-review-queues-create:
-        operation: llm_analytics_review_queues_create
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: reviews?queue_id={id}
-        title: Create review queue
-        description: >
-            Create a review queue for routing traces that still need review. Queue names must be unique among active
-            queues in the current project.
-    llm-analytics-review-queues-destroy:
-        operation: llm_analytics_review_queues_destroy
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete review queue
-        description: >
-            Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments
-            that still belong to it.
-    llm-analytics-review-queues-list:
+    llma-review-queue-list:
         operation: llm_analytics_review_queues_list
         enabled: true
         scopes:
@@ -322,7 +649,7 @@ tools:
             List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and
             timestamps. Supports queue-name search and ordering.
         mcp_version: 1
-    llm-analytics-review-queues-partial-update:
+    llma-review-queue-update:
         operation: llm_analytics_review_queues_partial_update
         enabled: true
         scopes:
@@ -335,36 +662,22 @@ tools:
         title: Update review queue
         description: |
             Rename an existing review queue. The updated name must stay unique among active queues in the project.
-    llm-analytics-review-queues-retrieve:
-        operation: llm_analytics_review_queues_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: reviews?queue_id={id}
-        title: Get review queue
-        description: |
-            Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.
-        mcp_version: 1
-    llm-analytics-score-definitions-create:
+    llma-score-definition-create:
         operation: llm_analytics_score_definitions_create
         enabled: false
-    llm-analytics-score-definitions-list:
-        operation: llm_analytics_score_definitions_list
-        enabled: false
-    llm-analytics-score-definitions-new-version-create:
-        operation: llm_analytics_score_definitions_new_version_create
-        enabled: false
-    llm-analytics-score-definitions-partial-update:
-        operation: llm_analytics_score_definitions_partial_update
-        enabled: false
-    llm-analytics-score-definitions-retrieve:
+    llma-score-definition-get:
         operation: llm_analytics_score_definitions_retrieve
         enabled: false
-    llm-analytics-sentiment-create:
+    llma-score-definition-list:
+        operation: llm_analytics_score_definitions_list
+        enabled: false
+    llma-score-definition-new-version:
+        operation: llm_analytics_score_definitions_new_version_create
+        enabled: false
+    llma-score-definition-update:
+        operation: llm_analytics_score_definitions_partial_update
+        enabled: false
+    llma-sentiment-create:
         operation: llm_analytics_sentiment_create
         enabled: true
         scopes:
@@ -379,10 +692,181 @@ tools:
             of trace or generation IDs and an analysis_level ("trace" or "generation"). Returns per-ID sentiment labels
             with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute.
             Rate-limited.
-    llm-analytics-summarization-batch-check-create:
+    llma-skill-archive:
+        operation: llm_skills_name_archive_create
+        enabled: false
+    llma-skill-create:
+        operation: llm_skills_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create skill
+        description: >
+            Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a
+            description explaining when to use it, and the skill body (SKILL.md instruction content as markdown).
+            Optionally include license, compatibility, allowed_tools, metadata, and bundled files.
+        include_params:
+            - name
+            - description
+            - body
+            - license
+            - compatibility
+            - allowed_tools
+            - metadata
+            - files
+    llma-skill-duplicate:
+        operation: llm_skills_name_duplicate_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate skill
+        description: >
+            Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and
+            bundled files to create a new skill at version 1.
+    llma-skill-file-create:
+        operation: llm_skills_name_files_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create skill file
+        description: >
+            Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use
+            llma-skill-update with files to replace, or llma-skill-file-delete followed by llma-skill-file-create to
+            overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain
+            further edits via base_version). Supply base_version for optimistic concurrency.
+    llma-skill-file-delete:
+        operation: llm_skills_name_files_destroy
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete skill file
+        description: >
+            Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version.
+            Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version'
+            field to chain further edits via base_version. Supply base_version for optimistic concurrency.
+    llma-skill-file-get:
+        operation: llm_skills_name_files_retrieve
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get skill file
+        description: >
+            Fetch a single bundled file from an agent skill by its path. Use the file manifest from llma-skill-get to
+            discover available files. Supports progressive disclosure — only load files when needed rather than fetching
+            all content upfront.
+    llma-skill-file-rename:
+        operation: llm_skills_name_files_rename_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Rename skill file
+        description: >
+            Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and
+            with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new
+            skill version and returns the updated skill (read its 'version' field to chain further edits via
+            base_version). Supply base_version for optimistic concurrency.
+    llma-skill-get:
+        operation: llm_skills_name_retrieve
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get skill
+        description: >
+            Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows
+            the Agent Skills specification (agentskills.io).
+    llma-skill-list:
+        operation: llm_skills_list
+        enabled: true
+        scopes:
+            - llm_skill:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List skills
+        description: >
+            List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use
+            descriptions to determine which skill to fetch for a given task. Does not return skill body content (use
+            llma-skill-get to fetch full content).
+    llma-skill-resolve:
+        operation: llm_skills_resolve_name_retrieve
+        enabled: false
+    llma-skill-update:
+        operation: llm_skills_name_partial_update
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update skill
+        description: |
+            Publish a new version of an existing agent skill by name. Any field not provided
+            is carried forward from the current latest version. Requires base_version for
+            optimistic concurrency.
+
+            For the body, you can either provide the full content via 'body', or use 'edits'
+            for incremental find/replace updates. Each edit must have 'old' (text to find,
+            must match exactly once) and 'new' (replacement text). Edits are applied
+            sequentially. Only one of 'body' or 'edits' may be provided.
+
+            For file changes, prefer the per-file tools rather than passing a 'files' list:
+            llma-skill-file-create / llma-skill-file-delete / llma-skill-file-rename handle
+            add/remove/rename one file at a time and return the updated skill (including the
+            bumped version) so callers can chain further edits via base_version.
+
+            For per-file content updates, use 'file_edits' to apply find/replace updates to
+            individual files without resending the full file set — each entry targets one
+            existing file by path. Non-targeted files carry forward unchanged. 'file_edits'
+            cannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)
+            for that. 'files' and 'file_edits' are mutually exclusive.
+
+            Passing a 'files' list here replaces ALL files and risks data loss if any file is
+            omitted — use it only when you intentionally want to replace the entire bundle.
+        include_params:
+            - body
+            - edits
+            - description
+            - license
+            - compatibility
+            - allowed_tools
+            - metadata
+            - files
+            - file_edits
+            - base_version
+    llma-summarization-batch-check-create:
         operation: llm_analytics_summarization_batch_check_create
         enabled: false
-    llm-analytics-summarization-create:
+    llma-summarization-create:
         operation: llm_analytics_summarization_create
         enabled: true
         scopes:
@@ -398,10 +882,19 @@ tools:
             bullets, and interesting notes. Results are cached. Use mode "minimal" (default) for 3-5 points or
             "detailed" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.
         requires_ai_consent: true
-    llm-analytics-text-repr-create:
+    llma-tagger-create:
+        operation: taggers_create
+        enabled: false
+    llma-tagger-list:
+        operation: taggers_list
+        enabled: false
+    llma-tagger-test-hog:
+        operation: taggers_test_hog_create
+        enabled: false
+    llma-text-repr-create:
         operation: llm_analytics_text_repr_create
         enabled: false
-    llm-analytics-trace-reviews-create:
+    llma-trace-review-create:
         operation: llm_analytics_trace_reviews_create
         enabled: true
         scopes:
@@ -415,7 +908,7 @@ tools:
         description: >
             Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to
             clear a matching pending review-queue item after the review is saved.
-    llm-analytics-trace-reviews-destroy:
+    llma-trace-review-delete:
         operation: llm_analytics_trace_reviews_destroy
         enabled: true
         scopes:
@@ -428,7 +921,22 @@ tools:
         description: >
             Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if
             needed.
-    llm-analytics-trace-reviews-list:
+    llma-trace-review-get:
+        operation: llm_analytics_trace_reviews_retrieve
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: traces/{trace_id}
+        title: Get trace review
+        description: >
+            Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and
+            timestamps.
+        mcp_version: 1
+    llma-trace-review-list:
         operation: llm_analytics_trace_reviews_list
         enabled: true
         scopes:
@@ -444,7 +952,7 @@ tools:
             List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns
             comments, scores, reviewers, and timestamps.
         mcp_version: 1
-    llm-analytics-trace-reviews-partial-update:
+    llma-trace-review-update:
         operation: llm_analytics_trace_reviews_partial_update
         enabled: true
         scopes:
@@ -458,84 +966,6 @@ tools:
         description: >
             Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to
             clear only a matching pending queue item after the review is saved.
-    llm-analytics-trace-reviews-retrieve:
-        operation: llm_analytics_trace_reviews_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: traces/{trace_id}
-        title: Get trace review
-        description: >
-            Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and
-            timestamps.
-        mcp_version: 1
-    llm-analytics-translate-create:
+    llma-translate-create:
         operation: llm_analytics_translate_create
-        enabled: false
-    llm-prompts-create:
-        operation: llm_prompts_create
-        enabled: false
-    llm-prompts-list:
-        operation: llm_prompts_list
-        enabled: false
-    llm-prompts-name-archive-create:
-        operation: llm_prompts_name_archive_create
-        enabled: false
-    llm-prompts-name-duplicate-create:
-        operation: llm_prompts_name_duplicate_create
-        enabled: false
-    llm-prompts-name-partial-update:
-        operation: llm_prompts_name_partial_update
-        enabled: false
-    llm-prompts-name-retrieve:
-        operation: llm_prompts_name_retrieve
-        enabled: false
-    llm-prompts-resolve-name-retrieve:
-        operation: llm_prompts_resolve_name_retrieve
-        enabled: false
-    llm-skills-create:
-        operation: llm_skills_create
-        enabled: false
-    llm-skills-list:
-        operation: llm_skills_list
-        enabled: false
-    llm-skills-name-archive-create:
-        operation: llm_skills_name_archive_create
-        enabled: false
-    llm-skills-name-duplicate-create:
-        operation: llm_skills_name_duplicate_create
-        enabled: false
-    llm-skills-name-files-create:
-        operation: llm_skills_name_files_create
-        enabled: false
-    llm-skills-name-files-destroy:
-        operation: llm_skills_name_files_destroy
-        enabled: false
-    llm-skills-name-files-rename-create:
-        operation: llm_skills_name_files_rename_create
-        enabled: false
-    llm-skills-name-files-retrieve:
-        operation: llm_skills_name_files_retrieve
-        enabled: false
-    llm-skills-name-partial-update:
-        operation: llm_skills_name_partial_update
-        enabled: false
-    llm-skills-name-retrieve:
-        operation: llm_skills_name_retrieve
-        enabled: false
-    llm-skills-resolve-name-retrieve:
-        operation: llm_skills_resolve_name_retrieve
-        enabled: false
-    taggers-create:
-        operation: taggers_create
-        enabled: false
-    taggers-list:
-        operation: taggers_list
-        enabled: false
-    taggers-test-hog-create:
-        operation: taggers_test_hog_create
         enabled: false
