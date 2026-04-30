@@ -9,12 +9,14 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -46,6 +48,7 @@ interface QueryWindowProps {
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    onShareTab?: () => void
 }
 
 export function QueryWindow({
@@ -60,6 +63,7 @@ export function QueryWindow({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onShareTab,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
@@ -89,9 +93,11 @@ export function QueryWindow({
     const { setSuggestedQueryInput, reportAIQueryPromptOpen } = useActions(sqlEditorLogic)
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
-    const canSendRawQuery = !!selectedConnectionId
+    const isDirectQueryEnabled = !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    const canSendRawQuery = isDirectQueryEnabled && !!selectedConnectionId
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
@@ -166,7 +172,7 @@ export function QueryWindow({
                             runQueryDisabledReason={runQueryDisabledReason}
                             runQueryTooltip={runQueryTooltip}
                         />
-                        <CollapsedConnectionSelector mode={mode} />
+                        <CollapsedConnectionSelector mode={mode} isDirectQueryEnabled={isDirectQueryEnabled} />
                         <LemonDivider vertical />
                         <QueryVariablesMenu
                             disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
@@ -285,7 +291,7 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel ? <InternalQueryWindow tabId={tabId} /> : null}
+            {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
         </div>
     )
 }
@@ -425,20 +431,32 @@ function RunButton({
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow({
+    tabId,
+    onShareTab,
+}: {
+    tabId: string
+    onShareTab?: () => void
+}): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane tabId={tabId} />
+    return <OutputPane tabId={tabId} onShareTab={onShareTab} />
 })
 
-function CollapsedConnectionSelector({ mode }: { mode?: SQLEditorMode }): JSX.Element | null {
+function CollapsedConnectionSelector({
+    mode,
+    isDirectQueryEnabled,
+}: {
+    mode?: SQLEditorMode
+    isDirectQueryEnabled: boolean
+}): JSX.Element | null {
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
 
-    if (!isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
+    if (!isDirectQueryEnabled || !isDatabaseTreeCollapsed || (mode && mode !== SQLEditorMode.FullScene)) {
         return null
     }
 

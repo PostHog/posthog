@@ -33,6 +33,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
+import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputPane } from './OutputPane'
@@ -59,6 +60,7 @@ interface SQLEditorProps {
     runQueryLoading?: boolean
     runQueryDisabledReason?: string
     runQueryTooltip?: string
+    onShareTab?: () => void
 }
 
 export function SQLEditor({
@@ -72,6 +74,7 @@ export function SQLEditor({
     runQueryLoading,
     runQueryDisabledReason,
     runQueryTooltip,
+    onShareTab,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -83,7 +86,7 @@ export function SQLEditor({
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
     const showQueryPanel = panel !== SQLEditorPanel.Output
     const showOutputPanel = panel !== SQLEditorPanel.Query
-    const showSceneTitle = panel === SQLEditorPanel.Full
+    const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
     const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
 
     const editorSizingLogicProps = useMemo(
@@ -200,7 +203,11 @@ export function SQLEditor({
                                     <VariablesQuerySync />
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                                            <OutputPane tabId={tabId || ''} showToolbar={showOutputToolbar} />
+                                            <OutputPane
+                                                tabId={tabId || ''}
+                                                showToolbar={showOutputToolbar}
+                                                onShareTab={onShareTab}
+                                            />
                                         </div>
                                     ) : (
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
@@ -229,6 +236,7 @@ export function SQLEditor({
                                                             runQueryLoading={runQueryLoading}
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
+                                                            onShareTab={onShareTab}
                                                         />
                                                     </div>
                                                 </div>
@@ -276,6 +284,7 @@ function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
 }
 
 function SQLEditorSceneTitle(): JSX.Element | null {
+    const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems } = useValues(editorSceneLogic)
     const {
         queryInput,
         editingView,
@@ -284,14 +293,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         sourceQuery,
         changesToSave,
         inProgressViewEdits,
-        isEmbeddedMode,
-        titleSectionProps,
-        updateInsightButtonEnabled,
-        saveAsMenuItems,
         isSourceQueryLastRun,
         isMultiQuery,
         featureFlags,
     } = useValues(sqlEditorLogic)
+    const { openHistoryModal } = useActions(editorSceneLogic)
     const {
         updateView,
         updateInsight,
@@ -299,7 +305,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsInsight,
         saveAsView,
         saveAsEndpoint,
-        openHistoryModal,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
     } = useActions(sqlEditorLogic)
@@ -381,10 +386,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
         return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response, isMultiQuery])
-
-    if (isEmbeddedMode) {
-        return null
-    }
 
     const isMaterializedView = editingView?.is_materialized === true
     const closeObjectTooltip = editingInsight
