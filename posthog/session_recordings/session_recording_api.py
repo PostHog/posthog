@@ -1464,9 +1464,6 @@ class SessionRecordingViewSet(
                 force_restart=force_restart,
                 product_context=product_context,
             ):
-                # Detect terminal SSE events to capture summary outcome. The stream is
-                # terminated by either ``session-summary-stream`` (success) or
-                # ``session-summary-error`` (failure); only one ever fires per run.
                 if chunk.startswith("event: session-summary-stream"):
                     success = True
                 elif chunk.startswith("event: session-summary-error"):
@@ -1483,10 +1480,9 @@ class SessionRecordingViewSet(
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
         finally:
-            # Skip if the client disconnected before any terminal event fired —
-            # without an outcome we'd record a misleading success/failure signal.
             if success is not None:
-                capture_session_summary_generated(
+                await asyncio.to_thread(
+                    capture_session_summary_generated,
                     user=user,
                     team=self.team,
                     tracking_id=tracking_id,
