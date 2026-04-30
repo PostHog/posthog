@@ -29,7 +29,10 @@ from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
-from posthog.hogql_queries.experiments.experiment_query_runner import DEFAULT_EXPOSURE_TTL_SECONDS
+from posthog.hogql_queries.experiments.experiment_query_runner import (
+    DEFAULT_EXPOSURE_TTL_SECONDS,
+    experiment_meets_precomputation_duration_gate,
+)
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -148,7 +151,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        if config.experiment_precomputation_enabled:
+        if config.experiment_precomputation_enabled and experiment_meets_precomputation_duration_gate(
+            self.experiment.start_date,
+            self.experiment.end_date,
+        ):
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:

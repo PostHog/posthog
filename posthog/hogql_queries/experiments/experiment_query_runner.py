@@ -73,8 +73,36 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
 
+# Minimum experiment runtime before auto-enabling precomputation. The
+# today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
+# entire current-day result, so for very young experiments freshly arriving
+# exposures stay invisible until that TTL elapses. The gate scopes that
+# trade-off to experiments where most of the data is already in past
+# (frozen) windows. Bypassed by an explicit PrecomputationMode.PRECOMPUTED
+# query override.
+MIN_PRECOMPUTATION_DURATION_SECONDS = 12 * 60 * 60  # 12 hours
+
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
+
+
+def experiment_meets_precomputation_duration_gate(
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+) -> bool:
+    """Return True when the experiment has been running for at least
+    MIN_PRECOMPUTATION_DURATION_SECONDS.
+
+    For running experiments, elapsed time is measured against now. For
+    completed experiments (end_date in the past), the actual run length is
+    used. A future end_date (planned end) is ignored so we don't credit
+    runtime that hasn't happened yet.
+    """
+    if start_date is None:
+        return False
+    now = datetime.now(UTC)
+    effective_end = end_date if (end_date is not None and end_date <= now) else now
+    return (effective_end - start_date).total_seconds() >= MIN_PRECOMPUTATION_DURATION_SECONDS
 
 
 class ExperimentQueryRunner(QueryRunner):
@@ -233,13 +261,19 @@ class ExperimentQueryRunner(QueryRunner):
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
     def _should_precompute(self) -> bool:
-        """Resolve whether to use precomputation: query-level override > team-level default."""
+        """Resolve whether to use precomputation: query-level override > team-level default + duration gate."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return True
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
             return False
 
-        return self._team_experiments_config.experiment_precomputation_enabled
+        if not self._team_experiments_config.experiment_precomputation_enabled:
+            return False
+
+        return experiment_meets_precomputation_duration_gate(
+            self.experiment.start_date,
+            self.experiment.end_date,
+        )
 
     def _resolve_funnel_steps_data_disabled(self) -> bool:
         """Resolve funnel_steps_data_disabled: experiment parameter > team config."""

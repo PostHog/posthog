@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -56,10 +57,33 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         config.save()
 
     def _save_experiment_with_precomputation(self, experiment, use_precomputation: bool):
-        """Save experiment with precomputation enabled if needed"""
+        """Save experiment with precomputation enabled if needed.
+
+        Production gates precomputation behind a minimum experiment runtime
+        (see MIN_PRECOMPUTATION_DURATION_SECONDS). Tests in this suite often
+        rely on the default `start_date=now` from create_experiment, which
+        would silently fall back to the direct path. Bypass the duration
+        gate so the precomputed path is actually exercised.
+        """
         if use_precomputation:
             self._enable_precomputation()
+            self._bypass_precomputation_duration_gate()
         experiment.save()
+
+    def _bypass_precomputation_duration_gate(self):
+        if getattr(self, "_precomputation_duration_gate_patcher", None) is not None:
+            return
+        self._precomputation_duration_gate_patcher = patch(
+            "posthog.hogql_queries.experiments.experiment_query_runner.MIN_PRECOMPUTATION_DURATION_SECONDS",
+            0,
+        )
+        self._precomputation_duration_gate_patcher.start()
+        self.addCleanup(self._stop_precomputation_duration_gate_patcher)
+
+    def _stop_precomputation_duration_gate_patcher(self):
+        if self._precomputation_duration_gate_patcher is not None:
+            self._precomputation_duration_gate_patcher.stop()
+            self._precomputation_duration_gate_patcher = None
 
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
