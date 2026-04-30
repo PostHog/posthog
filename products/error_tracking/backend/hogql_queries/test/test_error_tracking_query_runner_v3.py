@@ -1,16 +1,22 @@
+from datetime import UTC, datetime
+
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities, flush_persons_and_events
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    DateRange,
     ErrorTrackingIssueFilter,
+    ErrorTrackingQuery,
+    EventPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
 )
 
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_v3 import ErrorTrackingQueryV3Builder
 from products.error_tracking.backend.hogql_queries.test.test_error_tracking_query_runner import (
     ErrorTrackingQueryRunnerTestsMixin,
 )
@@ -179,6 +185,54 @@ class TestErrorTrackingQueryRunnerV3(
             if included
         }
         self.assertEqual(result_ids, expected_ids)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):
+        filter_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR_,
+                            values=[
+                                EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+                                EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT),
+                                ErrorTrackingIssueFilter(
+                                    key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                                ),
+                            ],
+                        ),
+                        EventPropertyFilter(
+                            key="$exception_issue_id", value=[self.issue_id_one], operator=PropertyOperator.EXACT
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        builder = ErrorTrackingQueryV3Builder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                volumeResolution=1,
+                useQueryV3=True,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        user_filter_expr = builder._user_filter_expr()
+        self.assertIsNotNone(user_filter_expr)
+        user_filter_hogql = user_filter_expr.to_hogql()
+        self.assertIn("e.issue_name", user_filter_hogql)
+        self.assertNotIn("properties.name", user_filter_hogql)
+
+        results = self._calculate(filterGroup=filter_group)["results"]
+        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
     @freeze_time("2022-01-10T12:11:00")
     def test_status(self):

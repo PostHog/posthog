@@ -7,13 +7,13 @@ from posthog.schema import (
     ErrorTrackingQuery,
     FilterLogicalOperator,
     HogQLFilters,
+    PropertyGroupFilterValue,
     PropertyOperator,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
@@ -354,41 +354,30 @@ class ErrorTrackingQueryV3Builder:
             return {"id": str(role_id), "type": "role"}
         return None
 
-    @cached_property
-    def _properties(self):
-        return self.query.filterGroup.values[0].values if self.query.filterGroup else []
-
-    @cached_property
-    def _inner_filter_operator(self) -> FilterLogicalOperator:
-        if not self.query.filterGroup or not self.query.filterGroup.values:
-            return FilterLogicalOperator.AND_
-        inner = self.query.filterGroup.values[0]
-        return getattr(inner, "type", None) or FilterLogicalOperator.AND_
-
     def _user_filter_expr(self) -> ast.Expr | None:
         """Build a single AST expression for user-supplied filters from `filterGroup`,
-        respecting the OR/AND operator on the inner group. Issue-level filters and
-        event/person/etc. property filters are combined with the same operator so the
-        user's "Any/All" choice in the UI is preserved end-to-end.
+        preserving nested OR/AND groups while routing issue-level filters to the
+        denormalized issue fields.
         """
-        sub_exprs: list[ast.Expr] = []
-        for prop in self._properties:
-            if isinstance(prop, ErrorTrackingIssueFilter):
-                expr = self._issue_property_to_ast(prop)
-                if expr is not None:
-                    sub_exprs.append(expr)
-            else:
-                # Includes nested PropertyGroupFilterValue groups, which `property_to_expr`
-                # handles recursively respecting their own type.
-                sub_exprs.append(property_to_expr(prop, self.team, scope="event"))
-
-        if not sub_exprs:
+        if not self.query.filterGroup or not self.query.filterGroup.values:
             return None
-        if len(sub_exprs) == 1:
-            return sub_exprs[0]
-        if self._inner_filter_operator == FilterLogicalOperator.OR_:
-            return ast.Or(exprs=sub_exprs)
-        return ast.And(exprs=sub_exprs)
+        return self._filter_value_to_ast(self.query.filterGroup.values[0])
+
+    def _filter_value_to_ast(self, value: object) -> ast.Expr | None:
+        if isinstance(value, ErrorTrackingIssueFilter):
+            return self._issue_property_to_ast(value)
+
+        if isinstance(value, PropertyGroupFilterValue):
+            sub_exprs = [expr for child in value.values if (expr := self._filter_value_to_ast(child)) is not None]
+            if not sub_exprs:
+                return None
+            if len(sub_exprs) == 1:
+                return sub_exprs[0]
+            if value.type == FilterLogicalOperator.OR_:
+                return ast.Or(exprs=sub_exprs)
+            return ast.And(exprs=sub_exprs)
+
+        return property_to_expr(value, self.team, scope="event")
 
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
         key = "description" if prop.key == "issue_description" else prop.key
