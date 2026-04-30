@@ -117,16 +117,24 @@ backend_files:
             # - Do not use ForeignKeys to models outside this app unless allowed, as you will make implicit dependencies.
             # - If you make a ForeignKey to a common model, disallow reverse relations with related_name='+'
 
-    logic.py:
-        required: false
-        can_be_folder: true
-        template: |
-            """
-            Business logic for {product}.
+    logic/:
+        # Scaffolded as a package because business logic tends to grow fast and
+        # splitting a single logic.py later is more churn than starting with a
+        # package. Legacy products with a flat logic.py are still fine — it's
+        # not a required file. FileFolderConflictsCheck only complains if
+        # logic.py and logic/ both exist in the same product.
+        __init__.py:
+            required: false
+            template: |
+                """
+                Business logic for {product}.
 
-            Validation, calculations, business rules, ORM queries.
-            Called by facade/api.py.
-            """
+                Validation, calculations, business rules, ORM queries.
+                Called by facade/api.py.
+
+                Split into submodules (e.g. logic/queries.py, logic/rules.py)
+                as this grows.
+                """
 
     tasks/:
         __init__.py:

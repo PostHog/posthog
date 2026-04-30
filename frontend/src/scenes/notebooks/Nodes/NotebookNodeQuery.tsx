@@ -126,7 +126,8 @@ function useNotebookSQLEditorSync({
 function NotebookSQLEditorOutput({
     attributes,
     updateAttributes,
-}: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null {
+    showOutputToolbar,
+}: NotebookNodeProps<NotebookNodeQueryAttributes> & { showOutputToolbar: boolean }): JSX.Element | null {
     const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
     const editorSourceQuery = useNotebookSQLEditorSync({ attributes, updateAttributes, tabId })
 
@@ -145,6 +146,7 @@ function NotebookSQLEditorOutput({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Output}
                 defaultShowDatabaseTree={false}
+                showOutputToolbar={showOutputToolbar}
             />
         </div>
     )
@@ -187,7 +189,8 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, notebookLogic } = useValues(nodeLogic)
+    const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
+    const { editingNodeIds } = useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
     const { canvasFiltersOverride } = useValues(notebookLogic)
@@ -264,7 +267,11 @@ const Component = ({
     if (isNotebookSqlEditorEnabled && getSqlEditorSourceQuery(query)) {
         return (
             <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
-                <NotebookSQLEditorOutput attributes={attributes} updateAttributes={updateAttributes} />
+                <NotebookSQLEditorOutput
+                    attributes={attributes}
+                    updateAttributes={updateAttributes}
+                    showOutputToolbar={!!editingNodeIds[resolvedNodeId]}
+                />
             </div>
         )
     }

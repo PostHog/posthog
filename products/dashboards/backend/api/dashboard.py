@@ -60,6 +60,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
@@ -488,6 +489,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         team_id = self.context["team_id"]
+        team = self.context["get_team"]()
+        current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
+        check_count_limit(
+            team=team,
+            key=LimitKey.MAX_DASHBOARDS_PER_TEAM,
+            current_count=current_count,
+            user=request.user,
+        )
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data.pop("delete_insights", None)  # not used during creation

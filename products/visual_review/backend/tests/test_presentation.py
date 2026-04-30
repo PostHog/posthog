@@ -243,18 +243,36 @@ class TestRunViewSet(APIBaseTest):
     def test_snapshot_history(self):
         """History returns one entry per distinct baseline (`current_artifact_id`),
         scoped to default-branch + completed runs.
+
+        Only rows that move the baseline (`result` ∈ changed/removed/new)
+        appear; `unchanged` rows are excluded outright. The LAG dedup then
+        collapses consecutive rows that share an artifact_id.
         """
         # Two completed master runs share `hash-A` → same artifact → must collapse to one entry.
-        self._seed_history_row(sha="aaa1111", branch="master", content_hash="hash-A")
-        self._seed_history_row(sha="aaa2222", branch="master", content_hash="hash-A")
+        # Use CHANGED so they survive the filter; the dedup-on-artifact still has to fire.
+        self._seed_history_row(sha="aaa1111", branch="master", content_hash="hash-A", result=SnapshotResult.CHANGED)
+        self._seed_history_row(sha="aaa2222", branch="master", content_hash="hash-A", result=SnapshotResult.CHANGED)
         # Then a more recent main run with a different content → distinct entry.
         self._seed_history_row(sha="bbb1111", branch="main", content_hash="hash-B", result=SnapshotResult.CHANGED)
 
+        # Steady-state master run with `result=UNCHANGED` — must be filtered out outright,
+        # otherwise pixel-jitter on the captured artifact lets these slip past LAG dedup
+        # and pollutes the timeline (the prod bug this filter was added for).
+        self._seed_history_row(sha="ddd0000", branch="master", content_hash="hash-jitter")
+
         # PR-branch run — must be filtered out by branch.
-        self._seed_history_row(sha="ddd1111", branch="feat/something", content_hash="hash-feat")
+        self._seed_history_row(
+            sha="ddd1111", branch="feat/something", content_hash="hash-feat", result=SnapshotResult.CHANGED
+        )
         # Playwright run on master — must be filtered out by run_type.
-        self._seed_history_row(sha="ccc1111", branch="master", content_hash="hash-pw", run_type=RunType.PLAYWRIGHT)
-        # Pending master run with default `result=NEW` — must be filtered out by status + result.
+        self._seed_history_row(
+            sha="ccc1111",
+            branch="master",
+            content_hash="hash-pw",
+            run_type=RunType.PLAYWRIGHT,
+            result=SnapshotResult.CHANGED,
+        )
+        # Pending master run — must be filtered out by status (result=NEW alone wouldn't filter it now).
         self._seed_history_row(
             sha="eee1111",
             branch="master",
