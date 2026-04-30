@@ -1485,7 +1485,7 @@
         }
     },
     "experiment-archive": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Archive experiment",
@@ -1530,7 +1530,7 @@
         }
     },
     "experiment-duplicate": {
-        "description": "Create a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters, and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).\n\nIMPORTANT: always provide a unique feature_flag_key that differs from the original experiment's flag key. If omitted or if the same key is provided, the duplicate will reuse the original experiment's feature flag — meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments. Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults to \"Original Name (Copy)\").",
+        "description": "Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nCreate a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters, and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).\n\nIMPORTANT: always provide a unique feature_flag_key that differs from the original experiment's flag key. If omitted or if the same key is provided, the duplicate will reuse the original experiment's feature flag — meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments. Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults to \"Original Name (Copy)\").",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Duplicate experiment",
@@ -1545,7 +1545,7 @@
         }
     },
     "experiment-end": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "End experiment",
@@ -1575,7 +1575,7 @@
         }
     },
     "experiment-launch": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Launch experiment",
@@ -1605,7 +1605,7 @@
         }
     },
     "experiment-pause": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nPause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer returned by the /decide endpoint, so users fall back to the application default (typically control). No new exposure events ($feature_flag_called) are recorded while paused. The experiment stays in running status — it is not ended.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or already paused (\"Experiment is already paused.\").\n\nNo request body needed. Use resume to reactivate.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nPause a running experiment by deactivating its feature flag (sets flag active=false). The flag is no longer returned by the /decide endpoint, so users fall back to the application default (typically control). No new exposure events ($feature_flag_called) are recorded while paused. The experiment stays in running status — it is not ended.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or already paused (\"Experiment is already paused.\").\n\nNo request body needed. Use resume to reactivate.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Pause experiment",
@@ -1620,7 +1620,7 @@
         }
     },
     "experiment-reset": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReset an experiment back to draft state. Clears start_date, end_date, conclusion, conclusion_comment, and archived flag (all set to null/false). The feature flag is left unchanged — users continue to see their currently assigned variants.\n\nPreviously collected events still exist in the database but won't be included in results unless start_date is manually adjusted after re-launch.\n\nReturns 400 if the experiment is already in draft (\"Experiment is already in draft state.\").\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nReset an experiment back to draft state. Clears start_date, end_date, conclusion, conclusion_comment, and archived flag (all set to null/false). The feature flag is left unchanged — users continue to see their currently assigned variants.\n\nPreviously collected events still exist in the database but won't be included in results unless start_date is manually adjusted after re-launch.\n\nReturns 400 if the experiment is already in draft (\"Experiment is already in draft state.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Reset experiment",
@@ -1635,7 +1635,7 @@
         }
     },
     "experiment-resume": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nResume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed deterministically into the same variants they had before the pause, and exposure tracking ($feature_flag_called) resumes.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or not currently paused (\"Experiment is not paused.\").\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nResume a paused experiment by reactivating its feature flag (sets flag active=true). Users are re-bucketed deterministically into the same variants they had before the pause, and exposure tracking ($feature_flag_called) resumes.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), already stopped (\"Experiment has already ended.\"), no linked flag (\"Experiment does not have a feature flag linked.\"), or not currently paused (\"Experiment is not paused.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Resume experiment",
@@ -1650,7 +1650,7 @@
         }
     },
     "experiment-ship-variant": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nShip a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant to ship (e.g. \"test\" or \"control\"). The flag is rewritten so the selected variant gets 100% rollout via a new catch-all release group prepended to existing groups (preserved for rollback).\n\nCan be called on both running and stopped experiments. If the experiment is still running, it is also ended (end_date set, status becomes stopped). If already stopped, only the flag is rewritten — supports the \"end first, ship later\" workflow.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if: experiment is in draft (\"Experiment has not been launched yet.\"), variant_key not found on the flag, or no linked feature flag. Returns 409 if an approval policy requires review before the flag change takes effect — includes a change_request_id in the response.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Ship experiment variant",
@@ -1695,7 +1695,7 @@
         }
     },
     "experiment-unarchive": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Unarchive experiment",
