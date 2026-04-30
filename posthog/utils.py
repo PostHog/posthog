@@ -998,28 +998,6 @@ def get_machine_id() -> str:
     return hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
 
 
-def get_table_size(table_name) -> str:
-    from django.db import connection
-
-    query = (
-        f'SELECT pg_size_pretty(pg_total_relation_size(relid)) AS "size" '
-        f"FROM pg_catalog.pg_statio_user_tables "
-        f"WHERE relname = '{table_name}'"
-    )
-    cursor = connection.cursor()
-    cursor.execute(query)
-    return dict_from_cursor_fetchall(cursor)[0]["size"]
-
-
-def get_table_approx_count(table_name) -> str:
-    from django.db import connection
-
-    query = f"SELECT reltuples::BIGINT as \"approx_count\" FROM pg_class WHERE relname = '{table_name}'"
-    cursor = connection.cursor()
-    cursor.execute(query)
-    return compact_number(dict_from_cursor_fetchall(cursor)[0]["approx_count"])
-
-
 def compact_number(value: Union[int, float]) -> str:
     """Return a number in a compact format, with a SI suffix if applicable.
     Client-side equivalent: utils.tsx#compactNumber.
