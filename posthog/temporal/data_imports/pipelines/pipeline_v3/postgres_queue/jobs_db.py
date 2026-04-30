@@ -23,6 +23,12 @@ STATUS_VIEW = "v_latest_source_batch_status"
 # Namespace for advisory locks to avoid collisions with other PostHog subsystems.
 ADVISORY_LOCK_NAMESPACE = 0x57485300  # "WHS\0" in hex
 
+# Partition pruning hint: only scan partitions within this window.
+# Set to 2x the retention period so the planner can skip dropped
+# partitions. Not a correctness filter — older partitions are already
+# gone by the time this matters.
+PARTITION_PRUNING_INTERVAL = "14 days"
+
 
 @dataclass(frozen=True, slots=True)
 class PendingBatch:
@@ -188,12 +194,14 @@ class BatchQueue:
                     FROM {BATCH_TABLE} b
                     LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
-                        (s.batch_id IS NULL OR s.job_state = 'waiting_retry')
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND (s.batch_id IS NULL OR s.job_state = 'waiting_retry')
                         AND b.run_uuid NOT IN (
                             SELECT DISTINCT b2.run_uuid
                             FROM {BATCH_TABLE} b2
                             JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
-                            WHERE s2.job_state = 'failed'
+                            WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND s2.job_state = 'failed'
                         )
                     ORDER BY b.id ASC
                     LIMIT %(limit)s
@@ -253,7 +261,9 @@ class BatchQueue:
                         COALESCE(s.attempt, 0) AS latest_attempt
                     FROM {BATCH_TABLE} b
                     JOIN {STATUS_VIEW} s ON b.id = s.batch_id
-                    WHERE s.job_state = 'executing'
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND s.job_state = 'executing'
                     ORDER BY b.id ASC
                 )
                 SELECT c.*
@@ -286,7 +296,8 @@ class BatchQueue:
             FROM {BATCH_TABLE} b
             LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
             WHERE
-                b.run_uuid = %(run_uuid)s
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.run_uuid = %(run_uuid)s
                 AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
             """,
             {

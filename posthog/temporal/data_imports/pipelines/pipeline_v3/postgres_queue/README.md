@@ -29,14 +29,17 @@ We took RudderStack's two-table model (jobs + append-only status) but kept thing
 - **Sync producer** (`producer.py`): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each `send_batch_notification` is a single INSERT.
 - **New DB**: we created a new DB to store these two new tables
 
+- **Daily range partitioning** on `created_at`: both tables use `PARTITION BY RANGE (created_at)` with daily partitions. Composite PK `(id, created_at)` is required by Postgres for partitioned tables. A DEFAULT partition catches rows that miss a partition. A Temporal scheduled workflow (`warehouse-sources-queue-partition-management`) runs every 6 hours to create the next 7 days of partitions and drop partitions older than 7 days. `DROP TABLE partition` is O(1) metadata-only — no vacuum, no dead tuples.
+- **MATERIALIZED CTE for advisory locks**: `pg_try_advisory_lock` in a WHERE clause with LIMIT can acquire phantom locks on rows later discarded. All consumer queries use a MATERIALIZED CTE to fully resolve candidates before probing locks.
+- **Partition pruning bounds**: all consumer queries include `created_at > now() - interval '14 days'` (2x the 7-day retention) so the planner can skip dropped partitions.
+
 ### What we left out
 
-- **Table partitioning / datasets**: RudderStack partitions into 100K-row datasets. We can add range partitioning on `created_at` later. If the load on the DB becames too much, we will implement this.
 - **COPY bulk inserts**: the producer inserts one row per batch. At our volume, row-level INSERT is fine. (We can always move to bulk insert if needed)
 - **Compaction**: RudderStack runs a background process to merge/drop completed datasets, it stores tables up to 100k rows and then they roll to the next one. We don't need it at the moment, but if we end up implementing rolling datasets, we will implement this compaction too.
 - **Caching layers**: RudderStack uses "no jobs" caches and active pipeline caches to reduce query load. Our poll query is cheap enough with proper indexing.
 - **Recursive CTE loose index scans**: their trick for finding distinct pipeline IDs efficiently. Our `get_unprocessed_and_lock` query is simple enough without it.
-- **Active Partitions**: RudderStack designs a partition and then it assigns each partition to one processor instance, this is similar to how Kafka partitions work. We don't need this, this will be an overkill as we don't have any spcecifics for a partition.
+- **Active Partitions**: RudderStack designs a partition and then it assigns each partition to one processor instance, this is similar to how Kafka partitions work. We don't need this, this will be an overkill as we don't have any specifics for a partition.
 
 ### Architecture
 
@@ -44,7 +47,7 @@ We took RudderStack's two-table model (jobs + append-only status) but kept thing
 
 ## Things to look out for during roll out
 
-- **Old row cleanup**: no strategy yet for pruning completed batch/status rows. we can start with an hourly process that deletes old rows
+- **Partition health**: monitor that the `warehouse-sources-queue-partition-management` Temporal schedule is running. Alert on rows landing in DEFAULT partitions (means partition creation failed).
 - **DB Load**: we will keep an eye on the load and the locks to make sure the tables can hold the full load of warehouse sources
 
 ## Extra. Paths (CLAUDE GENERATED)
