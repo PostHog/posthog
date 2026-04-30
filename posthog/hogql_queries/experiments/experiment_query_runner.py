@@ -86,7 +86,7 @@ MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
 
 
-def experiment_meets_precomputation_duration_gate(
+def experiment_has_min_runtime_for_precomputation(
     start_date: Optional[datetime],
     end_date: Optional[datetime],
 ) -> bool:
@@ -270,7 +270,7 @@ class ExperimentQueryRunner(QueryRunner):
         if not self._team_experiments_config.experiment_precomputation_enabled:
             return False
 
-        return experiment_meets_precomputation_duration_gate(
+        return experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
         )

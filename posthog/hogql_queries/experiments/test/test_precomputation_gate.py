@@ -11,7 +11,7 @@ from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentQuery, Pr
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     MIN_PRECOMPUTATION_DURATION_SECONDS,
     ExperimentQueryRunner,
-    experiment_meets_precomputation_duration_gate,
+    experiment_has_min_runtime_for_precomputation,
 )
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
@@ -38,7 +38,7 @@ class TestPrecomputationDurationGate:
         end_date = None if end_offset_seconds is None else now + timedelta(seconds=end_offset_seconds)
 
         with freeze_time(now):
-            assert experiment_meets_precomputation_duration_gate(start_date, end_date) is expected
+            assert experiment_has_min_runtime_for_precomputation(start_date, end_date) is expected
 
 
 @override_settings(IN_UNIT_TESTING=True)

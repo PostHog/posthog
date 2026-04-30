@@ -9,6 +9,7 @@ from django.utils import timezone
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL
 from posthog.clickhouse.preaggregation.experiment_metric_events_sql import TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL
+from posthog.hogql_queries.experiments.experiment_query_runner import MIN_PRECOMPUTATION_DURATION_SECONDS
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -59,13 +60,20 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         """Save experiment with precomputation enabled if needed.
 
         Production gates precomputation behind a minimum experiment runtime
-        (see MIN_PRECOMPUTATION_DURATION_SECONDS). Callers must pass an
-        explicit `start_date` to `create_experiment` that is at least that
-        far before the test's frozen `now` — otherwise the gate fails and
-        the precomputed path silently falls back to direct.
+        (see MIN_PRECOMPUTATION_DURATION_SECONDS). Tests in this suite often
+        rely on the default `start_date=now` from create_experiment, which
+        would silently fall back to the direct path. Backdate start_date so
+        the experiment passes the gate and the precomputed path is exercised.
         """
         if use_precomputation:
             self._enable_precomputation()
+            if experiment.start_date is not None:
+                elapsed = (timezone.now() - experiment.start_date).total_seconds()
+                if elapsed < MIN_PRECOMPUTATION_DURATION_SECONDS:
+                    # Backdate to exactly the threshold (gate is >=) so the
+                    # daily window stays in the same UTC day as the original
+                    # start_date and the SQL filter shifts by the minimum.
+                    experiment.start_date = timezone.now() - timedelta(seconds=MIN_PRECOMPUTATION_DURATION_SECONDS)
         experiment.save()
 
     def create_feature_flag(self, key="test-experiment"):

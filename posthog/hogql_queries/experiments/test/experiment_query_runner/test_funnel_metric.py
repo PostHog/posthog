@@ -58,7 +58,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2020, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -332,7 +332,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         feature_flag.filters["aggregation_group_type_index"] = 0
         feature_flag.save()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2020, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
 
         metric = ExperimentFunnelMetric(
             series=[
@@ -1232,7 +1232,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
         experiment.stats_config = {"method": "frequentist"}
 
@@ -1351,7 +1351,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
         experiment.stats_config = {"method": "frequentist"}
 
@@ -1483,7 +1483,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
         experiment.stats_config = {"method": "frequentist"}
 
@@ -1598,7 +1598,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -1717,7 +1717,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -1835,7 +1835,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -1947,7 +1947,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -2080,7 +2080,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -2234,7 +2234,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -2349,7 +2349,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_ordered_vs_unordered_comparison(self, name, use_precomputation):
         """Test that ordered and unordered funnels behave differently when events are out of order"""
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -2549,7 +2549,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment_flag = self.create_feature_flag(key="experiment-flag")
         other_flag = self.create_feature_flag(key="other-flag")
 
-        experiment = self.create_experiment(feature_flag=experiment_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=experiment_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 

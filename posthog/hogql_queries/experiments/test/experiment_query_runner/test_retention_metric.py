@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
@@ -45,7 +44,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         Retention = (users who completed) / (users who started) * 100%
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2020, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -203,7 +202,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         - Completion events on day 14+ don't count
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -336,7 +335,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         LAST_SEEN: Use the last occurrence of start event
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -505,7 +504,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         Retention window is then measured from the start event (not exposure).
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -643,7 +642,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         Test retention when users never complete (0% retention rate).
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -768,7 +767,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             created_by=self.user,
         )
 
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -905,7 +904,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         This is a common activation metric: "Did user activate on signup day?"
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -1050,7 +1049,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         - User starts at 10:59, completes at 11:01 → NOT RETAINED (different hour)
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -1205,7 +1204,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         Expected: User is retained (counted once), not counted 3 times
         """
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -1495,7 +1494,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2020, 1, 1, 0, 0, 0))
+        experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 

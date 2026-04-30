@@ -31,7 +31,7 @@ from posthog.hogql_queries.experiments.experiment_query_builder import (
 )
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     DEFAULT_EXPOSURE_TTL_SECONDS,
-    experiment_meets_precomputation_duration_gate,
+    experiment_has_min_runtime_for_precomputation,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -149,9 +149,13 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             entity_key=get_entity_key(self.group_type_index),
         )
 
-        # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery
+        # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
+        # Until then, the duration gate here is unconditional — the main runner
+        # lets PrecomputationMode.PRECOMPUTED bypass the gate, but this path has
+        # no equivalent escape hatch yet, so callers cannot force precomputation
+        # on a sub-12h experiment for the exposures view.
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        if config.experiment_precomputation_enabled and experiment_meets_precomputation_duration_gate(
+        if config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
             self.experiment.start_date,
             self.experiment.end_date,
         ):
