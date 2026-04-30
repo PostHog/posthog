@@ -94,17 +94,17 @@ interface Scenario {
 }
 
 const SCENARIOS: Scenario[] = [
-    {
-        id: 'series',
-        label: 'Series — events + actions',
-        consumers: 'ActionFilterRow (Trends/Funnels/Retention/Stickiness)',
-        groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-        defaultSeed: {
-            groupType: TaxonomicFilterGroupType.Events,
-            value: '$pageview',
-            name: '$pageview',
-        },
-    },
+    // {
+    //     id: 'series',
+    //     label: 'Series — events + actions',
+    //     consumers: 'ActionFilterRow (Trends/Funnels/Retention/Stickiness)',
+    //     groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    //     defaultSeed: {
+    //         groupType: TaxonomicFilterGroupType.Events,
+    //         value: '$pageview',
+    //         name: '$pageview',
+    //     },
+    // },
     {
         id: 'series-dw',
         label: 'Series + Data Warehouse tables',
@@ -115,6 +115,11 @@ const SCENARIOS: Scenario[] = [
             TaxonomicFilterGroupType.Actions,
             TaxonomicFilterGroupType.DataWarehouse,
             TaxonomicFilterGroupType.HogQLExpression,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.EventFeatureFlags,
         ],
         extras: (
             <>
@@ -133,21 +138,21 @@ const SCENARIOS: Scenario[] = [
             </>
         ),
     },
-    {
-        id: 'hogql-only',
-        label: 'HogQL expression',
-        consumers: 'PathsHogQL, ad-hoc expression filters',
-        groupTypes: [TaxonomicFilterGroupType.HogQLExpression],
-        notes: 'Render-driven group: the row is a single sentinel that opens an expression editor sub-view. Real impl should swap the textarea for InlineHogQLEditor / Monaco.',
-        extras: (
-            <TaxonomicAutocomplete.ConfigureView
-                for={[TaxonomicFilterGroupType.HogQLExpression]}
-                title="Write SQL expression"
-            >
-                {(state) => <HogQLExpressionForm {...state} />}
-            </TaxonomicAutocomplete.ConfigureView>
-        ),
-    },
+    // {
+    //     id: 'hogql-only',
+    //     label: 'HogQL expression',
+    //     consumers: 'PathsHogQL, ad-hoc expression filters',
+    //     groupTypes: [TaxonomicFilterGroupType.HogQLExpression],
+    //     notes: 'Render-driven group: the row is a single sentinel that opens an expression editor sub-view. Real impl should swap the textarea for InlineHogQLEditor / Monaco.',
+    //     extras: (
+    //         <TaxonomicAutocomplete.ConfigureView
+    //             for={[TaxonomicFilterGroupType.HogQLExpression]}
+    //             title="Write SQL expression"
+    //         >
+    //             {(state) => <HogQLExpressionForm {...state} />}
+    //         </TaxonomicAutocomplete.ConfigureView>
+    //     ),
+    // },
     {
         id: 'path-target',
         label: 'Path target — pageview / screen / custom',
@@ -161,153 +166,153 @@ const SCENARIOS: Scenario[] = [
         eventNames: ['$pageview', '$screen', '$autocapture'],
         notes: 'Shortcut groups (PageviewUrls, Screens) only appear when the corresponding event is present in `eventNames`. Verify both pickers promote them to the front of the chip row.',
     },
-    {
-        id: 'event-prop',
-        label: 'Event property — single group',
-        consumers: 'BoxPlotPropertySelector, PropertyValueMathSelector, replay filters',
-        groupTypes: [TaxonomicFilterGroupType.EventProperties],
-        notes: 'Each row has a "View →" cell. Right arrow → highlights View, Enter opens the details sheet (description / type / sent-as / pin). Driven by `<DetailsView>` + `useTaxonomicAutocompleteItemDetails`.',
-        extras: (
-            <TaxonomicAutocomplete.DetailsView
-                for={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.EventMetadata,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                ]}
-                title={(entry) => entry.friendlyLabel ?? entry.name}
-            >
-                {(state) => <PropertyDetails {...state} />}
-            </TaxonomicAutocomplete.DetailsView>
-        ),
-    },
-    {
-        id: 'event-prop-numeric',
-        label: 'Event property — numerical only',
-        consumers: 'Math property selector (avg / sum / median)',
-        notes: '`showNumericalPropsOnly={true}` filters to numeric properties. Verify the new picker forwards this via `getGroupListInput` (it already does — included for parity check).',
-        groupTypes: [TaxonomicFilterGroupType.EventProperties],
-        showNumericalPropsOnly: true,
-    },
-    {
-        id: 'breakdown-trend',
-        label: 'Breakdown (trend / funnel)',
-        consumers: 'TaxonomicBreakdownPopover (default branch)',
-        groupTypes: [
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.EventMetadata,
-            TaxonomicFilterGroupType.CohortsWithAllUsers,
-            TaxonomicFilterGroupType.SessionProperties,
-            TaxonomicFilterGroupType.HogQLExpression,
-            TaxonomicFilterGroupType.DataWarehouseProperties,
-            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-        ],
-        notes: 'HogQL row pops the expression editor sub-view. Same `<ConfigureView>` flow as DWH; commit({ value, name }) returns the expression as the selected item.',
-        extras: (
-            <TaxonomicAutocomplete.ConfigureView
-                for={[TaxonomicFilterGroupType.HogQLExpression]}
-                title="Write SQL expression"
-            >
-                {(state) => <HogQLExpressionForm {...state} />}
-            </TaxonomicAutocomplete.ConfigureView>
-        ),
-    },
-    {
-        id: 'breakdown-retention',
-        label: 'Breakdown (retention)',
-        consumers: 'TaxonomicBreakdownPopover when query is RetentionQuery',
-        groupTypes: [
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.CohortsWithAllUsers,
-            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-        ],
-    },
-    {
-        id: 'breakdown-cohort-only',
-        label: 'Cohort breakdown — single group',
-        consumers: 'TaxonomicBreakdownPopover when CohortsWithAllUsers chosen',
-        groupTypes: [TaxonomicFilterGroupType.CohortsWithAllUsers],
-        notes: 'When only one group is in the set, "All" + that one chip is redundant. Maybe collapse to no-chip mode automatically.',
-    },
-    {
-        id: 'flag-conditions',
-        label: 'Feature flag release conditions',
-        consumers: 'FeatureFlagReleaseConditions',
-        groupTypes: [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts],
-    },
-    {
-        id: 'replay-filters',
-        label: 'Recordings universal filters',
-        consumers: 'RecordingsUniversalFiltersEmbed, replay templates',
-        groupTypes: [
-            TaxonomicFilterGroupType.Replay,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.SessionProperties,
-            TaxonomicFilterGroupType.Cohorts,
-        ],
-    },
-    {
-        id: 'dwh-tables',
-        label: 'Data warehouse table picker',
-        consumers: 'time_to_see_data, ActionFilterRow (DWH series)',
-        groupTypes: [TaxonomicFilterGroupType.DataWarehouse],
-        notes: 'Same ConfigureDialog flow as the Series + DWH scenario, single-group form.',
-        extras: (
-            <TaxonomicAutocomplete.ConfigureView
-                for={[TaxonomicFilterGroupType.DataWarehouse]}
-                title="Configure data warehouse table"
-            >
-                {(state) => <DwhFieldsForm {...state} />}
-            </TaxonomicAutocomplete.ConfigureView>
-        ),
-    },
-    {
-        id: 'allow-non-captured',
-        label: 'Events — allow non-captured',
-        consumers: 'NotebookNodeQuery, hogql etc.',
-        groupTypes: [TaxonomicFilterGroupType.Events],
-        allowNonCapturedEvents: true,
-        notes: 'Should let user type a fresh event name and pick it as a "new event" row.',
-    },
-    {
-        id: 'excluded-props',
-        label: 'Event properties with exclusions',
-        consumers: 'ActionFilterRow excludedProperties prop',
-        groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
-        excludedProperties: {
-            [TaxonomicFilterGroupType.EventProperties]: ['$browser', '$os'],
-        },
-    },
-    {
-        id: 'min-search',
-        label: 'Min search query length',
-        consumers: 'Inline events sub-search (3-char minimum)',
-        groupTypes: [TaxonomicFilterGroupType.Events],
-        minSearchQueryLength: 3,
-        notes: 'Empty state should read "Type more to search" until 3 chars; new picker already supports this via the same input.',
-    },
-    {
-        id: 'wide-insight',
-        label: 'Insight property kitchen sink',
-        consumers: 'PropertyFilters in dashboards / insights',
-        groupTypes: [
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.EventMetadata,
-            TaxonomicFilterGroupType.Cohorts,
-            TaxonomicFilterGroupType.SessionProperties,
-            TaxonomicFilterGroupType.HogQLExpression,
-        ],
-    },
+    // {
+    //     id: 'event-prop',
+    //     label: 'Event property — single group',
+    //     consumers: 'BoxPlotPropertySelector, PropertyValueMathSelector, replay filters',
+    //     groupTypes: [TaxonomicFilterGroupType.EventProperties],
+    //     notes: 'Each row has a "View →" cell. Right arrow → highlights View, Enter opens the details sheet (description / type / sent-as / pin). Driven by `<DetailsView>` + `useTaxonomicAutocompleteItemDetails`.',
+    //     extras: (
+    //         <TaxonomicAutocomplete.DetailsView
+    //             for={[
+    //                 TaxonomicFilterGroupType.EventProperties,
+    //                 TaxonomicFilterGroupType.PersonProperties,
+    //                 TaxonomicFilterGroupType.SessionProperties,
+    //                 TaxonomicFilterGroupType.EventMetadata,
+    //                 TaxonomicFilterGroupType.EventFeatureFlags,
+    //             ]}
+    //             title={(entry) => entry.friendlyLabel ?? entry.name}
+    //         >
+    //             {(state) => <PropertyDetails {...state} />}
+    //         </TaxonomicAutocomplete.DetailsView>
+    //     ),
+    // },
+    // {
+    //     id: 'event-prop-numeric',
+    //     label: 'Event property — numerical only',
+    //     consumers: 'Math property selector (avg / sum / median)',
+    //     notes: '`showNumericalPropsOnly={true}` filters to numeric properties. Verify the new picker forwards this via `getGroupListInput` (it already does — included for parity check).',
+    //     groupTypes: [TaxonomicFilterGroupType.EventProperties],
+    //     showNumericalPropsOnly: true,
+    // },
+    // {
+    //     id: 'breakdown-trend',
+    //     label: 'Breakdown (trend / funnel)',
+    //     consumers: 'TaxonomicBreakdownPopover (default branch)',
+    //     groupTypes: [
+    //         TaxonomicFilterGroupType.EventProperties,
+    //         TaxonomicFilterGroupType.PersonProperties,
+    //         TaxonomicFilterGroupType.EventFeatureFlags,
+    //         TaxonomicFilterGroupType.EventMetadata,
+    //         TaxonomicFilterGroupType.CohortsWithAllUsers,
+    //         TaxonomicFilterGroupType.SessionProperties,
+    //         TaxonomicFilterGroupType.HogQLExpression,
+    //         TaxonomicFilterGroupType.DataWarehouseProperties,
+    //         TaxonomicFilterGroupType.DataWarehousePersonProperties,
+    //     ],
+    //     notes: 'HogQL row pops the expression editor sub-view. Same `<ConfigureView>` flow as DWH; commit({ value, name }) returns the expression as the selected item.',
+    //     extras: (
+    //         <TaxonomicAutocomplete.ConfigureView
+    //             for={[TaxonomicFilterGroupType.HogQLExpression]}
+    //             title="Write SQL expression"
+    //         >
+    //             {(state) => <HogQLExpressionForm {...state} />}
+    //         </TaxonomicAutocomplete.ConfigureView>
+    //     ),
+    // },
+    // {
+    //     id: 'breakdown-retention',
+    //     label: 'Breakdown (retention)',
+    //     consumers: 'TaxonomicBreakdownPopover when query is RetentionQuery',
+    //     groupTypes: [
+    //         TaxonomicFilterGroupType.EventProperties,
+    //         TaxonomicFilterGroupType.PersonProperties,
+    //         TaxonomicFilterGroupType.EventFeatureFlags,
+    //         TaxonomicFilterGroupType.CohortsWithAllUsers,
+    //         TaxonomicFilterGroupType.DataWarehousePersonProperties,
+    //     ],
+    // },
+    // {
+    //     id: 'breakdown-cohort-only',
+    //     label: 'Cohort breakdown — single group',
+    //     consumers: 'TaxonomicBreakdownPopover when CohortsWithAllUsers chosen',
+    //     groupTypes: [TaxonomicFilterGroupType.CohortsWithAllUsers],
+    //     notes: 'When only one group is in the set, "All" + that one chip is redundant. Maybe collapse to no-chip mode automatically.',
+    // },
+    // {
+    //     id: 'flag-conditions',
+    //     label: 'Feature flag release conditions',
+    //     consumers: 'FeatureFlagReleaseConditions',
+    //     groupTypes: [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts],
+    // },
+    // {
+    //     id: 'replay-filters',
+    //     label: 'Recordings universal filters',
+    //     consumers: 'RecordingsUniversalFiltersEmbed, replay templates',
+    //     groupTypes: [
+    //         TaxonomicFilterGroupType.Replay,
+    //         TaxonomicFilterGroupType.Events,
+    //         TaxonomicFilterGroupType.Actions,
+    //         TaxonomicFilterGroupType.EventProperties,
+    //         TaxonomicFilterGroupType.PersonProperties,
+    //         TaxonomicFilterGroupType.SessionProperties,
+    //         TaxonomicFilterGroupType.Cohorts,
+    //     ],
+    // },
+    // {
+    //     id: 'dwh-tables',
+    //     label: 'Data warehouse table picker',
+    //     consumers: 'time_to_see_data, ActionFilterRow (DWH series)',
+    //     groupTypes: [TaxonomicFilterGroupType.DataWarehouse],
+    //     notes: 'Same ConfigureDialog flow as the Series + DWH scenario, single-group form.',
+    //     extras: (
+    //         <TaxonomicAutocomplete.ConfigureView
+    //             for={[TaxonomicFilterGroupType.DataWarehouse]}
+    //             title="Configure data warehouse table"
+    //         >
+    //             {(state) => <DwhFieldsForm {...state} />}
+    //         </TaxonomicAutocomplete.ConfigureView>
+    //     ),
+    // },
+    // {
+    //     id: 'allow-non-captured',
+    //     label: 'Events — allow non-captured',
+    //     consumers: 'NotebookNodeQuery, hogql etc.',
+    //     groupTypes: [TaxonomicFilterGroupType.Events],
+    //     allowNonCapturedEvents: true,
+    //     notes: 'Should let user type a fresh event name and pick it as a "new event" row.',
+    // },
+    // {
+    //     id: 'excluded-props',
+    //     label: 'Event properties with exclusions',
+    //     consumers: 'ActionFilterRow excludedProperties prop',
+    //     groupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+    //     excludedProperties: {
+    //         [TaxonomicFilterGroupType.EventProperties]: ['$browser', '$os'],
+    //     },
+    // },
+    // {
+    //     id: 'min-search',
+    //     label: 'Min search query length',
+    //     consumers: 'Inline events sub-search (3-char minimum)',
+    //     groupTypes: [TaxonomicFilterGroupType.Events],
+    //     minSearchQueryLength: 3,
+    //     notes: 'Empty state should read "Type more to search" until 3 chars; new picker already supports this via the same input.',
+    // },
+    // {
+    //     id: 'wide-insight',
+    //     label: 'Insight property kitchen sink',
+    //     consumers: 'PropertyFilters in dashboards / insights',
+    //     groupTypes: [
+    //         TaxonomicFilterGroupType.EventProperties,
+    //         TaxonomicFilterGroupType.PersonProperties,
+    //         TaxonomicFilterGroupType.EventFeatureFlags,
+    //         TaxonomicFilterGroupType.EventMetadata,
+    //         TaxonomicFilterGroupType.Cohorts,
+    //         TaxonomicFilterGroupType.SessionProperties,
+    //         TaxonomicFilterGroupType.HogQLExpression,
+    //     ],
+    // },
 ]
 
 export function TaxonomicFilterPreview(): JSX.Element {

@@ -71,7 +71,19 @@ export function MenuFilterDwhConfig({ table, group, onCommit, onBack }: MenuFilt
     )
 
     return (
-        <div className="flex flex-col flex-1 min-h-0">
+        <div
+            className="flex flex-col flex-1 min-h-0"
+            onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                    // stopPropagation so the popover's own dismiss
+                    // doesn't fire `closeAll` — back should land on the
+                    // menu.
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onBack()
+                }
+            }}
+        >
             <MenuFilterHeader title="Configure data warehouse table" onBack={onBack} />
             <div className="flex flex-col flex-1 min-h-0">
                 <ScrollArea className="flex-1 min-h-0">

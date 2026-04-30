@@ -224,7 +224,17 @@ export function MenuFilterCombobox({
                             </Autocomplete.Empty>
                             <Autocomplete.Collection>
                                 {(entry: MenuFilterEntry) => (
-                                    <Row entry={entry} showGroupLabel={activeChip === 'all'} onCommit={onCommit} />
+                                    <Row
+                                        entry={entry}
+                                        showGroupLabel={activeChip === 'all'}
+                                        // Recent/Pinned mix entries from many
+                                        // groups — surface the source group as
+                                        // a subtitle so the user can tell
+                                        // `paid_bills` is a DWH table at a
+                                        // glance.
+                                        showGroupSubtitle={drillTo === 'recent' || drillTo === 'pinned'}
+                                        onCommit={onCommit}
+                                    />
                                 )}
                             </Autocomplete.Collection>
                         </Autocomplete.List>
@@ -238,14 +248,20 @@ export function MenuFilterCombobox({
 interface RowProps {
     entry: MenuFilterEntry
     showGroupLabel: boolean
+    /** Replace the raw-name subtitle with the source group name. */
+    showGroupSubtitle?: boolean
     onCommit: CommitFn
 }
 
-function Row({ entry, showGroupLabel, onCommit }: RowProps): JSX.Element {
+function Row({ entry, showGroupLabel, showGroupSubtitle, onCommit }: RowProps): JSX.Element {
     const { item, group } = entry
     const friendly = entry.friendlyLabel
     const title = friendly && friendly.length > 0 ? friendly : entry.name
-    const subtitle = friendly && friendly !== entry.name ? entry.name : undefined
+    const subtitle = showGroupSubtitle
+        ? group.name
+        : friendly && friendly !== entry.name
+          ? entry.name
+          : undefined
     const stableId = `menu-filter-row-${group.type}-${String(group.getValue?.(item) ?? entry.name)}`
     return (
         <Autocomplete.Item

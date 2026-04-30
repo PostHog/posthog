@@ -61,8 +61,13 @@ export function MenuFilterHogQLEditor({
                                 onChange={(e) => setExpression(e.target.value)}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Escape') {
+                                        // stopPropagation so the popover's
+                                        // own dismiss doesn't fire `closeAll`
+                                        // — back should land on the menu.
                                         e.preventDefault()
+                                        e.stopPropagation()
                                         onBack()
+                                        return
                                     }
                                     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                                         e.preventDefault()
