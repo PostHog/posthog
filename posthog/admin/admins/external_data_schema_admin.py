@@ -159,12 +159,22 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
 
         # Bundled non-billable reset+resync. Operator should pause the schedule
         # before running this — the banner on the change form prompts for that.
+        #
+        # IMPORTANT: set reset_pipeline on sync_type_config rather than the workflow
+        # input. The pipeline pops it from sync_type_config after the first reset, so
+        # activity retries within the same workflow won't re-reset. Passing
+        # reset_pipeline=True on inputs makes every retry re-read True and wipe Delta
+        # + cursor, so retries always restart from row 0 (which is what was happening
+        # in production before this fix).
+        schema.sync_type_config["reset_pipeline"] = True
+        schema.save(update_fields=["sync_type_config"])
+
         inputs = ExternalDataWorkflowInputs(
             team_id=schema.team_id,
             external_data_source_id=schema.source.id,
             external_data_schema_id=schema.id,
             billable=False,
-            reset_pipeline=True,
+            reset_pipeline=None,
         )
         workflow_id = f"{schema.id}-admin-repartition-{int(time.time())}"
         try:
@@ -201,12 +211,19 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         reset_pipeline = request.POST.get("reset_pipeline") == "on"
         billable = request.POST.get("billable") == "on"
 
+        # See note in repartition_view: reset_pipeline goes on sync_type_config so the
+        # pipeline can clear it after the first reset. Passing it on the workflow
+        # input would make every activity retry re-reset, wiping progress.
+        if reset_pipeline:
+            schema.sync_type_config["reset_pipeline"] = True
+            schema.save(update_fields=["sync_type_config"])
+
         inputs = ExternalDataWorkflowInputs(
             team_id=schema.team_id,
             external_data_source_id=schema.source.id,
             external_data_schema_id=schema.id,
             billable=billable,
-            reset_pipeline=reset_pipeline or None,
+            reset_pipeline=None,
         )
         workflow_id = f"{schema.id}-admin-resync-{int(time.time())}"
         try:
