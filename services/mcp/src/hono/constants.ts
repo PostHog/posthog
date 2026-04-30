@@ -1,58 +1,18 @@
-import type { CloudRegion, Env } from '@/tools/types'
+import { resolveAuthorizationServerUrl } from '@/lib/oauth-constants'
+import type { Env } from '@/tools/types'
 
-import packageJson from '../../package.json'
-
-export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
-
-export interface GetUserAgentOptions {
-    clientUserAgent?: string | undefined
-    /** `x-posthog-mcp-consumer` — self-identifier of the wrapping app (e.g. `posthog-code`, `slack`). */
-    mcpConsumer?: string | undefined
-    /** MCP `clientInfo.name` — the wrapped client (e.g. `claude-code`). */
-    mcpClientName?: string | undefined
-}
-
-export function getUserAgent(opts: GetUserAgentOptions = {}): string {
-    const { clientUserAgent, mcpConsumer, mcpClientName } = opts
-    const parts: string[] = []
-
-    // When the caller self-identifies as a wrapping consumer app, emit
-    // `<consumer>/<wrapped-client>` as the leading UA token so downstream
-    // services can attribute traffic without parsing custom headers.
-    if (mcpConsumer) {
-        const wrappedClient = (mcpClientName || 'unknown').replace(/\s+/g, '-')
-        parts.push(`${mcpConsumer}/${wrappedClient}`)
-    }
-
-    parts.push(USER_AGENT)
-
-    if (clientUserAgent) {
-        const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
-        if (match) {
-            parts[parts.length - 1] = `${USER_AGENT}; for ${match[0]}`
-        }
-    }
-
-    return parts.join(' ')
-}
-
-// Region-specific PostHog API base URLs
-export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
-export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
-
-// Normalize a string to a valid CloudRegion, defaulting to 'us'
-export const toCloudRegion = (value: string | undefined | null): CloudRegion => {
-    const normalized = value?.toLowerCase()
-    if (normalized === 'eu') {
-        return 'eu'
-    }
-    return 'us'
-}
-
-// Get the PostHog base URL for a region
-export const getBaseUrlForRegion = (region: CloudRegion): string => {
-    return region === 'eu' ? POSTHOG_EU_BASE_URL : POSTHOG_US_BASE_URL
-}
+export {
+    USER_AGENT,
+    type GetUserAgentOptions,
+    getUserAgent,
+    POSTHOG_US_BASE_URL,
+    POSTHOG_EU_BASE_URL,
+    toCloudRegion,
+    getBaseUrlForRegion,
+    MCP_DOCS_URL,
+    OAUTH_PROXY_URL,
+    OAUTH_SCOPES_SUPPORTED,
+} from '@/lib/oauth-constants'
 
 /**
  * Custom API base URL for self-hosted PostHog instances.
@@ -63,105 +23,15 @@ export const getBaseUrlForRegion = (region: CloudRegion): string => {
  */
 export const getCustomApiBaseUrl = (): string | undefined => process.env.POSTHOG_API_BASE_URL || undefined
 
-const OAUTH_PROXY_URL = 'https://oauth.posthog.com'
-
-// Get the authorization server URL for OAuth
-// Uses the cross-region OAuth proxy for cloud, or CUSTOM_API_BASE_URL for self-hosted
-export const getAuthorizationServerUrl = (): string => {
-    const customBaseUrl = getCustomApiBaseUrl()
-    if (customBaseUrl) {
-        return customBaseUrl
-    }
-
-    return OAUTH_PROXY_URL
-}
-
-export const MCP_DOCS_URL = 'https://posthog.com/docs/model-context-protocol'
-
-// OAuth Protected Resource Metadata (RFC 9728)
-// Scopes that this resource server supports
-export const OAUTH_SCOPES_SUPPORTED = [
-    'openid',
-    'profile',
-    'email',
-    'introspection',
-    'alert:read',
-    'alert:write',
-    'annotation:read',
-    'annotation:write',
-    'action:read',
-    'action:write',
-    'activity_log:read',
-    'approvals:read',
-    'comment:read',
-    'cohort:read',
-    'cohort:write',
-    'dashboard:read',
-    'dashboard:write',
-    'early_access_feature:read',
-    'early_access_feature:write',
-    'endpoint:read',
-    'endpoint:write',
-    'error_tracking:read',
-    'error_tracking:write',
-    'event_definition:read',
-    'event_definition:write',
-    'evaluation:read',
-    'external_data_source:read',
-    'external_data_source:write',
-    'evaluation:write',
-    'experiment:read',
-    'experiment:write',
-    'feature_flag:read',
-    'feature_flag:write',
-    'group:read',
-    'hog_flow:read',
-    'hog_function:read',
-    'hog_function:write',
-    'insight:read',
-    'insight:write',
-    'insight_variable:read',
-    'insight_variable:write',
-    'integration:read',
-    'integration:write',
-    'llm_analytics:read',
-    'llm_analytics:write',
-    'llm_prompt:read',
-    'llm_prompt:write',
-    'llm_skill:read',
-    'llm_skill:write',
-    'logs:read',
-    'logs:write',
-    'notebook:read',
-    'notebook:write',
-    'organization:read',
-    'organization:write',
-    'organization_member:read',
-    'person:read',
-    'person:write',
-    'project:read',
-    'project:write',
-    'property_definition:read',
-    'query:read',
-    'session_recording:read',
-    'session_recording:write',
-    'session_recording_playlist:read',
-    'session_recording_playlist:write',
-    'subscription:read',
-    'subscription:write',
-    'survey:read',
-    'survey:write',
-    'ticket:read',
-    'ticket:write',
-    'user:read',
-    'user:write',
-    'warehouse_table:read',
-    'warehouse_view:read',
-    'warehouse_view:write',
-    'web_analytics:read',
-] as const
+export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl(getCustomApiBaseUrl())
 
 export function getEnv(): Env {
+    // Tests set `TEST=1` to short-circuit features that need real network (e.g.
+    // context-mill GitHub fetch). Mirrors the Cloudflare miniflare binding.
+    const extras: Record<string, string | undefined> = {}
+    if (process.env.TEST) {
+        extras.TEST = process.env.TEST
+    }
     return {
         INKEEP_API_KEY: process.env.INKEEP_API_KEY || undefined,
         POSTHOG_API_BASE_URL: process.env.POSTHOG_API_BASE_URL || undefined,
@@ -170,5 +40,39 @@ export function getEnv(): Env {
         POSTHOG_UI_APPS_TOKEN: process.env.POSTHOG_UI_APPS_TOKEN || undefined,
         POSTHOG_ANALYTICS_API_KEY: process.env.POSTHOG_ANALYTICS_API_KEY || undefined,
         POSTHOG_ANALYTICS_HOST: process.env.POSTHOG_ANALYTICS_HOST || undefined,
+        ...extras,
     }
 }
+
+// Per-instance idle session TTL. Stale entries are evicted lazily on access; this
+// caps how long a streamable/SSE session can sit unused in memory before being dropped.
+export const SESSION_TTL_MS = 30 * 60 * 1000
+
+// Hard cap on concurrent in-memory sessions per pod. Acts as a back-pressure signal:
+// once full, we run a compaction sweep before rejecting new connections.
+export const MAX_SESSIONS_PER_INSTANCE = 10_000
+
+// Header allow-list for CORS preflight. Kept here so the routing layer doesn't carry
+// a magic literal of header names.
+export const ALLOWED_REQUEST_HEADERS = [
+    'Authorization',
+    'Content-Type',
+    'mcp-session-id',
+    'x-posthog-organization-id',
+    'x-posthog-project-id',
+    'x-posthog-mcp-version',
+    'x-posthog-readonly',
+    'x-posthog-mcp-consumer',
+    'x-posthog-mcp-mode',
+] as const
+
+// Auth-server fallback paths that MCP clients sometimes hit directly on this server
+// (instead of following the RFC 9728 metadata). These are routed through `matchAuthServerRedirect`.
+export const AUTH_REDIRECT_PATHS = [
+    '/.well-known/oauth-authorization-server',
+    '/.well-known/jwks.json',
+    '/oauth/*',
+    '/register',
+    '/authorize',
+    '/token',
+] as const

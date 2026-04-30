@@ -16,16 +16,14 @@ interface DurableObjectStorage {
 
 export class DurableObjectCache<T extends Record<string, any>> extends ScopedCache<T> {
     private storage: DurableObjectStorage
-    private userHash: string
 
     constructor(scope: string, storage: DurableObjectStorage) {
         super(scope)
-        this.userHash = scope
         this.storage = storage
     }
 
     private getScopedKey(key: string): string {
-        return `user:${this.userHash}:${key}`
+        return `user:${this.scope}:${key}`
     }
 
     async get<K extends keyof T>(key: K): Promise<T[K] | undefined> {
@@ -44,7 +42,7 @@ export class DurableObjectCache<T extends Record<string, any>> extends ScopedCac
     }
 
     async clear(): Promise<void> {
-        const prefix = `user:${this.userHash}:`
+        const prefix = `user:${this.scope}:`
         const keys = await this.storage.list({ prefix })
         const keysArray = Array.from(keys.keys())
         await this.storage.delete(keysArray)

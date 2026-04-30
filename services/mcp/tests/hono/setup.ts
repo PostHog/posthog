@@ -20,6 +20,7 @@ vi.mock('@shared/guidelines.md', () => ({
 
 vi.mock('@/resources/ui-apps', () => ({
     registerUiAppResources: vi.fn().mockResolvedValue(undefined),
+    withUiApp: <T extends { _meta?: unknown }>(_appKey: string, config: Omit<T, '_meta'>): T => config as T,
 }))
 
 vi.mock('@/resources/ui-apps.generated', () => ({

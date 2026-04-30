@@ -1,299 +1,153 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import type { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { v4 as uuidv4 } from 'uuid'
 
 import { getPostHogClient } from '@/lib/analytics'
 import {
-    buildInsufficientScopeChallenge,
-    ErrorCode,
-    findPostHogPermissionError,
-    formatPermissionErrorMessage,
-} from '@/lib/errors'
+    mapErrorToAuthResponse,
+    mapKnownErrorMessage,
+    validateBearerToken,
+} from '@/lib/auth-errors'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
-import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
-import type { CloudRegion } from '@/tools/types'
+import {
+    parseRequestProperties,
+    type RequestProperties,
+    type Transport,
+} from '@/lib/request-properties'
+import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
 
 import type { RedisLike } from './cache/RedisCache'
 import {
+    ALLOWED_REQUEST_HEADERS,
+    AUTH_REDIRECT_PATHS,
     getAuthorizationServerUrl,
+    MAX_SESSIONS_PER_INSTANCE,
     MCP_DOCS_URL,
     OAUTH_SCOPES_SUPPORTED,
+    SESSION_TTL_MS,
 } from './constants'
-import { HonoMcpServer, type RequestProperties } from './mcp-server'
+import { HonoMcpServer } from './mcp-server'
+import { SessionRegistry } from './session-registry'
 import { createSSEResponseAdapter, handleSSEPostMessage } from './sse-adapter'
 
 import RAW_LANDING_HTML from '../static/landing.html'
 
 const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
-const SESSION_TTL_MS = 30 * 60 * 1000
-const MAX_SESSIONS_PER_INSTANCE = 10_000
 
 type HonoEnv = { Variables: { redis: RedisLike } }
-type SessionEntry<T> = { transport: T; createdAt: number; tokenHash: string }
+type SseEntry = { transport: SSEServerTransport; server: HonoMcpServer }
 
-// Helper to get the public-facing URL, respecting reverse proxy headers
-function getPublicUrl(request: Request): URL {
-    const url = new URL(request.url)
-
-    const forwardedHost = request.headers.get('X-Forwarded-Host')
-    if (forwardedHost) {
-        url.host = forwardedHost
-    }
-
-    const forwardedProto = request.headers.get('X-Forwarded-Proto')
-    if (forwardedProto) {
-        url.protocol = forwardedProto + ':'
-    }
-
-    return url
+async function bootMcpServer(redis: RedisLike, props: RequestProperties): Promise<HonoMcpServer> {
+    const server = new HonoMcpServer(redis, props)
+    await server.init()
+    return server
 }
 
-// Detect region from hostname for EU subdomain routing.
-// See: https://github.com/anthropics/claude-code/issues/2267
-function getRegionFromHostname(hostname: string): CloudRegion | undefined {
-    const h = hostname.toLowerCase()
-    if (h === 'mcp.eu.posthog.com' || h === 'mcp-eu.posthog.com') {
-        return 'eu'
-    }
-    if (h === 'mcp.us.posthog.com') {
-        return 'us'
-    }
-    return undefined
-}
-
-// Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
-function getRegionFromRequest(request: Request): CloudRegion | null {
-    const publicUrl = getPublicUrl(request)
-    const hostnameRegion = getRegionFromHostname(publicUrl.hostname)
-    if (hostnameRegion) {
-        return hostnameRegion
-    }
-    const url = new URL(request.url)
-    return url.searchParams.get('region') as CloudRegion | null
-}
-
-function buildAuthErrorResponse(
-    token: string | undefined,
-    url: URL,
-    effectiveRegion: CloudRegion | null,
-    request: Request
-): Response | null {
-    if (!token) {
-        const metadataUrl = getPublicUrl(request)
-        metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-        metadataUrl.search = ''
-        if (effectiveRegion) {
-            metadataUrl.searchParams.set('region', effectiveRegion)
-        }
-        return new Response(
-            `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-            {
-                status: 401,
-                headers: { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"` },
-            }
-        )
-    }
-
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
-        return new Response(
-            `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-            { status: 401 }
-        )
-    }
-
-    return null
-}
-
-function buildRequestProperties(
-    c: import('hono').Context<HonoEnv>,
-    token: string,
-    url: URL,
-    transport: 'streamable-http' | 'sse',
-    clientInfo: { clientName?: string; clientVersion?: string; protocolVersion?: string }
-): RequestProperties {
-    const organizationId =
-        c.req.header('x-posthog-organization-id') || url.searchParams.get('organization_id') || undefined
-    const projectId =
-        c.req.header('x-posthog-project-id') || url.searchParams.get('project_id') || undefined
-    const featuresParam = url.searchParams.get('features')
-    const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
-    const toolsParam = url.searchParams.get('tools')
-    const tools = toolsParam ? toolsParam.split(',').filter(Boolean) : undefined
-    const regionParam = url.searchParams.get('region') || undefined
-    const version = Number(c.req.header('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
-    const sessionId = url.searchParams.get('sessionId') || undefined
-    const readOnlyRaw = c.req.header('x-posthog-readonly') || url.searchParams.get('readonly')
-    const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
-    const rawUserAgent = c.req.header('User-Agent') || undefined
-    const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
-    const mcpConsumer = sanitizeHeaderValue(c.req.header('x-posthog-mcp-consumer') || undefined)
-    const mode = parseMcpMode(c.req.header('x-posthog-mcp-mode') || url.searchParams.get('mode'))
-
-    return {
-        apiToken: token,
-        userHash: hash(token),
-        sessionId,
-        organizationId,
-        projectId,
-        features,
-        tools,
-        region: regionParam,
-        version,
-        readOnly,
-        clientUserAgent,
-        mcpConsumer,
-        mcpClientName: clientInfo.clientName,
-        mcpClientVersion: clientInfo.clientVersion,
-        mcpProtocolVersion: clientInfo.protocolVersion,
-        mode,
-        transport,
-        requestStartTime: Date.now(),
-    }
-}
-
-async function errorHandler(response: Response): Promise<Response> {
-    if (!response.ok) {
-        const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
-        }
-        if (body.includes(ErrorCode.INVALID_API_KEY)) {
-            return new Response('Invalid API key', { status: 401 })
-        }
-    }
-    return response
-}
-
-function handleCatchError(error: unknown, tokenHash?: string, transport?: string): Response {
-    const permissionError = findPostHogPermissionError(error)
-    if (permissionError) {
-        return new Response(formatPermissionErrorMessage(permissionError), {
-            status: 403,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
-            },
-        })
-    }
-
-    if (error instanceof Error) {
-        if (error.message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
-        }
-        if (error.message.includes(ErrorCode.INVALID_API_KEY)) {
-            return new Response('Invalid API key', { status: 401 })
-        }
-    }
-
+function reportInternalError(error: unknown, props: RequestProperties): void {
     try {
-        const client = getPostHogClient()
         if (error instanceof Error) {
-            client.captureException(error, tokenHash, {
+            getPostHogClient().captureException(error, props.userHash, {
                 team: 'posthog_ai',
                 source: 'mcp_hono_request',
-                mcp_transport: transport,
+                mcp_transport: props.transport,
             })
         }
     } catch {
         // Never let observability break the request.
     }
+}
 
+function handleCatchError(error: unknown, props: RequestProperties): Response {
+    const authResponse = mapErrorToAuthResponse(error)
+    if (authResponse) {
+        return authResponse
+    }
+    reportInternalError(error, props)
     return new Response('Internal server error', { status: 500 })
+}
+
+async function passThrough(response: Response): Promise<Response> {
+    if (!response.ok) {
+        const body = await response.clone().text()
+        const mapped = mapKnownErrorMessage(body)
+        if (mapped) {
+            return mapped
+        }
+    }
+    return response
+}
+
+async function authenticateAndParse(
+    c: Context<HonoEnv>,
+    transport: Transport
+): Promise<{ props: RequestProperties } | { error: Response }> {
+    const token = c.req.header('Authorization')?.split(' ')[1]
+    const effectiveRegion = getRegionFromRequest(c.req.raw)
+
+    const tokenError = validateBearerToken(token, c.req.raw, effectiveRegion)
+    if (tokenError) {
+        return { error: tokenError }
+    }
+
+    const clientInfo = await extractClientInfoFromBody(c.req.raw)
+    return { props: parseRequestProperties(c.req.raw, clientInfo, transport) }
 }
 
 export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono<HonoEnv> {
     const app = new Hono<HonoEnv>()
 
-    const streamableSessions = new Map<string, SessionEntry<WebStandardStreamableHTTPServerTransport>>()
-    const sseSessions = new Map<string, SessionEntry<SSEServerTransport> & { server: HonoMcpServer }>()
+    const streamable = new SessionRegistry<WebStandardStreamableHTTPServerTransport>(SESSION_TTL_MS)
+    const sse = new SessionRegistry<SseEntry>(SESSION_TTL_MS)
 
-    function getStreamableTransport(
-        sessionId: string,
-        tokenHash: string
-    ): WebStandardStreamableHTTPServerTransport | undefined {
-        const entry = streamableSessions.get(sessionId)
-        if (!entry) {
-            return undefined
-        }
-        if (Date.now() - entry.createdAt > SESSION_TTL_MS) {
-            streamableSessions.delete(sessionId)
-            return undefined
-        }
-        if (entry.tokenHash !== tokenHash) {
-            return undefined
-        }
-        return entry.transport
+    function totalSessions(): number {
+        return streamable.size + sse.size
     }
 
-    function evictStaleSessions(): void {
-        const now = Date.now()
-        for (const [sid, entry] of streamableSessions) {
-            if (now - entry.createdAt > SESSION_TTL_MS) {
-                streamableSessions.delete(sid)
-            }
+    function reserveCapacity(): boolean {
+        if (totalSessions() < MAX_SESSIONS_PER_INSTANCE) {
+            return true
         }
-        for (const [sid, entry] of sseSessions) {
-            if (now - entry.createdAt > SESSION_TTL_MS) {
-                sseSessions.delete(sid)
-            }
-        }
+        // At capacity — sweep stale entries before rejecting.
+        streamable.compact()
+        sse.compact()
+        return totalSessions() < MAX_SESSIONS_PER_INSTANCE
     }
 
-    function totalSessionCount(): number {
-        return streamableSessions.size + sseSessions.size
-    }
-
-    // Security headers middleware
     app.use('*', async (c, next) => {
         await next()
         c.header('X-Content-Type-Options', 'nosniff')
         c.header('X-Frame-Options', 'DENY')
     })
 
-    // CORS middleware
     app.use(
         '*',
         cors({
             origin: (origin) => origin,
             allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-            allowHeaders: [
-                'Authorization',
-                'Content-Type',
-                'mcp-session-id',
-                'x-posthog-organization-id',
-                'x-posthog-project-id',
-                'x-posthog-mcp-version',
-                'x-posthog-readonly',
-                'x-posthog-mcp-consumer',
-                'x-posthog-mcp-mode',
-            ],
+            allowHeaders: [...ALLOWED_REQUEST_HEADERS],
             exposeHeaders: ['mcp-session-id'],
             maxAge: 86400,
         })
     )
 
-    // Redis middleware
     app.use('*', async (c, next) => {
         c.set('redis', redis)
         await next()
     })
 
-    // Landing page
     app.get('/', (c) => c.html(PARSED_LANDING_HTML))
 
-    // OpenAI ChatGPT App Directory domain verification
-    app.get('/.well-known/openai-apps-challenge', (c) => {
-        return c.text('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU')
-    })
+    app.get('/.well-known/openai-apps-challenge', (c) =>
+        c.text('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU')
+    )
 
-    // Health endpoints
-    app.get('/health', (c) => c.json({ status: 'ok' }, 200, { 'Cache-Control': 'no-store' }))
-    app.get('/healthz', (c) => c.json({ status: 'ok' }))
+    const healthHandler = (c: Context<HonoEnv>): Response =>
+        c.json({ status: 'ok' }, 200, { 'Cache-Control': 'no-store' })
+    app.get('/health', healthHandler)
+    app.get('/healthz', healthHandler)
 
-    // Readiness probe
     app.get('/readyz', async (c) => {
         try {
             if (redis.ping) {
@@ -310,20 +164,21 @@ export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono
         }
     })
 
-    // OAuth Protected Resource Metadata (RFC 9728)
-    const wellKnownHandler = (c: import('hono').Context<HonoEnv>): Response => {
+    // OAuth Protected Resource Metadata (RFC 9728).
+    // Per RFC 9728, the well-known URL is constructed by inserting
+    // /.well-known/oauth-protected-resource between host and resource path.
+    const wellKnownHandler = (c: Context<HonoEnv>): Response => {
         const url = new URL(c.req.url)
         const wellKnownPrefix = '/.well-known/oauth-protected-resource'
         const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
         const resourceUrl = getPublicUrl(c.req.raw)
         resourceUrl.pathname = resourcePath
         resourceUrl.search = ''
-        const authorizationServer = getAuthorizationServerUrl()
 
         return c.json(
             {
                 resource: resourceUrl.toString().replace(/\/$/, ''),
-                authorization_servers: [authorizationServer],
+                authorization_servers: [getAuthorizationServerUrl()],
                 scopes_supported: OAUTH_SCOPES_SUPPORTED,
                 bearer_methods_supported: ['header'],
             },
@@ -334,59 +189,40 @@ export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono
     app.all('/.well-known/oauth-protected-resource', wellKnownHandler)
     app.all('/.well-known/oauth-protected-resource/*', wellKnownHandler)
 
-    // Authorization server redirects
-    const authRedirectPaths = [
-        '/.well-known/oauth-authorization-server',
-        '/.well-known/jwks.json',
-        '/oauth/*',
-        '/register',
-        '/authorize',
-        '/token',
-    ]
-    for (const path of authRedirectPaths) {
+    for (const path of AUTH_REDIRECT_PATHS) {
         app.all(path, (c) => {
             const url = new URL(c.req.url)
             const redirect = matchAuthServerRedirect(url.pathname)
-            if (redirect) {
-                const authServer = getAuthorizationServerUrl()
-                const redirectTo = buildRedirectUrl(authServer, url.pathname, url.search, redirect)
-                return c.redirect(redirectTo, redirect.status)
+            if (!redirect) {
+                return c.notFound()
             }
-            return c.notFound()
+            const authServer = getAuthorizationServerUrl()
+            const redirectTo = buildRedirectUrl(authServer, url.pathname, url.search, redirect)
+            return c.redirect(redirectTo, redirect.status)
         })
     }
 
-    // MCP Streamable HTTP endpoint
-    async function handleMcpRequest(c: import('hono').Context<HonoEnv>): Promise<Response> {
-        const url = new URL(c.req.url)
-        const effectiveRegion = getRegionFromRequest(c.req.raw)
-        const token = c.req.header('Authorization')?.split(' ')[1]
-
-        const authError = buildAuthErrorResponse(token, url, effectiveRegion, c.req.raw)
-        if (authError) {
-            return authError
+    async function handleMcpRequest(c: Context<HonoEnv>): Promise<Response> {
+        const auth = await authenticateAndParse(c, 'streamable-http')
+        if ('error' in auth) {
+            return auth.error
         }
-
-        const clientInfo = await extractClientInfoFromBody(c.req.raw)
-        const props = buildRequestProperties(c, token!, url, 'streamable-http', clientInfo)
+        const { props } = auth
         const method = c.req.method
-
-        evictStaleSessions()
+        const existingSessionId = c.req.header('mcp-session-id')
 
         try {
             if (method === 'GET' || method === 'DELETE') {
-                const existingSessionId = c.req.header('mcp-session-id')
-                if (existingSessionId) {
-                    const transport = getStreamableTransport(existingSessionId, props.userHash)
-                    if (transport) {
-                        if (method === 'DELETE') {
-                            await transport.handleRequest(c.req.raw)
-                            streamableSessions.delete(existingSessionId)
-                            return new Response(null, { status: 200 })
-                        }
-                        const response = await transport.handleRequest(c.req.raw)
-                        return errorHandler(response)
+                const transport = existingSessionId
+                    ? streamable.get(existingSessionId, props.userHash)
+                    : undefined
+                if (transport) {
+                    if (method === 'DELETE') {
+                        await transport.handleRequest(c.req.raw)
+                        streamable.delete(existingSessionId!)
+                        return new Response(null, { status: 200 })
                     }
+                    return passThrough(await transport.handleRequest(c.req.raw))
                 }
                 if (method === 'DELETE') {
                     return new Response('Session not found', { status: 404 })
@@ -394,88 +230,64 @@ export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono
             }
 
             if (method === 'POST') {
-                const existingSessionId = c.req.header('mcp-session-id')
                 if (existingSessionId) {
-                    const transport = getStreamableTransport(existingSessionId, props.userHash)
+                    const transport = streamable.get(existingSessionId, props.userHash)
                     if (transport) {
-                        const response = await transport.handleRequest(c.req.raw)
-                        return errorHandler(response)
+                        return passThrough(await transport.handleRequest(c.req.raw))
                     }
                 }
 
-                if (totalSessionCount() >= MAX_SESSIONS_PER_INSTANCE) {
+                if (!reserveCapacity()) {
                     return new Response('Too many active sessions', { status: 503 })
                 }
 
-                const mcpServer = new HonoMcpServer(redis, props)
-                await mcpServer.init()
-
+                const mcpServer = await bootMcpServer(redis, props)
                 const transport = new WebStandardStreamableHTTPServerTransport({
                     sessionIdGenerator: () => uuidv4(),
                     onsessioninitialized: (sid) => {
-                        streamableSessions.set(sid, {
-                            transport,
-                            createdAt: Date.now(),
-                            tokenHash: props.userHash,
-                        })
+                        streamable.set(sid, transport, props.userHash)
                     },
                 })
 
                 transport.onclose = () => {
                     if (transport.sessionId) {
-                        streamableSessions.delete(transport.sessionId)
+                        streamable.delete(transport.sessionId)
                     }
                 }
 
                 await mcpServer.server.connect(transport)
-                const response = await transport.handleRequest(c.req.raw)
-                return errorHandler(response)
+                return passThrough(await transport.handleRequest(c.req.raw))
             }
 
             return new Response('Method not allowed', { status: 405 })
         } catch (error) {
-            return handleCatchError(error, props.userHash, 'streamable-http')
+            return handleCatchError(error, props)
         }
     }
 
-    // SSE endpoint
-    async function handleSseRequest(c: import('hono').Context<HonoEnv>): Promise<Response> {
-        const url = new URL(c.req.url)
-        const effectiveRegion = getRegionFromRequest(c.req.raw)
-        const token = c.req.header('Authorization')?.split(' ')[1]
-
-        const authError = buildAuthErrorResponse(token, url, effectiveRegion, c.req.raw)
-        if (authError) {
-            return authError
+    async function handleSseRequest(c: Context<HonoEnv>): Promise<Response> {
+        const auth = await authenticateAndParse(c, 'sse')
+        if ('error' in auth) {
+            return auth.error
         }
-
-        const clientInfo = await extractClientInfoFromBody(c.req.raw)
-        const props = buildRequestProperties(c, token!, url, 'sse', clientInfo)
+        const { props } = auth
         const method = c.req.method
-
-        evictStaleSessions()
 
         try {
             if (method === 'GET') {
-                if (totalSessionCount() >= MAX_SESSIONS_PER_INSTANCE) {
+                if (!reserveCapacity()) {
                     return new Response('Too many active sessions', { status: 503 })
                 }
 
                 const sessionId = uuidv4()
-                const mcpServer = new HonoMcpServer(redis, props)
-                await mcpServer.init()
+                const mcpServer = await bootMcpServer(redis, props)
 
                 const stream = new ReadableStream({
                     start(controller) {
                         const { transport, start } = createSSEResponseAdapter(controller, () => {
-                            sseSessions.delete(sessionId)
+                            sse.delete(sessionId)
                         })
-                        sseSessions.set(sessionId, {
-                            transport,
-                            server: mcpServer,
-                            createdAt: Date.now(),
-                            tokenHash: props.userHash,
-                        })
+                        sse.set(sessionId, { transport, server: mcpServer }, props.userHash)
                         mcpServer.server.connect(transport).then(start)
                     },
                 })
@@ -490,12 +302,12 @@ export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono
             }
 
             if (method === 'POST') {
-                const sessionId = url.searchParams.get('sessionId')
+                const sessionId = new URL(c.req.url).searchParams.get('sessionId')
                 if (!sessionId) {
                     return new Response('Missing sessionId', { status: 400 })
                 }
-                const session = sseSessions.get(sessionId)
-                if (!session || session.tokenHash !== props.userHash) {
+                const session = sse.get(sessionId, props.userHash)
+                if (!session) {
                     return new Response('Session not found', { status: 404 })
                 }
                 const body = await c.req.json()
@@ -505,7 +317,7 @@ export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono
 
             return new Response('Method not allowed', { status: 405 })
         } catch (error) {
-            return handleCatchError(error, props.userHash, 'sse')
+            return handleCatchError(error, props)
         }
     }
 

@@ -17,9 +17,10 @@ import { MCPClientProfile } from '@/lib/client-detection'
 import { handleToolError, wrapError } from '@/lib/errors'
 import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/lib/instructions'
 import { initMcpCatObservability } from '@/lib/mcpcat'
+import { type RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -43,6 +44,8 @@ import {
     toCloudRegion,
 } from './constants'
 
+export type { RequestProperties }
+
 // Guidelines are generated at build time; optional import so tests and
 // unbundled dev runs don't explode when the file is absent.
 let _guidelines = ''
@@ -52,27 +55,6 @@ try {
     _guidelines = typeof mod === 'string' ? mod : (mod?.default ?? '')
 } catch {
     _guidelines = ''
-}
-
-export type RequestProperties = {
-    userHash: string
-    apiToken: string
-    sessionId?: string
-    features?: string[]
-    tools?: string[]
-    region?: string
-    version?: number
-    organizationId?: string
-    projectId?: string
-    clientUserAgent?: string
-    mcpConsumer?: string
-    mcpClientName?: string
-    mcpClientVersion?: string
-    mcpProtocolVersion?: string
-    readOnly?: boolean
-    mode?: McpMode
-    transport?: 'streamable-http' | 'sse'
-    requestStartTime?: number
 }
 
 export class HonoMcpServer {
@@ -140,12 +122,7 @@ export class HonoMcpServer {
             this.mcpClientVersion = mcpClientVersion
             this.mcpProtocolVersion = mcpProtocolVersion
             this.clientInfoResolved = true
-            return
         }
-
-        // No DO storage fallback in Hono mode — client info must be provided
-        // via request properties (populated by extractClientInfoFromBody at the
-        // HTTP entry point).
     }
 
     async detectRegion(): Promise<CloudRegion | undefined> {

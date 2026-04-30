@@ -37,7 +37,12 @@
         "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
+<<<<<<< ours
+        "@hono/node-server": "^1.19.0",
+||||||| ancestor
+=======
 <<<<<<< New base: feat(mcp): add Hono MCP server for k8s deployment
+>>>>>>> theirs
         "@modelcontextprotocol/ext-apps": "^1.5.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
 ||||||| Common ancestor
@@ -54,7 +59,7 @@
         "ai": "^6.0.0",
         "esbuild": "^0.25.10",
         "fflate": "^0.8.2",
-        "hono": "^4.12.14",
+        "hono": "^4.11.8",
         "ioredis": "^4.28.5",
         "mcpcat": "0.1.15",
         "posthog-js-lite": "4.2.2",

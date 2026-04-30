@@ -31,7 +31,7 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -39,7 +39,9 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
+import { type RequestProperties } from '@/lib/request-properties'
 
+<<<<<<< New base: refactor stuff, start adding client tests
 const instructionsFormatter = new InstructionsFormatter()
 
 export type RequestProperties = {
@@ -63,6 +65,30 @@ export type RequestProperties = {
     viaSseRedirect?: boolean
     requestStartTime?: number
 }
+||||||| Common ancestor
+export type RequestProperties = {
+    userHash: string
+    apiToken: string
+    sessionId?: string
+    features?: string[]
+    tools?: string[]
+    region?: string
+    version?: number
+    organizationId?: string
+    projectId?: string
+    clientUserAgent?: string
+    mcpConsumer?: string
+    mcpClientName?: string
+    mcpClientVersion?: string
+    mcpProtocolVersion?: string
+    readOnly?: boolean
+    mode?: McpMode
+    transport?: 'streamable-http' | 'sse'
+    requestStartTime?: number
+}
+=======
+export type { RequestProperties }
+>>>>>>> Current commit: refactor stuff, start adding client tests
 
 export class MCP extends McpAgent<Env> {
     server = new McpServer(

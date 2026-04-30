@@ -38,7 +38,13 @@ export class StateManager {
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
         if (apiKeyResult.success) {
-            return apiKeyResult.data
+            // Real API returns `null` for unscoped keys; normalize so callers can rely on arrays.
+            const data = apiKeyResult.data
+            return {
+                ...data,
+                scoped_teams: data.scoped_teams ?? [],
+                scoped_organizations: data.scoped_organizations ?? [],
+            }
         }
 
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })

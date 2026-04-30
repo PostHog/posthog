@@ -12,17 +12,15 @@ const DEFAULT_TTL_SECONDS = 24 * 60 * 60 // 24 hours
 export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     private redis: RedisLike
     private ttl: number
-    private userHash: string
 
     constructor(scope: string, redis: RedisLike, ttlSeconds: number = DEFAULT_TTL_SECONDS) {
         super(scope)
-        this.userHash = scope
         this.redis = redis
         this.ttl = ttlSeconds
     }
 
     private getScopedKey(key: string): string {
-        return `mcp:user:${this.userHash}:${key}`
+        return `mcp:user:${this.scope}:${key}`
     }
 
     async get<K extends keyof T>(key: K): Promise<T[K] | undefined> {
@@ -50,7 +48,7 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     }
 
     async clear(): Promise<void> {
-        const pattern = `mcp:user:${this.userHash}:*`
+        const pattern = `mcp:user:${this.scope}:*`
         let cursor = '0'
         do {
             const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100)
