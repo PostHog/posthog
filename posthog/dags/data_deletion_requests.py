@@ -585,22 +585,29 @@ def load_person_removal_request(
         request.status = RequestStatus.IN_PROGRESS
         request.save(update_fields=["status", "updated_at"])
 
+    # The fields are nullable on the model (NULL for non-person_removal rows), but
+    # PersonRemovalContext and the downstream `if not drop_x` consumers want plain bools.
+    # model.clean() guarantees at least one is True for person_removal requests.
+    drop_profiles = bool(request.person_drop_profiles)
+    drop_events = bool(request.person_drop_events)
+    drop_recordings = bool(request.person_drop_recordings)
+
     context.log.info(
         f"Processing person_removal request {request.pk}: "
         f"team_id={request.team_id}, "
         f"uuids={len(request.person_uuids)}, distinct_ids={len(request.person_distinct_ids)}, "
-        f"drop_profiles={request.person_drop_profiles}, "
-        f"drop_events={request.person_drop_events}, "
-        f"drop_recordings={request.person_drop_recordings}"
+        f"drop_profiles={drop_profiles}, "
+        f"drop_events={drop_events}, "
+        f"drop_recordings={drop_recordings}"
     )
     context.add_output_metadata(
         {
             "team_id": dagster.MetadataValue.int(request.team_id),
             "uuid_count": dagster.MetadataValue.int(len(request.person_uuids)),
             "distinct_id_count": dagster.MetadataValue.int(len(request.person_distinct_ids)),
-            "drop_profiles": dagster.MetadataValue.bool(request.person_drop_profiles),
-            "drop_events": dagster.MetadataValue.bool(request.person_drop_events),
-            "drop_recordings": dagster.MetadataValue.bool(request.person_drop_recordings),
+            "drop_profiles": dagster.MetadataValue.bool(drop_profiles),
+            "drop_events": dagster.MetadataValue.bool(drop_events),
+            "drop_recordings": dagster.MetadataValue.bool(drop_recordings),
         }
     )
 
@@ -609,9 +616,9 @@ def load_person_removal_request(
         team_id=request.team_id,
         person_uuids=[str(u) for u in request.person_uuids],
         person_distinct_ids=list(request.person_distinct_ids),
-        drop_profiles=request.person_drop_profiles,
-        drop_events=request.person_drop_events,
-        drop_recordings=request.person_drop_recordings,
+        drop_profiles=drop_profiles,
+        drop_events=drop_events,
+        drop_recordings=drop_recordings,
         start_time=request.start_time,
         end_time=request.end_time,
     )
