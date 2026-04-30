@@ -6,6 +6,8 @@ import { CampaignConfig } from './types'
 
 const EVERY_LOGO_BLACK = 'https://res.cloudinary.com/dmukukwp6/image/upload/every_black_d4ba0c3a4d.svg'
 const EVERY_LOGO_WHITE = 'https://res.cloudinary.com/dmukukwp6/image/upload/every_white_438ee9fa45.svg'
+// TODO: Keep this date in sync with EveryGoodieBagStrategy.INVOICE_CUTOFF_DATE in billing.
+const EVERY_CREDIT_ELIGIBILITY_CUTOFF = 'May 1, 2026'
 
 const EveryHero: React.FC = () => {
     return (
@@ -30,7 +32,7 @@ export const everyCampaign: CampaignConfig = {
         },
         {
             title: '$2K credits for eligible PostHog organizations',
-            description: 'Organizations without previous paid invoices also receive $2K in PostHog credits.',
+            description: `Organizations without paid invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} also receive $2K in PostHog credits.`,
         },
         {
             title: '12-month access',
@@ -41,8 +43,7 @@ export const everyCampaign: CampaignConfig = {
         'Active Every Goodie Bag annual subscriber',
         'Organization admin or owner in PostHog',
         'Active paid subscription to PostHog',
-        'Existing paying organizations receive the PostHog AI benefit only',
+        `Organizations already paying before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} receive the PostHog AI benefit only`,
     ],
-    footerNote:
-        'Credits and campaign plan benefits expire 12 months from redemption. The $2K credit grant applies only to eligible organizations without previous paid invoices.',
+    footerNote: `Credits and campaign plan benefits expire 12 months from redemption. The $2K credit grant applies only to eligible organizations without paid invoices before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF}.`,
 }
