@@ -412,11 +412,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 ),
             )
 
-            # Surface non-fatal failure type on SLO completion event so slo-failures-daily
-            # can filter on `error_type` even when the activity returned cleanly (no raise).
-            if inputs.slo and deliver_result.error_type:
-                inputs.slo.completion_properties.setdefault("error_type", deliver_result.error_type)
-
             # Capture per-recipient results for the delivery record
             delivery_recipient_results = [
                 {

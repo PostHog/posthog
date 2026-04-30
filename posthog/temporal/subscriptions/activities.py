@@ -314,7 +314,7 @@ async def _auto_disable_and_return(
     )
     _capture_delivery_failed_event(subscription, ApplicationError(reason, non_retryable=True))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
-    return DeliverSubscriptionResult(recipient_results=recipient_results, error_type=error_type)
+    return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
 @temporalio.activity.defn
@@ -360,9 +360,9 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         # Empty here means non-empty exported_asset_ids didn't resolve from DB — a
         # transient condition (TTL sweep, prior export crash, S3 race). Genuine
         # deletion is filtered upstream in create_export_assets and the workflow
-        # short-circuits to SKIPPED before this activity runs. So: don't auto-disable;
-        # surface the failure on the SLO completion event via `error_type` and let
-        # the next scheduled delivery retry.
+        # short-circuits to SKIPPED before this activity runs. Don't auto-disable;
+        # the failure is observable via the `subscription_delivery_failed` analytics
+        # event and the next scheduled delivery retries.
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
         recipient_results.append(
             RecipientResult(
@@ -375,7 +375,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
             subscription,
             ApplicationError(NO_ASSETS_REASON, non_retryable=True),
         )
-        return DeliverSubscriptionResult(recipient_results=recipient_results, error_type="no_assets")
+        return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == "email":
         emails = subscription.target_value.split(",")

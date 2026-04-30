@@ -543,8 +543,6 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     assert result is not None
     assert result.recipient_results[0].status == "failed"
     assert result.recipient_results[0].error == expected_error
-    # Surfaced on SLO completion event for slo-failures-daily.
-    assert result.error_type == expected_error["type"]
 
 
 @pytest.mark.asyncio
@@ -590,8 +588,6 @@ async def test_no_assets_does_not_auto_disable(team, user):
     assert result is not None
     assert result.recipient_results[0].status == "failed"
     assert result.recipient_results[0].error["type"] == "no_assets"
-    # Surfaced on SLO completion event for slo-failures-daily.
-    assert result.error_type == "no_assets"
 
 
 @patch("posthog.slo.events.posthoganalytics")
