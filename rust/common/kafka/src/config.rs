@@ -28,6 +28,22 @@ pub struct KafkaConfig {
 
     #[envconfig(default = "")]
     pub kafka_client_id: String,
+
+    // WarpStream producer tuning — None means "let librdkafka pick its default".
+    // Reference: https://docs.warpstream.com/warpstream/kafka/configure-kafka-client/tuning-for-performance
+    pub kafka_producer_batch_size: Option<u32>,
+
+    pub kafka_producer_batch_num_messages: Option<u32>,
+
+    pub kafka_producer_enable_idempotence: Option<bool>,
+
+    pub kafka_producer_max_in_flight_requests_per_connection: Option<u32>,
+
+    pub kafka_producer_topic_metadata_refresh_interval_ms: Option<u32>,
+
+    pub kafka_producer_message_max_bytes: Option<u32>,
+
+    pub kafka_producer_sticky_partitioning_linger_ms: Option<u32>,
 }
 
 #[derive(Envconfig, Clone)]
@@ -56,6 +72,25 @@ pub struct ConsumerConfig {
     pub kafka_consumer_fetch_min_bytes: Option<u32>,
 
     pub kafka_consumer_fetch_max_bytes: Option<u32>,
+
+    pub kafka_consumer_max_partition_fetch_bytes: Option<u32>,
+
+    // Consumer group protocol tuning for WarpStream rebalance resilience.
+    // Set to a stable pod identity to enable static group membership (avoids
+    // rebalances when a pod restarts within the session timeout window).
+    pub kafka_consumer_group_instance_id: Option<String>,
+
+    // Override partition assignment strategy, e.g. "cooperative-sticky" for
+    // incremental rebalancing instead of the default eager "range" protocol.
+    // During migration, use "range,cooperative-sticky" then drop "range".
+    pub kafka_consumer_partition_strategy: Option<String>,
+
+    // WarpStream recommends "0" so the kernel auto-tunes TCP buffers.
+    pub kafka_consumer_socket_send_buffer_bytes: Option<String>,
+    pub kafka_consumer_socket_receive_buffer_bytes: Option<String>,
+
+    // WarpStream recommends 60000 for faster Agent scaling responsiveness.
+    pub kafka_consumer_metadata_refresh_interval_ms: Option<u32>,
 }
 
 impl ConsumerConfig {

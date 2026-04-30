@@ -1,7 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React, { useMemo } from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 export type ReferenceLineOrientation = 'horizontal' | 'vertical'
 export type ReferenceLineVariant = 'goal' | 'alert' | 'marker'
@@ -127,7 +127,7 @@ function HorizontalReferenceLine({
     label,
     labelPosition,
 }: ResolvedProps & { y: number; yAxisId?: string }): React.ReactElement | null {
-    const { scales, dimensions } = useChart()
+    const { scales, dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width: containerWidth } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
@@ -183,7 +183,7 @@ function VerticalReferenceLine({
     label,
     labelPosition,
 }: ResolvedProps & { xLabel: string }): React.ReactElement | null {
-    const { scales, dimensions } = useChart()
+    const { scales, dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, height: containerHeight } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
@@ -254,9 +254,10 @@ function ReferenceLineView({
                     style={{ ...fillRect, backgroundColor: fillColor, opacity: fillOpacity }}
                 />
             )}
-            <div className="absolute pointer-events-none" style={lineStyle} />
+            <div data-attr="hog-chart-reference-line" className="absolute pointer-events-none" style={lineStyle} />
             {label && (
                 <div
+                    data-attr="hog-chart-reference-line-label"
                     className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px]"
                     style={labelStyle}
                 >

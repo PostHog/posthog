@@ -16,7 +16,6 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
-    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -1850,11 +1849,10 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
-    cache_age_seconds?: number
+    /** How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency. */
+    data_freshness_seconds?: integer
     /** Whether this endpoint's query results are materialized to S3 */
     is_materialized?: boolean
-    /** How frequently should the underlying materialized view be updated */
-    sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
@@ -2918,14 +2916,26 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     limit?: integer
     offset?: integer
     search?: string
+    /** When true, the search query also matches attribute values (not just keys). */
+    searchValues?: boolean
     severityLevels?: LogSeverityLevel[]
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
 }
 
+export interface LogAttributeResult {
+    name: string
+    /** Either 'log_attribute' or 'log_resource_attribute'. */
+    propertyFilterType: string
+    /** Whether this row matched the search by attribute key or by attribute value. */
+    matchedOn: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn is 'value'. */
+    matchedValue?: string
+}
+
 export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
-    results: Record<string, any>[]
+    results: LogAttributeResult[]
     count: number
 }
 
@@ -3125,6 +3135,7 @@ export type FileSystemIconType =
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
+    | 'llm_tags'
     | 'llm_datasets'
     | 'llm_playground'
     | 'llm_prompts'
@@ -3609,7 +3620,7 @@ export interface ExperimentStatsBase {
     sum_squares: number
     covariate_sum?: number
     covariate_sum_squares?: number
-    main_covariate_sum_product?: number
+    covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
@@ -3681,12 +3692,23 @@ export interface SampleRatioMismatch {
     p_value: number
 }
 
+/**
+ * Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE`
+ * handling + observed `$multiple` share above the threshold. Present on the response
+ * only when the experiment is currently at risk.
+ */
+export interface BiasRisk {
+    /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+    multiple_variant_percentage: number
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
     total_exposures: Record<string, number>
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
+    bias_risk?: BiasRisk
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -4066,8 +4088,7 @@ export interface ResolvedDateRangeResponse {
     date_to: string
 }
 
-export type MultipleBreakdownType = Extract<
-    BreakdownType,
+export type MultipleBreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
@@ -4076,8 +4097,8 @@ export type MultipleBreakdownType = Extract<
     | 'hogql'
     | 'cohort'
     | 'revenue_analytics'
+    | 'data_warehouse'
     | 'data_warehouse_person_property'
->
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
@@ -4549,6 +4570,7 @@ export type AIEventType =
     | '$ai_metric'
     | '$ai_feedback'
     | '$ai_evaluation'
+    | '$ai_tag'
     | '$ai_trace_summary'
     | '$ai_generation_summary'
     | '$ai_trace_clusters'
@@ -5398,6 +5420,13 @@ export interface SourceFieldInputConfig {
     required: boolean
     placeholder: string
     caption?: string
+    /**
+     * Marks this field as containing sensitive data. The value is stripped from
+     * API responses regardless of the rendering `type` (so a multi-line PEM
+     * blob can use `textarea` and still be redacted). Required: source authors
+     * must explicitly classify every field.
+     */
+    secret: boolean
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -5469,6 +5498,12 @@ export interface SourceConfig {
     iconClassName?: string
     webhookSetupCaption?: string
     webhookFields?: SourceFieldConfig[]
+    /**
+     * If true, the source does not support automatic webhook registration via API
+     * (e.g. Slack — the user must paste the URL into the source's app settings).
+     * Adjusts the setup UI copy to avoid promising automatic registration.
+     */
+    webhookManualOnly?: boolean
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why
@@ -5627,6 +5662,7 @@ export const externalDataSources = [
     'Convex',
     'ClickHouse',
     'Plain',
+    'Resend',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

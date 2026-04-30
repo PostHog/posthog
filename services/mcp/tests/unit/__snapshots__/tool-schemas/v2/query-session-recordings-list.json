@@ -756,6 +756,13 @@
                 ]
             },
             "type": "array"
+        },
+        "session_ids": {
+            "description": "Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
         }
     },
     "type": "object"
