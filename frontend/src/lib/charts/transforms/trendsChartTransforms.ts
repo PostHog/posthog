@@ -73,7 +73,8 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
 }
 
 export interface BuildTrendsChartConfigOpts {
-    yScaleType?: 'linear' | 'log10'
+    // Anything other than 'log10' is treated as linear.
+    yAxisScaleType?: string | null
     isPercentStackView?: boolean
     showCrosshair?: boolean
     showGrid?: boolean
@@ -89,7 +90,7 @@ export function buildTrendsChartConfig(opts: BuildTrendsChartConfigOpts): LineCh
         opts.pinnableTooltip !== undefined || opts.tooltipPlacement !== undefined
             ? { pinnable: opts.pinnableTooltip, placement: opts.tooltipPlacement }
             : undefined
-    const yScaleType: 'linear' | 'log' | undefined = opts.yScaleType === 'log10' ? 'log' : opts.yScaleType
+    const yScaleType: 'linear' | 'log' = opts.yAxisScaleType === 'log10' ? 'log' : 'linear'
     return {
         showGrid: opts.showGrid,
         showCrosshair: opts.showCrosshair,

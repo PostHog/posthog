@@ -213,7 +213,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const chartConfig: LineChartConfig = useMemo(
         () =>
             buildTrendsChartConfig({
-                yScaleType: yAxisScaleType === 'log10' ? 'log10' : 'linear',
+                yAxisScaleType,
                 isPercentStackView,
                 showGrid: true,
                 showCrosshair: true,

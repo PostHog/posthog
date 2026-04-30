@@ -121,13 +121,13 @@ describe('trendsChartTransforms', () => {
     })
 
     describe('buildTrendsChartConfig', () => {
-        it('returns every key undefined when no opts are provided so hog-charts defaults apply', () => {
+        it('returns every optional key undefined and yScaleType "linear" when no opts are provided', () => {
             const config = buildTrendsChartConfig({})
             expect(config).toEqual({
                 showGrid: undefined,
                 showCrosshair: undefined,
                 tooltip: undefined,
-                yScaleType: undefined,
+                yScaleType: 'linear',
                 percentStackView: undefined,
                 xTickFormatter: undefined,
                 yTickFormatter: undefined,
@@ -137,8 +137,11 @@ describe('trendsChartTransforms', () => {
         it.each([
             ['log10', 'log'],
             ['linear', 'linear'],
-        ] as const)('translates yScaleType "%s" to hog-charts "%s"', (input, expected) => {
-            expect(buildTrendsChartConfig({ yScaleType: input }).yScaleType).toBe(expected)
+            ['auto', 'linear'],
+            [undefined, 'linear'],
+            [null, 'linear'],
+        ] as const)('translates yAxisScaleType "%s" to hog-charts yScaleType "%s"', (input, expected) => {
+            expect(buildTrendsChartConfig({ yAxisScaleType: input }).yScaleType).toBe(expected)
         })
 
         it('builds a tooltip object only when pinnable or placement is set', () => {
