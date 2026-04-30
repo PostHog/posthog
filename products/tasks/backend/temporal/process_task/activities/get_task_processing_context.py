@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import close_old_connections
 
 import posthoganalytics
 from temporalio import activity
@@ -12,6 +14,11 @@ from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import format_allowed_domains_for_log
+
+
+def close_old_database_connections() -> None:
+    if not settings.TEST:
+        close_old_connections()
 
 
 @dataclass
@@ -46,6 +53,9 @@ class TaskProcessingContext:
     allowed_domains: list[str] | None = None
     json_schema: dict | None = None
     ci_prompt: str | None = None
+    # Captured at workflow start so a flag flip mid-run can't introduce
+    # nondeterminism (the workflow consults this in its finally block).
+    use_modal_resume_snapshots: bool = True
 
     @property
     def mode(self) -> str:
@@ -130,6 +140,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     """Fetch task details and create the processing context for the workflow."""
     run_id = input.run_id
     log_with_activity_context("Fetching task processing context", run_id=run_id)
+    close_old_database_connections()
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
@@ -227,4 +238,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         allowed_domains=allowed_domains,
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
+        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
     )

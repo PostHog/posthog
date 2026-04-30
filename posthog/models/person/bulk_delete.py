@@ -52,12 +52,17 @@ def resolve_persons_for_deletion(
     """
 
     persons_queryset = (
-        Person.objects.filter(team_id=team_id)
+        Person.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
         .only(*_PERSON_DELETION_COLUMNS)
         .prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=team_id).order_by("id"),
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.filter(
+                    team_id=team_id
+                ).order_by(  # nosemgrep: no-direct-persons-db-orm
+                    "id"
+                ),  # nosemgrep: no-direct-persons-db-orm
                 to_attr="distinct_ids_cache",
             )
         )
@@ -65,7 +70,9 @@ def resolve_persons_for_deletion(
     if uuids:
         persons_queryset = persons_queryset.filter(uuid__in=uuids)
     elif distinct_ids:
-        person_ids = PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).values_list(
+        person_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            team_id=team_id, distinct_id__in=distinct_ids
+        ).values_list(  # nosemgrep: no-direct-persons-db-orm
             "person_id", flat=True
         )
         persons_queryset = persons_queryset.filter(id__in=person_ids)

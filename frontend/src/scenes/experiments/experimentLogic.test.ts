@@ -307,6 +307,73 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('currentRefresh tracking', () => {
+        it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
+            logic.actions.setExperiment(experiment)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        {
+                            cache_key: 'cache_key',
+                            query_status: experimentMetricResultsSuccessJson.query_status,
+                        },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+
+            const promise = logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            await expectLogic(logic).toDispatchActions(['markRefreshStarted'])
+            expect(logic.values.currentRefresh).toMatchObject({
+                state: 'in_progress',
+                triggered_by: 'manual',
+            })
+            expect(logic.values.currentRefresh?.refresh_id).toEqual(expect.any(String))
+
+            await promise
+
+            expect(logic.values.currentRefresh).toMatchObject({
+                state: 'completed',
+                triggered_by: 'manual',
+            })
+        })
+
+        it.each(['completed', 'partial', 'errored'] as const)(
+            'transitions to %s when markRefreshFinished fires with that state',
+            (finalState) => {
+                logic.actions.markRefreshStarted('refresh-1', 'manual')
+                expect(logic.values.currentRefresh?.state).toBe('in_progress')
+
+                logic.actions.markRefreshFinished('refresh-1', finalState)
+
+                expect(logic.values.currentRefresh).toMatchObject({
+                    refresh_id: 'refresh-1',
+                    state: finalState,
+                    triggered_by: 'manual',
+                })
+            }
+        )
+
+        it('ignores markRefreshFinished for a stale refresh_id and preserves the in-flight snapshot', () => {
+            logic.actions.markRefreshStarted('refresh-1', 'manual')
+            logic.actions.markRefreshStarted('refresh-2', 'auto_refresh')
+
+            // Late completion from the previous refresh shouldn't clobber the new one.
+            logic.actions.markRefreshFinished('refresh-1', 'completed')
+
+            expect(logic.values.currentRefresh).toMatchObject({
+                refresh_id: 'refresh-2',
+                state: 'in_progress',
+                triggered_by: 'auto_refresh',
+            })
+        })
+    })
+
     describe('removeSharedMetricFromExperiment', () => {
         beforeEach(() => {
             jest.spyOn(api, 'update')
