@@ -2,7 +2,6 @@ from datetime import timedelta
 from pathlib import Path
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -10,6 +9,7 @@ from django.utils import timezone
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL
 from posthog.clickhouse.preaggregation.experiment_metric_events_sql import TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL
+from posthog.hogql_queries.experiments.experiment_query_runner import MIN_PRECOMPUTATION_DURATION_SECONDS
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -62,28 +62,19 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         Production gates precomputation behind a minimum experiment runtime
         (see MIN_PRECOMPUTATION_DURATION_SECONDS). Tests in this suite often
         rely on the default `start_date=now` from create_experiment, which
-        would silently fall back to the direct path. Bypass the duration
-        gate so the precomputed path is actually exercised.
+        would silently fall back to the direct path. Backdate start_date so
+        the experiment passes the gate and the precomputed path is exercised.
         """
         if use_precomputation:
             self._enable_precomputation()
-            self._bypass_precomputation_duration_gate()
+            if experiment.start_date is not None:
+                elapsed = (timezone.now() - experiment.start_date).total_seconds()
+                if elapsed < MIN_PRECOMPUTATION_DURATION_SECONDS:
+                    # Backdate to exactly the threshold (gate is >=) so the
+                    # daily window stays in the same UTC day as the original
+                    # start_date and the SQL filter shifts by the minimum.
+                    experiment.start_date = timezone.now() - timedelta(seconds=MIN_PRECOMPUTATION_DURATION_SECONDS)
         experiment.save()
-
-    def _bypass_precomputation_duration_gate(self):
-        if getattr(self, "_precomputation_duration_gate_patcher", None) is not None:
-            return
-        self._precomputation_duration_gate_patcher = patch(
-            "posthog.hogql_queries.experiments.experiment_query_runner.MIN_PRECOMPUTATION_DURATION_SECONDS",
-            0,
-        )
-        self._precomputation_duration_gate_patcher.start()
-        self.addCleanup(self._stop_precomputation_duration_gate_patcher)
-
-    def _stop_precomputation_duration_gate_patcher(self):
-        if self._precomputation_duration_gate_patcher is not None:
-            self._precomputation_duration_gate_patcher.stop()
-            self._precomputation_duration_gate_patcher = None
 
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
