@@ -180,8 +180,6 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                             const parsedData = JSON.parse(data)
                             if (parsedData?.summary) {
                                 actions.setSummary(sessionId, parsedData.summary, parsedData.id ?? null)
-                            } else if (parsedData) {
-                                actions.setSummary(sessionId, parsedData)
                             }
                         } catch {
                             // Don't handle errors as we can afford to fail some chunks silently.
