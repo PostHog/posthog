@@ -64,8 +64,6 @@ class AnomalyInvestigationWorkflow(PostHogWorkflow):
 
 @activity.defn
 async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInputs) -> None:
-    # Imports happen inside the activity because Temporal's workflow sandbox restricts
-    # what modules the workflow class itself can import at definition time.
     from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
     from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
     from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
