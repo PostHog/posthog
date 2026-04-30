@@ -69,8 +69,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                                 />
                                 <LemonCheckbox
                                     id={`realtime-project-${team.id}`}
-                                    checked={state === 'on'}
-                                    indeterminate={state === 'partial'}
+                                    checked={state === 'partial' ? 'indeterminate' : state === 'on'}
                                     disabled={userLoading}
                                     onChange={() =>
                                         updateRealtimeNotificationForProject(team.id, activeTypes, state === 'off')
