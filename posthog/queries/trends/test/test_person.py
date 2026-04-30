@@ -1,4 +1,3 @@
-from collections import Counter
 from uuid import UUID
 
 from freezegun.api import freeze_time
@@ -78,7 +77,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         assert len(serialized_actors) == 1
         assert len(serialized_actors[0]["matched_recordings"]) == 1
         assert serialized_actors[0]["matched_recordings"][0]["session_id"] == "s1"
-        assert Counter(serialized_actors[0]["matched_recordings"][0]["events"]) == Counter(
+        assert sorted(serialized_actors[0]["matched_recordings"][0]["events"], key=lambda e: str(e["uuid"])) == sorted(
             [
                 {
                     "window_id": "w1",
@@ -90,7 +89,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "timestamp": timezone.now() + relativedelta(hours=2),
                     "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
                 },
-            ]
+            ],
+            key=lambda e: str(e["uuid"]),
         )
 
     @snapshot_clickhouse_queries
@@ -165,7 +165,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
-        assert Counter(serialized_actors[0].get("matched_recordings", [])) == Counter(
+        assert sorted(serialized_actors[0].get("matched_recordings", []), key=lambda r: r["session_id"]) == sorted(
             [
                 {
                     "session_id": "s1",
@@ -177,5 +177,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 }
-            ]
+            ],
+            key=lambda r: r["session_id"],
         )
