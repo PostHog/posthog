@@ -40,6 +40,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from ee.tasks.subscriptions.auto_disable import re_enable_validation_message
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 
@@ -174,28 +175,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
         integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
 
-        # Re-enabling a subscription whose delivery prerequisite is still permanently
-        # broken would just trigger the auto-disable path again on next delivery —
-        # surface the precondition failure here so the user sees an actionable error
-        # instead of a confusing auto-disabled email seconds after hitting "Enable".
+        # Reject re-enables of subscriptions whose delivery prerequisite is still
+        # permanently broken — otherwise the next delivery would just auto-disable
+        # them again. Shared helper covers both webhook (unsupported) and slack-
+        # without-integration cases.
         is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
         if is_re_enabling:
-            if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
-                raise ValidationError(
-                    {
-                        "enabled": [
-                            "Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first."
-                        ]
-                    }
-                )
-            if target_type == Subscription.SubscriptionTarget.WEBHOOK:
-                raise ValidationError(
-                    {
-                        "enabled": [
-                            "Cannot re-enable webhook subscription: webhook delivery is not currently supported. Switch to email or Slack."
-                        ]
-                    }
-                )
+            error_message = re_enable_validation_message(target_type, integration_id)
+            if error_message:
+                raise ValidationError({"enabled": [error_message]})
 
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:

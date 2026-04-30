@@ -1,10 +1,12 @@
-from django.utils import timezone
+import uuid
 
 import structlog
 
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
+
+from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
 # User-visible reasons embedded in the disabled-subscription email body or recipient_results error.
 SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
@@ -16,13 +18,23 @@ NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline 
 logger = structlog.get_logger(__name__)
 
 
-def disable_invalid_subscription(subscription: Subscription, reason: str) -> None:
-    """Auto-disable a subscription whose delivery prerequisite is permanently invalid.
-
-    Called from the Temporal delivery activity when we detect that the subscription
-    cannot succeed without user intervention (e.g. the Slack integration was
-    disconnected). Mirrors `posthog.tasks.alerts.utils.disable_invalid_alert`.
+def re_enable_validation_message(target_type: str | None, integration_id: int | None) -> str | None:
+    """Return a user-facing error message if a subscription with this target configuration
+    cannot be re-enabled, else None. Mirrors the alert pattern in
+    `posthog.tasks.alerts.utils.validate_alert_config` — one shared rule set for both
+    the API serializer and (in future) the temporal activity's permanent-failure check.
     """
+    if target_type and target_type not in SUPPORTED_TARGET_TYPES:
+        return (
+            f"Cannot re-enable {target_type} subscription: this delivery channel is not currently supported. "
+            "Switch to email or Slack."
+        )
+    if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
+        return "Cannot re-enable Slack subscription: no integration configured. Reconnect Slack first."
+    return None
+
+
+def disable_invalid_subscription(subscription: Subscription, reason: str) -> None:
     logger.warning(
         "subscription.auto_disabling",
         subscription_id=subscription.id,
@@ -53,12 +65,6 @@ def disable_invalid_subscription(subscription: Subscription, reason: str) -> Non
 
 
 def send_notifications_for_disabled_subscription(subscription: Subscription, reason: str, targets: list[str]) -> None:
-    """Send the "subscription auto-disabled" email to the given targets.
-
-    Internal building block for `disable_invalid_subscription` — duplicate-email
-    prevention is the caller's responsibility (provided by the `enabled=False`
-    short-circuit at the activity entry, not by this function).
-    """
     logger.info(
         "subscription.send_disabled_notification",
         subscription_id=subscription.id,
@@ -71,12 +77,7 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         if subscription.title
         else "Your PostHog subscription has been disabled"
     )
-    # Timestamped key so a re-enabled subscription that auto-disables a second
-    # time still sends a fresh email — `MessagingRecord` dedupes on campaign_key,
-    # so a deterministic key would silently suppress repeat-disable notifications.
-    # Retry safety is provided by the `enabled=False` short-circuit at the activity
-    # entry point, not by the campaign key.
-    campaign_key = f"subscription-disabled-notification-{subscription.id}-{timezone.now().timestamp()}"
+    campaign_key = f"subscription-disabled-notification-{subscription.id}-{uuid.uuid4()}"
 
     message = EmailMessage(
         campaign_key=campaign_key,

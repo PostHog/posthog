@@ -302,27 +302,19 @@ async def _auto_disable_and_return(
     reason: str,
     error_type: str,
     recipient_results: list[RecipientResult],
-    *,
-    recipient_message: str | None = None,
 ) -> DeliverSubscriptionResult:
     """Permanent-failure exit path: record per-recipient failure, capture analytics,
-    auto-disable the subscription, and return a `skipped` result so the workflow
-    doesn't advance `next_delivery_date` for a subscription that will never fire.
-
-    `recipient_message` defaults to `reason`; pass an override only when the
-    user-visible per-recipient message diverges from the disable reason (the
-    Slack-missing-integration branch keeps its pre-existing concise wording).
-    """
+    and auto-disable the subscription."""
     recipient_results.append(
         RecipientResult(
             recipient=subscription.target_value,
             status="failed",
-            error={"message": recipient_message or reason, "type": error_type},
+            error={"message": reason, "type": error_type},
         )
     )
     _capture_delivery_failed_event(subscription, ApplicationError(reason, non_retryable=True))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
-    return DeliverSubscriptionResult(recipient_results=recipient_results, skipped=True)
+    return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
 @temporalio.activity.defn
@@ -333,18 +325,6 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
-
-    # If the subscription is already disabled, return cleanly. Without this guard
-    # an activity retry that fired AFTER the auto-disable UPDATE re-enters the
-    # missing-integration branch and re-fires `disable_invalid_subscription` —
-    # the deterministic `MessagingRecord.campaign_key` blocks the duplicate email,
-    # but skipping is still the cleaner contract.
-    if not subscription.enabled:
-        LOGGER.info(
-            "deliver_subscription.skipped_disabled",
-            subscription_id=inputs.subscription_id,
-        )
-        return DeliverSubscriptionResult(recipient_results=[], skipped=True)
 
     await LOGGER.ainfo(
         "deliver_subscription.starting",
@@ -377,18 +357,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
     assets = [assets_by_id[aid] for aid in inputs.exported_asset_ids if aid in assets_by_id]
 
     if not assets:
-        # `create_export_assets` already filters insight__deleted=True and tile-less
-        # dashboards, returning empty `exported_asset_ids` when assets are genuinely
-        # gone — the workflow short-circuits to SKIPPED before reaching this activity.
-        # If `assets` is empty here, the activity received non-empty `exported_asset_ids`
-        # but they didn't resolve from DB — a transient condition (TTL sweep, prior
-        # export crash, S3 race). Don't auto-disable; record the failure and let the
-        # next scheduled delivery try again.
+        # Empty here means non-empty exported_asset_ids didn't resolve from DB — a
+        # transient condition (TTL sweep, prior export crash, S3 race). Genuine
+        # deletion is filtered upstream in create_export_assets and the workflow
+        # short-circuits to SKIPPED before this activity runs. So: don't auto-disable;
+        # surface the failure on the SLO completion event (workflow tags `error_type`
+        # from recipient_results) and let the next scheduled delivery retry.
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
-        capture_exception(
-            Exception("No assets resolved in deliver_subscription"),
-            {"subscription_id": inputs.subscription_id},
-        )
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.target_value,
@@ -483,18 +458,12 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     "deliver_subscription.no_slack_integration",
                     subscription_id=inputs.subscription_id,
                 )
-                # The Slack integration this subscription depends on has been
-                # disconnected. This won't self-resolve, so auto-disable the
-                # subscription and notify the owner — same pattern as alert
-                # auto-disable for permanently-broken alert config. The recipient_result
-                # message keeps the concise pre-existing wording ("No Slack integration
-                # configured") that matches existing SubscriptionDelivery error history.
+                # Slack integration disconnected — auto-disable, mirrors the alert pattern.
                 return await _auto_disable_and_return(
                     subscription,
                     SLACK_INTEGRATION_DISCONNECTED_REASON,
                     "missing_integration",
                     recipient_results,
-                    recipient_message="No Slack integration configured",
                 )
 
             LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
@@ -645,6 +614,10 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
 @temporalio.activity.defn
 async def advance_next_delivery_date(subscription_id: int) -> None:
     subscription = await database_sync_to_async(Subscription.objects.get, thread_sensitive=False)(pk=subscription_id)
+    # Disabled subs (auto-disabled this run, paused by user) don't get a future
+    # delivery date — avoids showing a misleading "next delivery" in the UI.
+    if not subscription.enabled:
+        return
     subscription.set_next_delivery_date(subscription.next_delivery_date)
     await database_sync_to_async(subscription.save, thread_sensitive=False)(update_fields=["next_delivery_date"])
     await LOGGER.ainfo(

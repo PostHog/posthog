@@ -460,7 +460,7 @@ async def test_process_subscription_records_missing_slack_integration_failure(
             "recipient": "C12345|#test-channel",
             "status": "failed",
             "error": {
-                "message": "No Slack integration configured",
+                "message": "Slack integration disconnected",
                 "type": "missing_integration",
             },
         }
@@ -481,7 +481,7 @@ async def test_process_subscription_records_missing_slack_integration_failure(
             "missing_slack_integration",
             "slack",
             "C12345|#test-channel",
-            {"message": "No Slack integration configured", "type": "missing_integration"},
+            {"message": "Slack integration disconnected", "type": "missing_integration"},
         ),
         (
             "unsupported_target",
@@ -494,12 +494,10 @@ async def test_process_subscription_records_missing_slack_integration_failure(
 async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     team, user, case_label, target_type, target_value, expected_error
 ):
-    """Activity-level auto-disable: subscriptions that can never self-resolve must be
-    disabled cleanly (SLO outcome stays success, owner notified) rather than failing
-    every delivery cycle forever. Note: `no_assets` deliberately doesn't auto-disable —
-    empty-assets-at-delivery is a transient export-pipeline failure (the workflow short-
+    """Activity-level auto-disable for permanently-broken targets. `no_assets` is
+    deliberately excluded — empty-assets-at-delivery is transient (the workflow short-
     circuits to SKIPPED before `deliver_subscription` runs when assets are genuinely
-    deleted) and Temporal retries can recover. See test_no_assets_does_not_auto_disable.
+    deleted). See test_no_assets_does_not_auto_disable.
     """
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"dis-{case_label[:5]}", name=case_label)
     asset = await sync_to_async(ExportedAsset.objects.create)(
@@ -541,21 +539,18 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     assert subscription.enabled is False
     send_mock.assert_called_once()
     capture_mock.assert_called_once()
-    # Must return cleanly with skipped=True — NOT raise
+    # Must return cleanly — NOT raise
     assert result is not None
-    assert result.skipped is True
     assert result.recipient_results[0].status == "failed"
     assert result.recipient_results[0].error == expected_error
 
 
 @pytest.mark.asyncio
 async def test_no_assets_does_not_auto_disable(team, user):
-    """`deliver_subscription` is reached only when prepare returned non-empty
-    `exported_asset_ids` — so an empty `assets` list at delivery means the IDs didn't
-    resolve from DB (TTL sweep, S3 race, prior export crash). That's transient: don't
-    auto-disable. Record the failure for the SubscriptionDelivery row, capture a Sentry
-    breadcrumb, return cleanly so Temporal can retry on the next scheduled cycle.
-    """
+    """Empty `assets` at delivery time is a transient export-pipeline failure
+    (genuine deletion is filtered upstream). Subscription stays enabled, the next
+    scheduled cycle retries. The non-fatal failure is surfaced via the workflow's
+    SLO completion event (workflow tags `error_type` from recipient_results)."""
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis-noast", name="no_assets")
     subscription = await sync_to_async(create_subscription)(
         team=team,
@@ -570,7 +565,6 @@ async def test_no_assets_does_not_auto_disable(team, user):
 
     with (
         patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock,
-        patch("posthog.temporal.subscriptions.activities.capture_exception") as sentry_mock,
         patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
     ):
         # Bogus id ensures `assets` resolves empty.
@@ -587,57 +581,13 @@ async def test_no_assets_does_not_auto_disable(team, user):
     # Subscription stays enabled — transient failure, retries can recover.
     assert subscription.enabled is True
     disable_mock.assert_not_called()
-    # Sentry breadcrumb preserved for ops visibility (Sentry alerts that pre-existed
-    # this PR keep firing).
-    sentry_mock.assert_called_once()
+    # `subscription_delivery_failed` analytics still fires so existing dashboards see it.
     capture_mock.assert_called_once()
     # Returns cleanly — workflow records the per-recipient failure but SLO outcome
     # stays success; the next scheduled delivery retries.
     assert result is not None
-    assert result.skipped is False
     assert result.recipient_results[0].status == "failed"
     assert result.recipient_results[0].error["type"] == "no_assets"
-
-
-@pytest.mark.asyncio
-async def test_deliver_subscription_short_circuits_when_already_disabled(team, user):
-    """Activity retries that fire after the subscription is disabled must return
-    cleanly — re-entering the missing-integration branch would re-fire the
-    auto-disable side effects (event capture, email notification).
-    """
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis02", name="Already Disabled")
-    asset = await sync_to_async(ExportedAsset.objects.create)(
-        team=team,
-        insight=insight,
-        export_format="image/png",
-        content_location="s3://bucket/already-disabled.png",
-    )
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        insight=insight,
-        created_by=user,
-        target_type="slack",
-        target_value="C12345|#test-channel",
-        enabled=False,
-    )
-
-    env = ActivityEnvironment()
-
-    with patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock:
-        result = await env.run(
-            deliver_subscription,
-            DeliverSubscriptionInputs(
-                subscription_id=subscription.id,
-                exported_asset_ids=[asset.id],
-                total_insight_count=1,
-            ),
-        )
-
-    assert result.recipient_results == []
-    # `skipped=True` tells the workflow to avoid advancing `next_delivery_date` so the
-    # UI doesn't show a future delivery for a subscription that will never fire.
-    assert result.skipped is True
-    disable_mock.assert_not_called()
 
 
 @patch("posthog.slo.events.posthoganalytics")
@@ -1768,13 +1718,8 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
     team,
     user,
 ):
-    # Pre-fix (production state observed at 158 events / 5 days / 33 teams):
-    # outcome=failure, error_type=ApplicationError — config issues polluted the
-    # subscription_delivery failure-rate dashboard.
-    # Post-fix: the activity auto-disables and returns cleanly, so the SLO
-    # interceptor records outcome=success. This test locks the metric fix in
-    # as a regression invariant — re-introducing `raise ApplicationError(...)`
-    # at activities.py would flip the captured outcome and fail this test.
+    # The slack-missing-integration branch auto-disables and returns cleanly, so
+    # the SLO interceptor records outcome=success. Locks in as a regression invariant.
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slo-d1", name="SLO disable")
     mock_build_snapshot.return_value = {
         "id": insight.id,
@@ -1851,13 +1796,8 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
     # At least one subscription_delivery completion was recorded.
     assert delivery_completed_calls, "expected an slo_operation_completed event for subscription_delivery"
 
-    # Every recorded outcome is success — and crucially, none is the pre-fix
-    # failure/ApplicationError pair we are guarding against.
     for call in delivery_completed_calls:
         props = call.kwargs["properties"]
         assert props["outcome"] == SloOutcome.SUCCESS, (
             f"subscription_delivery SLO must stay success after auto-disable, got {props}"
-        )
-        assert not (props["outcome"] == SloOutcome.FAILURE and props.get("error_type") == "ApplicationError"), (
-            "regression: auto-disable path must not emit failure+ApplicationError"
         )

@@ -253,11 +253,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         # even on early returns (no-assets SKIPPED) or exceptions before the summary
         # activity runs.
         change_summary: str | None = None
-        # Set when the activity returns DeliverSubscriptionResult(skipped=True) — the
-        # subscription is disabled (already-disabled retry guard or auto-disabled this
-        # run). Tells the finally block not to advance `next_delivery_date` for a
-        # subscription that will never fire again.
-        delivery_skipped: bool = False
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -416,7 +411,15 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=5,
                 ),
             )
-            delivery_skipped = deliver_result.skipped
+
+            # Surface non-fatal failure type on SLO completion event so slo-failures-daily
+            # can filter on `error_type` even when the activity returned cleanly (no raise).
+            if inputs.slo:
+                first_failed = next(
+                    (r for r in deliver_result.recipient_results if r.status == "failed" and r.error), None
+                )
+                if first_failed and first_failed.error:
+                    inputs.slo.completion_properties.setdefault("error_type", first_failed.error.get("type"))
 
             # Capture per-recipient results for the delivery record
             delivery_recipient_results = [
@@ -474,9 +477,9 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         raise
 
             # Advance schedule — always for scheduled deliveries, even on failure.
-            # Skipped when the activity reported the subscription is disabled, so the
-            # UI doesn't show a future "Next delivery" date for a sub that will never fire.
-            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED and not delivery_skipped:
+            # The activity itself no-ops when the subscription is disabled, so a
+            # just-auto-disabled sub doesn't get a misleading future delivery date.
+            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
                 await temporalio.workflow.execute_activity(
                     advance_next_delivery_date,
                     inputs.subscription_id,

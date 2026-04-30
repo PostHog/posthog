@@ -70,9 +70,12 @@ class TestDisableInvalidSubscription(APIBaseTest):
 
         first_key = email_cls.call_args_list[0].kwargs["campaign_key"]
         second_key = email_cls.call_args_list[1].kwargs["campaign_key"]
+        # UUID4 suffix makes each call unique regardless of timing — no flakiness
+        # if two calls land in the same millisecond.
         assert first_key != second_key
-        assert first_key.startswith(f"subscription-disabled-notification-{sub.id}-")
-        assert second_key.startswith(f"subscription-disabled-notification-{sub.id}-")
+        prefix = f"subscription-disabled-notification-{sub.id}-"
+        assert first_key.startswith(prefix)
+        assert second_key.startswith(prefix)
 
     def test_disable_persists_when_email_send_fails(self):
         """Disabling is the durable side effect; email is best-effort.
