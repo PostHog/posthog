@@ -19,6 +19,18 @@ from posthog.models import ColumnConfiguration
 
 class ColumnConfigurationSerializer(serializers.ModelSerializer):
     filters = serializers.JSONField(required=False, default=dict)
+    order_by = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        allow_empty=True,
+        help_text=(
+            "Ordered list of HogQL expressions describing the table sort "
+            "(e.g. ['timestamp DESC']). null means the view predates this "
+            "feature and the live query's ordering should be preserved on "
+            "apply; an empty list means explicitly no sort."
+        ),
+    )
 
     class Meta:
         model = ColumnConfiguration
@@ -28,6 +40,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
             "columns",
             "name",
             "filters",
+            "order_by",
             "visibility",
             "created_by",
             "created_at",

@@ -23,6 +23,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert data["name"] == "Column configuration", "Should have default name"
         assert data["visibility"] == ColumnConfiguration.Visibility.SHARED, "Should have default visibility"
         assert data["filters"] == []
+        assert data["order_by"] is None, "order_by defaults to null when not supplied"
 
     def test_create_column_configuration_empty_objects_filters(self):
         response = self.client.post(
@@ -245,6 +246,65 @@ class TestColumnConfigurationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "cannot configure more than 100 columns" in response.json()["error"]
+
+    def test_create_with_order_by(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "people-list",
+                "columns": ["*", "person", "timestamp"],
+                "order_by": ["timestamp DESC"],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["order_by"] == ["timestamp DESC"]
+
+    def test_create_with_empty_order_by(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "people-list",
+                "columns": ["*", "person", "timestamp"],
+                "order_by": [],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["order_by"] == [], "Explicit empty order_by is preserved (distinct from null)"
+
+    def test_legacy_row_serializes_order_by_as_null(self):
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            context_key="people-list",
+            columns=["*", "person", "timestamp"],
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["order_by"] is None
+
+    def test_update_order_by(self):
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "people-list",
+                "columns": ["*", "person", "timestamp"],
+                "order_by": ["timestamp DESC"],
+            },
+        )
+        config_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{config_id}/",
+            {"order_by": ["person.created_at ASC"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["order_by"] == ["person.created_at ASC"]
 
     def test_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
