@@ -528,7 +528,12 @@ def get_sandbox_github_token(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
         else:
-            return user_github_integration.get_usable_user_access_token()
+            token = user_github_integration.get_usable_user_access_token()
+            if token is None:
+                raise ReauthorizationRequired(
+                    f"User-authored run {run_id} requires a linked GitHub account with repo access."
+                )
+            return token
 
     if github_integration_id is None:
         return None

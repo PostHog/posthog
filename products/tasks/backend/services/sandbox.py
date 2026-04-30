@@ -331,7 +331,7 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     from .modal_sandbox import ModalSandbox
 
     class ModalDockerSandbox(ModalSandbox):
-        DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default-alessandro"
+        DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
         NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
 
     return ModalDockerSandbox

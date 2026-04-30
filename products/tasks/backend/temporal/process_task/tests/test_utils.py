@@ -347,6 +347,7 @@ class TestGetSandboxGitHubToken(TestCase):
             ("identity_token", None, True, "ghu_user", None, "ghu_user"),
             ("missing_identity_falls_back_to_team_token", None, False, None, "missing", "ghs_team"),
             ("identity_requires_reauthorization", None, True, None, "reauthorization", None),
+            ("identity_without_token_requires_reauthorization", None, True, None, "empty_token", None),
         ]
     )
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
@@ -375,7 +376,7 @@ class TestGetSandboxGitHubToken(TestCase):
             identity.get_usable_user_access_token.return_value = identity_token
         mock_get_identity.return_value = identity if has_identity else None
 
-        if error_case == "reauthorization":
+        if error_case in ("reauthorization", "empty_token"):
             with self.assertRaises(ReauthorizationRequired):
                 get_sandbox_github_token(
                     123,
