@@ -1,6 +1,8 @@
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { HogFunctionSubTemplateIdType } from '~/types'
@@ -42,6 +44,9 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                     try {
                         const updated = await api.errorTracking.refreshRecommendation(id)
                         return values.recommendations.map((r) => (r.id === updated.id ? updated : r))
+                    } catch (error) {
+                        lemonToast.error('Failed to refresh recommendation')
+                        throw error
                     } finally {
                         actions.setRecommendationRefreshing(id, false)
                     }
@@ -95,13 +100,16 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             },
         ],
         refreshingIds: [
-            [] as string[],
+            new Set<string>(),
             {
                 setRecommendationRefreshing: (state, { id, refreshing }) => {
+                    const next = new Set(state)
                     if (refreshing) {
-                        return state.includes(id) ? state : [...state, id]
+                        next.add(id)
+                    } else {
+                        next.delete(id)
                     }
-                    return state.filter((i) => i !== id)
+                    return next
                 },
             },
         ],

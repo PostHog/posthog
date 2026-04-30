@@ -32,7 +32,7 @@ class LongRunningIssuesRecommendation(Recommendation):
         response = execute_hogql_query(
             query="""
                 SELECT
-                    issue_id,
+                    issue_id_v2,
                     any(issue_name) AS name,
                     any(issue_description) AS description,
                     any(issue_first_seen) AS first_seen,
@@ -40,11 +40,11 @@ class LongRunningIssuesRecommendation(Recommendation):
                 FROM events
                 WHERE event = '$exception'
                 AND timestamp >= now() - INTERVAL 7 DAY
-                AND issue_id IS NOT NULL
+                AND issue_id_v2 IS NOT NULL
                 AND issue_status = 'active'
                 AND issue_first_seen < now() - INTERVAL 7 DAY
                 AND {filters}
-                GROUP BY issue_id
+                GROUP BY issue_id_v2
                 ORDER BY first_seen ASC
                 LIMIT {limit}
             """,

@@ -25,7 +25,7 @@ export function RecommendationCard({
 }: RecommendationCardProps): JSX.Element {
     const { dismissRecommendation, restoreRecommendation, refreshRecommendation } = useActions(recommendationsTabLogic)
     const { refreshingIds } = useValues(recommendationsTabLogic)
-    const isRefreshing = refreshingIds.includes(recommendationId)
+    const isRefreshing = refreshingIds.has(recommendationId)
 
     return (
         <div className="border rounded-lg bg-surface-primary p-4">
