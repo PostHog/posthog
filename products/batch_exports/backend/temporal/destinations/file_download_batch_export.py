@@ -99,7 +99,7 @@ async def _get_temporary_credentials_for_bucket_prefix(
     session = aioboto3.Session()
 
     async with session.client("sts") as sts:
-        for attempt in range(max_attempts):
+        for attempt in range(1, max_attempts + 1):
             try:
                 response = await sts.assume_role(
                     RoleArn=role_arn,
@@ -122,6 +122,7 @@ async def _get_temporary_credentials_for_bucket_prefix(
                 code = e.response["Error"]["Code"]
                 if code != "AccessDenied" or attempt == max_attempts:
                     raise
+
                 await asyncio.sleep(delay * (2**attempt))
 
     return Credentials(
