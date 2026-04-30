@@ -11,15 +11,15 @@ import {
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const SignalsReportsListSchema = SignalsReportsListQueryParams
+const InboxReportsListSchema = SignalsReportsListQueryParams
 
-const signalsReportsList = (): ToolBase<
-    typeof SignalsReportsListSchema,
+const inboxReportsList = (): ToolBase<
+    typeof InboxReportsListSchema,
     WithPostHogUrl<Schemas.PaginatedSignalReportList>
 > => ({
     name: 'inbox-reports-list',
-    schema: SignalsReportsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsReportsListSchema>) => {
+    schema: InboxReportsListSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSignalReportList>({
             method: 'GET',
@@ -60,41 +60,38 @@ const signalsReportsList = (): ToolBase<
             {
                 ...filtered,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/signals/${item.id}`))
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
                 ),
             },
-            '/signals'
+            '/inbox'
         )
     },
 })
 
-const SignalsReportsRetrieveSchema = SignalsReportsRetrieveParams.omit({ project_id: true })
+const InboxReportsRetrieveSchema = SignalsReportsRetrieveParams.omit({ project_id: true })
 
-const signalsReportsRetrieve = (): ToolBase<
-    typeof SignalsReportsRetrieveSchema,
-    WithPostHogUrl<Schemas.SignalReport>
-> => ({
+const inboxReportsRetrieve = (): ToolBase<typeof InboxReportsRetrieveSchema, WithPostHogUrl<Schemas.SignalReport>> => ({
     name: 'inbox-reports-retrieve',
-    schema: SignalsReportsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsReportsRetrieveSchema>) => {
+    schema: InboxReportsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalReport>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/signals/${result.id}`)
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
     },
 })
 
-const SignalsSourceConfigsListSchema = SignalsSourceConfigsListQueryParams
+const InboxSourceConfigsListSchema = SignalsSourceConfigsListQueryParams
 
-const signalsSourceConfigsList = (): ToolBase<
-    typeof SignalsSourceConfigsListSchema,
+const inboxSourceConfigsList = (): ToolBase<
+    typeof InboxSourceConfigsListSchema,
     WithPostHogUrl<Schemas.PaginatedSignalSourceConfigList>
 > => ({
     name: 'inbox-source-configs-list',
-    schema: SignalsSourceConfigsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsSourceConfigsListSchema>) => {
+    schema: InboxSourceConfigsListSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSignalSourceConfigList>({
             method: 'GET',
@@ -118,40 +115,31 @@ const signalsSourceConfigsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/signals/${item.id}`))
-                ),
-            },
-            '/signals'
-        )
+        return await withPostHogUrl(context, filtered, '/inbox')
     },
 })
 
-const SignalsSourceConfigsRetrieveSchema = SignalsSourceConfigsRetrieveParams.omit({ project_id: true })
+const InboxSourceConfigsRetrieveSchema = SignalsSourceConfigsRetrieveParams.omit({ project_id: true })
 
-const signalsSourceConfigsRetrieve = (): ToolBase<
-    typeof SignalsSourceConfigsRetrieveSchema,
-    WithPostHogUrl<Schemas.SignalSourceConfig>
+const inboxSourceConfigsRetrieve = (): ToolBase<
+    typeof InboxSourceConfigsRetrieveSchema,
+    Schemas.SignalSourceConfig
 > => ({
     name: 'inbox-source-configs-retrieve',
-    schema: SignalsSourceConfigsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsSourceConfigsRetrieveSchema>) => {
+    schema: InboxSourceConfigsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/signals/${result.id}`)
+        return result
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'inbox-reports-list': signalsReportsList,
-    'inbox-reports-retrieve': signalsReportsRetrieve,
-    'inbox-source-configs-list': signalsSourceConfigsList,
-    'inbox-source-configs-retrieve': signalsSourceConfigsRetrieve,
+    'inbox-reports-list': inboxReportsList,
+    'inbox-reports-retrieve': inboxReportsRetrieve,
+    'inbox-source-configs-list': inboxSourceConfigsList,
+    'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
 }

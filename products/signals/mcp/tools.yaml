@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Signals
 feature: signals
-url_prefix: /signals
+url_prefix: /inbox
 ui_apps: {}
 tools:
     inbox-processing-list:
@@ -84,7 +84,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
         list: true
         title: List signal source configs
         description: >
@@ -113,7 +112,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
         title: Get signal source config
         description: >
             Get a single signal source config by ID. Returns the full record including source_product, source_type,
