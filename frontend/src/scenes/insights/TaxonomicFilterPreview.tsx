@@ -25,7 +25,6 @@ import {
     Badge,
     Button,
     ButtonGroup,
-    Chip,
     DialogFooter,
     Field,
     FieldContent,
@@ -51,13 +50,14 @@ import {
     useTaxonomicAutocomplete,
     useTaxonomicAutocompleteItemDetails,
 } from 'lib/components/TaxonomicFilter/headless'
+import { TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 interface SeriesSelection {
@@ -109,8 +109,7 @@ const SCENARIOS: Scenario[] = [
         id: 'series-dw',
         label: 'Series + Data Warehouse tables',
         consumers: 'ActionFilterRow when DWH series enabled',
-        notes:
-            'DataWarehouse selection demands extra config (ID / Timestamp / Distinct ID columns). HogQL row also opens an editor sub-view. Both groups show the trailing chevron because they have a `<ConfigureView>` registered.',
+        notes: 'DataWarehouse selection demands extra config (ID / Timestamp / Distinct ID columns). HogQL row also opens an editor sub-view. Both groups show the trailing chevron because they have a `<ConfigureView>` registered.',
         groupTypes: [
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.Actions,
@@ -139,8 +138,7 @@ const SCENARIOS: Scenario[] = [
         label: 'HogQL expression',
         consumers: 'PathsHogQL, ad-hoc expression filters',
         groupTypes: [TaxonomicFilterGroupType.HogQLExpression],
-        notes:
-            'Render-driven group: the row is a single sentinel that opens an expression editor sub-view. Real impl should swap the textarea for InlineHogQLEditor / Monaco.',
+        notes: 'Render-driven group: the row is a single sentinel that opens an expression editor sub-view. Real impl should swap the textarea for InlineHogQLEditor / Monaco.',
         extras: (
             <TaxonomicAutocomplete.ConfigureView
                 for={[TaxonomicFilterGroupType.HogQLExpression]}
@@ -161,16 +159,14 @@ const SCENARIOS: Scenario[] = [
             TaxonomicFilterGroupType.Wildcards,
         ],
         eventNames: ['$pageview', '$screen', '$autocapture'],
-        notes:
-            'Shortcut groups (PageviewUrls, Screens) only appear when the corresponding event is present in `eventNames`. Verify both pickers promote them to the front of the chip row.',
+        notes: 'Shortcut groups (PageviewUrls, Screens) only appear when the corresponding event is present in `eventNames`. Verify both pickers promote them to the front of the chip row.',
     },
     {
         id: 'event-prop',
         label: 'Event property — single group',
         consumers: 'BoxPlotPropertySelector, PropertyValueMathSelector, replay filters',
         groupTypes: [TaxonomicFilterGroupType.EventProperties],
-        notes:
-            'Each row has a "View →" cell. Right arrow → highlights View, Enter opens the details sheet (description / type / sent-as / pin). Driven by `<DetailsView>` + `useTaxonomicAutocompleteItemDetails`.',
+        notes: 'Each row has a "View →" cell. Right arrow → highlights View, Enter opens the details sheet (description / type / sent-as / pin). Driven by `<DetailsView>` + `useTaxonomicAutocompleteItemDetails`.',
         extras: (
             <TaxonomicAutocomplete.DetailsView
                 for={[
@@ -190,8 +186,7 @@ const SCENARIOS: Scenario[] = [
         id: 'event-prop-numeric',
         label: 'Event property — numerical only',
         consumers: 'Math property selector (avg / sum / median)',
-        notes:
-            '`showNumericalPropsOnly={true}` filters to numeric properties. Verify the new picker forwards this via `getGroupListInput` (it already does — included for parity check).',
+        notes: '`showNumericalPropsOnly={true}` filters to numeric properties. Verify the new picker forwards this via `getGroupListInput` (it already does — included for parity check).',
         groupTypes: [TaxonomicFilterGroupType.EventProperties],
         showNumericalPropsOnly: true,
     },
@@ -210,8 +205,7 @@ const SCENARIOS: Scenario[] = [
             TaxonomicFilterGroupType.DataWarehouseProperties,
             TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ],
-        notes:
-            'HogQL row pops the expression editor sub-view. Same `<ConfigureView>` flow as DWH; commit({ value, name }) returns the expression as the selected item.',
+        notes: 'HogQL row pops the expression editor sub-view. Same `<ConfigureView>` flow as DWH; commit({ value, name }) returns the expression as the selected item.',
         extras: (
             <TaxonomicAutocomplete.ConfigureView
                 for={[TaxonomicFilterGroupType.HogQLExpression]}
@@ -238,8 +232,7 @@ const SCENARIOS: Scenario[] = [
         label: 'Cohort breakdown — single group',
         consumers: 'TaxonomicBreakdownPopover when CohortsWithAllUsers chosen',
         groupTypes: [TaxonomicFilterGroupType.CohortsWithAllUsers],
-        notes:
-            'When only one group is in the set, "All" + that one chip is redundant. Maybe collapse to no-chip mode automatically.',
+        notes: 'When only one group is in the set, "All" + that one chip is redundant. Maybe collapse to no-chip mode automatically.',
     },
     {
         id: 'flag-conditions',
@@ -362,7 +355,7 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                 </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
                 <div>
                     <div className="text-xxs text-secondary mb-1">Legacy panel</div>
                     <TaxonomicFilter
@@ -376,16 +369,13 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                         minSearchQueryLength={scenario.minSearchQueryLength}
                         excludedProperties={scenario.excludedProperties}
                         onChange={handle(setLegacy)}
-                        width={360}
+                        width={320}
                         height={320}
                     />
                 </div>
                 <div>
-                    <div className="text-xxs text-secondary mb-1">New TaxonomicAutocomplete</div>
+                    <div className="text-xxs text-secondary mb-1">Old headless (autocomplete)</div>
                     <TaxonomicFilterHeadless.Root
-                        // Skip the legacy rootProps wrapper — its onKeyDown
-                        // intercepts Tab/Arrow for the old list UI we don't
-                        // render here, and traps Tab off the trigger button.
                         bindRootProps={false}
                         taxonomicGroupTypes={scenario.groupTypes}
                         eventNames={scenario.eventNames}
@@ -426,12 +416,29 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                         </TaxonomicAutocomplete.Root>
                     </TaxonomicFilterHeadless.Root>
                 </div>
+                <div>
+                    <div className="text-xxs text-secondary mb-1">New menu (rebuild)</div>
+                    <TaxonomicFilterHeadless.Root
+                        bindRootProps={false}
+                        taxonomicGroupTypes={scenario.groupTypes}
+                        eventNames={scenario.eventNames}
+                        suggestedFiltersLabel={scenario.suggestedFiltersLabel}
+                        showNumericalPropsOnly={scenario.showNumericalPropsOnly}
+                        allowNonCapturedEvents={scenario.allowNonCapturedEvents}
+                        enableKeywordShortcuts={scenario.enableKeywordShortcuts}
+                        minSearchQueryLength={scenario.minSearchQueryLength}
+                        excludedProperties={scenario.excludedProperties}
+                        onChange={handle(setAutocomplete)}
+                    >
+                        <TaxonomicFilterMenu triggerLabel={scenario.label} />
+                    </TaxonomicFilterHeadless.Root>
+                </div>
             </div>
 
-            {/* <footer className="grid grid-cols-2 gap-2 text-[11px] border-t pt-2 mt-1">
+            <footer className="grid grid-cols-2 gap-2 text-[11px] border-t pt-2 mt-1">
                 <SelectionEcho label="Legacy" state={legacy} />
                 <SelectionEcho label="Autocomplete" state={autocomplete} />
-            </footer> */}
+            </footer>
         </div>
     )
 }
@@ -450,8 +457,8 @@ interface DwhColumnOption {
 
 function DwhFieldsForm({ entry, commit, cancel }: TaxonomicAutocompleteConfigureState): JSX.Element {
     const tableName = entry.name
-    const fieldsRecord = ((entry.item as { fields?: Record<string, { name: string; type?: string }> })
-        ?.fields ?? {}) as Record<string, { name?: string; type?: string }>
+    const fieldsRecord = ((entry.item as { fields?: Record<string, { name: string; type?: string }> })?.fields ??
+        {}) as Record<string, { name?: string; type?: string }>
     const columns: DwhColumnOption[] = Object.entries(fieldsRecord).map(([name, field]) => ({
         name,
         type: field?.type,
@@ -463,9 +470,7 @@ function DwhFieldsForm({ entry, commit, cancel }: TaxonomicAutocompleteConfigure
     const guess = (predicate: (col: string) => boolean): DwhColumnOption | null =>
         columns.find((c) => predicate(c.name)) ?? columns[0] ?? null
 
-    const [idField, setIdField] = useState<DwhColumnOption | null>(() =>
-        guess((c) => c === 'id' || c.endsWith('_id'))
-    )
+    const [idField, setIdField] = useState<DwhColumnOption | null>(() => guess((c) => c === 'id' || c.endsWith('_id')))
     const [timestampField, setTimestampField] = useState<DwhColumnOption | null>(() =>
         guess((c) => c === 'timestamp' || c.includes('time') || c.includes('created') || c.includes('date'))
     )
@@ -602,9 +607,7 @@ function ColumnField({
                                     <ItemContent variant="menuItem">
                                         <ItemTitle>{option.name}</ItemTitle>
                                         {option.type && (
-                                            <ItemDescription className="leading-none">
-                                                {option.type}
-                                            </ItemDescription>
+                                            <ItemDescription className="leading-none">{option.type}</ItemDescription>
                                         )}
                                     </ItemContent>
                                 ) : null
@@ -617,9 +620,7 @@ function ColumnField({
                                 <SelectItem key={o.name} value={o} className="py-0">
                                     <ItemContent variant="menuItem">
                                         <ItemTitle>{o.name}</ItemTitle>
-                                        {o.type && (
-                                            <ItemDescription className="leading-none">{o.type}</ItemDescription>
-                                        )}
+                                        {o.type && <ItemDescription className="leading-none">{o.type}</ItemDescription>}
                                     </ItemContent>
                                 </SelectItem>
                             ))}
