@@ -10,6 +10,7 @@ import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { handleGitRequest } from '@/routes/git'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -153,6 +154,14 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
+        const accept = request.headers.get('Accept') || ''
+        if (!accept.includes('text/html')) {
+            // Non-browser clients (Claude Code marketplace fetcher) get the marketplace JSON
+            const gitResponse = await handleGitRequest(request, new URL(`${url.origin}/git/marketplace`), ctx, log)
+            if (gitResponse) {
+                return gitResponse
+            }
+        }
         return new Response(PARSED_LANDING_HTML, {
             headers: { 'content-type': 'text/html; charset=utf-8' },
         })
@@ -174,6 +183,25 @@ const handleRequest = async (
                 'Cache-Control': 'no-store',
             },
         })
+    }
+
+    // Synthetic git plugin distribution — unauthenticated, public endpoints.
+    // Must be checked before the token requirement below.
+    // Root-level /info/refs and /git-upload-pack serve the marketplace repo,
+    // so `git clone https://mcp.posthog.com` works directly.
+    if (url.pathname === '/marketplace.json' || url.pathname.startsWith('/git/')) {
+        const gitResponse = await handleGitRequest(request, url, ctx, log)
+        if (gitResponse) {
+            return gitResponse
+        }
+    }
+    if (url.pathname === '/info/refs' || url.pathname === '/git-upload-pack') {
+        const rewritten = new URL(url)
+        rewritten.pathname = `/git/marketplace${url.pathname}`
+        const gitResponse = await handleGitRequest(request, rewritten, ctx, log)
+        if (gitResponse) {
+            return gitResponse
+        }
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
