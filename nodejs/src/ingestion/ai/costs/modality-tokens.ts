@@ -10,14 +10,14 @@ const isObject = (value: unknown): value is Record<string, unknown> => {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-type ExtractionSource = 'gemini_output' | 'gemini_cache' | 'openai_cache'
+type ExtractionSource = 'gemini_input' | 'gemini_output' | 'gemini_cache' | 'openai_input' | 'openai_cache'
 
 /**
  * Extract modality-specific token counts from raw provider usage metadata.
- * Supports Gemini's candidatesTokensDetails (output modality breakdown) and
- * cacheTokensDetails (cache modality breakdown) plus OpenAI's
- * prompt_tokens_details.cached_tokens_details. Removes $ai_usage from
- * properties after extraction so it does not get persisted to ClickHouse.
+ * Supports Gemini's promptTokensDetails (input modality), candidatesTokensDetails
+ * (output modality), and cacheTokensDetails (cache modality), plus the OpenAI
+ * equivalents under prompt_tokens_details. Removes $ai_usage from properties
+ * after extraction so it does not get persisted to ClickHouse.
  */
 export const extractModalityTokens = (event: EventWithProperties): EventWithProperties => {
     const usage = event.properties['$ai_usage']
@@ -29,6 +29,54 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
     try {
         const extractedSources = new Set<ExtractionSource>()
+
+        // Gemini's promptTokensDetails shape (input modality).
+        // Array form: [{ modality: "AUDIO", tokenCount: 750 }, { modality: "TEXT", tokenCount: 598 }]
+        // Object form: { audioTokens: 750, textTokens: 598 } (defensive fallback)
+        const extractInputModality = (tokenDetails: unknown): void => {
+            if (!tokenDetails) {
+                return
+            }
+
+            if (Array.isArray(tokenDetails)) {
+                for (const detail of tokenDetails) {
+                    if (!isObject(detail)) {
+                        continue
+                    }
+                    const modality = detail['modality']
+                    const tokenCount = detail['tokenCount']
+                    if (typeof modality !== 'string' || typeof tokenCount !== 'number') {
+                        continue
+                    }
+                    const modalityLower = modality.toLowerCase()
+                    if (modalityLower === 'audio' && tokenCount > 0) {
+                        event.properties['$ai_audio_input_tokens'] = tokenCount
+                        extractedSources.add('gemini_input')
+                    }
+                    if (modalityLower === 'image' && tokenCount > 0) {
+                        event.properties['$ai_image_input_tokens'] = tokenCount
+                        extractedSources.add('gemini_input')
+                    }
+                    if (modalityLower === 'text') {
+                        event.properties['$ai_text_input_tokens'] = tokenCount
+                        extractedSources.add('gemini_input')
+                    }
+                }
+            } else if (isObject(tokenDetails)) {
+                if (typeof tokenDetails['audioTokens'] === 'number' && tokenDetails['audioTokens'] > 0) {
+                    event.properties['$ai_audio_input_tokens'] = tokenDetails['audioTokens']
+                    extractedSources.add('gemini_input')
+                }
+                if (typeof tokenDetails['imageTokens'] === 'number' && tokenDetails['imageTokens'] > 0) {
+                    event.properties['$ai_image_input_tokens'] = tokenDetails['imageTokens']
+                    extractedSources.add('gemini_input')
+                }
+                if (typeof tokenDetails['textTokens'] === 'number') {
+                    event.properties['$ai_text_input_tokens'] = tokenDetails['textTokens']
+                    extractedSources.add('gemini_input')
+                }
+            }
+        }
 
         // Gemini's candidatesTokensDetails shape (output modality).
         // Array form: [{ modality: "TEXT", tokenCount: 10 }, { modality: "IMAGE", tokenCount: 1290 }]
@@ -103,8 +151,21 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             }
         }
 
-        // OpenAI shape: { prompt_tokens_details: { cached_tokens_details: { audio_tokens: 50 } } }
-        // gpt-audio / gpt-realtime expose cached audio inside cached_tokens_details.
+        // OpenAI shape: { prompt_tokens_details: { audio_tokens: 200, cached_tokens_details: { audio_tokens: 50 } } }
+        // gpt-audio / gpt-realtime expose total prompt audio at audio_tokens, and
+        // cached audio inside cached_tokens_details.audio_tokens.
+        const extractOpenAIInputModality = (metadata: Record<string, unknown>): void => {
+            const promptDetails = metadata['prompt_tokens_details']
+            if (!isObject(promptDetails)) {
+                return
+            }
+            const audioTokens = promptDetails['audio_tokens']
+            if (typeof audioTokens === 'number' && audioTokens > 0) {
+                event.properties['$ai_audio_input_tokens'] = audioTokens
+                extractedSources.add('openai_input')
+            }
+        }
+
         const extractOpenAICacheModality = (metadata: Record<string, unknown>): void => {
             const promptDetails = metadata['prompt_tokens_details']
             if (!isObject(promptDetails)) {
@@ -127,8 +188,10 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             if (!isObject(metadata)) {
                 return
             }
+            extractInputModality(metadata['promptTokensDetails'])
             extractOutputModality(metadata['candidatesTokensDetails'] ?? metadata['outputTokenDetails'])
             extractCacheModality(metadata['cacheTokensDetails'])
+            extractOpenAIInputModality(metadata)
             extractOpenAICacheModality(metadata)
         }
 
