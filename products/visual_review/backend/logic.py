@@ -2029,19 +2029,21 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             day_key = run_created_at.date().isoformat()
             key = (run_type, identifier)
             buckets = sparkline_by_key[key][day_key]
-            # Logic equivalent of "result is changed/new/removed", written as
-            # `!= "unchanged"` to keep mypy's reachability analysis happy —
-            # `result in {...}` flagged the branch as unreachable, even with
-            # `.value` accessors. The four SnapshotResult values are all the
-            # possible inputs here and `unchanged` is the only "clean" one.
             if is_quar:
                 buckets.quarantined += 1
             elif tol_match_id is not None:
                 buckets.tolerated += 1
-            elif result != "unchanged":
-                buckets.changed += 1
-            else:
+            elif result == "unchanged":
                 buckets.clean += 1
+            else:  # type: ignore[unreachable]
+                # `result` ∈ {changed, new, removed, unchanged}. Quarantined and
+                # tolerated paths handle the soft "ok-ish" cases; `unchanged`
+                # is the strict-clean path; anything else is a baseline-moving
+                # event. mypy narrows `result` to `Literal["unchanged"]` here
+                # by some django-stubs path I haven't been able to track down,
+                # which makes the literal `unchanged` arm seem to consume all
+                # cases — hence the ignore on the else.
+                buckets.changed += 1
             if diff_pct is not None and diff_pct > 0:
                 drift_sum_by_key[key] += diff_pct
                 drift_count_by_key[key] += 1
