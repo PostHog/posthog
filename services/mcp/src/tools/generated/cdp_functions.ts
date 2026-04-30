@@ -184,6 +184,7 @@ const cdpFunctionsList = (): ToolBase<
                     'created_at',
                     'updated_at',
                     'created_by',
+                    'filters',
                 ])
             ),
         } as typeof result

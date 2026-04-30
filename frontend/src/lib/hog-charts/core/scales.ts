@@ -12,12 +12,61 @@ export interface ScaleSet {
     yAxes?: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
 }
 
+export interface SeriesValueRange {
+    /** Smallest finite value across all visible series, or `Infinity` if none. */
+    min: number
+    /** Largest finite value across all visible series, or `-Infinity` if none. */
+    max: number
+    /** Smallest strictly-positive finite value, or `Infinity` if none. Used by log scales. */
+    minPositive: number
+    /** Number of finite values seen. `0` means the result is empty — `min`/`max` are sentinel. */
+    count: number
+}
+
+/**
+ * Single-pass min/max over visible series, skipping excluded series and
+ * non-finite values. Equivalent to `d3.min`/`d3.max` over a flatMap+filter
+ * but avoids the intermediate arrays — the spread form (`Math.min(...arr)`)
+ * also overflows the call stack at ~100k+ values.
+ */
+export function seriesValueRange(series: Series[]): SeriesValueRange {
+    let min = Infinity
+    let max = -Infinity
+    let minPositive = Infinity
+    let count = 0
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        for (const v of s.data) {
+            if (v == null || !isFinite(v)) {
+                continue
+            }
+            count++
+            if (v < min) {
+                min = v
+            }
+            if (v > max) {
+                max = v
+            }
+            if (v > 0 && v < minPositive) {
+                minPositive = v
+            }
+        }
+    }
+    return { min, max, minPositive, count }
+}
+
 export function createXScale(labels: string[], dimensions: ChartDimensions): d3.ScalePoint<string> {
     return d3
         .scalePoint<string>()
         .domain(labels)
         .range([dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth])
         .padding(0)
+}
+
+export function yTickCountForHeight(plotHeight: number): number {
+    return Math.max(2, Math.min(8, Math.floor(plotHeight / 80)))
 }
 
 export function createYScale(
@@ -29,43 +78,41 @@ export function createYScale(
     } = {}
 ): d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number> {
     const { scaleType = 'linear', percentStack = false } = options
+    const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (percentStack) {
         return d3
             .scaleLinear()
             .domain([0, 1])
-            .nice()
+            .nice(tickCount)
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
     }
 
-    const filteredSeries = series.filter((s) => !s.visibility?.excluded)
-    const allValues = filteredSeries.flatMap((s) => s.data).filter((v) => v != null && isFinite(v))
+    const range = seriesValueRange(series)
 
-    if (allValues.length === 0) {
+    if (range.count === 0) {
         return d3
             .scaleLinear()
             .domain([0, 1])
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
     }
 
-    let min = d3.min(allValues) ?? 0
-    let max = d3.max(allValues) ?? 1
+    let { min, max } = range
 
     if (scaleType === 'log') {
-        if (max <= 0) {
-            // Log of non-positive data is undefined — fall back to linear so the
-            // chart still shows something useful instead of collapsing to a line.
+        if (!isFinite(range.minPositive)) {
             return d3
                 .scaleLinear()
                 .domain([min, max])
-                .nice()
+                .nice(tickCount)
                 .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
         }
-        min = Math.max(min, 1e-10)
+        const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
+        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
+        const niceMax = Math.ceil(max / maxDecade) * maxDecade
         return d3
             .scaleLog()
-            .domain([min, max])
-            .nice()
+            .domain([niceMin, niceMax])
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
             .clamp(true)
     }
@@ -79,7 +126,7 @@ export function createYScale(
     return d3
         .scaleLinear()
         .domain([min, max])
-        .nice()
+        .nice(tickCount)
         .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
 }
 
@@ -199,4 +246,9 @@ export function autoFormatYTick(value: number, domainMax: number): string {
         return value.toFixed(1)
     }
     return value.toLocaleString('en-US', { maximumFractionDigits: 0 })
+}
+
+export function autoFormatterFor(ticks: number[]): (value: number) => string {
+    const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
+    return (v) => autoFormatYTick(v, domainMax)
 }

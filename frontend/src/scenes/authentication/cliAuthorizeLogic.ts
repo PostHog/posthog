@@ -102,7 +102,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                       : undefined,
                 organizationId: !organizationId ? 'Please select an organization' : undefined,
                 projectId: !projectId ? 'Please select a project' : undefined,
-                scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
+                scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
             }),
             submit: async ({ userCode, projectId, scopes }) => {
                 try {
