@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef } from 'react'
 
 import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
+import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
     type BarScaleSet,
     computePercentStackData,
@@ -31,6 +32,7 @@ export interface BarChartProps<Meta = unknown> {
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
 /** Bars laid out for a single series across all labels, indexed by data index. */
@@ -152,7 +154,15 @@ function computeSeriesBars(
     return result
 }
 
-export function BarChart<Meta = unknown>({
+export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
+    return (
+        <ChartErrorBoundary onError={onError}>
+            <BarChartInner {...rest} />
+        </ChartErrorBoundary>
+    )
+}
+
+function BarChartInner<Meta = unknown>({
     series,
     labels,
     config,
@@ -161,7 +171,7 @@ export function BarChart<Meta = unknown>({
     onPointClick,
     className,
     children,
-}: BarChartProps<Meta>): React.ReactElement {
+}: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
     const {
         yScaleType = 'linear',
         showGrid = false,
