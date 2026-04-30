@@ -331,58 +331,66 @@ class TestGetGitIdentityEnvVars(TestCase):
 
 
 class TestGetSandboxGitHubToken(TestCase):
+    @parameterized.expand(
+        [
+            ("cached_token_wins", "ghu_cached", True, "ghu_user", None, "ghu_cached"),
+            ("identity_token", None, True, "ghu_user", None, "ghu_user"),
+            ("missing_identity", None, False, None, "missing", None),
+            ("identity_requires_reauthorization", None, True, None, "reauthorization", None),
+        ]
+    )
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
     @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
-    def test_user_authorship_prefers_cached_token_over_identity(
-        self, mock_get_github_token, mock_get_identity, mock_cached
-    ) -> None:
-        """Back-compat: a caller-supplied token (cached per-run) wins over the stored identity."""
-        mock_cached.return_value = "ghu_cached"
-        identity = MagicMock()
-        mock_get_identity.return_value = identity
-
-        result = get_sandbox_github_token(
-            123, run_id="run-1", state={"pr_authorship_mode": "user"}, created_by=MagicMock()
-        )
-
-        assert result == "ghu_cached"
-        mock_cached.assert_called_once_with("run-1")
-        mock_get_identity.assert_not_called()
-        identity.get_usable_user_access_token.assert_not_called()
-        mock_get_github_token.assert_not_called()
-
-    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
-    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
-    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
-    def test_user_authorship_falls_back_to_user_identity(
-        self, mock_get_github_token, mock_get_identity, mock_cached
-    ) -> None:
-        mock_cached.return_value = None
-        creator = MagicMock(name="creator")
-        identity = MagicMock()
-        identity.get_usable_user_access_token.return_value = "ghu_user"
-        mock_get_identity.return_value = identity
-
-        result = get_sandbox_github_token(123, run_id="run-1", state={"pr_authorship_mode": "user"}, created_by=creator)
-
-        assert result == "ghu_user"
-        mock_get_identity.assert_called_once_with(creator)
-        identity.get_usable_user_access_token.assert_called_once()
-        mock_get_github_token.assert_not_called()
-
-    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
-    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
-    def test_user_authorship_raises_when_neither_cached_token_nor_identity(
-        self, mock_get_identity, mock_cached
+    def test_user_authorship_token_resolution(
+        self,
+        _case_name: str,
+        cached_token: str | None,
+        has_identity: bool,
+        identity_token: str | None,
+        error_case: str | None,
+        expected_token: str | None,
+        mock_get_github_token: MagicMock,
+        mock_get_identity: MagicMock,
+        mock_cached: MagicMock,
     ) -> None:
         from posthog.models.user_integration import ReauthorizationRequired
 
-        mock_cached.return_value = None
-        mock_get_identity.return_value = None
+        mock_cached.return_value = cached_token
+        creator = MagicMock(name="creator")
+        identity = MagicMock()
+        if error_case == "reauthorization":
+            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+        else:
+            identity.get_usable_user_access_token.return_value = identity_token
+        mock_get_identity.return_value = identity if has_identity else None
 
-        with self.assertRaises(ReauthorizationRequired):
-            get_sandbox_github_token(123, run_id="run-1", state={"pr_authorship_mode": "user"}, created_by=MagicMock())
+        if error_case:
+            with self.assertRaises(ReauthorizationRequired):
+                get_sandbox_github_token(
+                    123,
+                    run_id="run-1",
+                    state={"pr_authorship_mode": "user"},
+                    created_by=creator,
+                )
+        else:
+            result = get_sandbox_github_token(
+                123,
+                run_id="run-1",
+                state={"pr_authorship_mode": "user"},
+                created_by=creator,
+            )
+            assert result == expected_token
+
+        mock_cached.assert_called_once_with("run-1")
+        if cached_token:
+            mock_get_identity.assert_not_called()
+            identity.get_usable_user_access_token.assert_not_called()
+        else:
+            mock_get_identity.assert_called_once_with(creator)
+            if has_identity:
+                identity.get_usable_user_access_token.assert_called_once()
+        mock_get_github_token.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_bot_authorship_uses_installation_token(self, mock_get_github_token) -> None:
