@@ -1816,7 +1816,7 @@ WITH ordered AS (
       AND r.branch = ANY(%s)
       AND r.status = 'completed'
       AND rs.identifier = %s
-      AND rs.result <> 'new'
+      AND rs.result IN ('changed', 'removed', 'new')
 )
 SELECT id
 FROM ordered
@@ -1841,8 +1841,16 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
       - status=completed: drop pre-classification rows. `result` defaults to NEW
         on upload and is only finalised when the run completes; runs stuck in
         pending/processing leave noise behind that isn't a real history event.
-      - result != NEW: belt+braces; NEW shouldn't survive on a completed run, but
-        cheap to filter and protects us if classification ever leaves stragglers.
+      - result IN (changed, removed, new): only rows that move the baseline.
+        `unchanged` rows must be excluded *before* the LAG window — each capture
+        gets its own Artifact row even when the diff says the content matches
+        baseline (pixel jitter → different bytes → different content_hash), so
+        consecutive `unchanged` rows have differing `current_artifact_id`s and
+        would all slip past the dedup as fake "baseline events". For one prod
+        identifier we observed 99 fake events behind 2 real baselines.
+        Including `new` so first captures (the initial baseline event) appear
+        in history; `status=completed` already keeps pre-classification NEW
+        out.
     """
     with connections[READER_DB].cursor() as cursor:
         cursor.execute(
