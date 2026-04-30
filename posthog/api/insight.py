@@ -1573,7 +1573,7 @@ class InsightViewSet(
             INSIGHT_ID_PATH_PARAMETER,
             OpenApiParameter(
                 name="refresh",
-                enum=list(ExecutionMode),
+                enum=[*ExecutionMode],
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
