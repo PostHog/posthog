@@ -2029,11 +2029,16 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             day_key = run_created_at.date().isoformat()
             key = (run_type, identifier)
             buckets = sparkline_by_key[key][day_key]
+            # Logic equivalent of "result is changed/new/removed", written as
+            # `!= "unchanged"` to keep mypy's reachability analysis happy —
+            # `result in {...}` flagged the branch as unreachable, even with
+            # `.value` accessors. The four SnapshotResult values are all the
+            # possible inputs here and `unchanged` is the only "clean" one.
             if is_quar:
                 buckets.quarantined += 1
             elif tol_match_id is not None:
                 buckets.tolerated += 1
-            elif result in {"changed", "new", "removed"}:
+            elif result != "unchanged":
                 buckets.changed += 1
             else:
                 buckets.clean += 1
