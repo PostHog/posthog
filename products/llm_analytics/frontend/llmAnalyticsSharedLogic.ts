@@ -18,6 +18,7 @@ import { isAnyPropertyFilters } from '~/queries/schema-guards'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
+import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from './clusters/constants'
 import type { llmAnalyticsSharedLogicType } from './llmAnalyticsSharedLogicType'
 
 export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
@@ -319,7 +320,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
             // Cluster detail honors the same `filters` / `filter_test_accounts` params so
             // deep links from generations/traces tabs carry their filter set through.
-            '/llm-analytics/clusters/:runId/:clusterId': (_, searchParams) => applySearchParams(searchParams),
+            [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 

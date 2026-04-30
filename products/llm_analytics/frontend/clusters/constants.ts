@@ -10,6 +10,11 @@ export const TRACES_PER_PAGE = 50
 // Query limits
 export const MAX_CLUSTERING_RUNS = 20
 
+// Cluster detail URL pattern. Mirrored in `manifest.tsx`'s route registration so any
+// `tabAwareUrlToAction` matcher (e.g. `clusterDetailLogic`, `llmAnalyticsSharedLogic`)
+// stays in lockstep with the actual route.
+export const LLM_ANALYTICS_CLUSTER_URL_PATTERN = '/llm-analytics/clusters/:runId/:clusterId'
+
 /**
  * Centroid detection for chart.js scatter datasets.
  *

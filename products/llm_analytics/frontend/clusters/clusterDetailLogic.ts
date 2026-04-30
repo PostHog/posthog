@@ -16,7 +16,7 @@ import { AnyPropertyFilter, Breadcrumb } from '~/types'
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
 import { loadClusterMetrics } from './clusterMetricsLoader'
-import { NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
+import { LLM_ANALYTICS_CLUSTER_URL_PATTERN, NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
@@ -134,7 +134,12 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         filteredItemIds: [
             null as Set<string> | null,
             {
-                loadFilteredItemIds: async () => {
+                loadFilteredItemIds: async (_, breakpoint) => {
+                    // Debounce to coalesce overlapping filter changes (e.g. quick toggles
+                    // of the test-accounts switch or successive cohort selections) into a
+                    // single EventsQuery round-trip.
+                    await breakpoint(150)
+
                     const propertyFilters: AnyPropertyFilter[] = values.propertyFilters || []
                     const shouldFilterTestAccounts: boolean = values.shouldFilterTestAccounts
                     const cluster = values.cluster
@@ -193,6 +198,8 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     }
 
                     const response = await api.query(eventsQuery)
+                    breakpoint()
+
                     const matched = new Set<string>()
                     for (const row of response.results || []) {
                         const id = (row as unknown[])[0]
@@ -452,48 +459,19 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             })
         },
 
-        setPropertyFilters: () => {
+        // Filter-change listeners only kick the loader; resetting the page and reloading
+        // summaries waits for the loader's success path so we don't burn a round-trip on
+        // summaries for items the user is about to filter out.
+        setPropertyFilters: () => actions.loadFilteredItemIds(),
+        setShouldFilterTestAccounts: () => actions.loadFilteredItemIds(),
+        applyUrlState: () => actions.loadFilteredItemIds(),
+
+        loadFilteredItemIdsSuccess: () => {
+            // Resetting to page 1 fans out to the setPage listener, which loads summaries
+            // for the now-correct first-page IDs. Doing it here keeps a single source of
+            // truth for paging-reset-and-resummarize across both initial load and filter
+            // changes.
             actions.setPage(1)
-            actions.loadFilteredItemIds()
-        },
-
-        setShouldFilterTestAccounts: () => {
-            actions.setPage(1)
-            actions.loadFilteredItemIds()
-        },
-
-        applyUrlState: () => {
-            actions.setPage(1)
-            actions.loadFilteredItemIds()
-        },
-
-        loadFilteredItemIdsSuccess: async () => {
-            // Reload trace summaries for the (potentially) new first page after the
-            // filter set changes. setPage already loads summaries, but it fires
-            // before the filter loader resolves, so the first page may have come up
-            // empty. Re-running it now ensures the visible IDs have summaries.
-            const traceIds = values.paginatedTraceIds
-            const { windowStart, windowEnd, clusteringLevel } = values
-
-            if (!windowStart || !windowEnd || traceIds.length === 0) {
-                return
-            }
-
-            actions.setTraceSummariesLoading(true)
-            try {
-                const summaries = await loadTraceSummaries(
-                    traceIds,
-                    values.traceSummaries,
-                    windowStart,
-                    windowEnd,
-                    clusteringLevel
-                )
-                actions.setTraceSummaries(summaries)
-            } catch (error) {
-                console.error('Failed to load trace summaries:', error)
-            } finally {
-                actions.setTraceSummariesLoading(false)
-            }
         },
 
         loadClusterMetricsForCluster: async () => {
@@ -559,7 +537,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, props }) => ({
-        '/llm-analytics/clusters/:runId/:clusterId': ({ runId, clusterId }: { runId?: string; clusterId?: string }) => {
+        [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: ({ runId, clusterId }: { runId?: string; clusterId?: string }) => {
             const decodedRunId = runId ? decodeURIComponent(runId) : ''
             const parsedClusterId = clusterId ? parseInt(clusterId, 10) : 0
 

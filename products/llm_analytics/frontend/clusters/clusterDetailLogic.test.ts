@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { CohortPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { clusterDetailLogic } from './clusterDetailLogic'
 import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
@@ -478,7 +479,13 @@ describe('clusterDetailLogic', () => {
             })
 
             it('is true once property filters are set', () => {
-                logic.actions.setPropertyFilters([{ type: 'cohort', key: 'id', value: 7 } as any])
+                const cohortFilter: CohortPropertyFilter = {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 7,
+                    operator: PropertyOperator.In,
+                }
+                logic.actions.setPropertyFilters([cohortFilter])
                 expect(logic.values.hasActiveFilters).toBe(true)
             })
 

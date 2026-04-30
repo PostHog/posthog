@@ -28,6 +28,7 @@ import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/querie
 import { ActivityScope } from '~/types'
 
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from '../../products/llm_analytics/frontend/clusters/constants'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
     ActionType,
@@ -188,7 +189,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/skills/:name': ['LLMAnalyticsSkill', 'llmAnalyticsSkill'],
     '/llm-analytics/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
     '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
-    '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
+    [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
