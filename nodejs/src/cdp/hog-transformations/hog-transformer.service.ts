@@ -66,6 +66,12 @@ export const hogTransformationPendingInvocationResults = new Gauge({
     help: 'Number of invocation results accumulated and waiting to be processed. High values indicate memory accumulation.',
 })
 
+export const hogTransformationUnexpectedErrors = new Counter({
+    name: 'hog_transformation_unexpected_errors_total',
+    help: 'Number of unexpected errors during transformation execution. Any occurrence should trigger an alert as the transformation is skipped.',
+    labelNames: ['team_id', 'function_id'],
+})
+
 export interface TransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -242,6 +248,7 @@ export class HogTransformerService {
             try {
                 result = await this.executeHogFunction(hogFunction, globals)
             } catch (err) {
+                hogTransformationUnexpectedErrors.inc({ team_id: event.team_id, function_id: hogFunction.id })
                 logger.error('⚠️', 'Unexpected error executing transformation', {
                     function_id: hogFunction.id,
                     team_id: event.team_id,
