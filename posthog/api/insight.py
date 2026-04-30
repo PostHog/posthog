@@ -58,6 +58,7 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -982,6 +983,11 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
                 if self.context.get("is_shared", False):
+                    # Shared rendering bypasses the frontend, so the scene-tag path in
+                    # `posthog/api/query.py:_SCENE_TO_TAGS` never fires — set product/feature
+                    # explicitly here to match the "Insight"/"Dashboard" mapping and avoid
+                    # `UntaggedQueryError` in DEBUG.
+                    tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT)
                     execution_mode = shared_insights_execution_mode(
                         execution_mode,
                         last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
