@@ -39,10 +39,7 @@ function widestCategoryLabelWidth(
     return widest
 }
 
-function widestValueLabelWidth(
-    series: Series[],
-    yTickFormatter: ((value: number) => string) | undefined
-): number {
+function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
     const range = seriesValueRange(series)
     if (range.count === 0) {
         return 0

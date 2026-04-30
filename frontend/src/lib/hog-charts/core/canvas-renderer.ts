@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 
 import { yTickCountForHeight } from './scales'
-import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
+import type { ChartDimensions, ChartDrawArgs, ResolvedSeries, Series } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
