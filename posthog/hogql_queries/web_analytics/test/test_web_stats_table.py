@@ -1,7 +1,6 @@
 import math
 from collections import defaultdict
 from typing import Any, Optional
-from unittest.mock import patch
 
 import unittest
 from freezegun import freeze_time
@@ -13,6 +12,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 import numpy as np
 from parameterized import parameterized
