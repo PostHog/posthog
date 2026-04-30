@@ -92,6 +92,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
+        toolkit = DummyToolkit(self.team)
         result = toolkit.retrieve_entity_properties("group")
         self.assertIn("The data format is as follows:", result)
         self.assertIn("<Numeric>", result)
@@ -154,13 +155,13 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             toolkit.retrieve_entity_property_values("person", "id"),
         )
 
-        toolkit = DummyToolkit(self.team)
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
+        toolkit = DummyToolkit(self.team)
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
