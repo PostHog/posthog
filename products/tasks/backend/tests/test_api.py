@@ -9,6 +9,7 @@ from datetime import timedelta
 from typing import ClassVar, cast
 from urllib.parse import quote
 
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.http import StreamingHttpResponse
@@ -681,7 +682,10 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"detail": "Some pending_user_artifact_ids are invalid for this run", "missing_artifact_ids": ["artifact-123"]}
+        assert response.json() == {
+            "detail": "Some pending_user_artifact_ids are invalid for this run",
+            "missing_artifact_ids": ["artifact-123"],
+        }
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -698,7 +702,9 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"error": "Only queued or not_started cloud runs can be started (current status: completed)"}
+        assert response.json() == {
+            "error": "Only queued or not_started cloud runs can be started (current status: completed)"
+        }
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1747,7 +1753,12 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "'UTC+99' is not a valid IANA timezone.", "attr": "timezone"}
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "'UTC+99' is not a valid IANA timezone.",
+            "attr": "timezone",
+        }
 
     def test_create_automation_rejects_invalid_cron_expression(self):
         response = self.client.post(
@@ -1763,7 +1774,13 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Only standard 5-field cron expressions are supported " "(minute hour day month weekday). Example: '0 9 * * 1-5'.", "attr": "cron_expression"}
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Only standard 5-field cron expressions are supported "
+            "(minute hour day month weekday). Example: '0 9 * * 1-5'.",
+            "attr": "cron_expression",
+        }
 
     def test_create_automation_rolls_back_task_when_automation_create_fails(self):
         serializer = TaskAutomationSerializer(
@@ -1785,7 +1802,9 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
             with self.assertRaises(RuntimeError):
                 serializer.save()
 
-        assert not Task.objects.filter(team=self.team, title="Daily PRs", origin_product=Task.OriginProduct.AUTOMATION).exists()
+        assert not Task.objects.filter(
+            team=self.team, title="Daily PRs", origin_product=Task.OriginProduct.AUTOMATION
+        ).exists()
 
     @patch("products.tasks.backend.api.sync_automation_schedule")
     def test_update_automation(self, mock_sync_schedule):
@@ -2164,7 +2183,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_200_OK
         run.refresh_from_db()
-        assert run.output == {"head_branch": "posthog-code/update-readme", "pr_url": "https://github.com/org/repo/pull/2"}
+        assert run.output == {
+            "head_branch": "posthog-code/update-readme",
+            "pr_url": "https://github.com/org/repo/pull/2",
+        }
 
     def test_partial_update_does_not_restore_stale_state(self):
         task = self.create_task()
@@ -4274,9 +4296,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             self.fail(f"Unsupported method: {method}")
 
         if should_have_access:
-            assert response.status_code != status.HTTP_403_FORBIDDEN, f"Expected access but got 403 for {scope} on {method} {url}"
+            assert response.status_code != status.HTTP_403_FORBIDDEN, (
+                f"Expected access but got 403 for {scope} on {method} {url}"
+            )
         else:
-            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403 but got {response.status_code} for {scope} on {method} {url}"
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (
+                f"Expected 403 but got {response.status_code} for {scope} on {method} {url}"
+            )
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
