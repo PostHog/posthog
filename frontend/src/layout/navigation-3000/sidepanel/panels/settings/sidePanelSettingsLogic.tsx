@@ -50,8 +50,7 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
             {
                 openSettingsPanel: () => true,
                 closeSettingsPanel: () => false,
-                // Preserve explicit settings when opening the Settings tab via openSettingsPanel.
-                openSidePanel: (state, { tab }) => (tab === SidePanelTab.Settings ? state : false),
+                openSidePanel: () => false,
             },
         ],
         previousTab: [
