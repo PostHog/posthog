@@ -213,6 +213,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if not is_cdc_enabled_for_team(team):
                 raise ValidationError("CDC is not enabled for this team")
 
+        # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
+        # no API list endpoint, so anything other than webhook produces an empty sync).
+        if "sync_type" in data and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
+            if self._is_webhook_only_schema(instance):
+                raise ValidationError(
+                    f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
+                )
+
         # Only update sync_type if it was explicitly provided in the request
         if "sync_type" in data:
             validated_data["sync_type"] = sync_type
@@ -403,6 +411,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             self._run_temporal_side_effect(sync_cdc_schedule)
 
         return updated_instance
+
+    def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
+        source = schema.source
+        if not source.job_inputs:
+            return False
+        try:
+            source_type = ExternalDataSourceType(source.source_type)
+            source_impl = SourceRegistry.get_source(source_type)
+        except Exception:
+            return False
+        try:
+            config = source_impl.parse_config(source.job_inputs)
+            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+        except Exception:
+            return False
+        return any(s.name == schema.name and s.webhook_only for s in source_schemas)
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
@@ -724,8 +748,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,
-            "full_refresh_available": True,
+            "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
+            "webhook_only": schema.webhook_only,
             "available_columns": [
                 {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
                 for col_name, col_type, nullable in schema.columns

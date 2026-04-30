@@ -275,6 +275,7 @@ If automatic creation failed due to a permissions error and you're using a restr
                     STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None
                     or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
                 ),
+                webhook_only=endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
