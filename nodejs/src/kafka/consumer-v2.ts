@@ -271,18 +271,15 @@ export class KafkaConsumerV2 {
                     break
                 }
 
-                // 2. State-gated work
+                // 2. State-gated work. Only CONSUMING and IDLE are reachable here:
+                // handleRebalanceEvent always transitions DRAINING → IDLE before returning.
                 if ((this.state as State) === 'CONSUMING') {
                     await this.fetchAndDispatch(eachBatch)
-                } else if ((this.state as State) === 'DRAINING') {
-                    // Should not reach here: handleRebalanceEvent transitions DRAINING → IDLE before returning.
-                    // Defensive keepalive for safety.
-                    await this.consumeKeepalive()
                 } else {
-                    // IDLE — call consume() with a short timeout to drive the group-join
-                    // protocol. Without this librdkafka never sends JoinGroup and the
-                    // initial ASSIGN never arrives. Any messages here are unexpected
-                    // (we have no assignments) — discard them defensively.
+                    // IDLE — no partitions assigned. We poll consume() to drive the
+                    // group-join protocol; without it librdkafka never sends JoinGroup
+                    // and the initial ASSIGN never arrives. consume(1) returns no
+                    // messages because we have no assignments — nothing is discarded.
                     await this.consumeKeepalive()
                 }
             }
@@ -504,21 +501,44 @@ export class KafkaConsumerV2 {
     }
 
     /**
-     * Drive librdkafka's group-membership/rebalance protocol when we have no work of our own.
-     * Used in both IDLE (waiting for the first ASSIGN) and DRAINING (after REVOKE, before
-     * incrementalUnassign) — librdkafka requires periodic poll() calls to deliver rebalance
-     * events and satisfy max.poll.interval.ms.
+     * Drive librdkafka's group-membership/rebalance protocol while we have no assignments.
+     * Called from IDLE only — without periodic consume() calls librdkafka never sends
+     * JoinGroup and the initial ASSIGN never arrives.
+     *
+     * No messages should ever come back: in IDLE we have zero assigned partitions, so
+     * consume(1) has nothing to fetch. If a message DOES come back, our state-machine
+     * invariant is violated — we'd be silently discarding a message that should have
+     * been processed in CONSUMING state. We capture and log loudly rather than throw
+     * (we don't want a single rogue message to kill the whole consumer process).
+     *
+     * The 1 (vs 0) is required because node-rdkafka's `consume(0, cb)` blocks forever.
      */
     private async consumeKeepalive(): Promise<void> {
-        // node-rdkafka's `consume(num, cb)` requires num >= 1 — `consume(0, cb)` blocks the
-        // callback indefinitely. We fetch at most one message (timeout set via
-        // `setDefaultConsumeTimeout`) and discard it: in IDLE we have no assignments so this
-        // is virtually always empty; in DRAINING we're between REVOKE and incrementalUnassign,
-        // and any returned message would just be re-delivered to whoever owns the partition next.
+        let messages: Message[] = []
         try {
-            await promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(1, cb))
+            messages = await promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(1, cb))
         } catch {
             // ignore — keepalive only
+            return
+        }
+        if (messages.length > 0) {
+            const error = new Error(
+                `kafka_consumer_v2_keepalive_unexpected_messages: received ${messages.length} message(s) ` +
+                    `in IDLE state; expected zero. Partitions: ${messages
+                        .map((m) => `${m.topic}/${m.partition}@${m.offset}`)
+                        .join(',')}`
+            )
+            logger.error('🔥', 'kafka_consumer_v2_keepalive_unexpected_messages', {
+                count: messages.length,
+                state: this.state,
+                assignments: this.rdKafkaConsumer.assignments(),
+                samples: messages.slice(0, 3).map((m) => ({
+                    topic: m.topic,
+                    partition: m.partition,
+                    offset: m.offset,
+                })),
+            })
+            captureException(error)
         }
     }
 
