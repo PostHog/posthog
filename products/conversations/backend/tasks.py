@@ -719,7 +719,12 @@ def wake_snoozed_tickets() -> None:
 
 def _is_duplicate_github_event(delivery_id: str) -> bool:
     key = f"{SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX}{delivery_id}"
-    return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+    return cache.get(key) is not None
+
+
+def _mark_github_event_processed(delivery_id: str) -> None:
+    key = f"{SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX}{delivery_id}"
+    cache.set(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
 
 
 def _find_github_ticket(team_id: int, repo: str, issue_number: int) -> Ticket | None:
@@ -728,6 +733,55 @@ def _find_github_ticket(team_id: int, repo: str, issue_number: int) -> Ticket | 
         github_repo=repo,
         github_issue_number=issue_number,
     ).first()
+
+
+def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, payload: dict[str, Any]) -> Ticket:
+    """Find or create a ticket for a GitHub issue, safe against concurrent calls.
+
+    Uses transaction.atomic() + the DB unique constraint
+    posthog_con_github_issue_uniq to guarantee exactly one ticket per issue.
+    """
+    from django.db import IntegrityError, transaction
+
+    existing = _find_github_ticket(team.id, repo, issue_number)
+    if existing:
+        return existing
+
+    issue = payload.get("issue", {})
+    sender = payload.get("sender", {})
+    issue_author = issue.get("user", {}).get("login", sender.get("login", ""))
+    title = issue.get("title", "")
+
+    try:
+        with transaction.atomic():
+            ticket = Ticket.objects.create_with_number(
+                team=team,
+                channel_source="github",
+                channel_detail="github_issue",
+                widget_session_id="",
+                distinct_id=f"github:{issue_author}" if issue_author else "github:unknown",
+                status=Status.OPEN,
+                anonymous_traits={"name": issue_author, "github_login": issue_author},
+                github_repo=repo,
+                github_issue_number=issue_number,
+                unread_team_count=0,
+            )
+
+            if title:
+                CommentModel.objects.create(
+                    team=team,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content=f"**{title}**",
+                    item_context={"author_type": "customer", "is_private": False, "from_github": True},
+                )
+
+            return ticket
+    except IntegrityError:
+        existing = _find_github_ticket(team.id, repo, issue_number)
+        if existing:
+            return existing
+        raise
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -768,6 +822,9 @@ def process_github_event(
         logger.exception("github_event_handler_failed", event_type=event_type, action=action, error=str(e))
         raise cast(Any, process_github_event).retry(exc=e)
 
+    if delivery_id:
+        _mark_github_event_processed(delivery_id)
+
 
 def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict[str, Any]) -> None:
     issue = payload.get("issue", {})
@@ -780,41 +837,34 @@ def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict
         if existing:
             return
 
+        ticket = _get_or_create_github_ticket(team, repo, issue_number, payload)
+
+        # For "opened" events we have the full body — replace the title-only
+        # comment that _get_or_create_github_ticket may have created with a
+        # richer version including the issue body.
         sender = payload.get("sender", {})
         author_login = sender.get("login", "")
         title = issue.get("title", "")
         body = issue.get("body", "") or ""
 
-        ticket = Ticket.objects.create_with_number(
-            team=team,
-            channel_source="github",
-            channel_detail="github_issue",
-            widget_session_id="",
-            distinct_id=f"github:{author_login}" if author_login else "github:unknown",
-            status=Status.NEW,
-            anonymous_traits={"name": author_login, "github_login": author_login},
-            github_repo=repo,
-            github_issue_number=issue_number,
-            unread_team_count=1,
-        )
+        if body:
+            first_comment = (
+                CommentModel.objects.filter(team=team, scope="conversations_ticket", item_id=str(ticket.id))
+                .order_by("created_at")
+                .first()
+            )
+            if first_comment:
+                first_comment.content = f"**{title}**\n\n{body}"[:50_000]
+                first_comment.item_context = {
+                    **(first_comment.item_context or {}),
+                    "github_login": author_login,
+                    "github_issue_title": title,
+                }
+                first_comment.save(update_fields=["content", "item_context"])
 
-        item_context: dict[str, Any] = {
-            "author_type": "customer",
-            "is_private": False,
-            "from_github": True,
-            "github_login": author_login,
-            "github_issue_title": title,
-        }
-
-        content = f"**{title}**\n\n{body}" if body else f"**{title}**"
-
-        CommentModel.objects.create(
-            team=team,
-            scope="conversations_ticket",
-            item_id=str(ticket.id),
-            content=content[:50_000],
-            item_context=item_context,
-        )
+        ticket.status = Status.NEW
+        ticket.unread_team_count = 1
+        ticket.save(update_fields=["status", "unread_team_count", "updated_at"])
 
     elif action == "closed":
         ticket = _find_github_ticket(team.id, repo, issue_number)
@@ -855,32 +905,7 @@ def _handle_github_comment_event(team: Team, repo: str, action: str, payload: di
 
     ticket = _find_github_ticket(team.id, repo, issue_number)
     if not ticket:
-        # Lazy-create ticket for issues opened before monitoring was enabled
-        sender = payload.get("sender", {})
-        issue_author = issue.get("user", {}).get("login", sender.get("login", ""))
-        title = issue.get("title", "")
-
-        ticket = Ticket.objects.create_with_number(
-            team=team,
-            channel_source="github",
-            channel_detail="github_issue",
-            widget_session_id="",
-            distinct_id=f"github:{issue_author}" if issue_author else "github:unknown",
-            status=Status.OPEN,
-            anonymous_traits={"name": issue_author, "github_login": issue_author},
-            github_repo=repo,
-            github_issue_number=issue_number,
-            unread_team_count=0,
-        )
-
-        if title:
-            CommentModel.objects.create(
-                team=team,
-                scope="conversations_ticket",
-                item_id=str(ticket.id),
-                content=f"**{title}**",
-                item_context={"author_type": "customer", "is_private": False, "from_github": True},
-            )
+        ticket = _get_or_create_github_ticket(team, repo, issue_number, payload)
 
     comment_author = comment_data.get("user", {}).get("login", "")
     body = comment_data.get("body", "") or ""

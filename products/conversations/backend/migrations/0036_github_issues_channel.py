@@ -76,11 +76,12 @@ class Migration(migrations.Migration):
                 max_length=20,
             ),
         ),
-        migrations.AddIndex(
+        migrations.AddConstraint(
             model_name="ticket",
-            index=models.Index(
-                fields=["team", "github_repo", "github_issue_number"],
-                name="posthog_con_github_issue_idx",
+            constraint=models.UniqueConstraint(
+                fields=("team", "github_repo", "github_issue_number"),
+                condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
+                name="posthog_con_github_issue_uniq",
             ),
         ),
         migrations.AddField(

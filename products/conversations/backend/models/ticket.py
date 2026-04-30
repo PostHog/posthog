@@ -116,10 +116,11 @@ class Ticket(UUIDTModel):
                 fields=["team", "teams_channel_id", "teams_conversation_id"],
                 name="posthog_con_teams_thread_idx",
             ),
-            # GitHub issue lookup: find ticket by (team, github_repo, github_issue_number)
-            models.Index(
+            # One ticket per GitHub issue per team — conditional so non-GitHub tickets are unaffected
+            models.UniqueConstraint(
                 fields=["team", "github_repo", "github_issue_number"],
-                name="posthog_con_github_issue_idx",
+                condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
+                name="posthog_con_github_issue_uniq",
             ),
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
