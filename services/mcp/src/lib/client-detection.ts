@@ -64,9 +64,9 @@ export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 // Value sent in `x-posthog-mcp-consumer` (or `?consumer=`) by AI-tool plugins
 // that install the PostHog MCP for a user — distinguishes plugin-installed
 // connections from manual URL-paste installs. The wrapped AI client (Claude
-// Code, Cursor, …) is still captured separately via MCP `clientInfo.name`,
-// so a single token is enough; the User-Agent folder concatenates them as
-// `plugin/<client>` for downstream attribution.
+// Code, Cursor, …) is captured separately via MCP `clientInfo.name`, and the
+// MCP server forwards the consumer to the PostHog API as its own
+// `x-posthog-mcp-consumer` header for downstream attribution.
 export const PLUGIN_CONSUMER = 'plugin'
 
 export type ClientCapabilities = {
