@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -12,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { AnyPropertyFilter, Breadcrumb } from '~/types'
+import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { loadClusterMetrics } from './clusterMetricsLoader'
@@ -267,19 +268,34 @@ export const clustersLogic = kea<clustersLogicType>([
                         return null
                     }
 
-                    const idColumn = level === 'generation' ? 'properties.$ai_generation_id' : 'properties.$ai_trace_id'
-                    const escapedIds = allIds.map((id) => `'${id}'`).join(', ')
+                    const idPropertyKey = level === 'generation' ? '$ai_generation_id' : '$ai_trace_id'
+                    const idSelectExpression = `properties['${idPropertyKey}']`
+
+                    // Restrict the events to the cluster's items via a typed event-property
+                    // filter rather than a raw HogQL `where` clause: `properties.$ai_generation_id`
+                    // doesn't parse cleanly as a column reference because of the leading `$`,
+                    // which would 500 the EventsQuery. The typed filter goes through
+                    // `property_to_expr` which knows how to escape it.
+                    const idsFilter: AnyPropertyFilter = {
+                        type: PropertyFilterType.Event,
+                        key: idPropertyKey,
+                        operator: PropertyOperator.Exact,
+                        value: allIds,
+                    }
 
                     const eventsQuery: EventsQuery = {
                         kind: NodeKind.EventsQuery,
-                        select: [idColumn],
+                        select: [idSelectExpression],
                         event: '$ai_generation',
-                        properties: propertyFilters,
-                        where: [`${idColumn} IN (${escapedIds})`],
+                        properties: [idsFilter, ...propertyFilters],
                         after: run.windowStart,
                         before: run.windowEnd,
                         filterTestAccounts: shouldFilterTestAccounts,
                         limit: allIds.length + 1,
+                        // Required for the query runner to populate the `product` ClickHouse
+                        // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
+                        // every request.
+                        tags: { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
                     }
 
                     const response = await api.query(eventsQuery)
@@ -292,6 +308,8 @@ export const clustersLogic = kea<clustersLogicType>([
                             matched.add(id)
                         }
                     }
+                    // eslint-disable-next-line no-console
+                    console.log('[clusters debug] matched IDs:', matched.size, '/', allIds.length)
                     return matched
                 },
             },
@@ -859,22 +877,37 @@ export const clustersLogic = kea<clustersLogicType>([
         actions.loadClusteringRuns()
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         '/llm-analytics/clusters': () => {
-            actions.setSelectedRunId(null)
+            if (values.selectedRunId !== null) {
+                actions.setSelectedRunId(null)
+            }
         },
         '/llm-analytics/clusters/:runId': ({ runId }: { runId?: string }) => {
-            // Decode the URL-encoded runId
-            actions.setSelectedRunId(runId ? decodeURIComponent(runId) : null)
+            // Decode the URL-encoded runId. Only re-dispatch when the runId actually
+            // changed — a filter change updates the URL's search params (?filters=…)
+            // but keeps the same path, and re-firing `setSelectedRunId` here would
+            // chain into `loadClusteringRun` → `loadClusteringRunSuccess` →
+            // `loadPropertyFilteredItemIds`, which races with the loader the
+            // `setPropertyFilters` listener already kicked off and silently aborts it.
+            const newRunId = runId ? decodeURIComponent(runId) : null
+            if (newRunId !== values.selectedRunId) {
+                actions.setSelectedRunId(newRunId)
+            }
         },
     })),
 
     tabAwareActionToUrl(({ values }) => ({
         setSelectedRunId: () => {
-            if (values.selectedRunId) {
-                return urls.llmAnalyticsClusters(values.selectedRunId)
-            }
-            return urls.llmAnalyticsClusters()
+            // Preserve any search params already on the URL — `setPropertyFilters` (in the
+            // shared logic) writes `?filters=...` and `?filter_test_accounts=...`, and the
+            // route handler immediately echoes that back through `setSelectedRunId(currentRunId)`.
+            // Returning a bare path here would strip those params, the URL handler would re-fire
+            // with an empty `filters` set, and the property filter would be reset on every change.
+            const pathname = values.selectedRunId
+                ? urls.llmAnalyticsClusters(values.selectedRunId)
+                : urls.llmAnalyticsClusters()
+            return [pathname, router.values.searchParams]
         },
     })),
 ])

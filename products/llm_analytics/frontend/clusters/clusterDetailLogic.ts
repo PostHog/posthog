@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { EventsQuery, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { AnyPropertyFilter, Breadcrumb } from '~/types'
+import { AnyPropertyFilter, Breadcrumb, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
@@ -179,23 +179,37 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         return null
                     }
 
-                    const idColumn =
-                        clusteringLevel === 'generation' ? 'properties.$ai_generation_id' : 'properties.$ai_trace_id'
-                    const escapedIds = clusterIds.map((id) => `'${id}'`).join(', ')
+                    const idPropertyKey = clusteringLevel === 'generation' ? '$ai_generation_id' : '$ai_trace_id'
+                    const idSelectExpression = `properties['${idPropertyKey}']`
+
+                    // Constrain to cluster items via a typed event-property filter rather than a
+                    // raw HogQL `where` clause: `properties.$ai_generation_id` doesn't parse cleanly
+                    // as a column reference because of the leading `$`, which would 500 the
+                    // EventsQuery. The typed filter routes through `property_to_expr` which knows
+                    // how to escape it.
+                    const idsFilter: AnyPropertyFilter = {
+                        type: PropertyFilterType.Event,
+                        key: idPropertyKey,
+                        operator: PropertyOperator.Exact,
+                        value: clusterIds,
+                    }
 
                     const eventsQuery: EventsQuery = {
                         kind: NodeKind.EventsQuery,
                         // The Set accumulator below already dedupes, so we don't need DISTINCT —
                         // and `DISTINCT col` is not a valid HogQL select expression anyway (it's a
                         // query-level modifier, not a per-column prefix).
-                        select: [idColumn],
+                        select: [idSelectExpression],
                         event: '$ai_generation',
-                        properties: propertyFilters,
-                        where: [`${idColumn} IN (${escapedIds})`],
+                        properties: [idsFilter, ...propertyFilters],
                         after: windowStart,
                         before: windowEnd,
                         filterTestAccounts: shouldFilterTestAccounts,
                         limit: clusterIds.length + 1,
+                        // Required for the query runner to populate the `product` ClickHouse
+                        // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
+                        // every request.
+                        tags: { productKey: 'llm_analytics', scene: 'LLMAnalyticsCluster' },
                     }
 
                     const response = await api.query(eventsQuery)
