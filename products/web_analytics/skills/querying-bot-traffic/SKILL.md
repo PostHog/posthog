@@ -19,6 +19,24 @@ separate bot table. The classifier source of truth is
 list is mirrored to the livestream service via `livestream/bot/definitions.json` (regenerate with
 `hogli run build:bot-definitions`).
 
+> **Detection scope.** Today this layer is purely user-agent matching. We're planning to add other
+> identification techniques (e.g. IP/ASN signals, behavior heuristics) — when that lands, the
+> virtual properties keep the same shape, so HogQL written against them today keeps working.
+
+The virtual properties below are computed from the user agent at query time, so the same HogQL
+works anywhere you have access to event properties — Web Analytics tiles, the SQL editor, insight
+series, alerts. If you have a raw user agent string (e.g. from a custom event property or a data
+warehouse table) and want to classify it ad hoc, the underlying functions are also exposed in
+HogQL — currently behind a `__preview_` prefix while the API stabilizes:
+
+- `__preview_isBot(user_agent)` → `Boolean`
+- `__preview_getBotName(user_agent)` → matched bot display name, or empty
+- `__preview_getBotType(user_agent)` → category (`ai_crawler`, `search_crawler`, …)
+- `__preview_getBotOperator(user_agent)` → operator name (Google, OpenAI, …)
+
+Use these when you need bot classification on something other than the standard `events` table —
+they reuse the exact same `BOT_DEFINITIONS` source of truth as the virtual properties.
+
 ## Virtual properties on every event
 
 | Property                 | Type      | Values                                                                                                                                                                            |
