@@ -29,11 +29,6 @@ EVAL_ACTIVITY_TYPES = {
     "send_trial_usage_email_activity",
     "update_key_state_activity",
     "emit_eval_signal_activity",
-    "fetch_tagger_activity",
-    "execute_tagger_activity",
-    "execute_hog_tagger_activity",
-    "emit_tagger_event_activity",
-    "disable_tagger_activity",
 }
 
 EVAL_WORKFLOW_TYPES = {
