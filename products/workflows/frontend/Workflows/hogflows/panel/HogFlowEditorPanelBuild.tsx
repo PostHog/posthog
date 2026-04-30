@@ -14,6 +14,8 @@ import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 // Side-effect imports: register product-specific trigger and action nodes
 import '../registry'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'
@@ -51,6 +53,13 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         config: { template_id: 'template-webhook', inputs: {} },
     },
 ]
+
+const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Push',
+    description: 'Send a push notification to the user.',
+    config: { template_id: 'template-native-push', inputs: {} },
+}
 
 const DEFAULT_DELAY = '10m'
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
@@ -288,6 +297,9 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             {ACTION_NODES_TO_SHOW.map((node, index) => (
                 <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />
             ))}
+            {featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] && (
+                <HogFlowEditorToolbarNode key="push-notifications" action={PUSH_NOTIFICATION_ACTION_NODE} />
+            )}
             <HogFunctionTemplatesChooser />
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">

@@ -10,6 +10,7 @@ import {
     IconHourglass,
     IconLeave,
     IconLetter,
+    IconNotification,
     IconPercentage,
     IconWebhooks,
 } from '@posthog/icons'
@@ -116,6 +117,10 @@ const HogFlowStepConfigs: Partial<{
 
             if (action.config.template_id === 'template-webhook') {
                 return <IconWebhooks />
+            }
+
+            if (action.config.template_id === 'template-native-push') {
+                return <IconNotification />
             }
 
             const template = hogFunctionTemplatesById[action.config.template_id]
