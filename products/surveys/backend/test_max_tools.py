@@ -9,6 +9,7 @@ from posthog.test.base import BaseTest
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.models import FeatureFlag, Insight
 
@@ -733,7 +734,52 @@ class TestEditSurveyTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_edit_survey_linked_flag_variant_preserves_url_targeting(self):
+    @parameterized.expand(
+        [
+            (
+                "flag_variant_preserves_url",
+                False,
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                },
+                {"linked_flag_variant": "control"},
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+            ),
+            (
+                "url_preserves_flag_variant",
+                True,
+                {
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+                {
+                    "target_url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "target_url_match": "regex",
+                },
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+            ),
+        ]
+    )
+    async def test_edit_survey_targeting_updates_preserve_existing_conditions(
+        self,
+        _case_name,
+        initial_linked_flag,
+        initial_conditions,
+        tool_kwargs,
+        expected_conditions,
+    ):
         tool = self._setup_tool()
         flag = await sync_to_async(FeatureFlag.objects.create)(
             team=self.team,
@@ -741,28 +787,22 @@ class TestEditSurveyTool(BaseTest):
             created_by=self.user,
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
+        if "linked_flag_variant" in tool_kwargs:
+            tool_kwargs = {**tool_kwargs, "linked_flag_id": flag.id}
+
         survey = await self._create_test_survey(
-            conditions={
-                "url": "app.heygen.com/(home|projects|voices|templates|labs)",
-                "urlMatchType": "regex",
-                "seenSurveyWaitPeriodInDays": 7,
-            }
+            linked_flag=flag if initial_linked_flag else None,
+            conditions=initial_conditions,
         )
 
-        content, artifact = await tool._arun_impl(
-            survey_id=str(survey.id), linked_flag_id=flag.id, linked_flag_variant="control"
-        )
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), **tool_kwargs)
 
         assert "updated successfully" in content
-        assert "linked_flag_id" in artifact["updated_fields"]
         assert "conditions" in artifact["updated_fields"]
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
-        assert updated_survey.linked_flag_id == flag.id
-        assert updated_survey.conditions is not None
-        assert updated_survey.conditions["url"] == "app.heygen.com/(home|projects|voices|templates|labs)"
-        assert updated_survey.conditions["urlMatchType"] == "regex"
-        assert updated_survey.conditions["seenSurveyWaitPeriodInDays"] == 7
-        assert updated_survey.conditions["linkedFlagVariant"] == "control"
+        if "linked_flag_id" in tool_kwargs or initial_linked_flag:
+            assert updated_survey.linked_flag_id == flag.id
+        assert updated_survey.conditions == expected_conditions
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
