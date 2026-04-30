@@ -56,6 +56,8 @@ class SessionReplayFeaturesTable(Table):
         "max_scroll_y": FloatDatabaseField(name="max_scroll_y", nullable=False),
         "text_selection_count": IntegerDatabaseField(name="text_selection_count", nullable=False),
         "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
+        # AggregateFunction(uniqExact, …) state. Exposed as plain DatabaseField so users must wrap with
+        # uniqExactMerge to get a count. Anything stricter would prevent the merge call from typechecking.
         "unique_url_count": DatabaseField(name="unique_url_count", nullable=True),
         "unique_click_target_count": DatabaseField(name="unique_click_target_count", nullable=True),
     }
