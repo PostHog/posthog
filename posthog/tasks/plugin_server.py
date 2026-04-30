@@ -3,6 +3,7 @@ from typing import Optional
 from celery import shared_task
 from structlog import get_logger
 
+from posthog.tasks._notifications.pipeline_failure import dispatch_plugin_disabled_realtime
 from posthog.tasks.email import send_fatal_plugin_error
 from posthog.tasks.utils import CeleryQueue
 
@@ -22,6 +23,7 @@ def fatal_plugin_error(
     is_system_error: bool,
 ) -> None:
     send_fatal_plugin_error.delay(plugin_config_id, plugin_config_updated_at, error, is_system_error)
+    dispatch_plugin_disabled_realtime(plugin_config_id, error)
 
 
 # Called from plugin-server/../hog-watcher.service.ts

@@ -553,6 +553,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
+        from posthog.tasks._notifications.pipeline_failure import dispatch_batch_export_failure_realtime
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
@@ -561,6 +562,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             logger.exception("Failure email notification could not be sent")
         else:
             external_logger.info("Failure notification email for run '%s' has been sent", inputs.id)
+
+        await database_sync_to_async(dispatch_batch_export_failure_realtime)(inputs.id)
 
         external_logger.error(
             "Batch export for range %s - %s failed with a non-recoverable error: %s",

@@ -39,7 +39,6 @@ from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.tasks._notifications.pipeline_failure import dispatch_pipeline_failure_realtime
 from posthog.user_permissions import UserPermissions
 
 from products.conversations.backend.models import Ticket
@@ -524,15 +523,6 @@ def send_fatal_plugin_error(
         message.add_user_recipient(membership.user)
     message.send()
 
-    dispatch_pipeline_failure_realtime(
-        team=team,
-        memberships=memberships_to_email,
-        title=f"Plugin {plugin.name} disabled",
-        body=error,
-        resource_id=str(plugin_config_id),
-        source_url=f"/project/{team.project_id}/pipeline/transformations/{plugin_config_id}",
-    )
-
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_hog_function_disabled(hog_function_id: str) -> None:
@@ -555,15 +545,6 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
-
-    dispatch_pipeline_failure_realtime(
-        team=team,
-        memberships=memberships_to_email,
-        title=f"Destination {hog_function.name} disabled",
-        body="Auto-disabled due to high error rate",
-        resource_id=str(hog_function.id),
-        source_url=f"/project/{team.project_id}/pipeline/destinations/hog-{hog_function.id}",
-    )
 
 
 def send_batch_export_run_failure(
@@ -611,15 +592,6 @@ def send_batch_export_run_failure(
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
-
-    dispatch_pipeline_failure_realtime(
-        team=team,
-        memberships=memberships_to_email,
-        title=f"Batch export {batch_export_run.batch_export.name} failed",
-        body=f"Last failure at {batch_export_run.last_updated_at.strftime('%I:%M%p %Z on %B %d')}",
-        resource_id=str(batch_export_run.batch_export.id),
-        source_url=f"/project/{team.project_id}/batch_exports/{batch_export_run.batch_export.id}",
-    )
 
 
 @shared_task(ignore_result=True)

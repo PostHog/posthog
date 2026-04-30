@@ -1,8 +1,16 @@
+import datetime as dt
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models import OrganizationMembership
-from posthog.tasks._notifications.pipeline_failure import dispatch_pipeline_failure_realtime
+from posthog.models.plugin import Plugin, PluginConfig
+from posthog.tasks._notifications.pipeline_failure import (
+    dispatch_batch_export_failure_realtime,
+    dispatch_pipeline_failure_realtime,
+    dispatch_plugin_disabled_realtime,
+)
 
 
 class TestDispatchPipelineFailureRealtime(BaseTest):
@@ -37,3 +45,51 @@ class TestDispatchPipelineFailureRealtime(BaseTest):
             resource_id="1",
             source_url="/",
         )
+
+
+class TestDispatchPluginDisabledRealtime(BaseTest):
+    @patch("posthog.tasks._notifications.pipeline_failure.dispatch_pipeline_failure_realtime")
+    def test_dispatches_for_plugin(self, mock_realtime):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+
+        dispatch_plugin_disabled_realtime(plugin_config.id, "boom")
+
+        mock_realtime.assert_called_once()
+        kwargs = mock_realtime.call_args.kwargs
+        assert kwargs["team"].id == self.team.id
+        assert "Plugin" in kwargs["title"]
+        assert kwargs["resource_id"] == str(plugin_config.id)
+        assert kwargs["body"] == "boom"
+
+    @patch("posthog.tasks._notifications.pipeline_failure.dispatch_pipeline_failure_realtime")
+    def test_swallows_missing_plugin_config(self, mock_realtime):
+        dispatch_plugin_disabled_realtime(999_999_999, "boom")
+        mock_realtime.assert_not_called()
+
+
+class TestDispatchBatchExportFailureRealtime(BaseTest):
+    @patch("posthog.tasks._notifications.pipeline_failure.dispatch_pipeline_failure_realtime")
+    def test_dispatches_for_batch_export_run(self, mock_realtime):
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        dispatch_batch_export_failure_realtime(batch_export_run.id)
+
+        mock_realtime.assert_called_once()
+        kwargs = mock_realtime.call_args.kwargs
+        assert kwargs["team"].id == self.team.id
+        assert "Batch export" in kwargs["title"]
+        assert batch_export.name in kwargs["title"]
+        assert kwargs["resource_id"] == str(batch_export.id)
