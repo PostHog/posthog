@@ -4,10 +4,7 @@ import { IconCode } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import {
-    TaxonomicFilterGroupType,
-    TaxonomicFilterRenderProps,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterRenderProps } from 'lib/components/TaxonomicFilter/types'
 
 import { PropertyFilterType } from '~/types'
 
