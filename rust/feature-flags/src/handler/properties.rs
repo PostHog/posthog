@@ -12,6 +12,7 @@ pub fn prepare_overrides(
     let geoip_disabled = request.geoip_disable.unwrap_or(false);
     let person_property_overrides = get_person_property_overrides(
         geoip_disabled,
+        request.distinct_id.as_deref(),
         request.person_properties.clone(),
         &context.ip,
         &context.state.geoip,
@@ -43,35 +44,31 @@ pub fn prepare_overrides(
 
 pub fn get_person_property_overrides(
     geoip_disabled: bool,
+    distinct_id: Option<&str>,
     person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
 ) -> Option<HashMap<String, Value>> {
-    match (!geoip_disabled, person_properties) {
-        (true, Some(mut props)) => {
-            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
-                props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
-            }
-            Some(props)
+    let mut props = person_properties.unwrap_or_default();
+
+    // Match Python local evaluation behavior by always exposing the top-level
+    // distinct_id as a person property unless the request explicitly overrides it.
+    if let Some(distinct_id) = distinct_id {
+        props
+            .entry("distinct_id".to_string())
+            .or_insert_with(|| Value::String(distinct_id.to_string()));
+    }
+
+    if !geoip_disabled {
+        if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
+            props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
         }
-        (true, None) => {
-            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
-                if !geoip_props.is_empty() {
-                    Some(
-                        geoip_props
-                            .into_iter()
-                            .map(|(k, v)| (k, Value::String(v)))
-                            .collect(),
-                    )
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        (false, Some(props)) => Some(props),
-        (false, None) => None,
+    }
+
+    if props.is_empty() {
+        None
+    } else {
+        Some(props)
     }
 }
 
@@ -105,7 +102,11 @@ pub fn get_group_property_overrides(
 #[cfg(test)]
 mod tests {
     use crate::flags::flag_request::FlagRequest;
+    use common_geoip::MockGeoIpClient;
     use serde_json::json;
+    use std::{collections::HashMap, net::IpAddr};
+
+    use super::get_person_property_overrides;
 
     #[test]
     fn test_anon_distinct_id_from_top_level() {
@@ -214,6 +215,47 @@ mod tests {
         assert_eq!(
             hash_key, None,
             "Should be None when anon_distinct_id in person_properties is not a string"
+        );
+    }
+
+    #[test]
+    fn test_person_property_overrides_include_top_level_distinct_id() {
+        let geoip = MockGeoIpClient::default().into();
+        let overrides = get_person_property_overrides(
+            false,
+            Some("top_level_id"),
+            None,
+            &"127.0.0.1".parse::<IpAddr>().unwrap(),
+            &geoip,
+        )
+        .expect("distinct_id should create person overrides");
+
+        assert_eq!(
+            overrides.get("distinct_id"),
+            Some(&json!("top_level_id")),
+            "Top-level distinct_id should be available as a person property override"
+        );
+    }
+
+    #[test]
+    fn test_person_property_overrides_preserve_explicit_distinct_id_override() {
+        let geoip = MockGeoIpClient::default().into();
+        let overrides = get_person_property_overrides(
+            false,
+            Some("top_level_id"),
+            Some(HashMap::from([(
+                "distinct_id".to_string(),
+                json!("explicit_override"),
+            )])),
+            &"127.0.0.1".parse::<IpAddr>().unwrap(),
+            &geoip,
+        )
+        .expect("person properties should be returned");
+
+        assert_eq!(
+            overrides.get("distinct_id"),
+            Some(&json!("explicit_override")),
+            "Explicit person_properties.distinct_id should win over the top-level field"
         );
     }
 }
