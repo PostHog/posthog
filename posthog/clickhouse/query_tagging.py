@@ -63,6 +63,7 @@ class Feature(StrEnum):
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
     QUERY = "query"  # customer-facing queries only
+    DEBUG_QUERY = "debug_query"  # /debug/query and related internal engineering tooling
     DIGEST = "digest"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
@@ -74,11 +75,21 @@ class Feature(StrEnum):
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     SCHEMA_INTROSPECTION = "schema_introspection"
+    # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
+    # usage analysis can attribute load to the originating product surface.
+    EVENT_DEFINITION_SCENE = "event_definition_scene"
+    PROPERTY_DEFINITION_SCENE = "property_definition_scene"
+    EXPLORE_EVENTS_SCENE = "explore_events_scene"
+    # Specific endpoints whose load is worth analysing on its own. The `/events/values` endpoint
+    # is hit from every taxonomic property-value picker across the app, so attribution by scene
+    # would be misleading; tagging by endpoint name keeps the signal honest.
+    EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
     MANAGEMENT_COMMAND = "management_command"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class TemporalTags(BaseModel):
@@ -154,6 +165,9 @@ class QueryTags(BaseModel):
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
+    endpoint_materialization_behind: Optional[bool] = (
+        None  # set when a materialized endpoint is past its data_freshness SLA
+    )
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None

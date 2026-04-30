@@ -245,6 +245,9 @@ tools:
     event-definitions-partial-update:
         operation: event_definitions_partial_update
         enabled: false
+    event-definitions-promoted-properties-retrieve:
+        operation: event_definitions_promoted_properties_retrieve
+        enabled: false
     event-definitions-python-retrieve:
         operation: event_definitions_python_retrieve
         enabled: false
@@ -755,6 +758,18 @@ tools:
         enabled: false
     users-hedgehog-config-retrieve:
         operation: users_hedgehog_config_retrieve
+        enabled: false
+    users-integrations-github-destroy:
+        operation: users_integrations_github_destroy
+        enabled: false
+    users-integrations-github-repos-retrieve:
+        operation: users_integrations_github_repos_retrieve
+        enabled: false
+    users-integrations-github-start-create:
+        operation: users_integrations_github_start_create
+        enabled: false
+    users-integrations-list:
+        operation: users_integrations_list
         enabled: false
     users-list:
         operation: users_list

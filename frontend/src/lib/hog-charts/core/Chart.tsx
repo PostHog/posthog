@@ -1,16 +1,17 @@
+import * as d3 from 'd3'
 import React, { useCallback, useMemo, useRef } from 'react'
 
-import { AxisLabels } from '../overlays/AxisLabels'
-import { Crosshair } from '../overlays/Crosshair'
+import { AxisLabels, measureLabelWidth } from '../overlays/AxisLabels'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
+import { drawCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
-import { autoFormatYTick } from './scales'
+import { autoFormatYTick, seriesValueRange } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
 import type {
     ChartConfig,
@@ -44,7 +45,10 @@ export interface ChartProps<Meta = unknown> {
     config?: ChartConfig
     theme: ChartTheme
     createScales: CreateScalesFn
-    draw: (args: ChartDrawArgs) => void
+    /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
+    drawStatic: (args: ChartDrawArgs) => void
+    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. */
+    drawHover: (args: ChartDrawArgs) => void
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -61,7 +65,8 @@ export function Chart<Meta = unknown>({
     config,
     theme,
     createScales: createScalesFn,
-    draw,
+    drawStatic,
+    drawHover,
     tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
@@ -73,10 +78,14 @@ export function Chart<Meta = unknown>({
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
-        showTooltip = true,
-        pinnableTooltip = false,
+        tooltip: tooltipConfig,
         showCrosshair = false,
     } = config ?? {}
+    const {
+        enabled: showTooltip = true,
+        pinnable: pinnableTooltip = false,
+        placement: tooltipPlacement = 'follow-data',
+    } = tooltipConfig ?? {}
 
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
@@ -85,6 +94,44 @@ export function Chart<Meta = unknown>({
         return axisIds.size > 1
     }, [series])
 
+    const yLabelWidth = useMemo<number>(() => {
+        if (hideYAxis) {
+            return 0
+        }
+        const range = seriesValueRange(series)
+        if (range.count === 0) {
+            return 0
+        }
+        const min = range.min > 0 ? 0 : range.min
+        const max = range.max < 0 ? 0 : range.max
+        const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
+        if (ticks.length === 0) {
+            return 0
+        }
+        const domainMax = Math.max(...ticks.map((t) => Math.abs(t)))
+        const formatter = yTickFormatter ?? ((v: number) => autoFormatYTick(v, domainMax))
+        let widest = 0
+        for (const t of ticks) {
+            widest = Math.max(widest, measureLabelWidth(formatter(t)))
+        }
+        return widest
+    }, [series, yTickFormatter, hideYAxis])
+
+    const xLabelHalfWidth = useMemo<number>(() => {
+        if (hideXAxis || labels.length === 0) {
+            return 0
+        }
+        let widest = 0
+        for (let i = 0; i < labels.length; i++) {
+            const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
+            if (text === null) {
+                continue
+            }
+            widest = Math.max(widest, measureLabelWidth(text))
+        }
+        return Math.ceil(widest / 2)
+    }, [labels, xTickFormatter, hideXAxis])
+
     const margins = useMemo<ChartMargins>(() => {
         const m = { ...DEFAULT_MARGINS }
         if (hideXAxis) {
@@ -92,14 +139,18 @@ export function Chart<Meta = unknown>({
         }
         if (hideYAxis) {
             m.left = 8
+        } else {
+            m.left = Math.max(20, Math.ceil(yLabelWidth) + 12, xLabelHalfWidth + 4)
         }
         if (hasMultipleAxes && !hideYAxis) {
-            m.right = 48
+            m.right = Math.max(48, xLabelHalfWidth + 4)
+        } else {
+            m.right = Math.max(DEFAULT_MARGINS.right, xLabelHalfWidth + 4)
         }
         return m
-    }, [hideXAxis, hideYAxis, hasMultipleAxes])
+    }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
 
-    const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
     const coloredSeries = useMemo(
         () =>
@@ -152,15 +203,34 @@ export function Chart<Meta = unknown>({
         resolveValue,
     })
 
+    // Compose the chart-type's drawHover with a crosshair pass so per-mousemove
+    // hover indication stays entirely on the canvas — DOM-based overlays would
+    // force per-event style invalidation/layout that scales badly with chart
+    // content size. Crosshair drawn first so highlight rings render on top.
+    const composedDrawHover = useCallback(
+        (args: ChartDrawArgs) => {
+            if (showCrosshair && theme.crosshairColor && args.hoverIndex >= 0) {
+                const x = args.scales.x(args.labels[args.hoverIndex])
+                if (x != null && isFinite(x)) {
+                    drawCrosshair(args.ctx, args.dimensions, x, theme.crosshairColor)
+                }
+            }
+            drawHover(args)
+        },
+        [drawHover, showCrosshair, theme.crosshairColor]
+    )
+
     useChartDraw({
         ctx,
+        overlayCtx,
         dimensions,
         scales,
         series: coloredSeries,
         labels,
         hoverIndex,
         theme,
-        draw,
+        drawStatic,
+        drawHover: composedDrawHover,
     })
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
@@ -208,7 +278,14 @@ export function Chart<Meta = unknown>({
                     <div
                         ref={wrapperRef}
                         className={className}
-                        style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
+                        style={{
+                            position: 'relative',
+                            width: '100%',
+                            flex: 1,
+                            minHeight: 0,
+                            overflow: 'hidden',
+                            cursor: cursorStyle,
+                        }}
                         onMouseMove={handlers.onMouseMove}
                         onMouseLeave={handlers.onMouseLeave}
                         onClick={handlers.onClick}
@@ -224,6 +301,16 @@ export function Chart<Meta = unknown>({
                                 cursor: cursorStyle,
                             }}
                         />
+                        <canvas
+                            ref={overlayCanvasRef}
+                            aria-hidden="true"
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                pointerEvents: 'none',
+                            }}
+                        />
 
                         {dimensions && scales && (
                             <OverlayLayer>
@@ -236,12 +323,14 @@ export function Chart<Meta = unknown>({
                                     axisColor={theme.axisColor}
                                 />
 
-                                {showCrosshair && <Crosshair color={theme.crosshairColor} />}
-
                                 {children}
 
                                 {tooltipCtx && showTooltip && (
-                                    <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
+                                    <Tooltip
+                                        context={tooltipCtx}
+                                        renderTooltip={renderTooltip}
+                                        placement={tooltipPlacement}
+                                    />
                                 )}
                             </OverlayLayer>
                         )}

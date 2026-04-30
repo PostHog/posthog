@@ -183,7 +183,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
     @cached_property
     def _team_group_types(self) -> list[str]:
         return list(
-            GroupTypeMapping.objects.filter(project_id=self._team.project_id)
+            GroupTypeMapping.objects.filter(project_id=self._team.project_id)  # nosemgrep: no-direct-persons-db-orm
             .order_by("group_type_index")
             .values_list("group_type", flat=True)
         )

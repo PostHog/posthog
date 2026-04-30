@@ -482,10 +482,15 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         if detector.errors:
             raise serializers.ValidationError({"hog": detector.errors[0]})
 
-        supported_functions = set()
+        supported_functions: set[str] = set()
 
         if hog_type == "destination":
             supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
+        elif hog_type == "tagger":
+            # Taggers classify; they must not perform side effects, so we deliberately exclude
+            # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
+            # Stated explicitly so a future refactor can't silently widen the surface.
+            supported_functions = set()
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except serializers.ValidationError:

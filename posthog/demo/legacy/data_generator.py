@@ -30,13 +30,13 @@ class DataGenerator:
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
-        self.people = Person.objects.bulk_create(self.people)
+        self.people = Person.objects.bulk_create(self.people)  # nosemgrep: no-direct-persons-db-orm
 
         pids = [
             PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
             for person, distinct_id in zip(self.people, self.distinct_ids)
         ]
-        PersonDistinctId.objects.bulk_create(pids)
+        PersonDistinctId.objects.bulk_create(pids)  # nosemgrep: no-direct-persons-db-orm
         from posthog.models.person.util import create_person, create_person_distinct_id
 
         for person in self.people:

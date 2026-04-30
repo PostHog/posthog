@@ -25,7 +25,6 @@ from rest_framework.response import Response
 
 from posthog.schema import (
     DashboardFilter,
-    DataWarehouseSyncInterval,
     EndpointLastExecutionTimesRequest,
     EndpointRefreshMode,
     EndpointRequest,
@@ -83,10 +82,7 @@ from posthog.types import InsightQueryNode
 from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag, sync_saved_query_to_dag
 from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_schema import (
-    sync_frequency_interval_to_sync_frequency,
-    sync_frequency_to_sync_frequency_interval,
-)
+from products.data_warehouse.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 from products.endpoints.backend.insight_transformers import (
     MaterializedSeriesMismatchError,
     transform_materialized_insight_response,
@@ -130,9 +126,17 @@ from products.endpoints.backend.serializers import (
 
 from common.hogvm.python.utils import HogVMException
 
-MIN_CACHE_AGE_SECONDS = 300
-MAX_CACHE_AGE_SECONDS = 86400
-MIN_SYNC_FREQUENCY_INTERVAL = timedelta(minutes=30)
+DATA_FRESHNESS_BUCKETS: dict[int, str] = {
+    900: "15min",
+    1800: "30min",
+    3600: "1hour",
+    21600: "6hour",
+    43200: "12hour",
+    86400: "24hour",
+    604800: "7day",
+}
+VALID_DATA_FRESHNESS_SECONDS: frozenset[int] = frozenset(DATA_FRESHNESS_BUCKETS)
+DEFAULT_DATA_FRESHNESS_SECONDS = 86400
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
 
@@ -451,9 +455,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "error": (version.saved_query.latest_error or "")
                 if version.saved_query.status != DataWarehouseSavedQuery.Status.COMPLETED
                 else "",
-                "sync_frequency": sync_frequency_interval_to_sync_frequency(
-                    version.saved_query.sync_frequency_interval
-                ),
                 "saved_query_id": str(version.saved_query.id),
             }
         else:
@@ -496,7 +497,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "description": version.description,
             "query": version.query,
             "is_active": version.is_active if isinstance(obj, EndpointVersion) else endpoint.is_active,
-            "cache_age_seconds": version.cache_age_seconds,
+            "data_freshness_seconds": version.data_freshness_seconds,
             "endpoint_path": endpoint.endpoint_path,
             "url": url,
             "ui_url": ui_url,
@@ -563,24 +564,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             capture_exception(e, {"endpoint_name": endpoint.name, "team_id": self.team_id})
             raise ValidationError("Failed to retrieve endpoint.")
 
-    def _validate_cache_age_seconds(self, cache_age_seconds: float | None) -> None:
-        """Validate cache_age_seconds is within allowed range."""
-        if cache_age_seconds is not None:
-            if cache_age_seconds < MIN_CACHE_AGE_SECONDS or cache_age_seconds > MAX_CACHE_AGE_SECONDS:
-                raise ValidationError(
-                    {
-                        "cache_age_seconds": f"Cache age must be between {MIN_CACHE_AGE_SECONDS} and {MAX_CACHE_AGE_SECONDS} seconds."
-                    }
-                )
-
-    def _validate_sync_frequency(self, sync_frequency: DataWarehouseSyncInterval | None) -> None:
-        """Validate sync_frequency is not too frequent for endpoints."""
-        if sync_frequency is not None:
-            interval = sync_frequency_to_sync_frequency_interval(sync_frequency.value)
-            if interval is not None and interval < MIN_SYNC_FREQUENCY_INTERVAL:
-                raise ValidationError(
-                    {"sync_frequency": f"Sync frequency must be at least 30 minutes. Got: {sync_frequency.value}."}
-                )
+    def _validate_data_freshness(self, data_freshness_seconds: int | None) -> None:
+        """Validate data_freshness_seconds is one of the allowed bucket values."""
+        if data_freshness_seconds is None:
+            return
+        if data_freshness_seconds not in VALID_DATA_FRESHNESS_SECONDS:
+            allowed = sorted(VALID_DATA_FRESHNESS_SECONDS)
+            raise ValidationError(
+                {
+                    "data_freshness_seconds": (
+                        f"Data freshness must be one of: {allowed} seconds "
+                        "(15 minutes, 30 minutes, 1 hour, 6 hours, 12 hours, 24 hours, 7 days)."
+                    )
+                }
+            )
 
     def _validate_hogql_query(self, query: HogQLQuery) -> None:
         """Validate that a HogQL query can be parsed and the variables are valid."""
@@ -735,8 +732,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             self._sync_hogql_query_variables(query)
             self._validate_hogql_query(query)
 
-        self._validate_cache_age_seconds(data.cache_age_seconds)
-        self._validate_sync_frequency(data.sync_frequency)
+        self._validate_data_freshness(data.data_freshness_seconds)
 
     @extend_schema(
         request=EndpointRequestSerializer,
@@ -773,7 +769,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 version=1,
                 query=query_dict,
                 description=data.description or "",
-                cache_age_seconds=data.cache_age_seconds,
+                data_freshness_seconds=(
+                    data.data_freshness_seconds
+                    if data.data_freshness_seconds is not None
+                    else DEFAULT_DATA_FRESHNESS_SECONDS
+                ),
                 created_by=cast(User, request.user),
                 columns=columns,
             )
@@ -823,20 +823,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         endpoint: Endpoint | None = None,
         strict: bool = True,
     ) -> None:
-        self._validate_cache_age_seconds(data.cache_age_seconds)
-        self._validate_sync_frequency(data.sync_frequency)
+        self._validate_data_freshness(data.data_freshness_seconds)
 
         # Determine final states after this request (for validation)
         will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)
 
         if not will_be_active and data.is_materialized is True:
             raise ValidationError({"is_materialized": "Cannot enable materialization on inactive endpoint."})
-
-        if not will_be_active and data.sync_frequency is not None:
-            raise ValidationError({"sync_frequency": "Cannot set sync_frequency on inactive endpoint."})
-
-        if data.is_materialized is False and data.sync_frequency is not None:
-            raise ValidationError({"sync_frequency": "Cannot set sync_frequency when disabling materialization."})
 
         if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
             self._sync_hogql_query_variables(data.query)
@@ -906,17 +899,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 self._disable_materialization(endpoint, current_version)
 
             # Step 2: Handle query changes and versioning (independent of active/materialization state)
-            old_sync_frequency: DataWarehouseSyncInterval | None = None
             old_bucket_overrides: dict[str, str] | None = None
             if query_changed and new_query_dict is not None:
                 if was_materialized:
                     old_bucket_overrides = current_version.bucket_overrides
-                    if current_version.saved_query:
-                        frequency_str = sync_frequency_interval_to_sync_frequency(
-                            current_version.saved_query.sync_frequency_interval
-                        )
-                        if frequency_str:
-                            old_sync_frequency = DataWarehouseSyncInterval(frequency_str)
 
                 new_version = endpoint.create_new_version(query=new_query_dict, user=cast(User, request.user))
                 version_was_created = True
@@ -929,9 +915,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 if data.description is not None:
                     target_version.description = data.description
                     update_fields.append("description")
-                if "cache_age_seconds" in request.data:
-                    target_version.cache_age_seconds = data.cache_age_seconds
-                    update_fields.append("cache_age_seconds")
+                if "data_freshness_seconds" in request.data:
+                    target_version.data_freshness_seconds = (
+                        data.data_freshness_seconds
+                        if data.data_freshness_seconds is not None
+                        else DEFAULT_DATA_FRESHNESS_SECONDS
+                    )
+                    update_fields.append("data_freshness_seconds")
                 # When targeting a specific version, is_active updates the version
                 if data.is_active is not None and target_version_override is not None:
                     target_version.is_active = data.is_active
@@ -957,14 +947,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 should_disable = data.is_materialized is False
 
                 if should_enable:
-                    sync_frequency = data.sync_frequency or old_sync_frequency or DataWarehouseSyncInterval.FIELD_24HOUR
                     bucket_overrides = request.data.get("bucket_overrides")
                     if bucket_overrides is None and version_was_created:
                         bucket_overrides = old_bucket_overrides
                     _validate_bucket_overrides(bucket_overrides)
                     try:
                         self._enable_materialization(
-                            endpoint, sync_frequency, request, target_version, bucket_overrides=bucket_overrides
+                            endpoint,
+                            target_version.data_freshness_seconds,
+                            request,
+                            target_version,
+                            bucket_overrides=bucket_overrides,
                         )
                         # Trigger immediate refresh when bucket_overrides changed
                         if (
@@ -1092,7 +1085,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def _enable_materialization(
         self,
         endpoint: Endpoint,
-        sync_frequency: DataWarehouseSyncInterval,
+        data_freshness_seconds: int,
         request: Request,
         version: EndpointVersion | None = None,
         bucket_overrides: dict[str, str] | None = None,
@@ -1103,7 +1096,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         Each version gets its own saved_query with naming: {endpoint_name}_v{version}
         """
         try:
-            self._enable_materialization_inner(endpoint, sync_frequency, request, version, bucket_overrides)
+            self._enable_materialization_inner(endpoint, data_freshness_seconds, request, version, bucket_overrides)
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
         except ValidationError:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
@@ -1115,7 +1108,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def _enable_materialization_inner(
         self,
         endpoint: Endpoint,
-        sync_frequency: DataWarehouseSyncInterval,
+        data_freshness_seconds: int,
         request: Request,
         version: EndpointVersion | None = None,
         bucket_overrides: dict[str, str] | None = None,
@@ -1157,8 +1150,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         saved_query.query = hogql_query
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
-        saved_query.sync_frequency_interval = (
-            sync_frequency_to_sync_frequency_interval(sync_frequency.value) if sync_frequency else timedelta(hours=12)
+        saved_query.sync_frequency_interval = sync_frequency_to_sync_frequency_interval(
+            DATA_FRESHNESS_BUCKETS[data_freshness_seconds]
         )
 
         saved_query.save()
@@ -1725,10 +1718,29 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint_version=version.version if version else None,
             )
 
+            # Compute dynamic cache TTL: time remaining until data_freshness window expires
+            cache_ttl = None
+            if saved_query.last_run_at and version.data_freshness_seconds:
+                remaining = (
+                    saved_query.last_run_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                ).total_seconds()
+                if remaining <= 0:
+                    logger.warning(
+                        "endpoint_materialization_behind_sla",
+                        endpoint_name=endpoint.name,
+                        team_id=self.team_id,
+                        data_freshness_seconds=version.data_freshness_seconds,
+                        last_run_at=saved_query.last_run_at.isoformat(),
+                        remaining_seconds=remaining,
+                    )
+                    tag_queries(endpoint_materialization_behind=True)
+                cache_ttl = max(1, int(remaining))  # at least 1 second to enable caching
+
             result = self._execute_query_and_respond(
                 query_request_data,
                 data.client_query_id,
                 request,
+                cache_age_seconds=cache_ttl,
                 extra_result_fields=extra_fields,
                 debug=debug,
                 headers=deprecation_headers,
@@ -2084,7 +2096,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "query": query,
             }
 
-            cache_age = version.cache_age_seconds if version else None
+            cache_age = version.data_freshness_seconds if version else None
             tag_queries(endpoint_version=version.version if version else None)
 
             return self._execute_query_and_respond(

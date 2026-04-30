@@ -3,7 +3,15 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
-from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
+from posthog.api import (
+    data_color_theme,
+    hog_flow,
+    hog_flow_template,
+    metalytics,
+    my_notifications,
+    project,
+    user_integration,
+)
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
@@ -86,6 +94,7 @@ from products.llm_analytics.backend.api import (
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
+    TaggerViewSet,
     TraceReviewViewSet,
 )
 from products.llm_analytics.backend.api.skills import LLMSkillViewSet
@@ -116,7 +125,6 @@ from . import (
     advanced_activity_logs,
     alert,
     annotation,
-    app_metrics,
     async_migration,
     authentication,
     cli_auth,
@@ -434,22 +442,6 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
-environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
-    r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
-)
-environment_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "environment_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
-)
-legacy_project_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "project_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
-)
-
 environment_batch_exports_router, legacy_project_batch_exports_router = (
     register_grandfathered_environment_nested_viewset(
         r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
@@ -729,7 +721,13 @@ router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistration
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"users", user.UserViewSet, "users")
+users_router = router.register(r"users", user.UserViewSet, "users")
+users_router.register(
+    r"integrations",
+    user_integration.UserIntegrationViewSet,
+    "user_integration",
+    ["uuid"],
+)
 router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
@@ -1335,6 +1333,13 @@ environments_router.register(
     r"evaluations",
     EvaluationViewSet,
     "environment_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"taggers",
+    TaggerViewSet,
+    "environment_taggers",
     ["team_id"],
 )
 
