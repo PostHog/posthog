@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Optional
 
 from django.db import models
@@ -5,7 +6,11 @@ from django.utils import timezone
 
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
-UNMATCHED_SAMPLE_CAP = 50
+# Unmatched IDs (which can be the entire CSV when nothing resolved) are written
+# to object storage rather than embedded in the row, both to avoid bloating the
+# DB and so we can hand the user a downloadable artifact. The file is short-
+# lived: we only keep it around long enough for the user to triage their import.
+UNMATCHED_RECORDS_TTL = timedelta(hours=24)
 
 
 class CohortCSVImport(RootTeamMixin, UUIDModel):
@@ -17,8 +22,8 @@ class CohortCSVImport(RootTeamMixin, UUIDModel):
          rows_skipped, ids_submitted, id_type, email_property_key, filename).
       2. Asynchronously by `calculate_cohort_from_list` after person matching
          and insertion completes (persons_matched, persons_added,
-         persons_already_in_cohort, unmatched_count, unmatched_sample,
-         finished_at, error).
+         persons_already_in_cohort, unmatched_count, unmatched_records_location,
+         unmatched_records_expires_at, finished_at, error).
     """
 
     ID_TYPE_DISTINCT_ID = "distinct_id"
@@ -82,10 +87,18 @@ class CohortCSVImport(RootTeamMixin, UUIDModel):
         blank=True,
         help_text="Submitted IDs that did not resolve to a person",
     )
-    unmatched_sample = models.JSONField(
+    unmatched_records_location = models.TextField(
         null=True,
         blank=True,
-        help_text=f"Up to {UNMATCHED_SAMPLE_CAP} unmatched IDs for user feedback",
+        help_text="Object-storage path of the CSV listing every input ID that did not resolve to a person.",
+    )
+    unmatched_records_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the unmatched-records file is no longer guaranteed to be downloadable "
+            f"(default {int(UNMATCHED_RECORDS_TTL.total_seconds() // 3600)}h after upload)."
+        ),
     )
 
     # Errors
@@ -120,3 +133,12 @@ class CohortCSVImport(RootTeamMixin, UUIDModel):
     @property
     def is_successful(self) -> bool:
         return self.is_completed and self.error is None
+
+    @property
+    def has_unmatched_records_file(self) -> bool:
+        """True when an unmatched-records artifact exists and hasn't expired."""
+        if not self.unmatched_records_location:
+            return False
+        if self.unmatched_records_expires_at is None:
+            return True
+        return self.unmatched_records_expires_at > timezone.now()

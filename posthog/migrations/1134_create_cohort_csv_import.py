@@ -128,10 +128,23 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "unmatched_sample",
-                    models.JSONField(
+                    "unmatched_records_location",
+                    models.TextField(
                         blank=True,
-                        help_text="Up to 50 unmatched IDs for user feedback",
+                        help_text=(
+                            "Object-storage path of the CSV listing every input ID that did not resolve to a person."
+                        ),
+                        null=True,
+                    ),
+                ),
+                (
+                    "unmatched_records_expires_at",
+                    models.DateTimeField(
+                        blank=True,
+                        help_text=(
+                            "When the unmatched-records file is no longer guaranteed to be "
+                            "downloadable (default 24h after upload)."
+                        ),
                         null=True,
                     ),
                 ),
