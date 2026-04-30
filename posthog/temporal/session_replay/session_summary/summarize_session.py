@@ -531,6 +531,7 @@ async def ensure_llm_single_session_summary(
         redis_key_base=inputs.redis_key_base,
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=inputs.extra_summary_context,
+        product_context=inputs.product_context,
     )
 
     # Activity 1: Prepare video export (find or create ExportedAsset)
@@ -788,6 +789,7 @@ def _prepare_execution(
     team: Team,
     model_to_use: str,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -818,6 +820,7 @@ def _prepare_execution(
         user_distinct_id_to_log=user.distinct_id,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
@@ -834,6 +837,7 @@ async def execute_summarize_session(
     team: Team,
     model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -858,6 +862,7 @@ async def execute_summarize_session(
         team=team,
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         video_based=video_based,
         trigger_session_id=trigger_session_id,
@@ -929,6 +934,7 @@ async def execute_summarize_session_video_stream(
     user: User,
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Start the video-based summarization workflow and stream progress events.
@@ -963,6 +969,7 @@ async def execute_summarize_session_video_stream(
         team=team,
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         video_based=True,
     )

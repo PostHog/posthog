@@ -104,21 +104,39 @@ export const MathEnumApi = {
     Sum: 'sum',
 } as const
 
+/**
+ * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+ */
+export type GroupUsageMetricApiFilters = { [key: string]: unknown }
+
 export interface GroupUsageMetricApi {
     readonly id: string
-    /** @maxLength 255 */
-    name: string
-    format?: GroupUsageMetricFormatEnumApi
     /**
-     * In days
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Name of the usage metric. Must be unique per group type within the project.
+     * @maxLength 255
      */
+    name: string
+    /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+* `numeric` - numeric
+* `currency` - currency */
+    format?: GroupUsageMetricFormatEnumApi
+    /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
+    /** Visual representation in the UI. One of `number` or `sparkline`.
+
+* `number` - number
+* `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
-    filters: unknown
+    /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+    filters: GroupUsageMetricApiFilters
+    /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+* `count` - count
+* `sum` - sum */
     math?: MathEnumApi
     /**
+     * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
      * @maxLength 255
      * @nullable
      */
@@ -134,21 +152,39 @@ export interface PaginatedGroupUsageMetricListApi {
     results: GroupUsageMetricApi[]
 }
 
+/**
+ * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+ */
+export type PatchedGroupUsageMetricApiFilters = { [key: string]: unknown }
+
 export interface PatchedGroupUsageMetricApi {
     readonly id?: string
-    /** @maxLength 255 */
-    name?: string
-    format?: GroupUsageMetricFormatEnumApi
     /**
-     * In days
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Name of the usage metric. Must be unique per group type within the project.
+     * @maxLength 255
      */
+    name?: string
+    /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+* `numeric` - numeric
+* `currency` - currency */
+    format?: GroupUsageMetricFormatEnumApi
+    /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
+    /** Visual representation in the UI. One of `number` or `sparkline`.
+
+* `number` - number
+* `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
-    filters?: unknown
+    /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+    filters?: PatchedGroupUsageMetricApiFilters
+    /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+* `count` - count
+* `sum` - sum */
     math?: MathEnumApi
     /**
+     * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
      * @maxLength 255
      * @nullable
      */

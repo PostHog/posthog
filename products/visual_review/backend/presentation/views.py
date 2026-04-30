@@ -13,6 +13,9 @@ No business logic here - that belongs in logic.py via the facade.
 from typing import cast
 from uuid import UUID
 
+from django.http import HttpResponse
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -69,7 +72,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
-    scope_object_read_actions = ["list", "retrieve", "list_quarantined"]
+    scope_object_read_actions = ["list", "retrieve", "list_quarantined", "thumbnail"]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -131,6 +134,50 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("identifier", OpenApiTypes.STR, OpenApiParameter.PATH),
+        ],
+        responses={200: OpenApiResponse(description="WebP thumbnail image")},
+    )
+    @action(detail=True, methods=["get"], url_path=r"thumbnails/(?P<identifier>.+[^/])")
+    def thumbnail(self, request: Request, pk: str, identifier: str, **kwargs) -> HttpResponse:
+        """Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching."""
+        try:
+            api.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
+
+        thumb_hash = api.get_thumbnail_hash_for_identifier(UUID(pk), identifier)
+        if thumb_hash is None:
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
+
+        etag = f'"{thumb_hash}"'
+        not_modified = get_conditional_response(request._request, etag=etag)
+        if not_modified:
+            # Shared caches must key on credentials — see thumbnail success path below.
+            patch_vary_headers(not_modified, ["Authorization", "Cookie"])
+            return not_modified
+
+        thumb_bytes = api.read_thumbnail_bytes(UUID(pk), thumb_hash)
+        if thumb_bytes is None:
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
+
+        response = HttpResponse(thumb_bytes, content_type="image/webp")
+        response["ETag"] = etag
+        # Endpoint is auth-scoped (team), so Vary on credential headers prevents shared
+        # caches from serving the same URL across tenants.
+        patch_vary_headers(response, ["Authorization", "Cookie"])
+        patch_cache_control(response, public=True, max_age=300, stale_while_revalidate=3600)
+        return response
+
+    @extend_schema(
+        parameters=[
             OpenApiParameter(
                 name="identifier", type=str, required=False, description="Filter by identifier (returns full history)"
             ),
@@ -186,6 +233,52 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=[VISUAL_REVIEW_TAG])
+class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Snapshot identities under a repo, keyed by (run_type, identifier).
+
+    A "snapshot identity" doesn't have a single canonical row — it's a series
+    of `RunSnapshot` rows over time. The retrieve-style endpoint returns the
+    deduped baseline timeline for that identity, which is the most useful view.
+
+    `identifier` is a path segment — clients must percent-encode before sending
+    (`encodeURIComponent`). Django/ASGI URL-decode the kwarg automatically.
+    """
+
+    scope_object = "visual_review"
+    scope_object_read_actions = ["timeline"]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("run_type", str, OpenApiParameter.PATH, description="Run type (storybook, playwright)"),
+            OpenApiParameter(
+                "identifier",
+                str,
+                OpenApiParameter.PATH,
+                description="Snapshot identifier; clients must percent-encode before sending",
+            ),
+        ],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"(?P<run_type>[^/]+)/(?P<identifier>[^/]+)",
+    )
+    def timeline(self, request: Request, run_type: str, identifier: str, **kwargs) -> Response:
+        """Deduped baseline timeline for a snapshot identity. Newest first."""
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        history = api.get_snapshot_history(repo_id, identifier, run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
@@ -312,25 +405,6 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             return Response({"detail": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(AddSnapshotsResultSerializer(instance=result).data)
-
-    @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
-        responses={200: SnapshotHistoryEntrySerializer(many=True)},
-    )
-    @action(detail=True, methods=["get"], url_path="snapshot-history")
-    def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
-        """Recent change history for a snapshot identifier across runs."""
-        identifier = request.query_params.get("identifier")
-        if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            run = api.get_run(UUID(pk), team_id=self.team_id)
-        except api.RunNotFoundError:
-            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        history = api.get_snapshot_history(run.repo_id, identifier)
-        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(request=None, responses={200: RunSerializer})
     @action(detail=True, methods=["post"])

@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 
-import type { ChartDimensions, ChartScales, ChartTheme, ResolveValueFn, Series } from './types'
+import type { ChartDimensions, ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from './types'
 
 /** Layout-stable values exposed to overlays. Identity does NOT change on hover —
  *  consumers reading from {@link useChartLayout} won't re-render on mousemove. */
@@ -10,7 +10,7 @@ export interface ChartLayoutContextValue<Meta = unknown> {
     /** X-axis labels. */
     labels: string[]
     /** Series with fallback colors already applied (post `theme.colors`). */
-    series: Series<Meta>[]
+    series: ResolvedSeries<Meta>[]
     /** Scale functions for mapping data to pixel coordinates. */
     scales: ChartScales
     /** Theme passed to the chart. Use {@link ChartTheme.backgroundColor} for borders/fills

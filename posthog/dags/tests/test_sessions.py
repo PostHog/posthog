@@ -9,8 +9,11 @@ from parameterized import parameterized
 
 from posthog.dags.sessions import (
     BACKFILL_PROGRESS_TTL_SECONDS,
+    MAX_UINT64,
+    OOM_RETRY_SUB_CHUNKS,
     ExperimentalSessionsBackfillConfig,
     _do_experimental_backfill,
+    _get_experimental_chunking,
     _progress_key,
     tags_for_sessions_partition,
 )
@@ -278,3 +281,134 @@ class TestTooManyPartsRetry:
 
         # 1 initial + num_chunks retries, then the next retry exceeds the budget and re-raises
         assert mock_sync_execute.call_count == num_chunks + 1
+
+
+class TestSubChunking:
+    """Cover the OOM-retry sub-chunk where function returned by _get_experimental_chunking.
+
+    Sub-chunks must partition by `cityHash64(distinct_id)` ranges so they line up with the
+    events table primary index `(team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))`,
+    and when the parent already chunks by `cityHash64(distinct_id)` ranges they must
+    subdivide *that* range so each sub-chunk actually contains a fraction of the parent's data.
+    """
+
+    @pytest.mark.parametrize(
+        "parent_i,all_have_upper_bound,all_have_lower_bound",
+        [
+            # First parent chunk: `< high`, so every sub-chunk has an upper bound but the very
+            # first sub-chunk does not have a lower bound
+            pytest.param(0, True, False, id="first_parent_chunk"),
+            # Middle parent chunks: bounded on both sides, so every sub-chunk has both bounds
+            pytest.param(1, True, True, id="middle_parent_chunk_1"),
+            pytest.param(2, True, True, id="middle_parent_chunk_2"),
+            # Last parent chunk: `>= low`, so every sub-chunk has a lower bound but the very
+            # last sub-chunk does not have an upper bound
+            pytest.param(3, False, True, id="last_parent_chunk"),
+        ],
+    )
+    def test_distinct_id_sub_chunks_subdivide_parent_range(
+        self, parent_i: int, all_have_upper_bound: bool, all_have_lower_bound: bool
+    ):
+        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
+        num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
+        assert num_chunks == 4
+
+        sub_filters = [sub_chunk_where_fn(parent_i, sub_i, 8) for sub_i in range(8)]
+
+        # Every sub-chunk filters cityHash64(distinct_id) — primary-index aligned
+        assert all("cityHash64(distinct_id)" in f for f in sub_filters)
+
+        # Sub-chunks should be a strict subset of the parent's range — not span the whole uint64 space
+        if all_have_upper_bound:
+            assert all("<" in f for f in sub_filters)
+        if all_have_lower_bound:
+            assert all(">=" in f for f in sub_filters)
+
+    def test_distinct_id_sub_chunks_cover_parent_range_without_gaps(self):
+        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
+        _num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
+
+        # Parent chunk 1 (middle) — bounded on both sides, easy to extract numbers
+        sub_bounds = []
+        for sub_i in range(8):
+            f = sub_chunk_where_fn(1, sub_i, 8)
+            # Filters look like "cityHash64(distinct_id) >= LOW AND cityHash64(distinct_id) < HIGH"
+            parts = f.replace("cityHash64(distinct_id)", "").replace("AND", "").split()
+            nums = [int(p) for p in parts if p.lstrip("-").isdigit()]
+            sub_bounds.append(nums)
+
+        # Each sub-chunk's high should equal the next sub-chunk's low — no gaps, no overlaps
+        for i in range(len(sub_bounds) - 1):
+            assert sub_bounds[i][1] == sub_bounds[i + 1][0], f"Gap between sub-chunk {i} and {i + 1}"
+
+        # The first sub-chunk's low and the last sub-chunk's high should match the parent chunk's bounds
+        parent_chunk_size = MAX_UINT64 // 4
+        assert sub_bounds[0][0] == parent_chunk_size  # parent 1 starts at chunk_size
+        assert sub_bounds[-1][1] == 2 * parent_chunk_size  # parent 1 ends at 2 * chunk_size
+
+    @pytest.mark.parametrize("parent_i", [0, 1, 2])
+    @pytest.mark.parametrize("sub_i", [0, 1, 2, 3])
+    def test_team_id_sub_chunks_use_distinct_id_hash(self, parent_i: int, sub_i: int):
+        # team_id parent uses modulo (not primary-index-aligned), but sub-chunks should still split by
+        # cityHash64(distinct_id) ranges across the full uint64 space so the SELECT can skip granules.
+        config = ExperimentalSessionsBackfillConfig(team_id_chunks=3, distinct_id_chunks=None, client_overrides={})
+        num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
+        assert num_chunks == 3
+
+        f = sub_chunk_where_fn(parent_i, sub_i, 4)
+        assert f"team_id % {num_chunks} = {parent_i}" in f
+        assert "cityHash64(distinct_id)" in f
+
+    def test_no_chunk_sub_chunks_use_distinct_id_hash(self):
+        # No parent chunking — sub-chunks should still split by cityHash64(distinct_id) ranges
+        config = ExperimentalSessionsBackfillConfig(team_id_chunks=None, distinct_id_chunks=None, client_overrides={})
+        num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
+        assert num_chunks == 1
+
+        sub_filters = [sub_chunk_where_fn(0, sub_i, 4) for sub_i in range(4)]
+        assert all("cityHash64(distinct_id)" in f for f in sub_filters)
+
+    def test_oom_sub_chunk_count_is_32(self):
+        # Bumped from 10 to 32 to give more headroom when a chunk individually OOMs
+        assert OOM_RETRY_SUB_CHUNKS == 32
+
+    def test_oom_retry_executes_sub_chunks_within_parent_range(self):
+        config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
+        context = _make_context()
+
+        oom_error = RuntimeError("Code: 241. DB::Exception: error code 241 MEMORY_LIMIT_EXCEEDED: hit limit")
+        call_count = 0
+
+        def fail_first_chunk_then_succeed(sql, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # Parent chunk 0 fails with OOM on first attempt → triggers sub-chunk retries
+            if call_count == 1:
+                raise oom_error
+
+        with _patch_experimental_backfill_deps() as (mock_sync_execute, _mock_redis):
+            mock_sync_execute.side_effect = fail_first_chunk_then_succeed
+            _do_experimental_backfill(
+                sql_template=_sql_template_stub,
+                timestamp_field="timestamp",
+                context=context,
+                config=config,
+            )
+
+        executed = [c.args[0] for c in mock_sync_execute.call_args_list]
+        # 1 failed parent + OOM_RETRY_SUB_CHUNKS sub-chunks for chunk 0 + 3 remaining parent chunks
+        assert len(executed) == 1 + OOM_RETRY_SUB_CHUNKS + 3
+
+        # Parent chunk 0 covers cityHash64(distinct_id) < MAX_UINT64/4 — every sub-chunk SQL
+        # must stay within that range.
+        parent_high = MAX_UINT64 // 4
+        sub_chunk_sqls = executed[1 : 1 + OOM_RETRY_SUB_CHUNKS]
+        for sql in sub_chunk_sqls:
+            # Each sub-chunk must reference cityHash64(distinct_id) and not exceed the parent's high bound
+            assert "cityHash64(distinct_id)" in sql
+            # Pull out the largest integer literal in the sub-chunk filter — should be <= parent_high
+            nums = [int(tok) for tok in sql.split() if tok.lstrip("-").isdigit()]
+            big_nums = [n for n in nums if n > 1_000_000_000]  # filter out small numbers like dates
+            assert max(big_nums) <= parent_high, (
+                f"sub-chunk references hash {max(big_nums)} > parent_high {parent_high}: {sql}"
+            )

@@ -158,6 +158,16 @@ def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Rep
     return _to_repo(repo)
 
 
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Resolve a snapshot identifier to the content hash of its thumbnail, if any."""
+    return logic.get_thumbnail_hash_for_identifier(repo_id, identifier)
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    """Read the raw bytes for a thumbnail artifact from storage."""
+    return logic.read_thumbnail_bytes(repo_id, content_hash)
+
+
 # --- Run API ---
 
 
@@ -253,15 +263,20 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contract
     return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str) -> list[contracts.SnapshotHistoryEntry]:
-    entries = logic.get_snapshot_history(repo_id, identifier)
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
+    entries = logic.get_snapshot_history(repo_id, identifier, run_type)
     return [
         contracts.SnapshotHistoryEntry(
-            run_id=e["run_id"],
-            result=e["result"],
-            branch=e["branch"],
-            commit_sha=e["commit_sha"],
-            created_at=e["created_at"],
+            run_id=e.run_id,
+            snapshot_id=e.id,
+            result=e.result,
+            branch=e.run.branch,
+            commit_sha=e.run.commit_sha,
+            created_at=e.run.created_at,
+            pr_number=e.run.pr_number,
+            diff_percentage=e.diff_percentage,
+            review_state=e.review_state,
+            current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
         )
         for e in entries
     ]

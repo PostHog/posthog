@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
-import type { ChartScales, ResolveValueFn, Series } from '../core/types'
+import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 
 export interface ValueLabelsProps {
     /** Formats the value shown on each label. Defaults to `value.toLocaleString()`. */
@@ -39,13 +39,13 @@ interface Candidate {
     above: boolean
 }
 
-function resolveYScale(s: Series, scales: ChartScales): (value: number) => number {
+function resolveYScale(s: ResolvedSeries, scales: ChartScales): (value: number) => number {
     const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
     return scales.yAxes?.[axisId]?.scale ?? scales.y
 }
 
 function buildCandidates(
-    series: Series[],
+    series: ResolvedSeries[],
     labels: string[],
     scales: ChartScales,
     resolveValue: ResolveValueFn,
@@ -71,7 +71,7 @@ function buildCandidates(
 
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
-            if (typeof rawValue !== 'number' || !isFinite(rawValue)) {
+            if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
             const yValue = resolveValue(s, dIdx)
