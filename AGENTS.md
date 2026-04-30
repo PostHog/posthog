@@ -58,7 +58,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
-Always fill the `## 🤖 Agent context` section when creating PRs — this should surface key human prompts, redirects, and decisions from the author (quoted or paraphrased), not just a summary of what the agent did. Reviewers need to see the intent, not only the diff.
+Always fill the `## 🤖 Agent context` section when creating PRs.
 Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 
 ### Rules

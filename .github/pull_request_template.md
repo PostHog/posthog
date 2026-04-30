@@ -35,7 +35,7 @@
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
 <!-- Include:
      - tools/agent used and link to session
-     - key human prompts that shaped this work — quote or paraphrase the asks/redirects/decisions from the human author so reviewers can see the intent behind the changes, not just the diff
+     - key human prompts that shaped this work, so reviewers can see the intent behind the changes, not just the diff
      - decisions made along the way (what was tried, rejected, chosen, and why)
      - anything else that helps reviewers
 -->
