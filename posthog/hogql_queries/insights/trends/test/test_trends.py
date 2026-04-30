@@ -1069,6 +1069,122 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 [("[10,15.01]", 2.0, [1, 1, 0, 0]), ("[0,5]", 1.0, [1, 0, 0, 0]), ("[5,10]", 1.0, [1, 0, 0, 0])],
             )
 
+    def test_unique_session_with_session_channel_type_breakdown_and_url_regex_filter(self):
+        """Regression test for a slack-reported "query immediately times out" papercut.
+
+        The query combined three things at once and was timing out in production:
+          - ``unique_session`` math on ``$pageview``
+          - a session-typed regex filter on ``$entry_current_url``
+          - a multi-breakdown by the computed ``$channel_type`` session field
+
+        Before the regression test landed there was no coverage for the
+        ``unique_session + session URL filter + session $channel_type breakdown``
+        combination, which goes through ``$channel_type``'s computed expression
+        on the sessions lazy join. We exercise it here so the path keeps working.
+        """
+        s_direct = str(uuid7("2020-01-01", 1))
+        s_search = str(uuid7("2020-01-01", 2))
+        s_other_url = str(uuid7("2020-01-01", 3))
+
+        self._create_person(team_id=self.team.pk, distinct_ids=["p_direct"])
+        self._create_person(team_id=self.team.pk, distinct_ids=["p_search"])
+        self._create_person(team_id=self.team.pk, distinct_ids=["p_other"])
+
+        # Session 1: direct entry on a posthog.com product page → channel_type "Direct"
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p_direct",
+            timestamp="2020-01-01T10:00:00Z",
+            properties={
+                "$session_id": s_direct,
+                "$current_url": "https://posthog.com/llm-analytics",
+                "$pathname": "/llm-analytics",
+                "$host": "posthog.com",
+                "$referring_domain": "$direct",
+            },
+        )
+
+        # Session 2: came from google search to a posthog.com product page → "Organic Search"
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p_search",
+            timestamp="2020-01-01T11:00:00Z",
+            properties={
+                "$session_id": s_search,
+                "$current_url": "https://posthog.com/feature-flags",
+                "$pathname": "/feature-flags",
+                "$host": "posthog.com",
+                "$referring_domain": "www.google.com",
+            },
+        )
+
+        # Session 3: doesn't match the URL filter — must be excluded entirely.
+        self._create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p_other",
+            timestamp="2020-01-01T12:00:00Z",
+            properties={
+                "$session_id": s_other_url,
+                "$current_url": "https://posthog.com/blog/some-post",
+                "$pathname": "/blog/some-post",
+                "$host": "posthog.com",
+                "$referring_domain": "$direct",
+            },
+        )
+
+        product_url_regex = (
+            r"^https?:\/\/(?:www\.)?posthog\.com\/"
+            r"(?:feature-flags|error-tracking|product-analytics|session-replay|"
+            r"experiments|data-stack|surveys|web-analytics|llm-analytics|ai|"
+            r"workflows|revenue-analytics|cdp)\/?$"
+        )
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            response = self._run(
+                Filter(
+                    team=self.team,
+                    data={
+                        "display": "ActionsBar",
+                        "interval": "day",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": "unique_session",
+                                "properties": [
+                                    {
+                                        "key": "$entry_current_url",
+                                        "type": "session",
+                                        "value": product_url_regex,
+                                        "operator": "regex",
+                                    }
+                                ],
+                            }
+                        ],
+                        "breakdowns": [{"type": "session", "property": "$channel_type"}],
+                        "insight": "TRENDS",
+                        "date_from": "-3d",
+                    },
+                ),
+                self.team,
+            )
+
+        # Each matching session contributes exactly once. The blog session is
+        # excluded by the URL regex, so we should see only the two product-page
+        # sessions split across their channel types — not three. Specific
+        # channel-type values can vary across session table versions and ad
+        # ID lookups, so assert on totals/cardinality rather than exact labels.
+        assert len(response) == 2, response
+        total = sum(item["count"] for item in response)
+        assert total == 2, response
+        for item in response:
+            assert item["count"] == 1, response
+            # Multi-breakdown emits the breakdown value as a single-element array.
+            assert isinstance(item["breakdown_value"], list)
+            assert len(item["breakdown_value"]) == 1
+
     @also_test_with_person_on_events_v2
     @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
     def test_trends_breakdown_single_aggregate_cohorts(self):
