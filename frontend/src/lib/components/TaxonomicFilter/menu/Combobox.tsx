@@ -14,7 +14,7 @@ import { Autocomplete } from '@base-ui/react/autocomplete'
 import FuseClass from 'fuse.js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Button, cn, InputGroup, InputGroupInput, ScrollArea } from '@posthog/quill'
+import { Button, cn, InputGroup, InputGroupInput, MenuLabel, ScrollArea } from '@posthog/quill'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -59,8 +59,11 @@ export function MenuFilterCombobox({
     onBack,
     title,
 }: MenuFilterComboboxProps): JSX.Element {
-    const { groups } = useTaxonomicFilterContext()
-    const [searchQuery, setSearchQuery] = useState('')
+    // Sync our local query to the orchestrator's so remote-endpoint groups
+    // (Pageview URLs, Screens, etc.) actually fetch — `useGroupList` reads
+    // `searchQuery` from the orchestrator's `getGroupListInput`, not from
+    // us. Keeping a local mirror just for the controlled input ergonomics.
+    const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
     const [activeChip, setActiveChip] = useState<DrillCategory>(drillTo)
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
     const inputRef = useRef<HTMLInputElement | null>(null)
@@ -226,12 +229,14 @@ export function MenuFilterCombobox({
                                 {(entry: MenuFilterEntry) => (
                                     <Row
                                         entry={entry}
+                                        // Group label only when truly mixed
+                                        // — drilled scopes already imply
+                                        // their group, the line is noise.
                                         showGroupLabel={activeChip === 'all'}
-                                        // Recent/Pinned mix entries from many
-                                        // groups — surface the source group as
-                                        // a subtitle so the user can tell
-                                        // `paid_bills` is a DWH table at a
-                                        // glance.
+                                        // Recent/Pinned mix entries from
+                                        // many groups but no chip is shown,
+                                        // so surface the source group as
+                                        // the subtitle for context.
                                         showGroupSubtitle={drillTo === 'recent' || drillTo === 'pinned'}
                                         onCommit={onCommit}
                                     />
@@ -247,6 +252,7 @@ export function MenuFilterCombobox({
 
 interface RowProps {
     entry: MenuFilterEntry
+    /** Render the group's name on its own line (mixed-group views only). */
     showGroupLabel: boolean
     /** Replace the raw-name subtitle with the source group name. */
     showGroupSubtitle?: boolean
@@ -256,12 +262,21 @@ interface RowProps {
 function Row({ entry, showGroupLabel, showGroupSubtitle, onCommit }: RowProps): JSX.Element {
     const { item, group } = entry
     const friendly = entry.friendlyLabel
-    const title = friendly && friendly.length > 0 ? friendly : entry.name
-    const subtitle = showGroupSubtitle
-        ? group.name
-        : friendly && friendly !== entry.name
-          ? entry.name
-          : undefined
+    // URL detection — if the row's name parses as a URL, show the path
+    // (everything after the TLD) on line one and the host on line two so
+    // long URLs stay readable.
+    const url = parseUrl(entry.name)
+    const title = url ? url.pathTail : friendly && friendly.length > 0 ? friendly : entry.name
+    // Subtitle precedence: URL host wins; then group name (Recent/Pinned
+    // need the source group as context); then the raw `$value` when it
+    // differs from the friendly title; otherwise omitted.
+    const subtitle = url
+        ? url.host
+        : showGroupSubtitle
+          ? group.name
+          : friendly && friendly !== entry.name
+            ? entry.name
+            : undefined
     const stableId = `menu-filter-row-${group.type}-${String(group.getValue?.(item) ?? entry.name)}`
     return (
         <Autocomplete.Item
@@ -276,13 +291,9 @@ function Row({ entry, showGroupLabel, showGroupSubtitle, onCommit }: RowProps): 
                 'data-[highlighted]:bg-[var(--fill-selected)]'
             )}
         >
-            <span className="text-sm">
-                {title}
-                {showGroupLabel && (
-                    <span className="ml-2 text-xxs uppercase tracking-wide text-secondary">{group.name}</span>
-                )}
-            </span>
-            {subtitle && <span className="text-xs text-secondary">{subtitle}</span>}
+            <span className="text-sm leading-tight truncate max-w-full">{title}</span>
+            {subtitle && <span className="text-xs text-tertiary/50 leading-tight truncate max-w-full">{subtitle}</span>}
+            {showGroupLabel && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{group.name}</MenuLabel>}
         </Autocomplete.Item>
     )
 }
@@ -327,6 +338,24 @@ function Fetcher({
         onItems(group.type, list.items)
     }, [group.type, list.items, onItems])
     return null
+}
+
+/**
+ * Parse a URL-shaped string into `{ host, pathTail }` for two-line row
+ * rendering. Returns `null` for anything that isn't a `http(s)://` URL or
+ * fails to parse — caller falls back to default rendering.
+ */
+function parseUrl(s: string): { host: string; pathTail: string } | null {
+    if (typeof s !== 'string' || !/^https?:\/\//i.test(s)) {
+        return null
+    }
+    try {
+        const u = new URL(s)
+        const tail = (u.pathname || '/') + u.search + u.hash
+        return { host: u.host, pathTail: tail }
+    } catch {
+        return null
+    }
 }
 
 function getRawName(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup): string {
