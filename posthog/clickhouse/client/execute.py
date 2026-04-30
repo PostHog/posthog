@@ -303,6 +303,7 @@ def sync_execute(
     update_query_tags_with_temporal_info()
 
     from posthog.event_usage import EventSource
+
     if tags.product is None and tags.source == EventSource.MCP:
         tags.product = Product.MCP
 
