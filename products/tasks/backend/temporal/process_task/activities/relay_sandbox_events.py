@@ -315,26 +315,25 @@ async def _relay_loop(
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
-                    # Sandbox container is gone — reconnection won't help
+                status = e.response.status_code
+                if status < 500:
+                    # 4xx errors are permanent — sandbox is gone or auth is invalid
                     logger.warning(
                         "relay_sandbox_events_sandbox_gone",
                         run_id=run_id,
-                        status_code=404,
+                        status_code=status,
                     )
-                    await redis_stream.mark_error("Sandbox is no longer reachable (404)")
+                    await redis_stream.mark_error(f"Sandbox returned HTTP {status}")
                     return
-                # Retryable server errors (502, 503, etc.)
-                # Retryable server errors (502, 503, etc.)
+                # 5xx — transient server error, worth retrying
                 reconnect_count += 1
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
-                    status_code=e.response.status_code,
+                    status_code=status,
                     error=str(e),
                     reconnect_count=reconnect_count,
                 )
-                await asyncio.sleep(min(reconnect_count * 2, 10))
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
