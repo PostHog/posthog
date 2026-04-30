@@ -28,15 +28,6 @@ from posthog.models.alert import AlertCheck, derive_detector_event_fields
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import get_from_dict_or_attr
 
-from products.notifications.backend.facade.api import (
-    NotificationData,
-    NotificationType,
-    Priority,
-    SourceType,
-    TargetType,
-    create_notification,
-)
-
 logger = structlog.get_logger(__name__)
 
 
@@ -315,32 +306,6 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
 
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         message.send()
-
-    try:
-        body = "; ".join(breaches[:3])
-        if len(breaches) > 3:
-            body += f" (+{len(breaches) - 3} more)"
-        title = f"Alert firing: {alert.name}"[:100]
-        source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
-        for user_id in alert.subscribed_users.values_list("id", flat=True):
-            create_notification(
-                NotificationData(
-                    team_id=alert.team_id,
-                    notification_type=NotificationType.ALERT_FIRING,
-                    priority=Priority.NORMAL,
-                    title=title,
-                    body=body,
-                    target_type=TargetType.USER,
-                    target_id=str(user_id),
-                    resource_type="insight",
-                    resource_id=str(alert.insight.short_id),
-                    source_url=source_url,
-                    source_type=SourceType.INSIGHT,
-                    source_id=str(alert.insight_id),
-                )
-            )
-    except Exception:
-        logger.exception("alerts.realtime_notification_failed", alert_id=str(alert.id))
 
     trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
 

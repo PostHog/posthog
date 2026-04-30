@@ -27,7 +27,7 @@ from posthog.models.alert import AlertCheck, AlertSubscription
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
-from posthog.tasks.alerts.checks import check_alert, check_alert_task
+from posthog.tasks.alerts.checks import check_alert, check_alert_task, dispatch_alert_firing_realtime_notification
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
@@ -365,24 +365,22 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert "second anomaly description" in email.html_body
 
     @parameterized.expand([("one_user", 1), ("two_users", 2), ("three_users", 3)])
-    @patch("posthog.tasks.alerts.utils.EmailMessage")
-    @patch("posthog.tasks.alerts.utils.create_notification")
+    @patch("posthog.tasks.alerts.checks.create_notification")
     def test_alert_firing_dispatches_one_realtime_notification_per_subscribed_user(
         self,
         _name: str,
         extra_user_count: int,
         mock_create_notification: MagicMock,
-        MockEmailMessage: MagicMock,
         mock_send_notifications_for_breaches: MagicMock,
         mock_send_errors: MagicMock,
     ) -> None:
-        mock_email_messages(MockEmailMessage)
+        self.set_thresholds(lower=1)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
         for i in range(extra_user_count - 1):
             extra_user = User.objects.create_and_join(self.organization, f"alert-sub-{i}@test.com", "password")
             AlertSubscription.objects.create(alert_configuration=alert, user=extra_user, created_by=self.user)
 
-        send_notifications_for_breaches(alert, ["first breach"], idempotency_key="test-realtime-fanout")
+        check_alert(self.alert["id"])
 
         expected_user_ids = sorted(str(uid) for uid in alert.subscribed_users.values_list("id", flat=True))
         assert len(expected_user_ids) == extra_user_count
@@ -400,23 +398,21 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             assert data.resource_id == str(alert.insight.short_id)
             assert data.title.startswith("Alert firing:")
 
-    @patch("posthog.tasks.alerts.utils.EmailMessage")
-    @patch("posthog.tasks.alerts.utils.create_notification", side_effect=RuntimeError("kafka down"))
+    @patch("posthog.tasks.alerts.checks.create_notification", side_effect=RuntimeError("kafka down"))
     def test_alert_firing_realtime_failure_does_not_break_email_path(
         self,
         _mock_create_notification: MagicMock,
-        MockEmailMessage: MagicMock,
         mock_send_notifications_for_breaches: MagicMock,
         mock_send_errors: MagicMock,
     ) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+        self.set_thresholds(lower=1)
 
-        # Must not raise; email send completes despite realtime dispatch failure.
-        send_notifications_for_breaches(alert, ["breach text"], idempotency_key="test-realtime-isolated-failure")
+        # Must not raise; email dispatch completes despite realtime dispatch failure.
+        check_alert(self.alert["id"])
 
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].to[0]["recipient"] == "user1@posthog.com"
+        assert mock_send_notifications_for_breaches.call_count == 1
+        latest_alert_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
+        assert latest_alert_check.state == AlertState.FIRING
 
     @parameterized.expand(
         [
@@ -425,8 +421,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             ("more_than_three_breaches", ["a", "b", "c", "d", "e"], "Alert firing: alert name", "a; b; c (+2 more)"),
         ]
     )
-    @patch("posthog.tasks.alerts.utils.EmailMessage")
-    @patch("posthog.tasks.alerts.utils.create_notification")
+    @patch("posthog.tasks.alerts.checks.create_notification")
     def test_alert_firing_body_truncation(
         self,
         _name: str,
@@ -434,14 +429,12 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         expected_title: str,
         expected_body: str,
         mock_create_notification: MagicMock,
-        MockEmailMessage: MagicMock,
         mock_send_notifications_for_breaches: MagicMock,
         mock_send_errors: MagicMock,
     ) -> None:
-        mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
 
-        send_notifications_for_breaches(alert, breaches, idempotency_key=f"test-body-{_name}")
+        dispatch_alert_firing_realtime_notification(alert, breaches)
 
         assert mock_create_notification.call_count == 1
         data = mock_create_notification.call_args.args[0]
