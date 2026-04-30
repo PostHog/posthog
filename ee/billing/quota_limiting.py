@@ -625,6 +625,7 @@ def _patch_organization_usage_jsonb(organization: Organization, ops: Sequence[tu
             params.append(path)
             params.append(json.dumps(value))
 
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (sql_expr is built from fixed jsonb_set/#- templates; all dynamic values flow through %s params)
     Organization.objects.filter(id=organization.id).update(usage=RawSQL(sql_expr, params))
 
 
