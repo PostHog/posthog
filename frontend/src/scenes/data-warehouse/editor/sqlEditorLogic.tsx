@@ -29,7 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { initModel } from 'lib/monaco/CodeEditor'
+import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, removeUndefinedAndNull, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -2935,6 +2935,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.decorationGeneration = (cache.decorationGeneration ?? 0) + 1
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
+            clearLogicReference(m)
             try {
                 m.dispose()
             } catch {}

@@ -146,8 +146,8 @@ pub async fn otel_handler(
     }
 
     let received_at = Utc::now();
-    let distinct_id = identity::extract_distinct_id(&request);
-    let span_events = fan_out::expand_into_events(&request, &distinct_id);
+    let request_fallback_distinct_id = identity::request_fallback_distinct_id();
+    let span_events = fan_out::expand_into_events(&request, &request_fallback_distinct_id);
     let span_count = span_events.len();
     let dropped_span_count = raw_span_count.saturating_sub(span_count);
 

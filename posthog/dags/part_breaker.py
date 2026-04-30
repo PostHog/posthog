@@ -435,25 +435,27 @@ def _get_mutation_ids_for_part(client: Client, source_table: str, partition_id: 
 
 
 def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
-    """Create the non-replicated staging table if it doesn't exist.
+    """Drop any stale staging table and recreate from the current source schema.
 
-    Uses CREATE TABLE ... AS to copy the source table's full schema (columns,
-    partition key, order key, indices, projections, settings) with a
-    non-replicated engine override.
-
-    The non-replicated engine is derived from the source's engine_full:
-      ReplicatedReplacingMergeTree('/path', '{replica}', ver) → ReplacingMergeTree(ver)
-      ReplicatedMergeTree('/path', '{replica}')               → MergeTree()
+    Always recreates so source-side ALTER TABLE additions don't cause
+    "Tables have different structure" on ATTACH PARTITION FROM. Refuses to
+    drop if the existing staging table is non-empty (likely leftover from a
+    failed run that needs operator review).
     """
     database = _get_database()
 
-    # Check if staging table already exists
     rows = client.execute(
-        "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        "SELECT total_bytes FROM system.tables WHERE database = %(db)s AND name = %(table)s",
         {"db": database, "table": staging_table},
     )
-    if rows[0][0] > 0:
-        return
+    if rows:
+        existing_bytes = rows[0][0] or 0
+        if existing_bytes > 0:
+            raise dagster.Failure(
+                description=f"Staging table {database}.{staging_table} is non-empty "
+                f"({existing_bytes:,} bytes). Truncate manually after confirming nothing needs recovery."
+            )
+        client.execute(f"DROP TABLE {database}.{staging_table} SYNC")
 
     # Get the source engine definition to derive the non-replicated equivalent
     rows = client.execute(
@@ -488,9 +490,7 @@ def _ensure_staging_table(client: Client, source_table: str, staging_table: str)
         )
 
     # CREATE TABLE ... AS copies schema; ENGINE = overrides the engine only
-    client.execute(
-        f"CREATE TABLE IF NOT EXISTS {database}.{staging_table} AS {database}.{source_table} ENGINE = {engine_clause}"
-    )
+    client.execute(f"CREATE TABLE {database}.{staging_table} AS {database}.{source_table} ENGINE = {engine_clause}")
 
 
 def _get_disk_paths(client: Client) -> dict[str, str]:
@@ -910,6 +910,9 @@ def break_part(
 
         ssh: paramiko.SSHClient | None = None
         freeze_name: str | None = None
+        # Track source-table side effects so the except block can surface incomplete state.
+        attach_partition_from_succeeded = False
+        original_part_dropped = False
 
         try:
             # -- Step 2: Pre-flight checks --
@@ -1107,6 +1110,7 @@ def break_part(
                 f"ALTER TABLE {database}.{source_table} "
                 f"ATTACH PARTITION '{partition_id}' FROM {database}.{staging_target}"
             )
+            attach_partition_from_succeeded = True
 
             # -- Step 9: Verify row delta matches staging target row count.
             # Source row delta must be >= staging row count (concurrent inserts
@@ -1175,6 +1179,7 @@ def break_part(
                         settings={"max_partition_size_to_drop": "0"},
                     )
                     context.log.info(f"Dropped {current_part_name}")
+                    original_part_dropped = True
                 except Exception as drop_err:
                     if "not a leader" not in str(drop_err):
                         raise
@@ -1192,12 +1197,14 @@ def break_part(
                         workload=Workload.ONLINE,
                     ).result()
                     context.log.info(f"Dropped {current_part_name} (via leader replica)")
+                    original_part_dropped = True
             else:
                 context.log.warning(
                     f"Original oversized part (prefix {old_part_prefix}) not found in "
                     f"{source_table} partition {partition_id} — "
                     f"it may have been merged or dropped already. Skipping DROP PART."
                 )
+                original_part_dropped = True  # Already gone — nothing to reconcile.
 
             # Use the verified staging target stats from Step 7 — these reflect exactly
             # what we created, not the whole partition which includes unrelated parts.
@@ -1219,6 +1226,15 @@ def break_part(
         except Exception:
             # Clean up on failure to avoid leaking shadow disk space and staging data
             context.log.warning("Error during part break — cleaning up")
+
+            # ATTACH succeeded but DROP didn't → reconciliation needed (see runbook).
+            if attach_partition_from_succeeded and not original_part_dropped:
+                context.log.exception(
+                    f"Incomplete part break in {database}.{source_table} partition "
+                    f"{partition_id} (shard {part.shard_num}, original part "
+                    f"{part.part_name}). See runbooks."
+                )
+
             if freeze_name is not None:
                 try:
                     client.execute(f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'")

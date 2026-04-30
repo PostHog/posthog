@@ -1,7 +1,7 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
 import { DEFAULT_MARGINS } from './core/Chart'
-import type { ChartDimensions, Series } from './core/types'
+import type { ChartDimensions, ResolvedSeries, Series } from './core/types'
 
 export const dimensions: ChartDimensions = {
     width: 800,
@@ -24,7 +24,7 @@ export const mockRect: DOMRect = {
     toJSON: () => ({}),
 }
 
-export function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): Series {
+export function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): ResolvedSeries {
     return { label: overrides.key, color: '#000', ...overrides }
 }
 
