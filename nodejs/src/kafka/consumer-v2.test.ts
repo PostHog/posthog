@@ -127,7 +127,13 @@ describe('KafkaConsumerV2', () => {
     const startConsuming = async (eachBatch: jest.Mock, partitions = [{ topic: 'test-topic', partition: 0 }]) => {
         await consumer.connect(eachBatch)
         registeredRebalanceCb!({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, partitions)
-        // Allow the loop to process the ASSIGN event and reach the consume() call.
+        // The loop is currently inside the IDLE keepalive consume(1, cb). Release it with
+        // an empty batch so the loop processes ASSIGN and arms a fresh consume() in CONSUMING.
+        if (consumeCallback) {
+            const cb = consumeCallback
+            consumeCallback = undefined
+            cb(null, [])
+        }
         await delay(5)
     }
 

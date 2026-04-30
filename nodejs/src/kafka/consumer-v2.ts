@@ -37,8 +37,6 @@ import {
 import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
-const DRAIN_KEEPALIVE_TIMEOUT_MS = 100 // short consume() during DRAINING to keep heartbeat alive
-const IDLE_POLL_INTERVAL_MS = 100
 const STATISTICS_INTERVAL_MS = 5000
 const LOOP_STALL_THRESHOLD_MS_DEFAULT = 60_000
 
@@ -96,7 +94,6 @@ export class KafkaConsumerV2 {
     private rebalanceQueue: RebalanceEvent[] = []
     private inFlight: TaskEntry[] = []
     private loopDone: Promise<void> | undefined
-    private wakeResolve: (() => void) | undefined
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
@@ -152,6 +149,10 @@ export class KafkaConsumerV2 {
             'socket.timeout.ms': 30_000,
             'enable.partition.eof': this.config.enablePartitionEof ?? true,
             'statistics.interval.ms': STATISTICS_INTERVAL_MS,
+            // Newer librdkafka versions require this in the global config (the topic-config
+            // form passed to RdKafkaConsumer's second arg is silently ignored for assign-based
+            // consumers in some versions). See node-rdkafka issue #984.
+            ['auto.offset.reset' as keyof ConsumerGlobalConfig]: 'earliest' as never,
             ...getKafkaConfigFromEnv('CONSUMER'),
             ...rdKafkaOverrides,
             // Below are settings we DO NOT allow callers to override
@@ -188,6 +189,11 @@ export class KafkaConsumerV2 {
         }
 
         return new HealthCheckResultOk()
+    }
+
+    /** Current partition assignments — useful for tests waiting on group-join completion. */
+    public assignments(): Assignment[] {
+        return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
 
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
@@ -227,15 +233,21 @@ export class KafkaConsumerV2 {
         if (this.state === 'STOPPED') {
             return
         }
-        // Signal the loop to stop. The loop drains in-flight tasks before disconnecting.
+        // Flip to STOPPED so the loop exits at its next iteration AND so the
+        // rebalanceCallback handles the final REVOKE that librdkafka delivers during
+        // disconnect (see rebalanceCallback() for the special-case path).
         this.state = 'STOPPED'
-        this.wake() // pull the loop out of IDLE if it was sleeping
         if (this.loopDone) {
             await this.loopDone.catch((error) => {
                 logger.error('🔁', 'kafka_consumer_v2_loop_failed_during_disconnect', { error: String(error) })
             })
         }
         if (this.rdKafkaConsumer.isConnected()) {
+            try {
+                this.rdKafkaConsumer.unsubscribe()
+            } catch {
+                // best-effort
+            }
             await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
         }
     }
@@ -267,9 +279,11 @@ export class KafkaConsumerV2 {
                     // Defensive keepalive for safety.
                     await this.consumeKeepalive()
                 } else {
-                    // IDLE — librdkafka still drives heartbeats internally; sleep until a
-                    // rebalance event arrives or the poll interval elapses.
-                    await this.idleWait()
+                    // IDLE — call consume() with a short timeout to drive the group-join
+                    // protocol. Without this librdkafka never sends JoinGroup and the
+                    // initial ASSIGN never arrives. Any messages here are unexpected
+                    // (we have no assignments) — discard them defensively.
+                    await this.consumeKeepalive()
                 }
             }
         } finally {
@@ -489,30 +503,23 @@ export class KafkaConsumerV2 {
         }
     }
 
-    /** Block in IDLE until a rebalance event arrives, disconnect is requested, or timeout fires. */
-    private async idleWait(): Promise<void> {
-        await new Promise<void>((resolve) => {
-            this.wakeResolve = resolve
-            setTimeout(resolve, IDLE_POLL_INTERVAL_MS)
-        })
-        this.wakeResolve = undefined
-    }
-
-    private wake(): void {
-        const r = this.wakeResolve
-        this.wakeResolve = undefined
-        r?.()
-    }
-
+    /**
+     * Drive librdkafka's group-membership/rebalance protocol when we have no work of our own.
+     * Used in both IDLE (waiting for the first ASSIGN) and DRAINING (after REVOKE, before
+     * incrementalUnassign) — librdkafka requires periodic poll() calls to deliver rebalance
+     * events and satisfy max.poll.interval.ms.
+     */
     private async consumeKeepalive(): Promise<void> {
-        // Fire-and-receive a tiny consume to keep max.poll.interval.ms healthy if a drain ever
-        // outlasts the natural fetch cadence. Empty results are expected.
+        // node-rdkafka's `consume(num, cb)` requires num >= 1 — `consume(0, cb)` blocks the
+        // callback indefinitely. We fetch at most one message (timeout set via
+        // `setDefaultConsumeTimeout`) and discard it: in IDLE we have no assignments so this
+        // is virtually always empty; in DRAINING we're between REVOKE and incrementalUnassign,
+        // and any returned message would just be re-delivered to whoever owns the partition next.
         try {
-            await promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(0, cb))
+            await promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(1, cb))
         } catch {
             // ignore — keepalive only
         }
-        await sleep(DRAIN_KEEPALIVE_TIMEOUT_MS)
     }
 
     private storeOffsetsInternal(offsets: TopicPartitionOffset[]): void {
@@ -533,6 +540,26 @@ export class KafkaConsumerV2 {
     // === Rebalance callback — pure event source, mutates nothing except the queue ===
 
     private rebalanceCallback(err: LibrdKafkaError, partitions: Assignment[]): void {
+        // Special case: during disconnect, librdkafka delivers a final REVOKE and waits
+        // for the application to call unassign() synchronously. The loop has already
+        // exited at this point, so we have to handle it inline rather than enqueue.
+        if (this.state === 'STOPPED') {
+            if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
+                try {
+                    if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
+                        this.rdKafkaConsumer.incrementalUnassign(partitions)
+                    } else {
+                        this.rdKafkaConsumer.unassign()
+                    }
+                } catch (error) {
+                    logger.warn('🔁', 'kafka_consumer_v2_unassign_during_shutdown_failed', {
+                        error: String(error),
+                    })
+                }
+            }
+            return
+        }
+
         if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
             this.rebalanceQueue.push({ type: 'ASSIGN', partitions })
         } else if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
@@ -540,9 +567,6 @@ export class KafkaConsumerV2 {
         } else {
             this.rebalanceQueue.push({ type: 'ERROR', err })
         }
-        // Pull the loop out of IDLE immediately so the event is processed without waiting
-        // for the next poll-interval tick.
-        this.wake()
     }
 
     // === RdKafkaConsumer construction + event wiring ===

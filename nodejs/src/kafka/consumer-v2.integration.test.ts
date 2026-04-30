@@ -16,7 +16,11 @@ import { KafkaProducerWrapper } from './producer'
  * we're validating is "no message is lost AND no partition is stuck", not "exactly once".
  */
 
-jest.setTimeout(120_000)
+jest.setTimeout(30_000)
+// Real-world per-step timings (from consumer-v2.profile.test.ts):
+//   createTopic     ~250ms     consumerConnect  ~15ms     connect→ASSIGN  ~15ms
+//   producerConnect   ~5ms     timeToFirstMsg   ~50ms     disconnect      ~65ms
+// Tests size their waits off these numbers — generous but not absurd.
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'kafka:9092'
 const KAFKA_CONFIG = { 'metadata.broker.list': KAFKA_HOSTS }
@@ -135,7 +139,7 @@ function makeConsumer(
     topic: string,
     eachBatch: (consumerId: string, msgs: Message[]) => Promise<void>
 ): KafkaConsumerV2 {
-    const consumer = new KafkaConsumerV2({ groupId, topic, batchTimeoutMs: 200 }, {
+    const consumer = new KafkaConsumerV2({ groupId, topic, batchTimeoutMs: 50 }, {
         'metadata.broker.list': KAFKA_HOSTS,
         'session.timeout.ms': 10_000,
     } as Record<string, unknown>)
@@ -143,7 +147,22 @@ function makeConsumer(
     return consumer
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs: number, pollMs = 100): Promise<void> {
+/**
+ * Wait until each consumer has at least one partition assigned. This is the actual signal
+ * that the group has stabilized — not a fixed delay.
+ */
+async function waitForAssignments(consumers: KafkaConsumerV2[], timeoutMs = 10_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        if (consumers.every((c) => c.assignments().length > 0)) {
+            return
+        }
+        await delay(20)
+    }
+    throw new Error(`waitForAssignments timed out after ${timeoutMs}ms`)
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs: number, pollMs = 20): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
         if (predicate()) {
@@ -181,10 +200,10 @@ describe('KafkaConsumerV2 (integration)', () => {
                 await delay(1)
             })
 
-            await delay(2000) // let the consumer join the group + receive ASSIGN
+            await waitForAssignments([consumer])
             await produceMessages(producer, topic, 100)
 
-            await waitFor(() => ledger.uniqueCount() >= 100, 30_000)
+            await waitFor(() => ledger.uniqueCount() >= 100, 8_000)
             await consumer.disconnect()
 
             expect(ledger.uniqueCount()).toBe(100)
@@ -211,10 +230,11 @@ describe('KafkaConsumerV2 (integration)', () => {
             const c2 = makeConsumer('c2', groupId, topic, each)
             const c3 = makeConsumer('c3', groupId, topic, each)
 
-            await delay(3000) // let group form + partitions assigned
+            // Wait for all 3 to actually have partitions assigned, not a fixed delay.
+            await waitForAssignments([c1, c2, c3])
             await produceMessages(producer, topic, 1000)
 
-            await waitFor(() => ledger.uniqueCount() >= 1000, 60_000)
+            await waitFor(() => ledger.uniqueCount() >= 1000, 15_000)
 
             await Promise.all([c1.disconnect(), c2.disconnect(), c3.disconnect()])
 
@@ -246,15 +266,15 @@ describe('KafkaConsumerV2 (integration)', () => {
             const c1 = makeConsumer('c1', groupId, topic, each)
             const c2 = makeConsumer('c2', groupId, topic, each)
 
-            await delay(3000)
+            await waitForAssignments([c1, c2])
             await produceMessages(producer, topic, 500)
 
             // Wait until c1 has seen some messages, then disconnect it gracefully.
-            await waitFor(() => ledger.entries.filter((e) => e.consumerId === 'c1').length >= 50, 30_000)
+            await waitFor(() => ledger.entries.filter((e) => e.consumerId === 'c1').length >= 50, 8_000)
             await c1.disconnect()
 
             // c2 should pick up everything that's left.
-            await waitFor(() => ledger.uniqueCount() >= 500, 60_000)
+            await waitFor(() => ledger.uniqueCount() >= 500, 15_000)
             await c2.disconnect()
 
             expect(ledger.uniqueCount()).toBe(500)
@@ -280,20 +300,24 @@ describe('KafkaConsumerV2 (integration)', () => {
                 await delay(1)
             }
             const c1 = makeConsumer('c1', groupId, topic, each)
-            await delay(3000)
+            await waitForAssignments([c1])
 
-            await produceMessages(producer, topic, 800)
-            await waitFor(() => ledger.entries.filter((e) => e.consumerId === 'c1').length >= 100, 30_000)
+            // Produce in two waves so c2 has work to do after the rebalance — without this
+            // c1 would consume everything in <100ms before c2 finishes joining.
+            await produceMessages(producer, topic, 200)
+            await waitFor(() => ledger.entries.filter((e) => e.consumerId === 'c1').length >= 100, 8_000)
 
-            // Add a second consumer mid-flight → triggers cooperative rebalance.
+            // Add a second consumer mid-flight → triggers a rebalance.
             const c2 = makeConsumer('c2', groupId, topic, each)
+            await waitForAssignments([c1, c2])
 
-            await waitFor(() => ledger.uniqueCount() >= 800, 60_000)
+            await produceMessages(producer, topic, 600)
+            await waitFor(() => ledger.uniqueCount() >= 800, 15_000)
             await Promise.all([c1.disconnect(), c2.disconnect()])
 
             expect(ledger.uniqueCount()).toBe(800)
             expect(ledger.duplicateCount()).toBeLessThan(50)
-            // c2 should have ended up with at least one message
+            // c2 should have processed at least some of the second wave.
             expect(ledger.entries.some((e) => e.consumerId === 'c2')).toBe(true)
         } finally {
             await deleteTopic(topic)
@@ -329,14 +353,14 @@ describe('KafkaConsumerV2 (integration)', () => {
             } as Record<string, unknown>)
             void c2.connect(wrap('c2'))
 
-            await delay(3000)
+            await waitForAssignments([c1, c2])
             await produceMessages(producer, topic, 300)
-            await waitFor(() => ledger.entries.filter((e) => e.consumerId === 'c1').length >= 50, 30_000)
+            await waitFor(() => ledger.entries.filter((e) => e.consumerId === 'c1').length >= 50, 8_000)
 
             // Disconnect c1 gracefully — should drain its in-flight 200ms task before unassigning.
             await c1.disconnect()
 
-            await waitFor(() => ledger.uniqueCount() >= 300, 60_000)
+            await waitFor(() => ledger.uniqueCount() >= 300, 15_000)
             await c2.disconnect()
 
             expect(ledger.uniqueCount()).toBe(300)
@@ -373,9 +397,9 @@ describe('KafkaConsumerV2 (integration)', () => {
                 })
             })
 
-            await delay(2000)
+            await waitForAssignments([consumer])
             await produceMessages(producer, topic, 5)
-            await waitFor(() => ledger.uniqueCount() >= 5, 15_000)
+            await waitFor(() => ledger.uniqueCount() >= 5, 5_000)
 
             const disconnectStart = Date.now()
             await consumer.disconnect()
