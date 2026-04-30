@@ -347,8 +347,8 @@ class TestIsIssueNotPr:
 
 class TestValidateCredentials:
     def test_valid_credentials(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = mock.MagicMock(status_code=200)
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is True
@@ -361,26 +361,26 @@ class TestValidateCredentials:
         ]
     )
     def test_error_status_codes(self, _name: str, status_code: int, expected_message: str) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.return_value = mock.MagicMock(status_code=status_code)
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = mock.MagicMock(status_code=status_code)
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
         assert error == expected_message
 
     def test_json_error_response(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
             mock_response = mock.MagicMock(status_code=403)
             mock_response.json.return_value = {"message": "API rate limit exceeded"}
-            mock_get.return_value = mock_response
+            mock_get.return_value.get.return_value = mock_response
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
         assert error == "API rate limit exceeded"
 
     def test_request_exception(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = requests.exceptions.ConnectionError("Connection refused")
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
@@ -388,12 +388,12 @@ class TestValidateCredentials:
         assert "Connection refused" in error
 
     def test_sends_correct_headers(self) -> None:
-        with mock.patch("posthog.temporal.data_imports.sources.github.github.requests.get") as mock_get:
-            mock_get.return_value = mock.MagicMock(status_code=200)
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = mock.MagicMock(status_code=200)
             validate_credentials("my-token", "owner/repo")
 
-        mock_get.assert_called_once()
-        call_kwargs = mock_get.call_args
+        mock_get.return_value.get.assert_called_once()
+        call_kwargs = mock_get.return_value.get.call_args
         assert call_kwargs is not None
         headers = call_kwargs.kwargs["headers"]
         assert headers["Authorization"] == "Bearer my-token"
@@ -478,10 +478,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=responses,
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -493,7 +493,7 @@ class TestGetRowsResume:
                 )
             )
 
-        first_url = mock_get.call_args_list[0].args[0]
+        first_url = mock_get.return_value.get.call_args_list[0].args[0]
         assert first_url.startswith("https://api.github.com/repos/owner/repo/releases")
         manager.load_state.assert_not_called()
 
@@ -512,10 +512,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=responses,
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -527,7 +527,7 @@ class TestGetRowsResume:
                 )
             )
 
-        assert mock_get.call_args_list[0].args[0] == saved_url
+        assert mock_get.return_value.get.call_args_list[0].args[0] == saved_url
         manager.load_state.assert_called_once()
 
     def test_empty_first_page_ends_loop(self) -> None:
@@ -535,10 +535,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=[_make_response(body=[], link="")],
-            ),
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = [_make_response(body=[], link="")]
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -560,10 +560,10 @@ class TestGetRowsResume:
         with (
             self._patch_batcher(),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=[_make_response(body=[{"id": 1}], link="")],
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = [_make_response(body=[{"id": 1}], link="")]
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -577,7 +577,7 @@ class TestGetRowsResume:
 
         assert manager.save_state.call_count == 1
         saved = manager.save_state.call_args.args[0]
-        assert saved.next_url == mock_get.call_args_list[0].args[0]
+        assert saved.next_url == mock_get.return_value.get.call_args_list[0].args[0]
 
     def test_mid_page_chunk_boundary_checkpoints_current_page(self) -> None:
         """If the chunk boundary lands mid-page, the checkpoint must point at
@@ -605,10 +605,10 @@ class TestGetRowsResume:
                 side_effect=batcher_factory,
             ),
             mock.patch(
-                "posthog.temporal.data_imports.sources.github.github.requests.get",
-                side_effect=responses,
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -624,7 +624,7 @@ class TestGetRowsResume:
         # the next-page URL — otherwise item 3 (batched but not yet yielded)
         # would be skipped on resume.
         first_save = manager.save_state.call_args_list[0].args[0]
-        assert first_save.next_url == mock_get.call_args_list[0].args[0]
+        assert first_save.next_url == mock_get.return_value.get.call_args_list[0].args[0]
         assert first_save.next_url != "https://api.github.com/repos/owner/repo/releases?page=2"
 
 

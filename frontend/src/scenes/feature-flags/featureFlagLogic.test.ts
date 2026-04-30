@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -15,6 +17,8 @@ import {
     hasMultipleVariantsActive,
     hasZeroRollout,
     indexToVariantKeyFeatureFlagPayloads,
+    scheduleDateFromStoredISO,
+    scheduleDateToProjectTzISO,
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
@@ -51,41 +55,28 @@ describe('payload conversion helpers', () => {
 
     it.each([
         [
-            'already keyed by variant key',
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
-        ],
-        [
             'keyed by variant index',
-            {
-                0: '{"color":"red"}',
-                1: '{"color":"blue"}',
-            },
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
+            variants,
+            { 0: '{"color":"red"}', 1: '{"color":"blue"}' },
+            { control: '{"color":"red"}', test: '{"color":"blue"}' },
         ],
         [
-            'with mixed keys while preferring explicit variant keys',
-            {
-                control: '{"color":"red"}',
-                0: '{"color":"green"}',
-                1: '{"color":"blue"}',
-            },
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
+            'numeric-string variant keys (regression)',
+            [
+                { key: '2', rollout_percentage: 50 },
+                { key: '0', rollout_percentage: 50 },
+            ],
+            { 0: '{"for":"variant-2"}', 1: '{"for":"variant-0"}' },
+            { '2': '{"for":"variant-2"}', '0': '{"for":"variant-0"}' },
         ],
-    ])('converts multivariate payloads %s', (_label, payloads, expected) => {
-        expect(convertIndexBasedPayloadsToVariantKeys(variants, payloads)).toEqual(expected)
+        [
+            'skips indices without a matching variant',
+            variants,
+            { 0: '{"color":"red"}', 5: '{"orphan":true}' },
+            { control: '{"color":"red"}' },
+        ],
+    ])('converts multivariate payloads %s', (_label, vars, payloads, expected) => {
+        expect(convertIndexBasedPayloadsToVariantKeys(vars, payloads)).toEqual(expected)
     })
 
     it('keeps boolean flag payload handling unchanged', () => {
@@ -110,6 +101,54 @@ describe('payload conversion helpers', () => {
             },
         })
     })
+})
+
+describe('schedule timezone helpers', () => {
+    // Scenarios covered: project tz east and west of browser tz, and matching the browser.
+    it.each([
+        ['America/New_York', '2026-02-05T10:00:00', '2026-02-05T15:00:00.000Z'],
+        ['America/Los_Angeles', '2026-02-05T10:00:00', '2026-02-05T18:00:00.000Z'],
+        ['UTC', '2026-02-05T10:00:00', '2026-02-05T10:00:00.000Z'],
+        ['Asia/Tokyo', '2026-02-05T10:00:00', '2026-02-05T01:00:00.000Z'],
+    ])('scheduleDateToProjectTzISO interprets the wall clock in %s', (timezone, wallClock, expectedIso) => {
+        // Build a browser-local Dayjs regardless of the Jest host timezone.
+        const local = dayjs(wallClock)
+        expect(scheduleDateToProjectTzISO(local, timezone)).toBe(expectedIso)
+    })
+
+    it.each([
+        ['America/New_York', '2026-02-05T15:00:00.000Z', '2026-02-05 10:00'],
+        ['America/Los_Angeles', '2026-02-05T18:00:00.000Z', '2026-02-05 10:00'],
+        ['UTC', '2026-02-05T10:00:00.000Z', '2026-02-05 10:00'],
+        ['Asia/Tokyo', '2026-02-05T01:00:00.000Z', '2026-02-05 10:00'],
+    ])(
+        'scheduleDateFromStoredISO exposes the project-timezone wall clock as a local Dayjs in %s',
+        (timezone, stored, expectedWallClock) => {
+            const restored = scheduleDateFromStoredISO(stored, timezone)
+            expect(restored.format('YYYY-MM-DD HH:mm')).toBe(expectedWallClock)
+        }
+    )
+
+    it.each([['America/New_York'], ['America/Los_Angeles'], ['UTC'], ['Asia/Tokyo']])(
+        'round-trips the user-entered wall clock in %s',
+        (timezone) => {
+            const userPicked = dayjs('2026-02-05T10:30:00')
+            const iso = scheduleDateToProjectTzISO(userPicked, timezone)
+            const restored = scheduleDateFromStoredISO(iso, timezone)
+            expect(restored.format('YYYY-MM-DD HH:mm')).toBe('2026-02-05 10:30')
+        }
+    )
+
+    // end_date is persisted as end-of-day (HH:mm:ss.999) — verify sub-second precision survives the trip.
+    it.each([['America/New_York'], ['America/Los_Angeles'], ['UTC'], ['Asia/Tokyo']])(
+        'preserves millisecond precision through the round trip in %s',
+        (timezone) => {
+            const endOfDay = dayjs('2026-02-05T00:00:00').tz(timezone, true).endOf('day')
+            const iso = endOfDay.toISOString()
+            const restored = scheduleDateFromStoredISO(iso, timezone)
+            expect(restored.format('YYYY-MM-DD HH:mm:ss.SSS')).toBe('2026-02-05 23:59:59.999')
+        }
+    )
 })
 
 describe('featureFlagLogic', () => {
@@ -282,6 +321,60 @@ describe('featureFlagLogic', () => {
 
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
             expect(changes.length).toBe(0)
+        })
+    })
+
+    describe('hasUnsavedChanges selector (drives beforeUnload dialog)', () => {
+        // The beforeUnload hook reads this selector to decide whether to warn on navigation.
+        // User form edits go through kea-forms' setFeatureFlagValue / setFeatureFlagValues,
+        // which update only `featureFlag`. `originalFeatureFlag` is the baseline from server load.
+
+        it('is false after the flag loads cleanly', async () => {
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('becomes true after the name is edited via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited name')
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('becomes true after the key is edited via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('key', 'edited-key')
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('becomes true after filters change via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    groups: [{ properties: [], rollout_percentage: 42, variant: null }],
+                })
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('returns to false when the edited value is reverted to the loaded state', async () => {
+            const originalName = logic.values.featureFlag.name
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'temp-edit')
+            }).toMatchValues({ hasUnsavedChanges: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', originalName)
+            }).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('tracks changes when the whole form is replaced via setFeatureFlagValues', async () => {
+            await expectLogic(logic, () => {
+                // Form `defaults` narrow `ensure_experience_continuity` to `boolean`, but
+                // FeatureFlagType allows `boolean | null`. The runtime accepts either —
+                // the cast bridges the form-vs-entity type gap that kea-typegen surfaces.
+                logic.actions.setFeatureFlagValues({
+                    ...logic.values.featureFlag,
+                    name: 'Bulk edit',
+                } as Parameters<typeof logic.actions.setFeatureFlagValues>[0])
+            }).toMatchValues({ hasUnsavedChanges: true })
         })
     })
 

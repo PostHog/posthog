@@ -5,6 +5,7 @@ import requests
 import structlog
 from dateutil import parser
 
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.pinterest_ads.settings import (
     ANALYTICS_COLUMNS,
     ANALYTICS_ENDPOINT_PATHS,
@@ -22,14 +23,12 @@ logger = structlog.get_logger(__name__)
 
 
 def build_session(access_token: str) -> requests.Session:
-    session = requests.Session()
-    session.headers.update(
-        {
+    return make_tracked_session(
+        headers={
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json",
         }
     )
-    return session
 
 
 def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:

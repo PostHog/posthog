@@ -190,7 +190,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -201,8 +201,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('new_session',
@@ -214,14 +214,16 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.15
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('new_session',
-                                                          'middle_session',
-                                                          'old_session')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('new_session',
+                                                      'middle_session',
+                                                      'old_session')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -842,7 +844,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -852,8 +854,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session2',
@@ -864,13 +866,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.15
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('session2',
-                                                          'session1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('session2',
+                                                      'session1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -1490,7 +1494,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -1499,8 +1503,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session_with_duration')
@@ -1510,12 +1514,14 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.15
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('session_with_duration')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('session_with_duration')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -2135,7 +2141,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -2144,8 +2150,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session_many_ids')
@@ -2155,12 +2161,14 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.15
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('session_many_ids')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('session_many_ids')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -2781,7 +2789,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -2791,8 +2799,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
@@ -2803,13 +2811,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
-                                                          'at_base_time')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
+                                                      'at_base_time')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -3430,7 +3440,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -3440,8 +3450,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
@@ -3452,13 +3462,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.15
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
-                                                          'at_base_time')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
+                                                      'at_base_time')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -4079,7 +4091,7 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.13
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -4089,8 +4101,8 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.14
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time',
@@ -4101,13 +4113,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.15
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('at_base_time',
-                                                          'at_base_time_plus_20')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('at_base_time',
+                                                      'at_base_time_plus_20')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -4643,17 +4657,19 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.100
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('6',
-                                                          '5',
-                                                          '4',
-                                                          '3',
-                                                          '2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('6',
+                                                      '5',
+                                                      '4',
+                                                      '3',
+                                                      '2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -5303,7 +5319,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.113
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -5318,8 +5334,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.114
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('7',
@@ -5335,18 +5351,20 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.115
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('7',
-                                                          '6',
-                                                          '5',
-                                                          '4',
-                                                          '3',
-                                                          '2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('7',
+                                                      '6',
+                                                      '5',
+                                                      '4',
+                                                      '3',
+                                                      '2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -5998,7 +6016,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.128
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -6014,8 +6032,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.129
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('8',
@@ -6161,19 +6179,21 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.130
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('8',
-                                                          '7',
-                                                          '6',
-                                                          '5',
-                                                          '4',
-                                                          '3',
-                                                          '2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('8',
+                                                      '7',
+                                                      '6',
+                                                      '5',
+                                                      '4',
+                                                      '3',
+                                                      '2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -6835,7 +6855,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.143
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -6852,8 +6872,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.144
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('9',
@@ -6871,20 +6891,22 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.145
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('9',
-                                                          '8',
-                                                          '7',
-                                                          '6',
-                                                          '5',
-                                                          '4',
-                                                          '3',
-                                                          '2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('9',
+                                                      '8',
+                                                      '7',
+                                                      '6',
+                                                      '5',
+                                                      '4',
+                                                      '3',
+                                                      '2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -7546,7 +7568,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.158
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -7564,8 +7586,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.159
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('9',
@@ -7629,21 +7651,23 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.160
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('9',
-                                                          '8',
-                                                          '7',
-                                                          '6',
-                                                          '5',
-                                                          '4',
-                                                          '3',
-                                                          '2',
-                                                          '10',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('9',
+                                                      '8',
+                                                      '7',
+                                                      '6',
+                                                      '5',
+                                                      '4',
+                                                      '3',
+                                                      '2',
+                                                      '10',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -8037,7 +8061,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.23
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -8046,8 +8070,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.24
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('1')
@@ -8057,12 +8081,14 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.25
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -8717,7 +8743,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.38
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -8727,8 +8753,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.39
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('2',
@@ -8785,13 +8811,15 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.40
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -9445,7 +9473,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.53
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -9456,8 +9484,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.54
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('3',
@@ -9469,14 +9497,16 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.55
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('3',
-                                                          '2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('3',
+                                                      '2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -10151,7 +10181,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.68
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -10163,8 +10193,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.69
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('4',
@@ -10234,15 +10264,17 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.70
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('4',
-                                                          '3',
-                                                          '2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('4',
+                                                      '3',
+                                                      '2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -10886,7 +10918,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.83
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -10899,8 +10931,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.84
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('5',
@@ -10914,16 +10946,18 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.85
   '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id", ("ee_single_session_summary"."summary" -> 'session_outcome')
+  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
+                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
+                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
   FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."extra_summary_context" IS NULL
-         AND "ee_single_session_summary"."session_id" IN ('5',
-                                                          '4',
-                                                          '3',
-                                                          '2',
-                                                          '1')
-         AND "ee_single_session_summary"."team_id" = 99999)
-  ORDER BY "ee_single_session_summary"."session_id" ASC,
+  WHERE ("ee_single_session_summary"."session_id" IN ('5',
+                                                      '4',
+                                                      '3',
+                                                      '2',
+                                                      '1')
+         AND "ee_single_session_summary"."team_id" = 99999
+         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
+  ORDER BY 1 ASC,
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
@@ -11590,7 +11624,7 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.98
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
@@ -11604,8 +11638,8 @@
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.99
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id",
-         "posthog_user"."email"
+  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
+         "posthog_user"."email" AS "user__email"
   FROM "posthog_sessionrecordingviewed"
   INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
   WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('6',

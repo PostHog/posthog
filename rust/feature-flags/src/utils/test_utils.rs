@@ -1029,14 +1029,14 @@ pub fn flag_list_with_metadata_and_filter(
     let mut flags_with_missing_deps: Vec<i32> = flags_with_missing_deps_set.into_iter().collect();
     flags_with_missing_deps.sort();
 
-    let evaluation_metadata = EvaluationMetadata {
+    let evaluation_metadata = Arc::new(EvaluationMetadata {
         dependency_stages: stages,
         flags_with_missing_deps,
         transitive_deps,
-    };
+    });
 
     FeatureFlagList {
-        flags,
+        flags: flags.into(),
         filtered_out_flag_ids,
         evaluation_metadata,
         cohorts: None,

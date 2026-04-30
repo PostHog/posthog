@@ -1,6 +1,6 @@
 // Master CI Alerts - Cron-based rolling window alert for sustained master failures
 //
-// Polls the GitHub API every 10 minutes. Emits three independent signals:
+// Polls the GitHub API every 10 minutes. Emits two independent signals:
 //
 // 1. Per-workflow streak: alerts when any watched workflow has
 //    WORKFLOW_FAILURE_STREAK_THRESHOLD (default 5) consecutive failures on master.
@@ -12,8 +12,8 @@
 //    flakes, etc.) where no single workflow hits the per-workflow threshold
 //    but master is still consistently red.
 //
-// 3. Rate limit: alerts independently if GitHub API quota drops critically
-//    low — CI monitoring may be blind otherwise.
+// GitHub API rate-limit observability is handled by the separate
+// monitor-github-rate-limit workflow, which emits to PostHog as time series.
 //
 // State structure (persisted via GitHub Actions cache as .alerts-devex):
 // {
@@ -24,9 +24,6 @@
 //   last_failing_list: string,
 //   last_failing_detail: string,  // preserved for resolve messages
 //   resolved: boolean,
-//   rate_limit_alerted: boolean,
-//   rate_limit_slack_ts: string | null,
-//   rate_limit_slack_channel: string | null,
 //   commit_failure_streak_alerted: boolean,
 //   commit_failure_streak_slack_ts: string | null,
 //   commit_failure_streak_slack_channel: string | null,
@@ -35,21 +32,6 @@
 // }
 
 const STATE_FILE = '.alerts-devex'
-
-async function checkRateLimit(github) {
-    const { data } = await github.rest.rateLimit.get()
-    const { remaining, limit, reset } = data.resources.core
-    const thresholdPercent = parseInt(process.env.RATE_LIMIT_THRESHOLD_PERCENT || '10', 10)
-    const critical = remaining < limit * (thresholdPercent / 100)
-    return { remaining, limit, reset, critical }
-}
-
-function determineRateLimitAction(state, critical) {
-    const wasAlerted = state?.rate_limit_alerted === true
-    if (critical && !wasAlerted) return 'create'
-    if (!critical && wasAlerted) return 'resolve'
-    return 'none'
-}
 
 async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
     const { data } = await github.rest.actions.listWorkflowRuns({
@@ -281,9 +263,6 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
                 console.log('Found resolved incident, treating as no active state')
                 state = {
                     failing: {},
-                    rate_limit_alerted: raw.rate_limit_alerted ?? false,
-                    rate_limit_slack_ts: raw.rate_limit_slack_ts ?? null,
-                    rate_limit_slack_channel: raw.rate_limit_slack_channel ?? null,
                     commit_failure_streak_alerted: raw.commit_failure_streak_alerted ?? false,
                     commit_failure_streak_slack_ts: raw.commit_failure_streak_slack_ts ?? null,
                     commit_failure_streak_slack_channel: raw.commit_failure_streak_slack_channel ?? null,
@@ -297,17 +276,6 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         } catch (e) {
             console.log('Failed to parse state file, treating as fresh')
         }
-    }
-
-    // Check rate limits before polling workflows
-    let rateLimit = null
-    let rateLimitAction = 'none'
-    try {
-        rateLimit = await checkRateLimit(github)
-        console.log(`Rate limit: ${rateLimit.remaining}/${rateLimit.limit} remaining`)
-        rateLimitAction = determineRateLimitAction(state, rateLimit.critical)
-    } catch (err) {
-        console.log(`Failed to check rate limit: ${err.message}`)
     }
 
     // Fetch recent runs for each watched workflow
@@ -366,7 +334,6 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
 
     // Save when there's an action or evolving failure counts to track
     const shouldSave = action !== 'none' || Object.keys(failing).length > 0
-    const saveRateLimit = rateLimitAction !== 'none'
     const saveCommitFailureStreak = commitFailureStreakAction !== 'none' || commitFailureStreakCount > 0
 
     // Build new state
@@ -378,10 +345,6 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         last_failing_list: failingList,
         last_failing_detail: failingDetail || state?.last_failing_detail || '',
         resolved: action === 'resolve',
-        rate_limit_alerted:
-            rateLimitAction === 'create' || (state?.rate_limit_alerted === true && rateLimitAction !== 'resolve'),
-        rate_limit_slack_ts: state?.rate_limit_slack_ts || null,
-        rate_limit_slack_channel: state?.rate_limit_slack_channel || null,
         commit_failure_streak_alerted:
             commitFailureStreakAction === 'create' ||
             (state?.commit_failure_streak_alerted === true && commitFailureStreakAction !== 'resolve'),
@@ -391,13 +354,13 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         commit_failure_streak_last_sample: commitFailureStreakDetail || state?.commit_failure_streak_last_sample || '',
     }
 
-    if (shouldSave || saveRateLimit || saveCommitFailureStreak) {
+    if (shouldSave || saveCommitFailureStreak) {
         fs.writeFileSync(STATE_FILE, JSON.stringify(newState, null, 2))
     }
 
     // Set outputs
     core.setOutput('action', action)
-    core.setOutput('save_cache', shouldSave || saveRateLimit || saveCommitFailureStreak ? 'true' : 'false')
+    core.setOutput('save_cache', shouldSave || saveCommitFailureStreak ? 'true' : 'false')
     core.setOutput('delete_old_caches', action === 'create' ? 'true' : 'false')
     core.setOutput('failing_workflows', failingList)
     core.setOutput('failing_count', String(Object.keys(failing).length))
@@ -435,19 +398,6 @@ module.exports = async ({ github, context, core }, { fs: _fs, now: _now } = {}) 
         core.setOutput('slack_channel', state?.slack_channel || '')
         core.setOutput('last_failing_list', state?.last_failing_list || '')
         core.setOutput('last_failing_detail', state?.last_failing_detail || '')
-    }
-
-    // Rate limit outputs
-    core.setOutput('rate_limit_action', rateLimitAction)
-    if (rateLimit) {
-        core.setOutput('rate_limit_remaining', String(rateLimit.remaining))
-        core.setOutput('rate_limit_limit', String(rateLimit.limit))
-        const resetMins = Math.max(0, Math.round((rateLimit.reset * 1000 - now.getTime()) / 60000))
-        core.setOutput('rate_limit_reset_mins', String(resetMins))
-    }
-    if (rateLimitAction === 'resolve') {
-        core.setOutput('rate_limit_slack_ts', state?.rate_limit_slack_ts || '')
-        core.setOutput('rate_limit_slack_channel', state?.rate_limit_slack_channel || '')
     }
 
     // Commit-failure-streak outputs

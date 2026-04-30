@@ -119,6 +119,7 @@ async def prep_session_video_asset_activity(
             created_by_id=inputs.user_id,
             created_at=created_at,
             expires_after=created_at + timedelta(days=EXPIRES_AFTER_DAYS),  # Similar to recordings TTL
+            is_system=True,
         )
 
         logger.debug(

@@ -299,7 +299,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                             <div className="flex deprecated-space-x-1">
                                                 {parsedHref && (
-                                                    <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconLink />}
+                                                        to={parsedHref}
+                                                        tooltip="Open linked resource"
+                                                    />
                                                 )}
 
                                                 {isPythonNode ? (
@@ -340,6 +345,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         size="small"
                                                         icon={<IconPencil />}
                                                         active={editingNodeIds[nodeId]}
+                                                        tooltip={
+                                                            editingNodeIds[nodeId]
+                                                                ? 'Hide editor'
+                                                                : 'Show editor and settings'
+                                                        }
                                                         data-attr="notebook-node-edit-settings"
                                                     />
                                                 ) : null}
@@ -349,12 +359,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         onClick={() => setExpanded(!expanded)}
                                                         size="small"
                                                         icon={expanded ? <IconCollapse /> : <IconExpand />}
+                                                        tooltip={expanded ? 'Hide output' : 'Show output'}
                                                     />
                                                 )}
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
-                                                        <LemonButton icon={<IconEllipsis />} size="small" />
+                                                        <LemonButton
+                                                            icon={<IconEllipsis />}
+                                                            size="small"
+                                                            tooltip="More actions"
+                                                        />
                                                     </LemonMenu>
                                                 ) : null}
                                             </div>
@@ -413,6 +428,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             size="xsmall"
                                             type="secondary"
                                             icon={<IconPlus />}
+                                            tooltip="Add block"
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setSlashCommandsPopoverVisible(true)
@@ -425,6 +441,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             size="xsmall"
                                             type="secondary"
                                             icon={x.icon ?? <IconPlus />}
+                                            tooltip={x.text}
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 x.onClick()
