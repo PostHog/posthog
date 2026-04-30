@@ -206,13 +206,8 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     signals=fetch_result.signals,
                 ),
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=timedelta(seconds=10),
-                    backoff_coefficient=2.0,
-                    maximum_interval=timedelta(minutes=1),
-                ),
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
             )
             if repo_result.repository is None:
                 log.warning(
@@ -235,14 +230,9 @@ class SignalReportSummaryWorkflow:
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
                     ),
-                    start_to_close_timeout=timedelta(minutes=20),
+                    start_to_close_timeout=timedelta(hours=4),
                     heartbeat_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=3,
-                        initial_interval=timedelta(seconds=30),
-                        backoff_coefficient=2.0,
-                        maximum_interval=timedelta(minutes=2),
-                    ),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
                 )
                 decision = ReportDecision(
                     title=agentic_result.title,
