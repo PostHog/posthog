@@ -23,7 +23,7 @@ import argparse
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from xml.etree.ElementTree import Element  # type-only, parsing goes through defusedxml
+from typing import Any
 
 import defusedxml.ElementTree as ET  # XXE-safe stdlib drop-in
 from posthoganalytics import Posthog
@@ -64,7 +64,7 @@ def derive_segment_and_group(artifact_dir_name: str) -> tuple[str, str | None]:
     return "".join(p.title() for p in parts), None
 
 
-def classify_testcase(testcase: Element) -> tuple[str, int]:
+def classify_testcase(testcase: Any) -> tuple[str, int]:
     """Return (outcome, attempts) from a single `<testcase>` element.
 
     pytest-rerunfailures emits prior attempts as `<rerunFailure>` /
@@ -92,7 +92,7 @@ def to_nodeid(classname: str, name: str) -> str:
     return f"{classname.replace('.', '/')}::{name}" if classname else name
 
 
-def iter_testcases(xml_path: Path) -> Iterator[Element]:
+def iter_testcases(xml_path: Path) -> Iterator[Any]:
     """Yield `<testcase>` elements from a junit XML file. Tolerant of malformed input."""
     try:
         tree = ET.parse(xml_path)
