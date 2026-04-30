@@ -503,7 +503,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        history = api.get_snapshot_history(run.repo_id, identifier)
+        history = api.get_snapshot_history(run.repo_id, identifier, run.run_type)
         page = self.paginate_queryset(history)
         if page is not None:
             return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
