@@ -6,6 +6,7 @@
 // silent runtime drift.
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -14,10 +15,34 @@ export type ProtocolTestHarness = {
     baseUrl: URL
     /** Fetch implementation routing to the runtime under test. */
     fetch: typeof fetch
-    /** Bearer token forwarded as the `Authorization` header. Must match what the
-     * runtime's mocks expect (CF / Hono fixtures both treat any `phx_*` token
-     * as authenticated and rely on `oauth/introspect` returning active). */
+    /** Bearer token forwarded as the `Authorization` header. */
     token: string
+    /** Optional second bearer token for the concurrent-sessions isolation test.
+     * When omitted the isolation test is skipped. */
+    token2?: string | undefined
+}
+
+function buildStreamableClient(
+    harness: ProtocolTestHarness,
+    token: string = harness.token
+): { client: Client; transport: StreamableHTTPClientTransport } {
+    const transport = new StreamableHTTPClientTransport(new URL('/mcp', harness.baseUrl), {
+        fetch: harness.fetch,
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    })
+    const client = new Client(
+        { name: 'mcp-integration-test', version: '0.0.0' },
+        { capabilities: {} }
+    )
+    return { client, transport }
+}
+
+async function safeClose(client: Client | undefined): Promise<void> {
+    try {
+        await client?.close()
+    } catch {
+        // SDK Client.close throws if already closed; harmless during teardown.
+    }
 }
 
 export function defineMcpProtocolTests(
@@ -26,35 +51,16 @@ export function defineMcpProtocolTests(
 ): void {
     describe(`MCP protocol (${label})`, () => {
         let client: Client
-        let transport: StreamableHTTPClientTransport
 
         beforeEach(async () => {
             const harness = await getHarness()
-            const endpoint = new URL('/mcp', harness.baseUrl)
-
-            transport = new StreamableHTTPClientTransport(endpoint, {
-                // The SDK's default fetch is `globalThis.fetch`. Override so the
-                // CF harness can route through workerd's `SELF.fetch` and the
-                // Hono harness can hit its real local listener.
-                fetch: harness.fetch,
-                requestInit: {
-                    headers: { Authorization: `Bearer ${harness.token}` },
-                },
-            })
-
-            client = new Client(
-                { name: 'mcp-integration-test', version: '0.0.0' },
-                { capabilities: {} }
-            )
-            await client.connect(transport)
+            const built = buildStreamableClient(harness)
+            client = built.client
+            await client.connect(built.transport)
         })
 
         afterEach(async () => {
-            try {
-                await client?.close()
-            } catch {
-                // SDK Client.close throws if already closed; harmless during teardown.
-            }
+            await safeClose(client)
         })
 
         it('reports server name and version after the initialize handshake', () => {
@@ -69,7 +75,6 @@ export function defineMcpProtocolTests(
 
             const sample = tools[0]
             expect(sample.name).toBeTruthy()
-            // Every tool exposes a JSON-Schema input shape; SDK normalizes it to `inputSchema`.
             expect(sample.inputSchema).toBeTruthy()
             expect(sample.inputSchema.type).toBe('object')
         })
@@ -81,11 +86,11 @@ export function defineMcpProtocolTests(
         })
 
         // Prompts and resources are populated at runtime from context-mill's
-        // GitHub release. In `TEST=1` mode the registration is skipped so the
-        // McpServer never claims those capabilities — the SDK then surfaces a
-        // -32601 ("Method not found") rather than an empty list. We treat that
-        // as a valid outcome so the suite stays usable across both runtimes.
-        it('lists prompts (empty or unsupported under TEST=1)', async () => {
+        // GitHub release. When the fetch fails (offline, sandbox, blocked TLS)
+        // the McpServer doesn't claim those capabilities and the SDK surfaces
+        // -32601. We accept either outcome here so the suite is robust to a
+        // missing context-mill build artifact.
+        it('lists prompts (empty or unsupported)', async () => {
             try {
                 const { prompts } = await client.listPrompts()
                 expect(Array.isArray(prompts)).toBe(true)
@@ -94,7 +99,7 @@ export function defineMcpProtocolTests(
             }
         })
 
-        it('lists resources (empty or unsupported under TEST=1)', async () => {
+        it('lists resources (empty or unsupported)', async () => {
             try {
                 const { resources } = await client.listResources()
                 expect(Array.isArray(resources)).toBe(true)
@@ -108,9 +113,11 @@ export function defineMcpProtocolTests(
                 name: 'organization-get',
                 arguments: {},
             })
-            expect(result.isError).toBeFalsy()
+            if (result.isError) {
+                throw new Error(`tool returned error: ${JSON.stringify(result.content)}`)
+            }
             expect(Array.isArray(result.content)).toBe(true)
-            expect(result.content.length).toBeGreaterThan(0)
+            expect((result.content as unknown[]).length).toBeGreaterThan(0)
         })
 
         it('returns an error result for an unknown tool name', async () => {
@@ -121,6 +128,113 @@ export function defineMcpProtocolTests(
                 arguments: {},
             })
             expect(result.isError).toBe(true)
+        })
+
+        // Concurrent sessions with different bearer tokens must not see each
+        // other's state. Different tokens hash to different `userHash`es, which
+        // is what the SessionRegistry (Hono) and DurableObject naming (CF) key
+        // off — so a regression in either would let one client's tool registry,
+        // organization context, or cached responses leak into the other's view.
+        // Two-step assertion: each client (a) initializes successfully against
+        // a different token, and (b) gets its own copy of the tool list with
+        // the same canonical entries. If session lookup ever cross-pollinates
+        // by accident, both clients would fail to initialize cleanly.
+        it('isolates state between concurrent sessions on different tokens', async ({ skip }) => {
+            const harness = await getHarness()
+            if (!harness.token2) {
+                skip(
+                    'Set TEST_POSTHOG_PERSONAL_API_KEY_2 to run the concurrent-sessions isolation test.'
+                )
+                return
+            }
+
+            const a = buildStreamableClient(harness, harness.token)
+            const b = buildStreamableClient(harness, harness.token2)
+
+            try {
+                await Promise.all([a.client.connect(a.transport), b.client.connect(b.transport)])
+
+                // Both clients should resolve initialize against their own session.
+                expect(a.client.getServerVersion()?.name).toBe('PostHog')
+                expect(b.client.getServerVersion()?.name).toBe('PostHog')
+
+                const [toolsA, toolsB] = await Promise.all([
+                    a.client.listTools(),
+                    b.client.listTools(),
+                ])
+
+                // Each session got a tool list (no cross-talk that would surface as
+                // empty/missing tools on one side).
+                expect(toolsA.tools.length).toBeGreaterThan(0)
+                expect(toolsB.tools.length).toBeGreaterThan(0)
+                expect(toolsA.tools.map((t) => t.name)).toContain('organization-get')
+                expect(toolsB.tools.map((t) => t.name)).toContain('organization-get')
+            } finally {
+                await Promise.all([safeClose(a.client), safeClose(b.client)])
+            }
+        })
+    })
+}
+
+// SSE transport coverage. Same protocol moves, separate code path:
+// `SSEClientTransport` opens an EventSource for receiving and POSTs back via
+// `?sessionId=…`. Hono uses `createSSEResponseAdapter`; CF uses
+// `MCP.serveSSE('/sse')`. A regression in either is invisible to the
+// streamable-http suite.
+export function defineSseProtocolTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP protocol over SSE (${label})`, () => {
+        let client: Client
+        let transport: SSEClientTransport
+
+        beforeEach(async () => {
+            const harness = await getHarness()
+            const sseUrl = new URL('/sse', harness.baseUrl)
+            const authHeaders = { Authorization: `Bearer ${harness.token}` }
+
+            transport = new SSEClientTransport(sseUrl, {
+                // EventSource doesn't support custom headers natively; the
+                // `eventsource` package the SDK uses lets us inject them via a
+                // custom fetch on `eventSourceInit`.
+                eventSourceInit: {
+                    fetch: (url, init) =>
+                        harness.fetch(url as RequestInfo, {
+                            ...init,
+                            headers: { ...(init?.headers as Record<string, string>), ...authHeaders },
+                        }),
+                },
+                requestInit: { headers: authHeaders },
+                fetch: harness.fetch,
+            })
+            client = new Client(
+                { name: 'mcp-integration-test-sse', version: '0.0.0' },
+                { capabilities: {} }
+            )
+            await client.connect(transport)
+        })
+
+        afterEach(async () => {
+            await safeClose(client)
+        })
+
+        it('completes the initialize handshake over SSE', () => {
+            expect(client.getServerVersion()?.name).toBe('PostHog')
+        })
+
+        it('lists tools over SSE', async () => {
+            const { tools } = await client.listTools()
+            expect(tools.length).toBeGreaterThan(0)
+            expect(tools.map((t) => t.name)).toContain('organization-get')
+        })
+
+        it('calls a tool over SSE and returns content', async () => {
+            const result = await client.callTool({ name: 'organization-get', arguments: {} })
+            if (result.isError) {
+                throw new Error(`tool returned error: ${JSON.stringify(result.content)}`)
+            }
+            expect((result.content as unknown[]).length).toBeGreaterThan(0)
         })
     })
 }

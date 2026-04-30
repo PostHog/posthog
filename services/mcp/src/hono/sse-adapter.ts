@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 export function createSSEResponseAdapter(
     controller: ReadableStreamDefaultController<Uint8Array>,
     onClose: () => void
-): { transport: SSEServerTransport; start: () => Promise<void> } {
+): { transport: SSEServerTransport } {
     const encoder = new TextEncoder()
 
     const res = {
@@ -20,9 +20,9 @@ export function createSSEResponseAdapter(
         },
     } as unknown as ServerResponse
 
-    const transport = new SSEServerTransport('/sse', res)
-
-    return { transport, start: () => transport.start() }
+    // McpServer.connect() invokes transport.start() internally, so we don't
+    // expose a separate start hook — calling it twice throws "already started".
+    return { transport: new SSEServerTransport('/sse', res) }
 }
 
 export async function handleSSEPostMessage(

@@ -64,6 +64,9 @@ function handleCatchError(error: unknown, props: RequestProperties): Response {
     if (authResponse) {
         return authResponse
     }
+    if (process.env.DEBUG_MCP === '1') {
+        console.error('[MCP catch]', error)
+    }
     reportInternalError(error, props)
     return new Response('Internal server error', { status: 500 })
 }
@@ -279,16 +282,26 @@ export function createApp(redis: RedisLike & { ping?(): Promise<string> }): Hono
                     return new Response('Too many active sessions', { status: 503 })
                 }
 
-                const sessionId = uuidv4()
                 const mcpServer = await bootMcpServer(redis, props)
 
                 const stream = new ReadableStream({
                     start(controller) {
-                        const { transport, start } = createSSEResponseAdapter(controller, () => {
-                            sse.delete(sessionId)
+                        // The SSEServerTransport generates its own sessionId in its
+                        // constructor and advertises it to the client via the initial
+                        // `endpoint` event. The client then POSTs back with that id, so
+                        // the registry MUST be keyed on `transport.sessionId` — keying on
+                        // a separately generated uuid produces a 404 on every POST.
+                        let sessionId: string | undefined
+                        const { transport } = createSSEResponseAdapter(controller, () => {
+                            if (sessionId) {
+                                sse.delete(sessionId)
+                            }
                         })
+                        sessionId = transport.sessionId
                         sse.set(sessionId, { transport, server: mcpServer }, props.userHash)
-                        mcpServer.server.connect(transport).then(start)
+                        // server.connect() calls transport.start() internally, which writes
+                        // the initial `endpoint` SSE event into the stream we just opened.
+                        void mcpServer.server.connect(transport)
                     },
                 })
 
