@@ -870,7 +870,7 @@ jobs:
               # wins; LRU eviction handles cleanup. No PR-side consumer yet —
               # this just establishes the cache so the follow-up lands hot.
               if: github.event_name == 'push'
-              uses: actions/cache/save@v4
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: schema.sql.gz
                   key: posthog-schema-master-${{ github.sha }}
