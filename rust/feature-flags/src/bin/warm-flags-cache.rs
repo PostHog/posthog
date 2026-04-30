@@ -318,7 +318,9 @@ async fn warm_team(
     let result = build_flags_cache(pg_reader, team_id).await?;
 
     let json = serde_json::to_string(&result)?;
-    writer.set(&key, &json, ttl_seconds).await?;
+    // FlagDefinitionsCache keys on (team_id, etag); a missing etag forces the
+    // in-memory cache bypass on every /flags request.
+    writer.set_with_etag(&key, &json, ttl_seconds).await?;
 
     Ok(())
 }
