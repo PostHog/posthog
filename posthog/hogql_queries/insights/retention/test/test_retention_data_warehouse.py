@@ -478,6 +478,92 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_retention_data_warehouse_property_aggregation_same_table_different_events(self) -> None:
+        person_ids = self._create_people()
+        activity_table_name = self._create_data_warehouse_table(
+            filename="warehouse_property_aggregation_activity.csv",
+            table_name="warehouse_property_aggregation_activity",
+            header=["id", "person_id", "activity_type", "occurred_at", "amount"],
+            rows=[
+                [1, person_ids["user-1"], "signup", "2025-01-01 09:00:00", 0],
+                [2, person_ids["user-1"], "payment", "2025-01-01 12:00:00", 50],
+                [3, person_ids["user-1"], "payment", "2025-01-02 12:00:00", 100],
+                [4, person_ids["user-2"], "payment", "2025-01-01 08:00:00", 999],
+                [5, person_ids["user-2"], "signup", "2025-01-01 10:00:00", 0],
+                [6, person_ids["user-2"], "payment", "2025-01-01 11:00:00", 30],
+                [7, person_ids["user-3"], "signup", "2025-01-02 09:00:00", 0],
+                [8, person_ids["user-3"], "payment", "2025-01-03 13:00:00", 200],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+                "amount": "Float64",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": {
+                        "id": activity_table_name,
+                        "name": activity_table_name,
+                        "type": "data_warehouse",
+                        "table_name": activity_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "occurred_at",
+                        "properties": [
+                            {
+                                "key": "activity_type",
+                                "value": "signup",
+                                "operator": "exact",
+                                "type": "data_warehouse",
+                            }
+                        ],
+                    },
+                    "returningEntity": {
+                        "id": activity_table_name,
+                        "name": activity_table_name,
+                        "type": "data_warehouse",
+                        "table_name": activity_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "occurred_at",
+                        "properties": [
+                            {
+                                "key": "activity_type",
+                                "value": "payment",
+                                "operator": "exact",
+                                "type": "data_warehouse",
+                            }
+                        ],
+                    },
+                    "aggregationType": "sum",
+                    "aggregationProperty": "amount",
+                    "aggregationPropertyType": "data_warehouse",
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "aggregation_value"),
+            pad(
+                [
+                    [80, 100, 0, 0],
+                    [0, 200, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
     def test_retention_data_warehouse_property_aggregation_same_table_sum_and_avg(self) -> None:
         person_ids = self._create_people()
         video_watches_table_name = self._create_data_warehouse_table(
