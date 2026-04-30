@@ -1942,6 +1942,75 @@ export interface LLMSkillResolveResponseApi {
     has_more: boolean
 }
 
+/**
+ * * `llm` - LLM
+ * `hog` - Hog
+ */
+export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
+
+export const TaggerTypeEnumApi = {
+    Llm: 'llm',
+    Hog: 'hog',
+} as const
+
+export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
+
+export interface TaggerConditionApi {
+    /**
+     * Stable identifier for this condition
+     * @maxLength 100
+     */
+    id: string
+    /**
+     * Percentage of matching events to apply this condition to
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters that scope when this condition fires */
+    properties?: TaggerConditionApiPropertiesItem[]
+}
+
+/**
+ * Nested serializer for model configuration.
+ */
+export interface TaggerModelConfigurationApi {
+    provider: LLMProviderEnumApi
+    /** @maxLength 100 */
+    model: string
+    /** @nullable */
+    provider_key_id?: string | null
+    /** @nullable */
+    readonly provider_key_name: string | null
+}
+
+export interface TaggerApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration (varies by tagger_type) */
+    tagger_config: unknown
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationApi | null
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+    deleted?: boolean
+}
+
+export interface PaginatedTaggerListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaggerApi[]
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
@@ -2440,6 +2509,40 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * Exact skill version UUID to resolve.
      */
     version_id?: string
+}
+
+export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+* `name` - Name
+* `-name` - Name (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name or description
+     */
+    search?: string
 }
 
 export type DatasetItemsListParams = {

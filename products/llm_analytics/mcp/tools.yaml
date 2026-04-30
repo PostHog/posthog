@@ -530,3 +530,12 @@ tools:
     llm-skills-resolve-name-retrieve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
+    taggers-create:
+        operation: taggers_create
+        enabled: false
+    taggers-list:
+        operation: taggers_list
+        enabled: false
+    taggers-test-hog-create:
+        operation: taggers_test_hog_create
+        enabled: false
