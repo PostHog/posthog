@@ -28,6 +28,8 @@ ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 20 * 60  # 20 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 
+MAX_SUMMARY_CHARS = 500
+
 
 @dataclass
 class AnomalyInvestigationWorkflowInputs:
@@ -172,9 +174,6 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         summary=summary_for_list or "",
         notebook_short_id=notebook.short_id,
     )
-
-
-MAX_SUMMARY_CHARS = 500
 
 
 def _dispatch_gated_notification(
