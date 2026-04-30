@@ -647,11 +647,24 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     """
 
     def _is_replay_feature_enabled(self) -> bool:
-        from posthog.models.feature_flag import FeatureFlag
-
-        return FeatureFlag.objects.filter(
-            team_id=self.team_id, key="workflows-replay-blocked-runs", active=True
-        ).exists()
+        user = self.request.user
+        distinct_id = getattr(user, "distinct_id", None) or str(self.team.uuid)
+        return (
+            posthoganalytics.feature_enabled(
+                "workflows-replay-blocked-runs",
+                str(distinct_id),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team_id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team_id)},
+                },
+                send_feature_flag_events=False,
+            )
+            or False
+        )
 
     def _parse_blocked_run_message(self, message: str) -> tuple[Optional[str], Optional[str]]:
         action_match = self._ACTION_ID_PATTERN.search(message)
