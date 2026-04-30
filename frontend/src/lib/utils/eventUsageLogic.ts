@@ -1583,7 +1583,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 previous_refresh_id: previousRefresh?.refresh_id ?? null,
                 previous_refresh_age_ms: previousRefresh ? Date.now() - previousRefresh.started_at : null,
                 previous_refresh_state: previousRefresh?.state ?? null,
-                previous_refresh_triggered_by: previousRefresh?.triggered_by ?? null,
+                // Normalize to the same kebab-case convention as `triggered_by`
+                // (e.g. `auto_refresh` → `auto-refresh`) so the two fields are comparable.
+                previous_refresh_triggered_by: previousRefresh?.triggered_by.replace(/_/g, '-') ?? null,
             })
         },
         reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
