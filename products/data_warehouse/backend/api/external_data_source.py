@@ -737,6 +737,34 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+def _build_masked_webhook_inputs(source: WebhookSource, hog_function: HogFunction) -> dict[str, Any]:
+    """Return current webhook input values for UI prefill, masking any secret fields.
+
+    Mirrors the secret-masking behaviour of HogFunctionSerializer.to_representation: a
+    set secret value is reported as ``{"secret": True}`` so the frontend can render a
+    "configured" placeholder without leaking the actual value.
+    """
+    webhook_fields = source.get_source_config.webhookFields or []
+    raw_inputs = hog_function.inputs or {}
+    raw_encrypted = hog_function.encrypted_inputs or {}
+
+    result: dict[str, Any] = {}
+    for field in webhook_fields:
+        name = field.name
+        raw = raw_inputs.get(name)
+        value = raw.get("value") if isinstance(raw, dict) and "value" in raw else raw
+        encrypted_value = raw_encrypted.get(name)
+        is_secret = bool(getattr(field, "secret", False))
+
+        if is_secret:
+            if value or encrypted_value:
+                result[name] = {"secret": True}
+        elif value is not None:
+            result[name] = value
+
+    return result
+
+
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -1800,6 +1828,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if hog_function.inputs:
             schema_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
 
+        webhook_inputs = _build_masked_webhook_inputs(source, hog_function)
+
         return Response(
             status=status.HTTP_200_OK,
             data={
@@ -1814,6 +1844,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
                 "webhook_url": webhook_url,
                 "schema_mapping": schema_mapping,
+                "inputs": webhook_inputs,
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
             },
         )
@@ -1918,12 +1949,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Invalid input keys: {', '.join(invalid_keys)}"},
             )
 
-        required_fields = [f.name for f in webhook_fields if hasattr(f, "required") and f.required]
-        missing_fields = [name for name in required_fields if not inputs.get(name)]
-        if missing_fields:
+        required_fields = {f.name for f in webhook_fields if getattr(f, "required", False)}
+        blanked_required = [name for name in required_fields if name in inputs and not inputs[name]]
+        if blanked_required:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Missing required fields: {', '.join(missing_fields)}"},
+                data={"message": f"Missing required fields: {', '.join(blanked_required)}"},
             )
 
         schema_ids = list(
