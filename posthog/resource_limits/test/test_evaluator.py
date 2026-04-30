@@ -1,8 +1,7 @@
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
-
-from posthog.test.base import BaseTest
 
 from posthog.resource_limits import check_count_limit, get_limit
 from posthog.resource_limits.registry import REGISTRY, LimitDefinition
