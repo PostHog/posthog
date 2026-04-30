@@ -1078,6 +1078,45 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.20
   '''
+<<<<<<< HEAD:products/product_analytics/backend/api/test/__snapshots__/test_insight.ambr
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
+         "posthog_dashboardtile"."team_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."filters_overrides",
+         "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 99999)
+=======
+<<<<<<< HEAD
+=======
+=======
+=======
+>>>>>>> 872674fc250 (chore: gate property level access control behind billing feature)
+=======
+=======
+>>>>>>> 6e0d0345947 (test(backend): update query snapshots)
+>>>>>>> 65046548c4d (test(backend): update query snapshots)
+>>>>>>> 78484f949b3 (test(backend): update query snapshots):posthog/api/test/__snapshots__/test_insight.ambr
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1182,6 +1221,28 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.21
   '''
+<<<<<<< HEAD:products/product_analytics/backend/api/test/__snapshots__/test_insight.ambr
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> 280c551a8ea (test(backend): update query snapshots)
+=======
+=======
+>>>>>>> 65046548c4d (test(backend): update query snapshots)
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 37cfe041a0b (chore: gate property level access control behind billing feature)
+>>>>>>> 872674fc250 (chore: gate property level access control behind billing feature)
+  SELECT 1 AS "a"
+  FROM "access_control_propertyaccesscontrol"
+  WHERE ("access_control_propertyaccesscontrol"."team_id" = 99999
+         AND NOT ("access_control_propertyaccesscontrol"."property_definition_id" IS NULL))
+=======
+=======
+>>>>>>> 6e0d0345947 (test(backend): update query snapshots)
+>>>>>>> 78484f949b3 (test(backend): update query snapshots):posthog/api/test/__snapshots__/test_insight.ambr
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2193,6 +2254,70 @@
                                                       5 /* ... */))
   '''
 # ---
+<<<<<<< HEAD:products/product_analytics/backend/api/test/__snapshots__/test_insight.ambr
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+# name: TestInsight.test_listing_insights_does_not_nplus1.37
+=======
+<<<<<<< HEAD
+# name: TestInsight.test_listing_insights_does_not_nplus1.36
+=======
+# name: TestInsight.test_listing_insights_does_not_nplus1.4
+>>>>>>> 0bc79d5818c (fix: consider property restrictions when fetching query results from cache)
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."resource" = 'project'
+          AND "ee_accesscontrol"."resource_id" = '99999'
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'project'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NOT NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NOT NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.40
+>>>>>>> 202c41cfdf2 (test(backend): update query snapshots)
+=======
+>>>>>>> 78484f949b3 (test(backend): update query snapshots):posthog/api/test/__snapshots__/test_insight.ambr
 # name: TestInsight.test_listing_insights_does_not_nplus1.39
   '''
   SELECT "posthog_taggeditem"."id",
@@ -2204,6 +2329,118 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
+<<<<<<< HEAD:products/product_analytics/backend/api/test/__snapshots__/test_insight.ambr
+=======
+         "posthog_taggeditem"."ticket_id"
+  FROM "posthog_taggeditem"
+  WHERE "posthog_taggeditem"."insight_id" IN (1,
+                                              2,
+                                              3,
+                                              4,
+                                              5 /* ... */)
+  '''
+# ---
+>>>>>>> 37cfe041a0b (chore: gate property level access control behind billing feature)
+=======
+>>>>>>> 6e0d0345947 (test(backend): update query snapshots)
+# name: TestInsight.test_listing_insights_does_not_nplus1.4
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."resource" = 'project'
+          AND "ee_accesscontrol"."resource_id" = '99999'
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'project'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NOT NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" IS NOT NULL
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.40
+  '''
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> dcd50a73047 (fix: consider property restrictions when fetching query results from cache)
+>>>>>>> 37cfe041a0b (chore: gate property level access control behind billing feature)
+=======
+>>>>>>> 6e0d0345947 (test(backend): update query snapshots)
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id"
+  FROM "posthog_taggeditem"
+  WHERE "posthog_taggeditem"."insight_id" IN (1,
+                                              2,
+                                              3,
+                                              4,
+                                              5 /* ... */)
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.41
+  '''
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> 8d36f8f66fc (test(backend): update query snapshots)
+=======
+>>>>>>> b7ba996af35 (chore: gate property level access control behind billing feature)
+>>>>>>> 37cfe041a0b (chore: gate property level access control behind billing feature)
+=======
+>>>>>>> 6e0d0345947 (test(backend): update query snapshots)
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id",
+>>>>>>> 78484f949b3 (test(backend): update query snapshots):posthog/api/test/__snapshots__/test_insight.ambr
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id"
@@ -2287,7 +2524,175 @@
                                               5 /* ... */)
   '''
 # ---
+<<<<<<< HEAD:products/product_analytics/backend/api/test/__snapshots__/test_insight.ambr
 # name: TestInsight.test_listing_insights_does_not_nplus1.41
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> bf8bf0f8cac (test(backend): update query snapshots)
+<<<<<<< HEAD
+# name: TestInsight.test_listing_insights_does_not_nplus1.38
+=======
+# name: TestInsight.test_listing_insights_does_not_nplus1.41
+>>>>>>> 8d36f8f66fc (test(backend): update query snapshots)
+=======
+# name: TestInsight.test_listing_insights_does_not_nplus1.41
+>>>>>>> b7ba996af35 (chore: gate property level access control behind billing feature)
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."resource" = 'insight'
+          AND "ee_accesscontrol"."resource_id" = '99999'
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
+  '''
+# ---
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> dcd50a73047 (fix: consider property restrictions when fetching query results from cache)
+>>>>>>> 0bc79d5818c (fix: consider property restrictions when fetching query results from cache)
+# name: TestInsight.test_listing_insights_does_not_nplus1.39
+=======
+=======
+>>>>>>> 8d36f8f66fc (test(backend): update query snapshots)
+=======
+>>>>>>> b7ba996af35 (chore: gate property level access control behind billing feature)
+>>>>>>> 37cfe041a0b (chore: gate property level access control behind billing feature)
+=======
+>>>>>>> 6e0d0345947 (test(backend): update query snapshots)
+# name: TestInsight.test_listing_insights_does_not_nplus1.42
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."resource" = 'insight'
+          AND "ee_accesscontrol"."resource_id" = '99999'
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.43
+>>>>>>> 78484f949b3 (test(backend): update query snapshots):posthog/api/test/__snapshots__/test_insight.ambr
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
