@@ -162,6 +162,43 @@ def test_stop_is_idempotent(tmp_path: Path) -> None:
     assert second.returncode == 0
 
 
+def _write_oneshot_config(path: Path) -> None:
+    path.write_text(
+        """procs:
+  migrate:
+    shell: "echo migrating; exit 0"
+  web:
+    shell: "echo READY-web; sleep 60"
+    ready_pattern: "READY-web"
+"""
+    )
+
+
+@requires_phrocs
+@requires_detached_phrocs
+def test_wait_returns_ready_when_oneshot_proc_exits_zero(tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    _write_oneshot_config(config)
+    phrocs = _phrocs_bin()
+    assert phrocs is not None
+
+    subprocess.run([phrocs, "--detach", "--config", str(config)], cwd=tmp_path, check=True, timeout=10)
+    try:
+        wait = subprocess.run(
+            [phrocs, "wait", "--timeout", "10"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert wait.returncode == 0, f"wait stderr: {wait.stderr}, stdout: {wait.stdout}"
+        assert "ready" in wait.stdout
+    finally:
+        subprocess.run([phrocs, "stop"], cwd=tmp_path, capture_output=True, text=True, timeout=10)
+
+    assert _wait_for_detached_exit(tmp_path)
+
+
 @requires_phrocs
 @requires_detached_phrocs
 def test_second_instance_refused(tmp_path: Path) -> None:

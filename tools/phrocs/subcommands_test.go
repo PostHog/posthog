@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -148,5 +149,107 @@ func TestStopViaPidfile_missingGeneratedDirIsIdempotent(t *testing.T) {
 	}
 	if !strings.Contains(output, "no detached phrocs running") {
 		t.Fatalf("output: got %q, want no detached message", output)
+	}
+}
+
+// Regression: a one-shot proc that exits cleanly (status="done") must not
+// block `phrocs wait` forever. Pre-fix `classify` only treated "crashed" as
+// terminal, so a config with any one-shot setup proc would always time out.
+func TestClassify_doneCountsAsReady(t *testing.T) {
+	procs := map[string]any{
+		"migrate": map[string]any{"status": "done", "ready": false},
+		"web":     map[string]any{"status": "running", "ready": true},
+	}
+
+	verdict, crashed, notReady := classify(procs)
+
+	if verdict != "ready" {
+		t.Fatalf("verdict: got %q, want %q", verdict, "ready")
+	}
+	if len(crashed) != 0 {
+		t.Fatalf("crashed: got %v, want empty", crashed)
+	}
+	if len(notReady) != 0 {
+		t.Fatalf("notReady: got %v, want empty", notReady)
+	}
+}
+
+// runWait must surface an empty-config response as a distinct "no_procs"
+// verdict (exit 0) rather than spinning until the deadline and printing
+// "still not ready: " with an empty list.
+func TestRunWait_emptyConfigReportsNoProcs(t *testing.T) {
+	stubQuery(t, func(map[string]any, time.Duration) (map[string]any, error) {
+		return map[string]any{"ok": true, "processes": map[string]any{}}, nil
+	})
+
+	code, _ := captureStdout(t, func() int {
+		return runWait(1, true)
+	})
+
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+}
+
+// cleanIfStale must hold the pidfile flock during pidfile removal so a fresh
+// `phrocs --detach` racing in between detection and cleanup can't have its
+// pidfile clobbered. We exercise the contract: when the lock is already held
+// elsewhere, cleanIfStale returns (false, nil) and leaves the pidfile alone.
+func TestCleanIfStale_doesNotTouchLiveDetached(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(generatedDir(), 0o755); err != nil {
+		t.Fatalf("mkdir generated dir: %v", err)
+	}
+
+	holder, err := os.OpenFile(pidLockFilePath(), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock: %v", err)
+	}
+	defer func() { _ = holder.Close() }()
+	if err := syscall.Flock(int(holder.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("flock: %v", err)
+	}
+
+	if err := os.WriteFile(pidFilePath(), []byte("12345\n"), 0o644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	cleaned, err := cleanIfStale("")
+	if err != nil {
+		t.Fatalf("cleanIfStale: %v", err)
+	}
+	if cleaned {
+		t.Fatalf("cleaned: got true while lock is held; pidfile would have been clobbered")
+	}
+	if _, err := os.Stat(pidFilePath()); err != nil {
+		t.Fatalf("pidfile should still exist, stat err=%v", err)
+	}
+}
+
+func TestCleanIfStale_removesStalePidfile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(generatedDir(), 0o755); err != nil {
+		t.Fatalf("mkdir generated dir: %v", err)
+	}
+	// Create lock file but don't hold flock — simulates a previous detached
+	// that has exited (kernel released the lock on exit).
+	lf, err := os.OpenFile(pidLockFilePath(), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("create lock: %v", err)
+	}
+	_ = lf.Close()
+	if err := os.WriteFile(pidFilePath(), []byte("99999\n"), 0o644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	cleaned, err := cleanIfStale("")
+	if err != nil {
+		t.Fatalf("cleanIfStale: %v", err)
+	}
+	if !cleaned {
+		t.Fatalf("cleaned: got false, want true (lock was free)")
+	}
+	if _, err := os.Stat(pidFilePath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pidfile should be removed, stat err=%v", err)
 	}
 }

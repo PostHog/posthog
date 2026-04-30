@@ -68,7 +68,13 @@ def _run(
         click.echo(click.style(f"💥 Command not found: {display}", fg="red", bold=True), err=True)
         raise SystemExit(127 if preserve_exit_code else 1) from e
     except subprocess.CalledProcessError as e:
-        click.echo(click.style(f"💥 Command failed: {display}", fg="red", bold=True), err=True)
+        # When preserve_exit_code is set the wrapped tool defines its own non-zero
+        # exit codes as part of its public contract (e.g. `phrocs wait` returns 2
+        # for "not yet ready", 3 for "not reachable"). The tool already prints a
+        # structured message; double-narrating it as a "💥 Command failed" makes
+        # CI/script logs noisy for normal outcomes.
+        if not preserve_exit_code:
+            click.echo(click.style(f"💥 Command failed: {display}", fg="red", bold=True), err=True)
         raise SystemExit(e.returncode if preserve_exit_code else 1) from e
 
 

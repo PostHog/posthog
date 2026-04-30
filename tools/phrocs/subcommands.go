@@ -56,6 +56,13 @@ func runWait(timeoutSec int, asJSON bool) int {
 			return notReachable(asJSON, fmt.Sprintf("%v", resp["error"]))
 		}
 		procs, _ := resp["processes"].(map[string]any)
+		// Empty processes is a static state — `mgr.Procs()` returns the
+		// configured slice the moment the manager is constructed, so polling
+		// won't make procs appear. Surface it as a distinct verdict instead
+		// of a "still not ready: " timeout with an empty list.
+		if len(procs) == 0 {
+			return noProcs(asJSON)
+		}
 		verdict, crashed, notReady := classify(procs)
 		lastNotReady = notReady
 
@@ -92,6 +99,10 @@ func runWait(timeoutSec int, asJSON bool) int {
 }
 
 // classify turns a status_all response into one of three verdicts.
+//
+// "done" counts as ready: a one-shot setup proc (migrations, seed scripts) that
+// exits 0 should not block `phrocs wait` forever just because it lacks a
+// `ready_pattern`. Only `crashed` is a terminal failure.
 func classify(procs map[string]any) (verdict string, crashed []string, notReady []string) {
 	if len(procs) == 0 {
 		return "pending", nil, nil
@@ -103,6 +114,9 @@ func classify(procs map[string]any) (verdict string, crashed []string, notReady 
 		ready, _ := snap["ready"].(bool)
 		if status == "crashed" {
 			crashed = append(crashed, name)
+			continue
+		}
+		if status == "done" {
 			continue
 		}
 		if !ready {
@@ -143,6 +157,18 @@ func notReachable(asJSON bool, reason string) int {
 		fmt.Fprintf(os.Stderr, "phrocs: detached phrocs not reachable: %s\n", reason)
 	}
 	return 3
+}
+
+// noProcs reports a config with zero processes. Treated as "ready" exit-code-
+// wise (there's nothing to wait for) but with a distinct verdict so callers
+// gating on this state don't silently mask a misconfigured config file.
+func noProcs(asJSON bool) int {
+	if asJSON {
+		printJSON(map[string]any{"verdict": "no_procs"})
+	} else {
+		fmt.Fprintln(os.Stderr, "phrocs: config has no processes")
+	}
+	return 0
 }
 
 func tailLogs(name string) {
@@ -186,15 +212,18 @@ func runStop(timeoutSec int) int {
 	if qerr == nil && resp["ok"] == true {
 		// Wait for the socket to actually disappear.
 		for time.Now().Before(deadline) {
-			if _, err := net.DialTimeout("unix", sock, 100*time.Millisecond); err != nil {
+			if conn, err := net.DialTimeout("unix", sock, 100*time.Millisecond); err == nil {
+				// Probe succeeded — server still up. Close the conn immediately
+				// so we don't leak an idle handle goroutine on the server side.
+				_ = conn.Close()
+			} else {
 				// Dial failed — but a fresh detached could race in between
 				// the old process releasing the lock and us cleaning up.
-				// Confirm via the pidfile lock that nobody is holding it
-				// before we declare success and remove the pidfile.
-				// Treat lock-check errors as "still held" so a transient
-				// failure can't cause us to wipe a live process's pidfile.
-				if held, lerr := pidfileLockHeld(); lerr == nil && !held {
-					_ = os.Remove(pidFilePath())
+				// `cleanIfStale` holds the probe lock during pidfile removal
+				// so a racing detached can't have its pidfile clobbered.
+				// Lock-check errors are treated as "still held" to avoid
+				// false-positive cleanup on transient failures.
+				if cleaned, lerr := cleanIfStale(""); lerr == nil && cleaned {
 					fmt.Println("phrocs stopped")
 					return 0
 				}
@@ -203,11 +232,8 @@ func runStop(timeoutSec int) int {
 		}
 		// Deadline reached with socket still present. Before escalating,
 		// check whether the detached phrocs finished its graceful shutdown
-		// between our last dial and this check. Use the lock rather than
-		// pidfile presence so a racing fresh detached doesn't trick us.
-		if held, lerr := pidfileLockHeld(); lerr == nil && !held {
-			_ = os.Remove(pidFilePath())
-			_ = os.Remove(sock)
+		// between our last dial and this check.
+		if cleaned, lerr := cleanIfStale(sock); lerr == nil && cleaned {
 			fmt.Println("phrocs stopped")
 			return 0
 		}
@@ -221,14 +247,12 @@ func runStop(timeoutSec int) int {
 // held. If the lock can be acquired, the pidfile is stale and its PID may have
 // been reused by an unrelated process.
 func stopViaPidfile(sock string, deadline time.Time) int {
-	lockHeld, err := pidfileLockHeld()
+	cleaned, err := cleanIfStale(sock)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: pidfile lock: %v\n", err)
 		return 1
 	}
-	if !lockHeld {
-		_ = os.Remove(pidFilePath())
-		_ = os.Remove(sock)
+	if cleaned {
 		fmt.Println("no detached phrocs running")
 		return 0
 	}
@@ -273,11 +297,21 @@ func stopViaPidfile(sock string, deadline time.Time) int {
 	return 0
 }
 
-func pidfileLockHeld() (bool, error) {
+// cleanIfStale tries to acquire the pidfile flock. If it succeeds, the previous
+// detached has exited and the pidfile (plus optional socket) are stale; both
+// are removed *while the lock is still held* so a racing `phrocs --detach`
+// can't squeeze in and have its fresh pidfile clobbered.
+//
+// Returns (true, nil) when cleanup happened, (false, nil) when a live detached
+// owns the lock (nothing was touched). Errors mean "couldn't determine state";
+// callers must treat them as "still held" to avoid false-positive cleanup.
+func cleanIfStale(sock string) (bool, error) {
 	lockFile, err := os.OpenFile(pidLockFilePath(), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+			// No lock file means no detached has ever run from this CWD; the
+			// pidfile and socket can only be debris. Nothing for us to remove.
+			return true, nil
 		}
 		return false, err
 	}
@@ -285,11 +319,15 @@ func pidfileLockHeld() (bool, error) {
 
 	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err == nil {
-		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
-		return false, nil
+		// Hold the lock for the full cleanup. fd close releases it.
+		_ = os.Remove(pidFilePath())
+		if sock != "" {
+			_ = os.Remove(sock)
+		}
+		return true, nil
 	}
 	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-		return true, nil
+		return false, nil
 	}
 	return false, err
 }
