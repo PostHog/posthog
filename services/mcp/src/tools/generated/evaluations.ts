@@ -11,8 +11,49 @@ import {
     EvaluationsPartialUpdateParams,
     EvaluationsRetrieveParams,
     EvaluationsTestHogCreateBody,
+    LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
+    LlmAnalyticsModelsRetrieveQueryParams,
 } from '@/generated/evaluations/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const EvaluationConfigGetSchema = z.object({})
+
+const evaluationConfigGet = (): ToolBase<typeof EvaluationConfigGetSchema, Schemas.EvaluationConfig> => ({
+    name: 'evaluation-config-get',
+    schema: EvaluationConfigGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof EvaluationConfigGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EvaluationConfig>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/`,
+        })
+        return result
+    },
+})
+
+const EvaluationConfigSetActiveKeySchema = LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody
+
+const evaluationConfigSetActiveKey = (): ToolBase<
+    typeof EvaluationConfigSetActiveKeySchema,
+    Schemas.EvaluationConfig
+> => ({
+    name: 'evaluation-config-set-active-key',
+    schema: EvaluationConfigSetActiveKeySchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationConfigSetActiveKeySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key_id !== undefined) {
+            body['key_id'] = params.key_id
+        }
+        const result = await context.api.request<Schemas.EvaluationConfig>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/set_active_key/`,
+            body,
+        })
+        return result
+    },
+})
 
 const EvaluationCreateSchema = EvaluationsCreateBody
 
@@ -87,6 +128,25 @@ const evaluationGet = (): ToolBase<typeof EvaluationGetSchema, Schemas.Evaluatio
         const result = await context.api.request<Schemas.Evaluation>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const EvaluationJudgeModelsSchema = LlmAnalyticsModelsRetrieveQueryParams
+
+const evaluationJudgeModels = (): ToolBase<typeof EvaluationJudgeModelsSchema, Schemas.LLMModelsListResponse> => ({
+    name: 'evaluation-judge-models',
+    schema: EvaluationJudgeModelsSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationJudgeModelsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMModelsListResponse>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/models/`,
+            query: {
+                key_id: params.key_id,
+                provider: params.provider,
+            },
         })
         return result
     },
@@ -226,9 +286,12 @@ const evaluationsGet = (): ToolBase<typeof EvaluationsGetSchema, Schemas.Paginat
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'evaluation-config-get': evaluationConfigGet,
+    'evaluation-config-set-active-key': evaluationConfigSetActiveKey,
     'evaluation-create': evaluationCreate,
     'evaluation-delete': evaluationDelete,
     'evaluation-get': evaluationGet,
+    'evaluation-judge-models': evaluationJudgeModels,
     'evaluation-run': evaluationRun,
     'evaluation-test-hog': evaluationTestHog,
     'evaluation-update': evaluationUpdate,

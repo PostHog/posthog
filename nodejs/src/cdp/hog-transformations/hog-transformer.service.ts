@@ -238,7 +238,28 @@ export class HogTransformerService {
                 }
             }
 
-            const result = await this.executeHogFunction(hogFunction, globals)
+            let result: CyclotronJobInvocationResult
+            try {
+                result = await this.executeHogFunction(hogFunction, globals)
+            } catch (err) {
+                logger.error('⚠️', 'Unexpected error executing transformation', {
+                    function_id: hogFunction.id,
+                    team_id: event.team_id,
+                    error: String(err),
+                })
+                this.hogFunctionMonitoringService.queueAppMetric(
+                    {
+                        team_id: event.team_id,
+                        app_source_id: hogFunction.id,
+                        metric_kind: 'failure',
+                        metric_name: 'failed',
+                        count: 1,
+                    },
+                    'hog_function'
+                )
+                transformationsFailed.push(transformationIdentifier)
+                continue
+            }
 
             results.push(result)
 

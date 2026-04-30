@@ -20,7 +20,7 @@ use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
 use common_metrics::setup_metrics_routes_for_product;
 use common_redis::Client as RedisClient;
-use health::{readiness_handler, HealthRegistry};
+use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
@@ -39,7 +39,10 @@ use crate::{
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
-    flags::flag_group_type_mapping::GroupTypeCacheManager,
+    flags::{
+        flag_definitions_cache::FlagDefinitionsCache,
+        flag_group_type_mapping::GroupTypeCacheManager,
+    },
     metrics::{
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
@@ -74,6 +77,8 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for feature flags (flags.json)
     /// Initialized once at startup to avoid per-request AWS SDK initialization
     pub flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// In-memory cache for deserialized + regex-compiled flag definitions
+    pub flag_definitions_cache: Arc<FlagDefinitionsCache>,
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
@@ -104,11 +109,13 @@ pub fn router(
     cohort_cache: Arc<CohortCacheManager>,
     group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
-    liveness: HealthRegistry,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     flags_hypercache_reader: Arc<HyperCacheReader>,
+    flag_definitions_cache: Arc<FlagDefinitionsCache>,
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
@@ -195,6 +202,7 @@ pub fn router(
         flags_rate_limiter,
         ip_rate_limiter,
         flags_hypercache_reader,
+        flag_definitions_cache,
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
@@ -221,8 +229,20 @@ pub fn router(
     // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(move || ready(liveness.get_status())))
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get({
+                let l = liveness.clone();
+                move || ready(l.check())
+            }),
+        )
         .route(
             "/_startup",
             get(move || startup(db_pools_for_startup.clone())),

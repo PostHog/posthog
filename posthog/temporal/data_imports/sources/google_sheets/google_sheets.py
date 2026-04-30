@@ -34,6 +34,13 @@ max_attempts = 10
 jitter_in_seconds = 10
 sleep_per_attempt_in_seconds = 30
 
+# gspread raises a bare `PermissionError` (with no message) when the Google Sheets
+# API returns 403 — see gspread/client.py: `raise PermissionError from ex`.
+# `str(PermissionError())` is an empty string, which means the non-retryable error
+# matcher (substring match over `str(e)`) has nothing to match on. Re-raise with a
+# stable, descriptive message so downstream matching can identify it.
+_PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
+
 
 @cached(cache)
 def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
@@ -43,7 +50,10 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
 
     def execute():
         client = google_sheets_client()
-        spreadsheet = client.open_by_url(spreadsheet_url)
+        try:
+            spreadsheet = client.open_by_url(spreadsheet_url)
+        except PermissionError as e:
+            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
         return spreadsheet.get_worksheet_by_id(worksheet_id)
 
     attempts = 1
@@ -66,7 +76,10 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
     client = google_sheets_client()
-    spreadsheet = client.open_by_url(config.spreadsheet_url)
+    try:
+        spreadsheet = client.open_by_url(config.spreadsheet_url)
+    except PermissionError as e:
+        raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
     worksheets = spreadsheet.worksheets()
 
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]

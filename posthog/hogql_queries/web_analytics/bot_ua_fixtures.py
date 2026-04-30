@@ -56,12 +56,14 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
         "DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)",
         "Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Yeti/1.1; +https://naver.me/spd) Chrome/144.0.0.0 Safari/537.36",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
         "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
         "Mozilla/5.0 (compatible; Barkrowler/0.9; +https://babbar.tech/crawler)",
         "Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)",
+        "Mozilla/5.0 (compatible; SERankingBacklinksBot/1.0; +https://seranking.com/backlinks-crawler)",
         "Mozilla/5.0 (compatible; MJ12bot/v1.4.8; http://mj12bot.com/)",
         "Mozilla/5.0 (compatible; DotBot/1.2; +https://opensiteexplorer.org/dotbot)",
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Chrome-Lighthouse",
@@ -76,6 +78,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Slack-ImgProxy (+https://api.slack.com/robots)",
         "TelegramBot (like TwitterBot)",
         "WhatsApp/2.23.2.79 A",
+        "Mozilla/5.0 (Windows NT 5.1; rv:11.0) Gecko Firefox/11.0 (via ggpht.com GoogleImageProxy)",
+        "Iframely/1.3.1 (+https://iframely.com/docs/about)",
     ],
     "monitoring": [
         "Pingdom.com_bot_version_1.4_(http://www.pingdom.com/)",

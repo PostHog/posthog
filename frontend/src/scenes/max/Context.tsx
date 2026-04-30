@@ -351,20 +351,26 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
             <div className="flex flex-wrap items-start gap-1 w-full">
                 <ModeSelector />
                 <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
-                    <TaxonomicPopover
-                        size="xxsmall"
-                        type="tertiary"
-                        className="flex-shrink-0 border"
-                        groupType={mainTaxonomicGroupType}
-                        groupTypes={taxonomicGroupTypes}
-                        onChange={handleTaxonomicFilterChange}
-                        icon={<IconAtSign className="text-secondary" />}
-                        placeholder={!hasData && !hasToolContext ? 'Add context' : null}
-                        placeholderClass="text-secondary"
-                        maxContextOptions={contextOptions}
-                        width={450}
-                        disabledReason={contextDisabledReason}
-                    />
+                    {/* Wrapper span prevents Base UI's Tooltip.Trigger from merging
+                        props into TaxonomicPopover. Without it, mergeProps treats
+                        onChange as a DOM event handler and wraps it in a single-arg
+                        callback, dropping the groupType and item arguments. */}
+                    <span>
+                        <TaxonomicPopover
+                            size="xxsmall"
+                            type="tertiary"
+                            className="flex-shrink-0 border"
+                            groupType={mainTaxonomicGroupType}
+                            groupTypes={taxonomicGroupTypes}
+                            onChange={handleTaxonomicFilterChange}
+                            icon={<IconAtSign className="text-secondary" />}
+                            placeholder={!hasData && !hasToolContext ? 'Add context' : null}
+                            placeholderClass="text-secondary"
+                            maxContextOptions={contextOptions}
+                            width={450}
+                            disabledReason={contextDisabledReason}
+                        />
+                    </span>
                 </Tooltip>
                 <ContextToolInfoTags size={size} />
                 <ContextTags size={size} />
