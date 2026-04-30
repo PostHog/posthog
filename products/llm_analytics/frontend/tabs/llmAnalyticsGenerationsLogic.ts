@@ -15,15 +15,10 @@ export interface LLMAnalyticsGenerationsLogicProps {
     tabId?: string
 }
 
-export function getDefaultGenerationsColumns(
-    showInputOutput: boolean,
-    showSentiment: boolean = false,
-    showTools: boolean = false
-): string[] {
+export function getDefaultGenerationsColumns(showSentiment: boolean = false, showTools: boolean = false): string[] {
     return [
         'uuid',
         'properties.$ai_trace_id',
-        ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
         'person',
         ...(showSentiment ? ["'' -- Sentiment"] : []),
         "f'{properties.$ai_model}' -- Model",
@@ -51,7 +46,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
         ],
         actions: [
             llmAnalyticsSharedLogic({ tabId: props.tabId }),
-            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),
 
@@ -105,6 +100,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                 setDates: () => new Set<string>(),
                 setPropertyFilters: () => new Set<string>(),
                 setShouldFilterTestAccounts: () => new Set<string>(),
+                applyUrlState: () => new Set<string>(),
             },
         ],
 
@@ -119,6 +115,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                 setDates: () => ({}),
                 setPropertyFilters: () => ({}),
                 setShouldFilterTestAccounts: () => ({}),
+                applyUrlState: () => ({}),
             },
         ],
     }),
@@ -221,7 +218,6 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                     select:
                         effectiveGenerationsColumns ||
                         getDefaultGenerationsColumns(
-                            !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                             !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                             !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                         ),

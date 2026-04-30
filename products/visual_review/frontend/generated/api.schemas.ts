@@ -46,17 +46,91 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
+export interface QuarantinedIdentifierEntryApi {
+    created_by?: UserBasicInfoApi | null
+    id: string
+    identifier: string
+    run_type: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedQuarantinedIdentifierEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QuarantinedIdentifierEntryApi[]
+}
+
+export interface QuarantineInputApi {
+    /** @maxLength 512 */
+    identifier: string
+    /** @maxLength 255 */
+    reason: string
+    /** @nullable */
+    expires_at?: string | null
+}
+
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
+export interface SnapshotHistoryEntryApi {
+    current_artifact?: ArtifactApi | null
+    run_id: string
+    snapshot_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+    /** @nullable */
+    diff_percentage?: number | null
+    review_state?: string
+}
+
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
+}
+
 export interface RunSummaryApi {
     total: number
     changed: number
     new: number
     removed: number
     unchanged: number
+    unresolved?: number
+    tolerated_matched?: number
 }
 
 export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
+    approved_by?: UserBasicInfoApi | null
     id: string
     repo_id: string
     status: string
@@ -75,6 +149,8 @@ export interface RunApi {
     /** @nullable */
     completed_at: string | null
     is_stale?: boolean
+    /** @nullable */
+    superseded_by_id?: string | null
     metadata?: RunApiMetadata
 }
 
@@ -159,32 +235,13 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
-export interface SnapshotHistoryEntryApi {
-    run_id: string
-    result: string
-    branch: string
-    commit_sha: string
-    created_at: string
-}
-
-export interface PaginatedSnapshotHistoryEntryListApi {
-    count: number
+export interface RecomputeResultApi {
+    run: RunApi
+    counts_changed: boolean
+    unresolved: number
+    ci_rerun_triggered: boolean
     /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SnapshotHistoryEntryApi[]
-}
-
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
+    ci_rerun_error?: string | null
 }
 
 export type SnapshotApiMetadata = { [key: string]: unknown }
@@ -193,9 +250,11 @@ export interface SnapshotApi {
     current_artifact?: ArtifactApi | null
     baseline_artifact?: ArtifactApi | null
     diff_artifact?: ArtifactApi | null
+    reviewed_by?: UserBasicInfoApi | null
     id: string
     identifier: string
     result: string
+    classification_reason: string
     /** @nullable */
     diff_percentage: number | null
     /** @nullable */
@@ -204,6 +263,9 @@ export interface SnapshotApi {
     /** @nullable */
     reviewed_at: string | null
     approved_hash: string
+    /** @nullable */
+    tolerated_hash_id?: string | null
+    is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
 }
 
@@ -216,6 +278,31 @@ export interface PaginatedSnapshotListApi {
     results: SnapshotApi[]
 }
 
+export interface MarkToleratedInputApi {
+    snapshot_id: string
+}
+
+export interface ToleratedHashEntryApi {
+    id: string
+    alternate_hash: string
+    baseline_hash: string
+    reason: string
+    /** @nullable */
+    diff_percentage: number | null
+    created_at: string
+    /** @nullable */
+    source_run_id: string | null
+}
+
+export interface PaginatedToleratedHashEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ToleratedHashEntryApi[]
+}
+
 export interface ReviewStateCountsApi {
     needs_review: number
     clean: number
@@ -224,6 +311,36 @@ export interface ReviewStateCountsApi {
 }
 
 export type VisualReviewReposListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewReposQuarantineListParams = {
+    /**
+     * Filter by identifier (returns full history)
+     */
+    identifier?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by run type
+     */
+    run_type?: string
+}
+
+export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -249,11 +366,7 @@ export type VisualReviewRunsListParams = {
     review_state?: string
 }
 
-export type VisualReviewRunsSnapshotHistoryListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string
+export type VisualReviewRunsSnapshotsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -264,7 +377,11 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
     offset?: number
 }
 
-export type VisualReviewRunsSnapshotsListParams = {
+export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */

@@ -367,15 +367,15 @@ describe('logsViewerLogic', () => {
             })
         })
 
-        it('defaults prettifyJson to true', () => {
-            expect(logic.values.prettifyJson).toBe(true)
+        it('defaults prettifyJson to false', () => {
+            expect(logic.values.prettifyJson).toBe(false)
         })
 
         it('sets prettifyJson', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setPrettifyJson(false)
+                logic.actions.setPrettifyJson(true)
             }).toMatchValues({
-                prettifyJson: false,
+                prettifyJson: true,
             })
         })
     })

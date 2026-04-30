@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "base_version": {
+            "description": "Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "file_path": {
+            "pattern": "^.+$",
+            "type": "string"
+        },
+        "skill_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["file_path", "skill_name"],
+    "type": "object"
+}

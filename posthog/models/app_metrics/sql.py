@@ -1,3 +1,12 @@
+# DEPRECATED: superseded by `posthog.models.app_metrics2`. No producer writes to the
+# v1 `clickhouse_app_metrics` topic anymore (the legacy-plugin Node.js producer was
+# migrated to v2). The Django API and Python query layer that read these tables have
+# been removed. The DDL is kept here only so existing instances and tests that
+# already created the tables continue to introspect them — the underlying tables
+# have not been dropped to avoid an irreversible data deletion. Drop with a
+# follow-up ClickHouse migration once you're sure no historical reads are needed,
+# then delete this file along with KAFKA_APP_METRICS in posthog/kafka_client/topics.py
+# and CONSUMER_GROUP_APP_METRICS in posthog/clickhouse/kafka_engine.py.
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_APP_METRICS, KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme

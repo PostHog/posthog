@@ -7,52 +7,69 @@ const ciAlertsDevex = require('./ci-alerts-devex')
 const T_BASE = new Date('2026-04-09T12:00:00Z')
 const minutes = (n) => new Date(T_BASE.getTime() + n * 60000)
 
-function createMocks() {
-    const outputs = {}
-    const core = {
-        setOutput: jest.fn((key, value) => {
-            outputs[key] = value
-        }),
-    }
-    return { core, outputs }
+// Helper: array of workflow-run objects. conclusions newest-first.
+function runs(name, conclusions) {
+    return conclusions.map((conclusion, i) => ({
+        name,
+        conclusion,
+        head_sha: `sha_${name}_${i}`,
+        html_url: `https://github.com/runs/${name}/${i}`,
+        updated_at: minutes(-(i * 5)).toISOString(),
+    }))
 }
 
-function createContext() {
-    return {
-        repo: { owner: 'PostHog', repo: 'posthog' },
-    }
+// Helper: N failures followed by 5 successes.
+const failingRuns = (name, failCount) =>
+    runs(name, [...Array(failCount).fill('failure'), ...Array(5).fill('success')])
+
+const allPassing = () => ({
+    'ci-backend.yml': runs('Backend CI', ['success']),
+    'ci-frontend.yml': runs('Frontend CI', ['success']),
+})
+
+// Helper: build listCommits + listWorkflowRuns mocks aligned by SHA.
+// Each element of perCommitConclusions is a {workflowFile: conclusion} map
+// for one commit (newest first).
+function commitsWithRuns(perCommitConclusions) {
+    const commits = perCommitConclusions.map((_, i) => ({
+        sha: `commit_sha_${i}`,
+        html_url: `https://github.com/commit/commit_sha_${i}`,
+        commit: { message: `commit ${i}`, author: { name: 'dev' } },
+    }))
+    const runsByWorkflow = {}
+    perCommitConclusions.forEach((conclusionsMap, i) => {
+        for (const [wf, conclusion] of Object.entries(conclusionsMap)) {
+            if (!runsByWorkflow[wf]) runsByWorkflow[wf] = []
+            runsByWorkflow[wf].push({
+                name: wf === 'ci-backend.yml' ? 'Backend CI' : 'Frontend CI',
+                conclusion,
+                head_sha: `commit_sha_${i}`,
+                html_url: `https://github.com/runs/${wf}/${i}`,
+                updated_at: minutes(-(i * 5)).toISOString(),
+            })
+        }
+    })
+    return { commits, runsByWorkflow }
 }
 
-function createGithubMock(workflowResults) {
+function createGithubMock(workflowRuns, { commits = [] } = {}) {
     return {
         rest: {
             actions: {
-                listWorkflowRuns: jest.fn(({ workflow_id }) => {
-                    const result = workflowResults[workflow_id]
-                    if (!result) return Promise.resolve({ data: { workflow_runs: [] } })
-                    return Promise.resolve({
-                        data: {
-                            workflow_runs: [
-                                {
-                                    name: result.name,
-                                    conclusion: result.conclusion,
-                                    head_sha: result.sha || 'abc1234',
-                                    html_url: result.run_url || `https://github.com/runs/${result.name}`,
-                                    updated_at: '2026-04-09T12:00:00Z',
-                                },
-                            ],
-                        },
-                    })
-                }),
+                listWorkflowRuns: jest.fn(({ workflow_id }) =>
+                    Promise.resolve({ data: { workflow_runs: workflowRuns[workflow_id] || [] } })
+                ),
+            },
+            repos: {
+                listCommits: jest.fn(() => Promise.resolve({ data: commits })),
             },
         },
     }
 }
 
 function run(github, { state = null, now = minutes(0) } = {}) {
-    const { core, outputs } = createMocks()
-    const context = createContext()
-
+    const outputs = {}
+    const core = { setOutput: jest.fn((k, v) => (outputs[k] = v)) }
     const mockFs = {
         existsSync: jest.fn(() => state !== null),
         readFileSync: jest.fn(() => (state ? JSON.stringify(state) : '{}')),
@@ -60,12 +77,12 @@ function run(github, { state = null, now = minutes(0) } = {}) {
     }
 
     process.env.WATCHED_WORKFLOWS = 'ci-backend.yml,ci-frontend.yml'
-    process.env.ALERT_THRESHOLD_MINUTES = '30'
+    process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD = '5'
+    process.env.COMMIT_FAILURE_STREAK_THRESHOLD = '10'
+    process.env.CRITICAL_WORKFLOWS = 'ci-backend.yml'
 
-    return ciAlertsDevex({ github, context, core }, { fs: mockFs, now }).then(() => ({
+    return ciAlertsDevex({ github, context: { repo: { owner: 'PostHog', repo: 'posthog' } }, core }, { fs: mockFs, now }).then(() => ({
         outputs,
-        core,
-        mockFs,
         writtenState: mockFs.writeFileSync.mock.calls[0]
             ? JSON.parse(mockFs.writeFileSync.mock.calls[0][1])
             : null,
@@ -74,125 +91,152 @@ function run(github, { state = null, now = minutes(0) } = {}) {
 
 afterEach(() => {
     delete process.env.WATCHED_WORKFLOWS
-    delete process.env.ALERT_THRESHOLD_MINUTES
+    delete process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD
+    delete process.env.COMMIT_FAILURE_STREAK_THRESHOLD
+    delete process.env.CRITICAL_WORKFLOWS
 })
 
-const failingState = (sinceMin = 0) => ({
+const alertedState = () => ({
     failing: {
         'Backend CI': {
-            since: minutes(sinceMin).toISOString(),
-            sha: 'abc1234',
-            run_url: 'https://github.com/runs/1',
+            since: minutes(-25).toISOString(),
+            sha: 'sha_Backend CI_4',
+            run_url: 'https://github.com/runs/Backend CI/0',
+            workflow_file: 'ci-backend.yml',
+            consecutive_failures: 5,
         },
     },
-    alerted: false,
-})
-
-const alertedState = (sinceMin = 0) => ({
-    ...failingState(sinceMin),
     alerted: true,
     slack_ts: '123.456',
     slack_channel: 'C123',
     last_failing_list: 'Backend CI',
+    last_failing_detail: '*Blocking:* <https://github.com/runs/Backend CI/0|Backend CI> (5 consecutive failures)',
 })
 
 describe('ci-alerts-devex', () => {
     it('no-op when all workflows pass', async () => {
-        const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion: 'success' },
-            'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
-        })
-
-        const { outputs } = await run(github)
-
+        const { outputs, writtenState } = await run(createGithubMock(allPassing()))
         expect(outputs.action).toBe('none')
-        expect(outputs.save_cache).toBe('true')
+        expect(writtenState).toBeNull()
     })
 
-    it.each(['failure', 'timed_out'])('records %s but does not alert under threshold', async (conclusion) => {
+    it.each(['failure', 'timed_out'])('creates alert on 5 consecutive %s', async (conclusion) => {
         const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion },
-            'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
+            'ci-backend.yml': runs('Backend CI', Array(5).fill(conclusion)),
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
         })
-
         const { outputs, writtenState } = await run(github)
-
-        expect(outputs.action).toBe('none')
-        expect(outputs.save_cache).toBe('true')
-        expect(writtenState.failing['Backend CI']).toBeDefined()
-        expect(writtenState.alerted).toBe(false)
-    })
-
-    it('creates alert when failure persists past threshold', async () => {
-        const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion: 'failure' },
-            'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
-        })
-
-        const { outputs, writtenState } = await run(github, {
-            state: failingState(0),
-            now: minutes(31),
-        })
-
         expect(outputs.action).toBe('create')
-        expect(outputs.failing_workflows).toBe('Backend CI')
-        expect(outputs.failing_count).toBe('1')
-        expect(outputs.duration_mins).toBe('31')
+        expect(outputs.max_consecutive).toBe('5')
+        expect(outputs.failing_detail).toMatch(/\*Blocking:\*.*Backend CI/)
         expect(writtenState.alerted).toBe(true)
     })
 
     it('updates Slack when failing set changes after alert', async () => {
         const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion: 'failure' },
-            'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'failure' },
+            'ci-backend.yml': failingRuns('Backend CI', 5),
+            'ci-frontend.yml': failingRuns('Frontend CI', 5),
         })
-
-        const { outputs } = await run(github, { state: alertedState(0), now: minutes(35) })
-
+        const { outputs } = await run(github, { state: alertedState() })
         expect(outputs.action).toBe('update')
         expect(outputs.added_workflows).toBe('Frontend CI')
-        expect(outputs.slack_ts).toBe('123.456')
     })
 
-    it('resolves when all workflows pass after alert', async () => {
-        const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion: 'success' },
-            'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
-        })
-
-        const { outputs, writtenState } = await run(github, {
-            state: alertedState(0),
-            now: minutes(45),
-        })
-
+    it('resolves and preserves failing detail', async () => {
+        const { outputs, writtenState } = await run(createGithubMock(allPassing()), { state: alertedState() })
         expect(outputs.action).toBe('resolve')
-        expect(outputs.duration_mins).toBe('45')
+        expect(outputs.last_failing_detail).toContain('Backend CI')
         expect(writtenState.resolved).toBe(true)
     })
 
-    it('silently clears when flake self-heals before threshold', async () => {
+    it('filters cancelled and skipped runs from consecutive count', async () => {
         const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion: 'success' },
-            'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
+            'ci-backend.yml': runs('Backend CI', ['failure', 'cancelled', 'failure', 'skipped', 'failure', 'failure', 'failure', 'success']),
+            'ci-frontend.yml': runs('Frontend CI', ['success']),
         })
-
-        const { outputs } = await run(github, { state: failingState(0), now: minutes(10) })
-
-        expect(outputs.action).toBe('none')
-        expect(outputs.save_cache).toBe('true')
+        const { outputs } = await run(github)
+        expect(outputs.action).toBe('create')
+        expect(outputs.max_consecutive).toBe('5')
     })
 
-    it('resets the clock when a workflow recovers then fails again', async () => {
+    it('splits critical vs non-critical failures in detail', async () => {
         const github = createGithubMock({
-            'ci-backend.yml': { name: 'Backend CI', conclusion: 'failure' },
-            'ci-frontend.yml': { name: 'Frontend CI', conclusion: 'success' },
+            'ci-backend.yml': failingRuns('Backend CI', 5),
+            'ci-frontend.yml': failingRuns('Frontend CI', 5),
+        })
+        const { outputs } = await run(github)
+        expect(outputs.failing_detail).toMatch(/^\*Blocking:\*.*Backend CI/)
+        expect(outputs.failing_detail).toMatch(/\*Non-blocking:\*.*Frontend CI/)
+    })
+
+    describe('red commit streak', () => {
+        const greenCommits = (n) => commitsWithRuns(Array(n).fill({ 'ci-backend.yml': 'success' }))
+        const redCommits = (n) => commitsWithRuns(Array(n).fill({ 'ci-backend.yml': 'failure' }))
+
+        it('no-op below threshold, creates alert at threshold', async () => {
+            // 9 red → no alert
+            let { commits, runsByWorkflow } = redCommits(9)
+            let { outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
+            expect(outputs.commit_failure_streak_action).toBe('none')
+            expect(outputs.commit_failure_streak_count).toBe('9')
+
+            // 10 red → create, with detail listing culprit per commit
+            ;({ commits, runsByWorkflow } = redCommits(10))
+            ;({ outputs } = await run(createGithubMock(runsByWorkflow, { commits })))
+            expect(outputs.commit_failure_streak_action).toBe('create')
+            expect(outputs.commit_failure_streak_count).toBe('10')
+            expect(outputs.commit_failure_streak_detail.split('\n')).toHaveLength(10)
+            expect(outputs.commit_failure_streak_detail).toMatch(/Backend CI/)
         })
 
-        const { writtenState } = await run(github, {
-            state: { failing: {}, alerted: false },
-            now: minutes(20),
+        it('unknown commits skip, non-critical failures ignored, green breaks streak', async () => {
+            // newest 2 unknown, then 1 green, then 8 red → green breaks before threshold
+            const { commits, runsByWorkflow } = commitsWithRuns([
+                {},
+                {},
+                { 'ci-backend.yml': 'success' },
+                ...Array(8).fill({ 'ci-backend.yml': 'failure', 'ci-frontend.yml': 'failure' }),
+            ])
+            const { outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
+            expect(outputs.commit_failure_streak_count).toBe('0')
+            expect(outputs.commit_failure_streak_action).toBe('none')
         })
 
-        expect(writtenState.failing['Backend CI'].since).toBe(minutes(20).toISOString())
+        it('non-critical-only failures do not mark commits red', async () => {
+            const { commits, runsByWorkflow } = commitsWithRuns(
+                Array(10).fill({ 'ci-backend.yml': 'success', 'ci-frontend.yml': 'failure' })
+            )
+            const { outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
+            expect(outputs.commit_failure_streak_count).toBe('0')
+        })
+
+        it('updates when streak grows, resolves when drops below threshold', async () => {
+            const stateAlerted = {
+                failing: {},
+                commit_failure_streak_alerted: true,
+                commit_failure_streak_slack_ts: '999.999',
+                commit_failure_streak_slack_channel: 'Cred',
+                commit_failure_streak_last_count: 10,
+            }
+
+            // 14 red after alerted-at-10 → update
+            let { commits, runsByWorkflow } = redCommits(14)
+            let { outputs } = await run(createGithubMock(runsByWorkflow, { commits }), { state: stateAlerted })
+            expect(outputs.commit_failure_streak_action).toBe('update')
+            expect(outputs.commit_failure_streak_count).toBe('14')
+
+            // 10 red with last_count already 10 → no-op (idempotent at/over threshold, no growth)
+            ;({ commits, runsByWorkflow } = redCommits(10))
+            ;({ outputs } = await run(createGithubMock(runsByWorkflow, { commits }), { state: stateAlerted }))
+            expect(outputs.commit_failure_streak_action).toBe('none')
+            expect(outputs.commit_failure_streak_count).toBe('10')
+
+            // All green after alerted → resolve
+            ;({ commits, runsByWorkflow } = greenCommits(12))
+            let writtenState
+            ;({ outputs, writtenState } = await run(createGithubMock(runsByWorkflow, { commits }), { state: stateAlerted }))
+            expect(outputs.commit_failure_streak_action).toBe('resolve')
+            expect(writtenState.commit_failure_streak_alerted).toBe(false)
+        })
     })
 })

@@ -9,7 +9,7 @@ from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from functools import wraps
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 import pytest
 import unittest
@@ -37,6 +37,7 @@ from posthog.hogql import (
     ast,
     query as hogql_query_module,
 )
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clone_expr
@@ -74,8 +75,10 @@ from posthog.clickhouse.query_log_archive import (
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Action, Insight, Organization, Team, User
+from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -201,8 +204,11 @@ from products.event_definitions.backend.models.property_definition import (
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
 
-# Make sure freezegun ignores our utils class that times functions
-freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
+# Make sure freezegun ignores our utils class that times functions, and heavy optional
+# deps (e.g. transformers) that can break when freezegun walks sys.modules.
+cast(Any, freezegun).configure(
+    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
+)
 
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
@@ -210,6 +216,13 @@ persons_ordering_int: int = 0
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
+
+
+def _get_calling_frame_locals() -> dict[str, Any]:
+    frame = inspect.currentframe()
+    if frame is None or frame.f_back is None:
+        raise RuntimeError("Expected a calling frame")
+    return frame.f_back.f_locals
 
 
 def clean_varying_query_parts(query, replace_all_numbers):
@@ -632,13 +645,15 @@ class PostHogTestCase(SimpleTestCase):
     databases = {"default", "persons_db_writer", "persons_db_reader"}
 
     # Test data definition stubs
-    organization: Organization = None
-    project: Project = None
-    team: Team = None
-    user: User = None
-    organization_membership: OrganizationMembership = None
+    organization: Organization = cast(Organization, None)
+    project: Project = cast(Project, None)
+    team: Team = cast(Team, None)
+    user: User = cast(User, None)
+    organization_membership: OrganizationMembership = cast(OrganizationMembership, None)
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
+        if self.organization is None:
+            raise ValueError("Test organization must be set before creating a user")
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
 
     @classmethod
@@ -652,7 +667,7 @@ class PostHogTestCase(SimpleTestCase):
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_actor_on_events = True
+            util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
@@ -779,6 +794,7 @@ class MemoryLeakTestMixin:
     """How many times to run every test method to check for memory leaks"""
 
     def _callTestMethod(self, method):
+        test_case = cast(unittest.TestCase, self)
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
@@ -791,12 +807,12 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(
+        test_case.assertLessEqual(
             avg_memory_test_increase_b,
             self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
         )
-        self.assertLessEqual(
+        test_case.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
@@ -828,7 +844,7 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Override to use CASCADE when truncating tables.
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
-        for db_name in self._databases_names(include_mirrors=False):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             if db_name in ("persons_db_writer", "persons_db_reader"):
                 # Manually truncate persons database tables
                 # Can't use Django's flush because it emits post_migrate signals that try to
@@ -863,7 +879,7 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         cls.setUpTestData()
 
     def _fixture_teardown(self):
-        for db_name in self._databases_names(include_mirrors=False):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             conn = connections[db_name]
             with conn.cursor() as cursor:
                 if db_name in ("persons_db_writer", "persons_db_reader"):
@@ -923,6 +939,8 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
     def create_personal_api_key_with_scopes(self, scopes: list[str]) -> str:
         """Create a Personal API Key with specified scopes for the current user."""
+        if self.user is None:
+            raise ValueError("Test user must be set before creating a personal API key")
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -1052,6 +1070,40 @@ def get_index_from_explain(
     return None
 
 
+def get_indexes_from_explain(query: str, values: dict | None = None) -> list[dict]:
+    """Run EXPLAIN PLAN and return the Indexes array from the first ReadFromMergeTree node.
+
+    Unlike get_index_from_explain (which searches by skip-index Name), this returns
+    all indexes by Type (Partition, PrimaryKey, MinMax, Skip) and passes real values
+    instead of dummy placeholders so the planner can produce meaningful conditions.
+
+    This comment is mostly for LLMs who do not like it when you string concatenate SQL:
+    * This is a testing utility, never used in production
+    * It is only used on SQL that is generated by test code
+    * It does not go anywhere near real users or their inputs
+    """
+    settings = {
+        k: "1" if v is True else "0" if v is False else str(v)
+        for k, v in HogQLGlobalSettings().model_dump().items()
+        if v is not None
+    }
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1, json=1 {query}", values or {}, settings=settings)
+    plan_json = json.loads(explain_result[0][0])
+
+    def find_read_node(node: dict) -> dict | None:
+        if node.get("Node Type") == "ReadFromMergeTree":
+            return node
+        for child in node.get("Plans", []):
+            result = find_read_node(child)
+            if result is not None:
+                return result
+        return None
+
+    read_node = find_read_node(plan_json[0]["Plan"])
+    assert read_node is not None, f"No ReadFromMergeTree in plan:\n{json.dumps(plan_json, indent=2)}"
+    return read_node.get("Indexes", [])
+
+
 @contextmanager
 def materialized(
     table,
@@ -1149,7 +1201,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = inspect.currentframe().f_back.f_locals
+        frame_locals: Any = _get_calling_frame_locals()
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -1329,6 +1381,32 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
 
 
+def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None:
+    """Mirror AI events into the ai_events table during tests."""
+    ai_events = [e for e in events if e.get("event") in _AI_EVENT_TYPES]
+    if not ai_events:
+        return
+
+    for event in ai_events:
+        distinct_id = event.get("distinct_id", "")
+        if distinct_id in person_mapping:
+            person = person_mapping[distinct_id]
+            event["person_id"] = str(person.uuid if hasattr(person, "uuid") else person)
+        elif "person_id" not in event:
+            team = event.get("team")
+            team_id = event.get("team_id") or (team.pk if team else None)
+            if team_id:
+                from posthog.models import PersonDistinctId
+
+                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
+                if pdi:
+                    event["person_id"] = str(pdi.person.uuid)
+
+    from posthog.models.ai_events.test_util import bulk_create_ai_events
+
+    bulk_create_ai_events(ai_events)
+
+
 def flush_persons_and_events():
     """
     Flush any created persons and events to Clickhouse
@@ -1347,6 +1425,7 @@ def flush_persons_and_events():
         persons_cache_tests.clear()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
+        _flush_ai_events(events_cache_tests, person_mapping)
         events_cache_tests.clear()
 
 
@@ -1570,6 +1649,7 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+            TRUNCATE_AI_EVENTS_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1859,7 +1939,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals
+    frame_locals: Any = _get_calling_frame_locals()
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -1872,7 +1952,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals
+    frame_locals: Any = _get_calling_frame_locals()
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn

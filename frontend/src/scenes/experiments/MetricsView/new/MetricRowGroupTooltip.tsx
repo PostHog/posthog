@@ -1,3 +1,5 @@
+import { IconCursorClick } from '@posthog/icons'
+
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
@@ -16,7 +18,11 @@ import {
     isWinning,
 } from '../shared/utils'
 
-export const renderTooltipContent = (variantResult: ExperimentVariantResult, metric: ExperimentMetric): JSX.Element => {
+export const renderTooltipContent = (
+    variantResult: ExperimentVariantResult,
+    metric: ExperimentMetric,
+    timeseriesEnabled?: boolean
+): JSX.Element => {
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
     const significant = isSignificant(variantResult)
@@ -75,6 +81,13 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
                 <span className="text-muted-alt font-semibold">{intervalLabel}:</span>
                 <span className="font-semibold">{intervalPercent}</span>
             </div>
+
+            {timeseriesEnabled && (
+                <div className="text-muted-alt text-xs mt-1 text-center flex items-center justify-center gap-1">
+                    <IconCursorClick className="text-sm" />
+                    Click to view timeseries
+                </div>
+            )}
         </div>
     )
 }

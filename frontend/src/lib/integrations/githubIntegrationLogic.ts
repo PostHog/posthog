@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
 
 import api from 'lib/api'
 
@@ -69,7 +69,10 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
                 })
                 await breakpoint()
                 actions.loadRepositoriesPageSuccess(response.repositories, response.has_more)
-            } catch {
+            } catch (e: any) {
+                if (isBreakpoint(e)) {
+                    throw e
+                }
                 actions.loadRepositoriesPageFailure()
             }
         },

@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -521,7 +521,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_last_login_method"].value, "password")
         self.assertEqual(response.cookies["ph_last_login_method"]["max-age"], 31536000)
 
-        response = self.client.get("/logout")
+        response = self.client.post("/logout/")
 
         # Check that the local cookies will be removed by having 'expires' in the past
         self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
@@ -558,7 +558,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def get_csrf_token_payload(self):
@@ -690,7 +690,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             self.login_as_other_user()
 
             # Explicit logout via the main logout endpoint
-            res = self.client.get("/logout")
+            res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
 
@@ -719,7 +719,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_other_user(self):
@@ -771,32 +771,21 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
         assert response.status_code == 200
 
-    def test_read_only_impersonation_allows_query_endpoint(self):
-        """Verify read-only impersonation allows POST to query endpoint."""
-        self.login_as_other_user_read_only()
-
-        # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
-
-        # POST to query endpoint - the query itself may fail but we shouldn't get blocked by the middleware
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            data={"query": {"kind": "EventsQuery", "select": ["event"]}},
-            content_type="application/json",
-        )
-
-        # Should not be blocked by impersonation middleware (might get other errors)
-        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
-
-    def test_read_only_impersonation_allows_query_kind_endpoint(self):
-        """POST to /query/<kind>/ must be allowlisted (same as /query/), not blocked as non-idempotent."""
+    @parameterized.expand(
+        [
+            ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
+            ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
+        ]
+    )
+    def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
         self.login_as_other_user_read_only()
 
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/query/HogQLQuery/",
-            data={"query": {"kind": "HogQLQuery", "query": "select 1"}},
+            f"/api/projects/{self.team.id}/{path_suffix}",
+            data=body,
             content_type="application/json",
         )
 
@@ -844,15 +833,16 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
-    def test_read_only_impersonation_logout_redirects_to_user_admin(self):
-        """Verify explicit logout from read-only impersonation redirects to user's admin page."""
+    @parameterized.expand([("with_trailing_slash", "/logout/"), ("without_trailing_slash", "/logout")])
+    def test_read_only_impersonation_logout_redirects_to_user_admin(self, _name, logout_path):
         self.login_as_other_user_read_only()
 
         # Verify we're logged in as the other user
         assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
 
-        # Explicit logout via main logout endpoint
-        response = self.client.get("/logout")
+        # Explicit logout via main logout endpoint — frontend submits to /logout (no slash),
+        # while server-side tooling and tests sometimes use /logout/. Both must work.
+        response = self.client.post(logout_path)
 
         assert response.status_code == 302
         assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
@@ -896,6 +886,141 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+# Bypass ManifestStaticFilesStorage so admin templates render in tests without a manifest.
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestAdminImpersonationMiddleware(APIBaseTest):
+    """Tests AdminImpersonationMiddleware: admin panel must remain accessible to the
+    original staff user during impersonation, even though `request.user` would
+    normally be the (non-staff) impersonated customer."""
+
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        # Use Django's standard Client because the loginas admin view expects
+        # form-encoded POST data (APIClient defaults to JSON).
+        self.client = cast(Any, DjangoClient())
+        self.client.force_login(self.user)
+
+    def login_as_other_user(self):
+        # Don't `follow=True` — the post-loginas redirect lands on `/` which renders
+        # the frontend's index.html (not present in tests).
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Test impersonation"},
+        )
+
+    def test_admin_index_accessible_during_impersonation(self):
+        """The admin index must respond 200, not redirect to /admin/login/, during impersonation."""
+        self.login_as_other_user()
+
+        # API confirms we're impersonating
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+        # Banner should be rendered with the impersonated user
+        assert b"other-user@posthog.com" in response.content
+
+    def test_admin_index_redirects_when_no_impersonation_and_not_staff(self):
+        """Sanity check: a non-staff user without impersonation still cannot access /admin/."""
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.get("/admin/")
+        # Django redirects to /admin/login/ for unauthorized requests
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    def test_non_admin_paths_still_use_impersonated_user(self):
+        """Outside of /admin/, the impersonated user must remain in effect."""
+        self.login_as_other_user()
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["email"] == "other-user@posthog.com"
+
+    def test_admin_logout_still_sees_impersonated_user(self):
+        """/admin/logout/ must keep the impersonated user as request.user so it can
+        redirect back to that user's admin change page."""
+        self.login_as_other_user()
+
+        response = self.client.get("/admin/logout/")
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+    def test_admin_unaffected_when_not_impersonating(self):
+        """Regular staff users without an impersonation session still access admin normally."""
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+
+    def login_as_other_user_read_only(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Test read-only impersonation"},
+        )
+
+    @patch("posthog.views.get_client")
+    def test_admin_writes_allowed_during_read_only_impersonation(self, mock_get_client: MagicMock):
+        """Admin POST/PATCH/DELETE actions must not be blocked by the read-only
+        impersonation middleware — admin runs as the original staff user."""
+        mock_redis = MagicMock()
+        mock_redis.ttl.return_value = -1
+        mock_get_client.return_value = mock_redis
+
+        self.login_as_other_user_read_only()
+
+        # POST to /admin/redis/edit-ttl — a function-based admin view registered directly
+        # in the URLconf (not lazy-loaded), so it's reachable in tests. A successful POST
+        # redirects (302) to the redis values list.
+        response = self.client.post(
+            "/admin/redis/edit-ttl",
+            data={"key": "test:key", "ttl_seconds": "60"},
+        )
+
+        # Endpoint must be reached (would-be 404 means the test isn't proving anything).
+        assert response.status_code != 404, "admin URL not registered in test environment"
+        # Middleware must not return its read-only 403.
+        assert response.status_code != 403, f"unexpected 403: {response.content!r}"
+        # Sanity check the write actually happened.
+        mock_redis.expire.assert_called_once_with("test:key", 60)
+
+    def test_api_writes_still_blocked_during_read_only_impersonation(self):
+        """Non-admin write requests must still be blocked under read-only impersonation."""
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        self.login_as_other_user_read_only()
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/")
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_read_only"
+
+    def test_admin_blocked_when_original_user_loses_staff(self):
+        """If the original (impersonator) user is no longer staff, admin access is denied."""
+        self.login_as_other_user()
+
+        # Demote the original user mid-session.
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.get("/admin/")
+        # No swap happens (original isn't staff anymore) → impersonated non-staff user blocked
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
 class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
     other_user: User
 
@@ -910,7 +1035,7 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         # Use Django's standard Client instead of APIClient for these tests.
         # The loginas admin view expects form-encoded POST data, which is
         # Django Client's default (APIClient defaults to JSON).
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_other_user(self):
@@ -1030,7 +1155,7 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def test_impersonation_rejected_without_reason(self):
@@ -1089,7 +1214,7 @@ class TestUpgradeImpersonation(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()  # type: ignore[assignment]
+        self.client = cast(Any, DjangoClient())
         self.client.force_login(self.user)
 
     def login_as_read_only(self):
@@ -1363,7 +1488,7 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         self.organization.is_active = False
         self.organization.save()
 
-        response = self.client.get("/logout")
+        response = self.client.post("/logout/")
         # Logout may redirect (302 is normal), but should not redirect to organization-deactivated
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertNotIn("organization-deactivated", response.headers.get("Location", ""))
@@ -1378,6 +1503,68 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get("/dashboard")
         # Should redirect to login or show appropriate response
         self.assertIn(response.status_code, [status.HTTP_302_FOUND, status.HTTP_200_OK])
+
+    @parameterized.expand(
+        [
+            ("/dashboard", status.HTTP_302_FOUND, "/organization-pending-deletion"),
+            ("/some-page", status.HTTP_302_FOUND, "/organization-pending-deletion"),
+            ("/organization-pending-deletion", status.HTTP_200_OK, None),
+            ("/api/users/@me/", status.HTTP_200_OK, None),
+        ]
+    )
+    def test_pending_deletion_routing(self, path, expected_status, expected_location):
+        self.organization.is_pending_deletion = True
+        self.organization.save()
+
+        response = self.client.get(path)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_location:
+            self.assertEqual(response.headers["Location"], expected_location)
+
+
+class TestActivityLoggingMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        from django.test import RequestFactory
+
+        from posthog.middleware import ActivityLoggingMiddleware
+        from posthog.models.activity_logging.utils import activity_storage
+
+        self.activity_storage = activity_storage
+        self.factory = RequestFactory()
+        self.captured: dict[str, Any] = {}
+
+        def get_response(request):
+            self.captured["client"] = activity_storage.get_client()
+            self.captured["user"] = activity_storage.get_user()
+            from django.http import HttpResponse
+
+            return HttpResponse()
+
+        self.middleware = ActivityLoggingMiddleware(get_response)
+
+    def test_captures_x_posthog_client_header(self):
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["client"], "posthog-js/1.234.0")
+        # Storage is cleared after the request finishes
+        self.assertIsNone(self.activity_storage.get_client())
+
+    def test_missing_header_leaves_client_unset(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["client"])
+
+    def test_long_header_value_is_truncated(self):
+        from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH
+
+        long_value = "x" * (ACTIVITY_LOG_CLIENT_MAX_LENGTH * 4)
+        request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT=long_value)
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
 
 
 class TestCSPMiddleware(APIBaseTest):

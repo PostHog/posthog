@@ -186,10 +186,10 @@ function PlayerWrapper({
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
 
     const onPlayNextRecording = useCallback(() => {
-        if (nextSessionRecording?.id) {
+        if (nextSessionRecording?.id && !isFiltersExpanded) {
             setSelectedRecordingId(nextSessionRecording.id)
         }
-    }, [nextSessionRecording, setSelectedRecordingId])
+    }, [nextSessionRecording, setSelectedRecordingId, isFiltersExpanded])
 
     return (
         <div

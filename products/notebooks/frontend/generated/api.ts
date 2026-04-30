@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookCollabSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -159,16 +160,55 @@ export const notebooksDestroy = async (projectId: string, shortId: string, optio
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const getNotebooksActivityRetrieve2Url = (projectId: string, shortId: string) => {
+export const getNotebooksActivityRetrieveUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/activity/`
 }
 
-export const notebooksActivityRetrieve2 = async (
+export const notebooksActivityRetrieve = async (
     projectId: string,
     shortId: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getNotebooksActivityRetrieve2Url(projectId, shortId), {
+    return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const getNotebooksCollabSaveCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/save/`
+}
+
+export const notebooksCollabSaveCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookCollabSaveApi: NotebookCollabSaveApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabSaveCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookCollabSaveApi),
+    })
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const getNotebooksCollabStreamRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/stream/`
+}
+
+export const notebooksCollabStreamRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabStreamRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
     })
@@ -360,12 +400,12 @@ export const notebooksKernelStopCreate = async (
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const getNotebooksActivityRetrieveUrl = (projectId: string) => {
+export const getNotebooksAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notebooks/activity/`
 }
 
-export const notebooksActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId), {
+export const notebooksAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getNotebooksAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

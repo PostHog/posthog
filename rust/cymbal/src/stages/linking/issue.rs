@@ -121,6 +121,7 @@ async fn resolve_issue(
             )
             .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+            drop(conn);
             context
                 .signal_client
                 .emit_issue_reopened(&issue, &output_props);
@@ -162,6 +163,7 @@ async fn resolve_issue(
     let mut issue = issue;
     if !was_created {
         txn.rollback().await?;
+
         // Replace the attempt issue with the existing one
         let mut fingerprint_first_seen = None;
         if let Some(result) = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await? {
@@ -184,6 +186,9 @@ async fn resolve_issue(
                 first_seen_for_state,
             )
             .await?;
+
+            drop(conn);
+
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
             context
                 .signal_client
@@ -206,12 +211,17 @@ async fn resolve_issue(
             event_timestamp,
         )
         .await?;
+
+        txn.commit().await?;
+        drop(conn);
+
         context
             .signal_client
             .emit_issue_created(&issue, &output_props);
+
         send_issue_created_alert(context, &issue, assignment, output_props, &event_timestamp)
             .await?;
-        txn.commit().await?;
+
         capture_issue_created(
             team_id,
             issue_override.issue_id,

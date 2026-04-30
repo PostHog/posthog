@@ -288,7 +288,7 @@ def safe_clickhouse_string(s: str, with_counter=True) -> str:
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
-        UUID(key)
+        UUID(str(key))
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
@@ -303,6 +303,20 @@ INSIGHT_KINDS = {
     "StickinessQuery",
     "LifecycleQuery",
 }
+
+# Queries that should be granted an extended ClickHouse timeout via LimitContext.QUERY_ASYNC.
+# Superset of INSIGHT_KINDS — includes expensive non-insight queries like TracesQuery
+# whose two-phase GROUP BY over the events table can exceed the default 60s limit.
+# Experiment queries are also here: they run synchronously in the web request but can be
+# expensive enough to need the longer timeout.
+ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
+    "TracesQuery",
+    "ExperimentQuery",
+    "ExperimentTrendsQuery",
+    "ExperimentFunnelsQuery",
+    "ExperimentExposureQuery",
+}
+_EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
@@ -325,6 +339,33 @@ def is_insight_query(query: dict) -> bool:
             return True
     if kind == "DataVisualizationNode":
         if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+    if kind == "InsightVizNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+
+    return False
+
+
+def is_async_query(query: dict) -> bool:
+    """Check if a query should be granted the extended ClickHouse timeout (LimitContext.QUERY_ASYNC).
+
+    Name is historical: originally these queries all ran via the async/Celery path, but membership
+    now just signals "expensive, needs the longer timeout" regardless of whether execution is sync
+    or async. Superset of is_insight_query — also covers expensive non-insight queries like traces
+    and experiments.
+    """
+    if is_insight_query(query):
+        return True
+
+    kind = query.get("kind")
+    source = query.get("source")
+
+    if kind in _EXTRA_ASYNC_KINDS:
+        return True
+    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+        source_kind = source.get("kind") if source and isinstance(source, dict) else getattr(source, "kind", None)
+        if source_kind in _EXTRA_ASYNC_KINDS:
             return True
 
     return False
@@ -387,13 +428,17 @@ def raise_if_connected_to_private_ip(conn):
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        validate_conn = getattr(super(), "_validate_conn", None)
+        if validate_conn is not None:
+            validate_conn(conn)
 
 
 class PublicIPOnlyHttpAdapter(HTTPAdapter):

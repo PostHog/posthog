@@ -43,3 +43,9 @@ export const tokenOrTeamPresentCounter = new Counter({
     help: 'Count of events by presence of the team_id and token field.',
     labelNames: ['team_id_present', 'token_present'],
 })
+
+export const droppedBloatPropertyCounter = new Counter({
+    name: 'ingestion_dropped_bloat_property_total',
+    help: 'Count of deprecated posthog-js persistence-cache properties stripped from event payloads before ClickHouse write (see strip-bloat-properties.ts BLOAT_PROPERTIES).',
+    labelNames: ['property'],
+})

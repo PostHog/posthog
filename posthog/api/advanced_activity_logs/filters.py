@@ -19,6 +19,7 @@ class AdvancedActivityLogFilterManager:
         queryset = self._apply_was_impersonated_filter(queryset, filters)
         queryset = self._apply_is_system_filter(queryset, filters)
         queryset = self._apply_item_ids_filter(queryset, filters)
+        queryset = self._apply_clients_filter(queryset, filters)
         return queryset
 
     def _apply_date_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
@@ -180,6 +181,11 @@ class AdvancedActivityLogFilterManager:
     def _apply_item_ids_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
         if filters.get("item_ids"):
             queryset = queryset.filter(item_id__in=filters["item_ids"])
+        return queryset
+
+    def _apply_clients_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
+        if filters.get("clients"):
+            queryset = queryset.filter(client__in=filters["clients"])
         return queryset
 
     def _get_type_variants(self, value: Any) -> list[Any]:

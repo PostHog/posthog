@@ -6,6 +6,12 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
+# Profile guidance:
+#   New optional services should declare `profiles:` directly on the service
+#   here (see capture, plugins, ingestion-* for examples).
+#   docker-compose.profiles.yml is a legacy overlay that retroactively gates
+#   older services; do not add new entries there.
+#
 
 services:
     proxy:
@@ -24,7 +30,12 @@ services:
             - 'hypercache-server:host-gateway'
         environment:
             CADDYFILE: |
-                http://localhost:8000 {
+                {
+                    servers {
+                        trusted_proxies static ${CADDY_TRUSTED_PROXIES:-127.0.0.1/32 ::1/128}
+                    }
+                }
+                ${CADDY_HOST:-http://localhost:8000} {
                     @replay-capture {
                         path /s
                         path /s/*
@@ -375,6 +386,12 @@ services:
             file: docker-compose.base.yml
             service: clickhouse
         hostname: clickhouse
+        # ClickHouse writes ~1 GB/hour in dev and json-file driver has no default rotation
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
         # Development performance optimizations
         mem_limit: 8g
         cpus: 2
@@ -483,6 +500,32 @@ services:
             service: elasticsearch
         expose:
             - 9200
+
+    # OpenSearch (LLM trace reverse index). 9201 to avoid Elasticsearch's 9200.
+    opensearch:
+        extends:
+            file: docker-compose.base.yml
+            service: opensearch
+        ports:
+            - '127.0.0.1:9201:9200'
+        profiles: [opensearch]
+    opensearch-dashboards:
+        extends:
+            file: docker-compose.base.yml
+            service: opensearch-dashboards
+        ports:
+            - '127.0.0.1:5601:5601'
+        profiles: [opensearch]
+    opensearch-init:
+        image: curlimages/curl:8.10.1
+        depends_on:
+            opensearch:
+                condition: service_healthy
+        restart: 'no'
+        volumes:
+            - ./products/llm_analytics/opensearch:/work:ro
+        entrypoint: ['sh', '/work/init.sh']
+        profiles: [opensearch]
 
     temporal:
         extends:

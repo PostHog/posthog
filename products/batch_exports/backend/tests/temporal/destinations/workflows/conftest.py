@@ -66,15 +66,25 @@ class Handler:
 
     If ``hog_function_error`` is True, the handler will return HTTP 200 but with
     ``status: "error"`` in the JSON body, simulating a hog function execution failure.
+
+    If ``hog_function_error_count`` is set, the handler returns the hog function error
+    body for the first N successful (2xx) requests and a success body afterwards.
     """
 
-    def __init__(self, error: int | None = None, hog_function_error: bool = False):
+    def __init__(
+        self,
+        error: int | None = None,
+        hog_function_error: bool = False,
+        hog_function_error_count: int | None = None,
+    ):
         self.data: list[RequestData] = []
 
         self.error_data: list[RequestData] = []
         self.error = error
         self.has_errored_once = False
         self.hog_function_error = hog_function_error
+        self.hog_function_error_count = hog_function_error_count
+        self.hog_function_errors_returned = 0
 
     def __call__(self, request):
         return self.handle(request)
@@ -103,8 +113,15 @@ class Handler:
             return aiohttp.web.Response(status=self.error, text="error")
 
         self.data.append(RequestData(team_id, hog_function_id, body))
-        if self.hog_function_error:
-            return aiohttp.web.json_response({"status": "error", "errors": ["hog function failed"], "logs": []})
+        should_error = self.hog_function_error
+        if (
+            self.hog_function_error_count is not None
+            and self.hog_function_errors_returned < self.hog_function_error_count
+        ):
+            should_error = True
+        if should_error:
+            self.hog_function_errors_returned += 1
+            return aiohttp.web.json_response({"status": "error", "errors": ["Hog Function failed"], "logs": []})
         return aiohttp.web.json_response({"status": "success", "errors": [], "logs": []})
 
 
@@ -127,8 +144,21 @@ def hog_function_error(request) -> bool:
 
 
 @pytest.fixture
-def handler(error, hog_function_error):
-    return Handler(error=error, hog_function_error=hog_function_error)
+def hog_function_error_count(request) -> int | None:
+    """Parameterize to return hog function errors for the first N successful requests."""
+    try:
+        return request.param
+    except AttributeError:
+        return None
+
+
+@pytest.fixture
+def handler(error, hog_function_error, hog_function_error_count):
+    return Handler(
+        error=error,
+        hog_function_error=hog_function_error,
+        hog_function_error_count=hog_function_error_count,
+    )
 
 
 @pytest_asyncio.fixture

@@ -6,6 +6,8 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { buildIntegerMatcher } from '../../../config/config'
 import { HealthCheckResultError, ValueMatcher } from '../../../types'
 import { logger } from '../../../utils/logger'
@@ -78,6 +80,24 @@ export class CyclotronJobQueue {
 
         if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
             this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.consumerBatchSize, this.config)
+        }
+
+        // Without this, writes to postgres-v2 silently no-op via optional chaining,
+        // causing stall-reset loops and duplicate execution at the consumer side.
+        if (!this.jobQueuePostgresV2) {
+            const missingV2TargetError = (configKey: string): Error =>
+                new Error(
+                    `${configKey} routes to postgres-v2 but CYCLOTRON_NODE_DATABASE_URL is not configured. ` +
+                        `Set CYCLOTRON_NODE_DATABASE_URL (via psql.cyclotron in charts) or change the mapping to not target postgres-v2.`
+                )
+            if (routingReferencesV2(this.producerMapping)) {
+                throw missingV2TargetError('CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING')
+            }
+            for (const perTeamRouting of Object.values(this.producerTeamMapping)) {
+                if (routingReferencesV2(perTeamRouting)) {
+                    throw missingV2TargetError('CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING')
+                }
+            }
         }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
@@ -247,9 +267,32 @@ export class CyclotronJobQueue {
         }
 
         await Promise.all([
-            this.jobQueuePostgres.queueInvocations(postgresInvocations),
-            this.jobQueuePostgresV2?.queueInvocations(postgresV2Invocations),
-            this.jobQueueKafka.queueInvocations(kafkaInvocations),
+            instrumentFn(
+                {
+                    key: 'cyclotron.queue_invocations.postgres_v1',
+                    sendException: false,
+                    getLoggingContext: () => ({ count: postgresInvocations.length }),
+                },
+                () => this.jobQueuePostgres.queueInvocations(postgresInvocations)
+            ),
+            this.jobQueuePostgresV2
+                ? instrumentFn(
+                      {
+                          key: 'cyclotron.queue_invocations.postgres_v2',
+                          sendException: false,
+                          getLoggingContext: () => ({ count: postgresV2Invocations.length }),
+                      },
+                      () => this.jobQueuePostgresV2!.queueInvocations(postgresV2Invocations)
+                  )
+                : Promise.resolve(),
+            instrumentFn(
+                {
+                    key: 'cyclotron.queue_invocations.kafka',
+                    sendException: false,
+                    getLoggingContext: () => ({ count: kafkaInvocations.length }),
+                },
+                () => this.jobQueueKafka.queueInvocations(kafkaInvocations)
+            ),
         ])
     }
 
@@ -392,6 +435,10 @@ export class CyclotronJobQueue {
 
         await Promise.all(promises)
     }
+}
+
+export function routingReferencesV2(routing: CyclotronJobQueueRouting): boolean {
+    return Object.values(routing).some((entries) => entries.some((e) => e.target === 'postgres-v2'))
 }
 
 /**

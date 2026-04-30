@@ -79,6 +79,7 @@ def deserialize_hx_tag(hog_tag: dict) -> HogQLXTag:
     for k, v in hog_tag.items():
         if k == "__hx_tag":
             continue
+        value: Any
         if isinstance(v, list):
             value = [
                 deserialize_hx_ast(item)
@@ -112,7 +113,7 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
     cls_fields = {f.name: f.type for f in fields(cls)}
     init_args: dict[str, Any] = {}
 
-    def _deserialize(value: Any, field_type: type) -> Any:
+    def _deserialize(value: Any, field_type: Any) -> Any:
         if isinstance(value, dict) and "__hx_tag" in value:
             return deserialize_hx_tag(value)
 
@@ -141,7 +142,7 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
 
         init_args[key] = _deserialize(value, cls_fields[key])
 
-    return cls(**init_args)  # type: ignore
+    return cls(**init_args)
 
 
 def map_virtual_properties(e: ast.Expr):

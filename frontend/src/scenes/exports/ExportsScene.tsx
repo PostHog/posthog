@@ -5,13 +5,13 @@ import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, lemonToast } f
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
-import { sidePanelExportsLogic } from '~/layout/navigation-3000/sidepanel/panels/exports/sidePanelExportsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExportedAssetType, ExporterFormat } from '~/types'
@@ -26,8 +26,8 @@ export const scene: SceneExport = {
 }
 
 function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
-    const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
-    const { removeFresh } = useActions(sidePanelExportsLogic)
+    const { freshUndownloadedExports } = useValues(exportsLogic)
+    const { removeFresh } = useActions(exportsLogic)
     const { setBlob } = useActions(takeScreenshotLogic({ screenshotKey: 'exports' }))
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
@@ -88,8 +88,8 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
 }
 
 export function ExportsScene(): JSX.Element {
-    const { exports, exportsLoading, assetFormat } = useValues(sidePanelExportsLogic)
-    const { loadExports, setAssetFormat } = useActions(sidePanelExportsLogic)
+    const { exports, exportsLoading, assetFormat } = useValues(exportsLogic)
+    const { loadExports, setAssetFormat } = useActions(exportsLogic)
 
     const columns: LemonTableColumns<ExportedAssetType> = [
         {

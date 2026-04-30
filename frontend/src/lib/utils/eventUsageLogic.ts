@@ -322,6 +322,8 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
     return objectClean(payload)
 }
 
+const reportedMissingTaxonomyEntries = new Set<string>()
+
 export const eventUsageLogic = kea<eventUsageLogicType>([
     path(['lib', 'utils', 'eventUsageLogic']),
     connect(() => ({
@@ -346,8 +348,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportDashboardMetadataAiGenerated: (payload: { dashboardId: number }) => payload,
-        reportDashboardMetadataAiGenerationFailed: (payload: { dashboardId: number }) => payload,
         reportInsightCreated: (query: Node | null) => ({ query }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
@@ -426,6 +426,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ correlationType, action, props }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
+        reportProjectNoticeShown: (variant: string) => ({ variant }),
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -592,6 +593,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             warningKey,
         }),
+        reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -669,32 +671,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             dashboardId,
         }),
-        reportExperimentMetricTimeout: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-        }),
-        reportExperimentMetricOutOfMemory: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId?: number | null,
-            queryId?: string | null,
-            errorCode?: string | null,
-            errorMessage?: string | null
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            errorCode,
-            errorMessage,
-        }),
         reportExperimentMetricFinished: (
             experimentId: ExperimentIdType,
             metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
@@ -708,6 +684,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -728,9 +705,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
-                error_type: 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown'
+                error_type:
+                    | 'timeout'
+                    | 'out_of_memory'
+                    | 'server_error'
+                    | 'network_error'
+                    | 'not_found'
+                    | 'authentication'
+                    | 'authorization'
+                    | 'validation_error'
+                    | 'unknown'
                 error_code: string | null
                 error_message: string | null
+                error_detail: string | null
                 status_code: number | null
             }
         ) => ({
@@ -756,6 +743,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_duration_hours: number | null
                 experiment_status: string | null
                 total_metrics_count: number
+                execution_mode: 'sync' | 'async'
             }
         ) => ({
             experimentId,
@@ -780,6 +768,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             eventName,
         }),
         reportTaxonomicFilterAddFilterClicked: (eventName?: string) => ({ eventName }),
+        reportMissingTaxonomyEntries: (entries: { name: string; groupType: TaxonomicFilterGroupType }[]) => ({
+            entries,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType, mediaPreviewCount?: number) => ({
             type,
@@ -1088,6 +1079,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             itemName,
             isAIFirst,
         }),
+        reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
+            itemCount,
+            isAIFirst,
+        }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1164,12 +1159,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightMetadataAiGenerationFailed: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generation failed', { query_kind: queryKind })
-        },
-        reportDashboardMetadataAiGenerated: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generated', { dashboard_id: dashboardId })
-        },
-        reportDashboardMetadataAiGenerationFailed: async ({ dashboardId }) => {
-            posthog.capture('dashboard metadata ai generation failed', { dashboard_id: dashboardId })
         },
         reportInsightSaved: async ({ insight, query, isNewInsight, saveType }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
@@ -1266,6 +1255,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProjectNoticeDismissed: async ({ key }) => {
             // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
+        },
+        reportProjectNoticeShown: async ({ variant }) => {
+            posthog.capture('project notice shown', { variant })
         },
         reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
@@ -1573,6 +1565,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 warning_key: warningKey,
             })
         },
+        reportExperimentBiasWarningShown: ({ experiment }) => {
+            posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
             posthog.capture('experiment metrics refreshed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1693,26 +1690,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
             })
         },
-        reportExperimentMetricTimeout: ({ experimentId, metric, teamId, queryId }) => {
-            posthog.capture('experiment metric timeout', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-            })
-        },
-        reportExperimentMetricOutOfMemory: ({ experimentId, metric, teamId, queryId, errorCode, errorMessage }) => {
-            posthog.capture('experiment metric out of memory', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                error_code: errorCode,
-                error_message: errorMessage,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-            })
-        },
         reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {
             posthog.capture('experiment metric finished', {
                 experiment_id: experimentId,
@@ -1802,6 +1779,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportTaxonomicFilterAddFilterClicked: ({ eventName }) => {
             posthog.capture('taxonomic filter add filter clicked', { eventName })
+        },
+        reportMissingTaxonomyEntries: ({ entries }) => {
+            for (const { name, groupType } of entries) {
+                const key = `${groupType}::${name}`
+                if (reportedMissingTaxonomyEntries.has(key)) {
+                    continue
+                }
+                reportedMissingTaxonomyEntries.add(key)
+                posthog.capture('taxonomy entry missing', {
+                    name,
+                    group_type: groupType,
+                    source: 'taxonomic_filter',
+                })
+            }
         },
         reportDataManagementDefinitionHovered: ({ type, mediaPreviewCount }) => {
             posthog.capture('definition hovered', { type, media_preview_count: mediaPreviewCount ?? 0 })
@@ -2484,6 +2475,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('navbar starred item clicked', {
                 item_type: itemType,
                 item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {
+            posthog.capture('navbar starred items reordered', {
+                item_count: itemCount,
                 is_ai_first: isAIFirst,
             })
         },

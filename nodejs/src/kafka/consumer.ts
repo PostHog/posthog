@@ -141,6 +141,7 @@ export type KafkaConsumerConfig = {
     callEachBatchWhenEmpty?: boolean
     autoOffsetStore?: boolean
     autoCommit?: boolean
+    enablePartitionEof?: boolean
     waitForBackgroundTasksOnRebalance?: boolean
 }
 
@@ -177,7 +178,7 @@ export class KafkaConsumer {
     private lastStatsEmitTime = 0
     private rebalanceCoordination: RebalanceCoordination = {
         isRebalancing: false,
-        rebalanceTimeoutMs: 20000,
+        rebalanceTimeoutMs: defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS,
         rebalanceStartTime: 0,
     }
     private consumerLogStatsLevel: LogLevel
@@ -224,11 +225,13 @@ export class KafkaConsumer {
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
+            'enable.partition.eof': this.config.enablePartitionEof ?? true,
             // Only enable statistics when using loop-based health check
             ...(defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK
                 ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
                 : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
+            // e.g. KAFKA_CONSUMER_ENABLE_PARTITION_EOF=false to override the default above
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
@@ -236,7 +239,6 @@ export class KafkaConsumer {
             'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
-            'enable.partition.eof': true,
             rebalance_cb: rebalancecb,
             offset_commit_cb: true,
         }
@@ -903,6 +905,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const result: EventHeaders = {
         force_disable_person_processing: false,
         historical_migration: false,
+        skip_heatmap_processing: false,
     }
 
     headers?.forEach((header) => {
@@ -929,6 +932,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 }
             } else if (key === 'historical_migration') {
                 result.historical_migration = value === 'true'
+            } else if (key === 'skip_heatmap_processing') {
+                result.skip_heatmap_processing = value === 'true'
             }
         })
     })
@@ -944,6 +949,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
         'now',
         'force_disable_person_processing',
         'historical_migration',
+        'skip_heatmap_processing',
     ] as const
     trackedHeaders.forEach((header) => {
         const status = result[header] ? 'present' : 'absent'

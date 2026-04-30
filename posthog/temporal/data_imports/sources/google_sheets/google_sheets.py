@@ -6,9 +6,9 @@ from django.conf import settings
 
 import gspread
 from cachetools import Cache, TTLCache, cached
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.oauth2 import service_account
 
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
@@ -34,6 +34,13 @@ max_attempts = 10
 jitter_in_seconds = 10
 sleep_per_attempt_in_seconds = 30
 
+# gspread raises a bare `PermissionError` (with no message) when the Google Sheets
+# API returns 403 — see gspread/client.py: `raise PermissionError from ex`.
+# `str(PermissionError())` is an empty string, which means the non-retryable error
+# matcher (substring match over `str(e)`) has nothing to match on. Re-raise with a
+# stable, descriptive message so downstream matching can identify it.
+_PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
+
 
 @cached(cache)
 def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
@@ -43,7 +50,10 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
 
     def execute():
         client = google_sheets_client()
-        spreadsheet = client.open_by_url(spreadsheet_url)
+        try:
+            spreadsheet = client.open_by_url(spreadsheet_url)
+        except PermissionError as e:
+            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
         return spreadsheet.get_worksheet_by_id(worksheet_id)
 
     attempts = 1
@@ -66,10 +76,13 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
     client = google_sheets_client()
-    spreadsheet = client.open_by_url(config.spreadsheet_url)
+    try:
+        spreadsheet = client.open_by_url(config.spreadsheet_url)
+    except PermissionError as e:
+        raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
     worksheets = spreadsheet.worksheets()
 
-    return [(NamingConvention().normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
+    return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
 
 def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_name: str) -> list[IncrementalField]:
@@ -120,6 +133,16 @@ def google_sheets_source(
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]
 
+    # Note: this source intentionally remains a SimpleSource rather than a ResumableSource.
+    # gspread's get_all_records() performs a single Sheets API call that returns every row at
+    # once, with no pagination cursor, continuation token, or range handle exposed to the
+    # caller. The loop below yields exactly one batch, so there is no intermediate checkpoint
+    # where some rows have been emitted and others are still pending — the two states are
+    # "nothing yielded yet" and "fully done". A ResumableSource would have no cursor to
+    # persist and would still have to re-download the entire sheet on restart, so it adds no
+    # value. Converting this to a ResumableSource would require first introducing client-side
+    # range-based batching (e.g. A2:Z1001, A1002:Z2001, ...), which is a behavior change to
+    # the sync itself and is out of scope for restart-safety alone.
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 

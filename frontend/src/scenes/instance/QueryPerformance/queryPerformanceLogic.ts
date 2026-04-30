@@ -14,17 +14,43 @@ export interface PrecomputationTeam {
     experiment_precomputation_enabled: boolean
 }
 
+export interface SlowestQuery {
+    query_id: string
+    query: string
+    timestamp: string
+    execution_time: number
+    exception: string
+    status: number
+    team_id: number
+    team_name: string | null
+    organization_name: string | null
+    organization_mrr: number | null
+    query_type: string
+    experiment_name: string
+    experiment_metric_name: string
+    experiment_execution_path: string
+    experiment_metric_type: string
+    experiment_id: number | null
+}
+
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
     path(['scenes', 'instance', 'QueryPerformance', 'queryPerformanceLogic']),
     actions({
         setSearch: (search: string) => ({ search }),
         setPrecomputation: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
+        setHoursBack: (hours: number) => ({ hours }),
     }),
     reducers({
         search: [
             '',
             {
                 setSearch: (_, { search }) => search,
+            },
+        ],
+        hoursBack: [
+            1,
+            {
+                setHoursBack: (_, { hours }) => hours,
             },
         ],
     }),
@@ -54,16 +80,28 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 },
             },
         ],
+        slowestQueries: [
+            [] as SlowestQuery[],
+            {
+                loadSlowestQueries: async () => {
+                    return await api.get(`api/debug_ch_queries/slowest_queries/?hours=${values.hoursBack}`)
+                },
+            },
+        ],
     })),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadPrecomputationTeams()
         },
+        setHoursBack: () => {
+            actions.loadSlowestQueries()
+        },
     })),
     afterMount(({ actions }) => {
         if (userLogic.findMounted()?.values.user?.is_staff) {
             actions.loadPrecomputationTeams()
+            actions.loadSlowestQueries()
         }
     }),
 ])

@@ -764,7 +764,6 @@ class TestExports(APIBaseTest):
             payload = {
                 "export_format": export_format,
                 "export_context": {
-                    "mode": "screenshot",
                     "session_recording_id": "test_session_123",
                     "timestamp": 100,
                     "duration": 5,
@@ -795,7 +794,7 @@ class TestExports(APIBaseTest):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
-                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                export_context={"session_recording_id": f"session_{i}"},
                 created_by=self.user,
             )
 
@@ -805,7 +804,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_10",
                 },
             },
@@ -818,7 +816,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_11",
                 },
             },
@@ -831,57 +828,46 @@ class TestExports(APIBaseTest):
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    def test_video_export_limit_only_applies_to_full_videos(self, mock_async_connect, mock_async_to_sync) -> None:
-        """Test that the limit only applies to full video exports (mode=video), not clips"""
-        # Create 10 video exports this month (at the limit)
-        for i in range(10):
+    def test_video_export_limit_applies_to_all_video_formats(self, mock_async_connect, mock_async_to_sync) -> None:
+        """Test that the limit applies to both MP4 and WebM session recording exports"""
+        # Create 5 MP4 and 5 WebM exports this month (at the limit)
+        for i in range(5):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
-                export_context={"mode": "video", "session_recording_id": f"session_{i}"},
+                export_context={"session_recording_id": f"session_mp4_{i}"},
+                created_by=self.user,
+            )
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/webm",
+                export_context={"session_recording_id": f"session_webm_{i}"},
                 created_by=self.user,
             )
 
-        # Full video export should fail
+        # MP4 video export should fail
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
-                    "session_recording_id": "session_full",
+                    "session_recording_id": "session_over_limit",
                 },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        # But clip export (screenshot mode) should succeed
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "video/mp4",
-                "export_context": {
-                    "mode": "screenshot",
-                    "session_recording_id": "session_clip",
-                    "timestamp": 100,
-                    "duration": 5,
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Other video formats should also succeed
+        # WebM video export should also fail (shared limit)
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/webm",
                 "export_context": {
-                    "mode": "video",
-                    "session_recording_id": "session_webm",
+                    "session_recording_id": "session_webm_over_limit",
                 },
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
@@ -894,7 +880,7 @@ class TestExports(APIBaseTest):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/mp4",
-                export_context={"mode": "video", "session_recording_id": f"session_jan_{i}"},
+                export_context={"session_recording_id": f"session_jan_{i}"},
                 created_by=self.user,
             )
 
@@ -904,7 +890,6 @@ class TestExports(APIBaseTest):
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
                     "session_recording_id": "session_jan_fail",
                 },
             },
@@ -919,64 +904,187 @@ class TestExports(APIBaseTest):
                 {
                     "export_format": "video/mp4",
                     "export_context": {
-                        "mode": "video",
                         "session_recording_id": "session_feb_success",
                     },
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @parameterized.expand(
+        [
+            # name, available_product_features, expected_limit
+            ("free", [], 10),
+            (
+                "paid",
+                [{"key": "recordings_file_export", "name": "Recordings file export"}],
+                15,
+            ),
+            (
+                "enterprise_via_role_based_access",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "role_based_access", "name": "Role based access"},
+                ],
+                25,
+            ),
+            (
+                "enterprise_via_saml",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "saml", "name": "SAML"},
+                ],
+                25,
+            ),
+            (
+                "enterprise_via_saml_only",
+                [{"key": "saml", "name": "SAML"}],
+                25,
+            ),
+        ]
+    )
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    def test_video_export_team_specific_limit(self, mock_async_connect, mock_async_to_sync) -> None:
-        """Test that teams can have custom export limits via extra_settings"""
-        # Set a custom limit of 3 for this team
-        self.team.extra_settings = {"full_video_exports_limit": 3}
-        self.team.save()
+    def test_video_export_limit_varies_by_plan_tier(
+        self,
+        _name: str,
+        available_product_features: list[dict],
+        expected_limit: int,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        """The monthly video export limit scales with the organization's plan tier."""
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
 
-        # Create 2 video exports (should succeed)
-        for i in range(2):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/exports",
-                {
-                    "export_format": "video/mp4",
-                    "export_context": {
-                        "mode": "video",
-                        "session_recording_id": f"session_{i}",
-                    },
-                },
+        for i in range(expected_limit):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
             )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        # The 3rd export should succeed (at the custom limit)
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
                 "export_context": {
-                    "mode": "video",
-                    "session_recording_id": "session_3",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # The 4th export should fail with the custom limit in error message
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/exports",
-            {
-                "export_format": "video/mp4",
-                "export_context": {
-                    "mode": "video",
-                    "session_recording_id": "session_4",
+                    "session_recording_id": "session_over_limit",
                 },
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
-        self.assertEqual(error_data["type"], "validation_error")
         self.assertEqual(error_data["attr"], "export_limit_exceeded")
-        self.assertIn("reached the limit of 3 full video exports this month", error_data["detail"])
+        self.assertIn(f"reached the limit of {expected_limit} full video exports this month", error_data["detail"])
+
+    @parameterized.expand(
+        [
+            # (name, available_product_features, override, effective_limit)
+            # Override bumps above tier → effective limit is the override.
+            (
+                "paid_override_above_tier_wins",
+                [{"key": "recordings_file_export", "name": "Recordings file export"}],
+                20,
+                20,
+            ),
+            # Override below tier default is a no-op — tier default wins, so legacy
+            # flat-10 overrides can't silently downgrade enterprise orgs post-deploy.
+            (
+                "enterprise_override_below_tier_is_floored",
+                [
+                    {"key": "recordings_file_export", "name": "Recordings file export"},
+                    {"key": "saml", "name": "SAML"},
+                ],
+                10,
+                25,
+            ),
+            # Free tier with an override-bump also works.
+            ("free_override_above_tier_wins", [], 30, 30),
+        ]
+    )
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_extra_settings_override_acts_as_floor_above_plan_tier(
+        self,
+        _name: str,
+        available_product_features: list[dict],
+        override: int,
+        effective_limit: int,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        """The per-team override bumps the limit *above* the tier default but never below it.
+
+        Preserves the "support bump" purpose without silently downgrading orgs whose tier
+        default is now higher than a legacy override set during the flat-10 era.
+        """
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
+        self.team.extra_settings = {"full_video_exports_limit": override}
+        self.team.save()
+
+        for i in range(effective_limit):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/mp4",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {
+                    "session_recording_id": "session_over_limit",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            f"reached the limit of {effective_limit} full video exports this month", response.json()["detail"]
+        )
+
+    @parameterized.expand(
+        [
+            # (name, is_system, should_succeed)
+            ("system_assets_dont_count", True, True),
+            ("user_assets_count", False, False),
+        ]
+    )
+    @patch("posthog.api.exports.async_to_sync")
+    @patch("posthog.api.exports.async_connect")
+    def test_video_export_limit_excludes_system_assets(
+        self,
+        _name: str,
+        is_system: bool,
+        should_succeed: bool,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        for i in range(50):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format="video/webm",
+                export_context={"session_recording_id": f"session_{i}"},
+                created_by=self.user,
+                is_system=is_system,
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {"session_recording_id": "new_user_export"},
+            },
+        )
+
+        if should_succeed:
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["attr"], "export_limit_exceeded")
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:

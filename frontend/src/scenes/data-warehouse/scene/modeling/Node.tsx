@@ -12,7 +12,8 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingJobStatus, DataModelingNodeType, DataModelingSyncInterval } from '~/types'
 
-import { syncIntervalToShorthand } from '../../utils'
+import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
+
 import { dataModelingLogic } from '../dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
 

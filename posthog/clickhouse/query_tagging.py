@@ -7,14 +7,20 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
+import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import ProductKey
+
+logger = structlog.get_logger(__name__)
 
 
 class AccessMethod(StrEnum):
@@ -52,10 +58,12 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
     QUERY = "query"  # customer-facing queries only
+    DEBUG_QUERY = "debug_query"  # /debug/query and related internal engineering tooling
     DIGEST = "digest"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
@@ -67,9 +75,21 @@ class Feature(StrEnum):
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     SCHEMA_INTROSPECTION = "schema_introspection"
+    # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
+    # usage analysis can attribute load to the originating product surface.
+    EVENT_DEFINITION_SCENE = "event_definition_scene"
+    PROPERTY_DEFINITION_SCENE = "property_definition_scene"
+    EXPLORE_EVENTS_SCENE = "explore_events_scene"
+    # Specific endpoints whose load is worth analysing on its own. The `/events/values` endpoint
+    # is hit from every taxonomic property-value picker across the app, so attribution by scene
+    # would be misleading; tagging by endpoint name keeps the signal honest.
+    EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
+    MIGRATION = "migration"
+    MANAGEMENT_COMMAND = "management_command"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class TemporalTags(BaseModel):
@@ -145,6 +165,9 @@ class QueryTags(BaseModel):
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
+    endpoint_materialization_behind: Optional[bool] = (
+        None  # set when a materialized endpoint is past its data_freshness SLA
+    )
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
@@ -165,6 +188,11 @@ class QueryTags(BaseModel):
     # replays
     replay_playlist_id: Optional[int] = None
 
+    # ai events rollout
+    ai_query_source: Optional[str] = None
+
+    ai_data_processing_approved: Optional[bool] = None
+
     # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
@@ -172,6 +200,7 @@ class QueryTags(BaseModel):
     experiment_is_data_warehouse_query: Optional[bool] = None
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
+    experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
@@ -303,6 +332,19 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
+def get_team_query_tags(team: "Team") -> dict[str, Any]:
+    from posthog.models.organization import Organization
+
+    tags: dict[str, Any] = {"team_id": team.pk}
+    try:
+        organization = team.organization
+        tags["org_id"] = organization.pk
+        tags["ai_data_processing_approved"] = organization.is_ai_data_processing_approved
+    except Organization.DoesNotExist:
+        logger.warning("get_team_query_tags_org_not_found", team_id=team.pk)
+    return tags
+
+
 def clear_tag(key):
     with suppress(LookupError):
         current_tags = query_tags.get()
@@ -316,12 +358,21 @@ def reset_query_tags():
 
 
 class QueryCounter:
+    SLOW_QUERY_THRESHOLD_S = 0.05
+
     def __init__(self):
         self.total_query_time = 0.0
+        self.count = 0
+        self.max_query_time = 0.0
+        self.slow_count = 0
 
     @property
     def query_time_ms(self):
         return self.total_query_time * 1000
+
+    @property
+    def max_query_time_ms(self):
+        return self.max_query_time * 1000
 
     def __call__(self, execute, *args, **kwargs):
         import time
@@ -331,7 +382,13 @@ class QueryCounter:
         try:
             return execute(*args, **kwargs)
         finally:
-            self.total_query_time += time.perf_counter() - start_time
+            elapsed = time.perf_counter() - start_time
+            self.total_query_time += elapsed
+            self.count += 1
+            if elapsed > self.max_query_time:
+                self.max_query_time = elapsed
+            if elapsed > self.SLOW_QUERY_THRESHOLD_S:
+                self.slow_count += 1
 
 
 @contextmanager

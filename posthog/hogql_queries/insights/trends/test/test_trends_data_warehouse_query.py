@@ -16,6 +16,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
@@ -26,6 +27,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    MultipleBreakdownType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -272,6 +274,124 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
 
+    def test_trends_single_item_multi_breakdown(self):
+        table_name = self.setup_data_warehouse()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="prop_1", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 4
+        # `breakdown_value` is a list under multi-breakdown, even when there's only one entry —
+        # this exercises the list-vs-string handling in `build_series_response`/`format_results`.
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        assert [r["breakdown_value"] for r in breakdown_results] == [["a"], ["b"], ["c"], ["d"]]
+        assert [r["data"] for r in breakdown_results] == [
+            [1, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0],
+        ]
+
+    def test_trends_single_item_multi_breakdown_boolean_field(self):
+        # Regression test: a length-1 multi-breakdown over a Bool column previously raised
+        # `TypeError: unhashable type: 'list'` in `_convert_boolean`, since the breakdown value
+        # comes through as a list (e.g. `[True]`) rather than a scalar.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "trends_data_bool.csv",
+            table_name="test_table_bool",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "bool_prop": {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table.name,
+                    table_name=table.name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="bool_prop", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 2
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        # Boolean values are remapped to "true"/"false" strings, but `breakdown_value` stays a list
+        # so it remains consistent with the non-boolean multi-breakdown shape.
+        assert [r["breakdown_value"] for r in breakdown_results] == [["false"], ["true"]]
+        # The series label is the "::"-joined string form, mirroring the frontend.
+        assert [r["label"] for r in breakdown_results] == ["false", "true"]
+
+    @parameterized.expand(
+        [
+            ("legacy_bool", "Bool", True),
+            ("legacy_nullable_bool", "Nullable(Bool)", True),
+            ("legacy_string", "String", False),
+            ("introspected_bool", {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"}, True),
+        ]
+    )
+    def test_data_warehouse_breakdown_field_boolean_detection_supports_column_metadata_shapes(
+        self, _name: str, column_metadata: str | dict[str, str], expected: bool
+    ) -> None:
+        DataWarehouseTable.objects.create(
+            name="test_table_bool_metadata",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"bool_prop": column_metadata},
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="test_table_bool_metadata",
+                    table_name="test_table_bool_metadata",
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown="bool_prop",
+                breakdown_type=BreakdownType.DATA_WAREHOUSE,
+            ),
+        )
+
+        assert TrendsQueryRunner(team=self.team, query=trends_query)._is_breakdown_filter_field_boolean() is expected
+
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
 
@@ -347,43 +467,6 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
-
-    def test_trends_breakdown_with_events_join_experiments_optimized(self):
-        table_name = self.setup_data_warehouse()
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="prop_1",
-            joining_table_name="events",
-            joining_table_key="distinct_id",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "created"},
-        )
-
-        trends_query = TrendsQuery(
-            kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="id",
-                    distinct_id_field="prop_1",
-                    timestamp_field="created",
-                )
-            ],
-            filterTestAccounts=True,
-            interval="day",
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-        )
-
-        with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
-
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view(self):
@@ -560,7 +643,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                 DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
                 DataWarehousePropertyFilter(key="prop_2", value="e", operator=PropertyOperator.EXACT),
                 EventPropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
-                # This should be ignored for DW queries
+                # TODO: This should raise a validation error
             ],
         )
 

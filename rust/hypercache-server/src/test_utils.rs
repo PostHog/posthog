@@ -8,8 +8,10 @@ pub mod helpers {
         http::{Request, StatusCode},
         Router,
     };
+    use common_cache::NegativeCache;
     use common_hypercache::{HyperCacheConfig, HyperCacheReader, KeyType};
     use common_redis::MockRedisClient;
+    use common_s3::{MockS3Client, S3Client, S3Error};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
@@ -21,8 +23,18 @@ pub mod helpers {
         serde_pickle::to_vec(&json_str, Default::default()).unwrap()
     }
 
-    /// Create a HyperCacheReader backed by a MockRedisClient.
-    pub async fn mock_reader(
+    /// S3 mock that returns NotFound for all keys.
+    pub fn dummy_s3_client() -> Arc<dyn S3Client + Send + Sync> {
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3.expect_get_string().returning(|_, key| {
+            let key_owned = key.to_string();
+            Box::pin(async move { Err(S3Error::NotFound(key_owned)) })
+        });
+        Arc::new(mock_s3)
+    }
+
+    /// Create a HyperCacheReader backed by a MockRedisClient and a dummy S3.
+    pub fn mock_reader(
         namespace: &str,
         value: &str,
         mock_redis: MockRedisClient,
@@ -34,11 +46,11 @@ pub mod helpers {
             "test-bucket".to_string(),
         );
         config.token_based = true;
-        Arc::new(
-            HyperCacheReader::new(Arc::new(mock_redis), config)
-                .await
-                .unwrap(),
-        )
+        Arc::new(HyperCacheReader::new_with_s3_client(
+            Arc::new(mock_redis),
+            dummy_s3_client(),
+            config,
+        ))
     }
 
     /// Get the Redis cache key for a token-based HyperCache lookup.
@@ -53,14 +65,42 @@ pub mod helpers {
         config.get_redis_cache_key(&KeyType::string(token))
     }
 
-    /// Build a test router with the given mock readers.
+    /// Build a test router with the given mock readers (no negative cache).
     pub fn test_router(
         surveys_reader: Arc<HyperCacheReader>,
         config_reader: Arc<HyperCacheReader>,
     ) -> Router {
+        build_router(surveys_reader, config_reader, None, None)
+    }
+
+    /// Build a test router with negative caches enabled, returning the router
+    /// and handles to both caches for assertion.
+    pub fn test_router_with_negative_cache(
+        surveys_reader: Arc<HyperCacheReader>,
+        config_reader: Arc<HyperCacheReader>,
+    ) -> (Router, NegativeCache, NegativeCache) {
+        let surveys_nc = NegativeCache::new(100, 300);
+        let config_nc = NegativeCache::new(100, 300);
+        let router = build_router(
+            surveys_reader,
+            config_reader,
+            Some(surveys_nc.clone()),
+            Some(config_nc.clone()),
+        );
+        (router, surveys_nc, config_nc)
+    }
+
+    fn build_router(
+        surveys_reader: Arc<HyperCacheReader>,
+        config_reader: Arc<HyperCacheReader>,
+        surveys_negative_cache: Option<NegativeCache>,
+        config_negative_cache: Option<NegativeCache>,
+    ) -> Router {
         let state = State {
             surveys_hypercache_reader: surveys_reader,
             config_hypercache_reader: config_reader,
+            surveys_negative_cache,
+            config_negative_cache,
         };
 
         Router::new()

@@ -69,17 +69,12 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         null=True,
         blank=True,
     )
-    creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
+    creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
     restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        choices=RestrictionLevel.choices,
+        choices=RestrictionLevel,
     )
-    insights = models.ManyToManyField(
-        "posthog.Insight",
-        related_name="dashboards",
-        through="DashboardTile",
-        blank=True,
-    )
+    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)  # type: models.ManyToManyField
     quick_filter_ids = models.JSONField(default=list, blank=True, null=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
@@ -120,7 +115,9 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
 
         # Handle SET_NULL for GroupTypeMapping.detail_dashboard in persons database
         # This is needed because GroupTypeMapping is in the persons database
-        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(detail_dashboard_id=self.id).update(
+        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
+            detail_dashboard_id=self.id
+        ).update(  # nosemgrep: no-direct-persons-db-orm
             detail_dashboard_id=None
         )
         return super().delete(*args, **kwargs)

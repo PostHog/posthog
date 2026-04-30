@@ -312,7 +312,7 @@ class KmeansClusterizer:
         else:
             kmeans = MiniBatchKMeans(n_clusters=n_clusters, init="k-means++", n_init=10, random_state=42)
         kmeans.fit_predict(matrix)
-        labels: list[int] = kmeans.labels_
+        labels: list[int] = kmeans.labels_  # ty: ignore[invalid-assignment]
         # Organize clustered traces
         grouped_traces: dict[str, TracesCluster] = {}
         # Generate unique label for each clustering calculation

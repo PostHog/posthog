@@ -1,7 +1,7 @@
 use error::EventError;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
+use std::sync::LazyLock;
 
 use serde_json::Value;
 use tracing::debug;
@@ -10,14 +10,12 @@ use uuid::Uuid;
 pub mod app_context;
 pub mod assignment_rules;
 pub mod config;
-pub mod consumer;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
-pub mod pipeline;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
@@ -29,6 +27,7 @@ pub mod symbol_store;
 pub mod teams;
 #[cfg(test)]
 pub mod test_utils;
+pub mod tokenizer;
 pub mod types;
 
 pub fn recursively_sanitize_properties(
@@ -65,7 +64,7 @@ pub fn recursively_sanitize_properties(
     Ok(())
 }
 
-static WHITESPACE_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s{50,}").unwrap());
+static WHITESPACE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s{50,}").unwrap());
 
 // Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD. We also replace all 50-or-more whitespace sequences with "<ws trimmed>".
 pub fn sanitize_string(s: String) -> String {
@@ -83,11 +82,6 @@ pub fn sanitize_source_line(s: String) -> String {
 
 pub fn needs_sanitization(s: &str) -> bool {
     s.contains('\u{0000}') || s.len() > 512
-}
-
-struct WithIndices<T> {
-    indices: Vec<usize>,
-    inner: T,
 }
 
 #[cfg(test)]

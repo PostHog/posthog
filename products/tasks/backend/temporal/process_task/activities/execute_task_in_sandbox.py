@@ -51,7 +51,7 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        emit_agent_log(ctx.run_id, "info", "Initiating task execution in development environment")
+        emit_agent_log(ctx.run_id, "debug", "Initiating task execution in development environment")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
