@@ -72,7 +72,12 @@ export interface ChartProps<Meta = unknown> {
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
     children?: React.ReactNode
-    /** Resolves the y-value for a series at a given index. Defaults to series.data[index]. */
+    /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
+     *  Identity is read live for tooltip values and overlays, but the pinned-tooltip
+     *  rebuild only refires when `series`, `labels`, or `scales` change. Callers that
+     *  derive values from data not reflected in those (e.g. an external "%" toggle)
+     *  should ensure that toggle also updates `series` or the chart's scales — otherwise
+     *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
 }
 

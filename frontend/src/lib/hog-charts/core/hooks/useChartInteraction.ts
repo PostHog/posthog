@@ -99,8 +99,10 @@ export function useChartInteraction<Meta = unknown>({
 
     // Rebuild or clear the pinned tooltip when its underlying inputs change.
     // Without this, the pin keeps stale values at stale pixel positions after the
-    // parent updates series/labels/scales/dimensions. resolveValue is read live via a
-    // ref so each render's new closure doesn't trigger a rebuild.
+    // parent updates series/labels/scales/dimensions. resolveValue is read live via
+    // a ref so unmemoized closures don't trigger a rebuild every render — see the
+    // contract on `ChartProps.resolveValue`: any external toggle that changes the
+    // resolver's output must also update series or scales.
     const resolveValueRef = useLatest(resolveValue)
     useEffect(() => {
         if (!isPinned || !scales || !dimensions) {
