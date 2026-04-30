@@ -955,6 +955,13 @@ export const sceneLogic = kea<sceneLogicType>([
                 }>('api/user_home_settings/@me/')
                 const tabs = response?.tabs ?? []
                 const homepage = response?.homepage ?? null
+                // Cancel any pending debounced PATCH that may have captured pre-load state
+                // (e.g. a setHomepage(null) triggered by an empty localStorage at mount time).
+                // Letting it fire would overwrite the freshly-loaded backend value.
+                if (cache.persistPinnedTabsTimeout) {
+                    window.clearTimeout(cache.persistPinnedTabsTimeout)
+                    cache.persistPinnedTabsTimeout = null
+                }
                 cache.skipNextPinnedSync = true
                 const pinnedState: PersistedPinnedState = {
                     tabs: normalizeStoredPinnedTabs(tabs),
@@ -1532,10 +1539,17 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             cache.persistPinnedTabsTimeout = window.setTimeout(async () => {
+                cache.persistPinnedTabsTimeout = null
+                // Read fresh values at fire time. If the schedule was triggered by transient
+                // pre-load state (e.g. setHomepage(null) on mount before loadPinnedTabsFromBackend
+                // resolved), the in-memory state has since been corrected — persist that, not the
+                // stale value captured at schedule time.
+                const freshTabs = getPinnedTabsForPersistence(values.tabs)
+                const freshHomepage = getHomepageForPersistence(values.homepage)
                 try {
                     await api.update('api/user_home_settings/@me/', {
-                        tabs: pinnedTabsForPersistence,
-                        homepage: homepageForPersistence,
+                        tabs: freshTabs,
+                        homepage: freshHomepage,
                     })
                 } catch (error) {
                     console.error('Failed to persist pinned scene tabs to backend', error)
@@ -1634,6 +1648,12 @@ export const sceneLogic = kea<sceneLogicType>([
             () => {
                 const syncPinnedTabsFromStorage = (): void => {
                     const storedPinned = getPersistedPinnedState()
+                    if (!storedPinned) {
+                        // localStorage has no entry — either the initial mount before any local
+                        // state has been written, or another tab cleared site data. Either way,
+                        // don't clobber in-memory state (the backend load is authoritative).
+                        return
+                    }
                     const currentTabs = values.tabs
                     const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
 
@@ -1642,7 +1662,8 @@ export const sceneLogic = kea<sceneLogicType>([
 
                     cache.skipNextPinnedSync = true
                     actions.setTabs(updatedTabs)
-                    actions.setHomepage(storedPinned?.homepage ?? null)
+                    cache.skipNextPinnedSync = true
+                    actions.setHomepage(storedPinned.homepage ?? null)
 
                     if (!nextActiveTab?.pinned) {
                         return

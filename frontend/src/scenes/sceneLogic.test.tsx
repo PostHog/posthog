@@ -341,6 +341,93 @@ describe('sceneLogic', () => {
         })
     })
 
+    it('does not overwrite backend homepage with null when localStorage is empty on mount', async () => {
+        // Reset and remount with a backend that has a homepage set, but no localStorage entry.
+        // Regression test for: when localStorage was empty (initial mount, browser clear, or
+        // storage eviction), the storage listener was calling setHomepage(null), which scheduled
+        // a debounced PATCH to the backend with homepage:null — wiping the user's homepage
+        // preference and causing the redirect to fall back to Launchpad on the next visit.
+        jest.useFakeTimers()
+        try {
+            logic.unmount()
+            localStorage.clear()
+            sessionStorage.clear()
+            ;(api.update as jest.Mock).mockClear()
+
+            const backendHomepage = {
+                id: 'homepage-new-tab',
+                pathname: '/project/1/new',
+                search: '',
+                hash: '',
+                title: 'Search',
+                iconType: 'blank',
+                pinned: true,
+                active: false,
+                sceneId: Scene.NewTab,
+            }
+            ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: backendHomepage })
+
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.cache.tabsLoaded = false
+            logic.mount()
+
+            // Let the backend load resolve and any synchronous mount work settle.
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(logic.values.homepage).toEqual(expect.objectContaining({ id: 'homepage-new-tab' }))
+
+            // Flush the 500ms debounce window. Any stale schedule from a transient
+            // setHomepage(null) on mount must not PATCH null to the backend.
+            await jest.advanceTimersByTimeAsync(1000)
+
+            const nullPatches = (api.update as jest.Mock).mock.calls.filter(
+                ([url, payload]) => url === 'api/user_home_settings/@me/' && payload?.homepage === null
+            )
+            expect(nullPatches).toHaveLength(0)
+            expect(logic.values.homepage).toEqual(expect.objectContaining({ id: 'homepage-new-tab' }))
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('does not wipe in-memory homepage when another tab clears localStorage', async () => {
+        // Regression test for cross-tab eviction: if localStorage is cleared externally
+        // (private mode, "clear site data", another tab), the storage event listener
+        // was resetting homepage to null and PATCHing the backend.
+        const teamId = teamLogic.values.currentTeamId ?? 'null'
+        const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
+
+        logic.actions.setTabs([
+            {
+                id: 'tab-1',
+                active: true,
+                pathname: '/a',
+                search: '',
+                hash: '',
+                title: 'Tab A',
+                iconType: 'blank',
+            },
+        ])
+        logic.actions.setHomepage(logic.values.tabs[0])
+
+        await expectLogic(logic).toMatchValues({
+            homepage: expect.objectContaining({ id: 'tab-1' }),
+        })
+
+        // Simulate another tab clearing the storage entry.
+        localStorage.removeItem(pinnedStorageKey)
+        window.dispatchEvent(
+            new StorageEvent('storage', {
+                key: pinnedStorageKey,
+                newValue: null,
+            })
+        )
+
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.homepage).toEqual(expect.objectContaining({ id: 'tab-1' }))
+    })
+
     it('hydrates pinned tabs stored under legacy personal key', async () => {
         const teamId = teamLogic.values.currentTeamId ?? 'null'
         const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
