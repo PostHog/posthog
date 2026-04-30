@@ -38,7 +38,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2020, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -212,7 +212,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -313,7 +313,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -416,7 +416,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -517,7 +517,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -604,7 +604,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -691,7 +691,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -778,7 +778,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2020, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -888,7 +888,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -983,7 +983,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
@@ -1197,7 +1197,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2024, 1, 1, 0, 0, 0))
         experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
