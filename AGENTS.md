@@ -67,6 +67,10 @@ Keep descriptions high-level, focusing on rationale and architecture for the hum
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
+### Pushing to remote
+
+Pushes trigger CI, which burns runner credits. Refrain from pushing unless explicitly instructed or until the task is complete — batch local commits and push once at the end rather than after every change. If you're mid-task or iterating, keep work local.
+
 ### Public open source repo guidance
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
