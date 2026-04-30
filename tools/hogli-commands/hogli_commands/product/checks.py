@@ -323,10 +323,17 @@ class FileFolderConflictsCheck(ProductCheck):
 
         conflicts = []
         for path, config in flatten_structure(ctx.structure.get("backend_files", {})).items():
-            if not config.get("can_be_folder", False):
-                continue
-            if (ctx.backend_dir / path).exists() and (ctx.backend_dir / path.replace(".py", "")).exists():
-                conflicts.append(f"Both 'backend/{path}' and 'backend/{path.replace('.py', '/')}' exist — pick one")
+            # Pattern A: structure declares "logic.py" with can_be_folder — twin is "logic/"
+            if config.get("can_be_folder", False) and path.endswith(".py"):
+                folder_form = path[: -len(".py")]
+                if (ctx.backend_dir / path).exists() and (ctx.backend_dir / folder_form).exists():
+                    conflicts.append(f"Both 'backend/{path}' and 'backend/{folder_form}/' exist — pick one")
+            # Pattern B: structure declares "logic/__init__.py" (package) — twin is "logic.py"
+            elif path.endswith("/__init__.py"):
+                folder_form = path[: -len("/__init__.py")]
+                file_twin = folder_form + ".py"
+                if (ctx.backend_dir / path).exists() and (ctx.backend_dir / file_twin).exists():
+                    conflicts.append(f"Both 'backend/{file_twin}' and 'backend/{folder_form}/' exist — pick one")
 
         if conflicts:
             return CheckResult(
