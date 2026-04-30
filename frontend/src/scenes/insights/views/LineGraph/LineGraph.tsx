@@ -29,7 +29,7 @@ import {
 } from 'lib/Chart'
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
-import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
+import { getBarColorFromStatus, getColorVar, getGraphColors } from 'lib/colors'
 import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -499,8 +499,13 @@ export function LineGraph_({
             ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 2 : 0)
             : undefined
 
-        const defaultPointRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0
-        const defaultHitRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0
+        const isSinglePointDataset = Array.isArray(adjustedData) && adjustedData.length === 1
+        // Single-point datasets have no line for the eye to follow, so the lone marker has to do all the work.
+        // Bump radius and add a contrasting outline so it stays visible at small dashboard tile sizes.
+        const defaultPointRadius = isSinglePointDataset ? 6 : 0
+        const defaultHitRadius = isSinglePointDataset ? 12 : 0
+        const singlePointBorderColor = isSinglePointDataset ? getColorVar('color-bg-surface-primary') : undefined
+        const singlePointBorderWidth = isSinglePointDataset ? 2 : undefined
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
@@ -515,9 +520,9 @@ export function LineGraph_({
             },
             borderWidth: isBar ? 0 : 2,
             pointRadius: anomalyPointRadius ?? defaultPointRadius,
-            pointBackgroundColor: anomalyPointBackgroundColor,
-            pointBorderColor: anomalyPointBorderColor,
-            pointBorderWidth: anomalyPointBorderWidth,
+            pointBackgroundColor: anomalyPointBackgroundColor ?? (isSinglePointDataset ? mainColor : undefined),
+            pointBorderColor: anomalyPointBorderColor ?? singlePointBorderColor,
+            pointBorderWidth: anomalyPointBorderWidth ?? singlePointBorderWidth,
             hitRadius: hasAnomalyPoints ? 8 : defaultHitRadius,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),

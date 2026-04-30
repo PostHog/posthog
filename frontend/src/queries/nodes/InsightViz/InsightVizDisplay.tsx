@@ -83,6 +83,43 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} />
 }
 
+/** Display types that render to a blank canvas when every series is empty/all-zero. Pie/Table/BoldNumber/etc. handle empty data themselves. */
+const CHART_BASED_DISPLAY_TYPES: ReadonlySet<ChartDisplayType> = new Set([
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsStackedBar,
+    ChartDisplayType.ActionsAreaGraph,
+])
+
+export function isChartBasedDisplay(display: ChartDisplayType | null | undefined): boolean {
+    // Default trends display is the line graph, so a missing display also routes to the chart path.
+    return display == null || CHART_BASED_DISPLAY_TYPES.has(display)
+}
+
+export function hasNoVisibleTrendsData(result: unknown): boolean {
+    if (!Array.isArray(result)) {
+        return false
+    }
+    if (result.length === 0) {
+        return true
+    }
+    return result.every((row) => {
+        if (row == null || typeof row !== 'object') {
+            return true
+        }
+        const data = (row as { data?: unknown }).data
+        const aggregated = (row as { aggregated_value?: unknown }).aggregated_value
+        const count = (row as { count?: unknown }).count
+        const dataIsEmpty =
+            !Array.isArray(data) || data.every((value) => value == null || (typeof value === 'number' && value === 0))
+        const aggregatedIsZero = aggregated == null || aggregated === 0
+        const countIsZero = count == null || count === 0
+        return dataIsEmpty && aggregatedIsZero && countIsZero
+    })
+}
+
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
 export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext,
@@ -249,6 +286,24 @@ export function InsightVizDisplay({
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
             }
+        }
+
+        // Trends-like queries on a chart-based display render to a literal blank canvas when every series is
+        // empty or all-zero. Surface a real empty state so users aren't left staring at a white tile.
+        const isTrendsLikeView =
+            activeView === InsightType.TRENDS ||
+            activeView === InsightType.STICKINESS ||
+            activeView === InsightType.LIFECYCLE
+        if (isTrendsLikeView && isChartBasedDisplay(display) && hasNoVisibleTrendsData(insightData?.result)) {
+            return (
+                <InsightEmptyState
+                    heading={context?.emptyStateHeading ?? 'No data to display'}
+                    detail={
+                        context?.emptyStateDetail ??
+                        'Try widening the date range, removing filters, or turning off "Filter test accounts" if it\'s set.'
+                    }
+                />
+            )
         }
 
         return null
