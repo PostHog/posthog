@@ -5,7 +5,14 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.slack.slack import SlackResumeConfig, _channel_messages_generator
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.slack.slack import (
+    SlackResumeConfig,
+    _channel_messages_generator,
+    _fetch_all_channels,
+    _fetch_channels_by_type,
+    slack_source,
+)
 
 
 def _make_response(payload: dict[str, Any]) -> MagicMock:
@@ -155,3 +162,128 @@ class TestChannelMessagesGeneratorResumable:
         call_kwargs = mock_get.call_args.kwargs
         assert "cursor" not in call_kwargs["params"]
         assert call_kwargs["params"]["oldest"] == "original_oldest"
+
+
+def _make_channel_page(channels: list[dict[str, Any]], next_cursor: str = "") -> dict[str, Any]:
+    return {
+        "ok": True,
+        "channels": channels,
+        "response_metadata": {"next_cursor": next_cursor},
+    }
+
+
+class TestFetchChannelsByType:
+    def test_public_uses_conversations_list_and_no_user_param(self) -> None:
+        responses = [_make_response(_make_channel_page([{"id": "C1", "name": "general"}]))]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", "public_channel", authed_user="U_INSTALLER")
+
+        assert channels == [{"id": "C1", "name": "general"}]
+        assert mock_get.call_args.args[0] == "https://slack.com/api/conversations.list"
+        params = mock_get.call_args.kwargs["params"]
+        assert params["types"] == "public_channel"
+        assert "user" not in params
+
+    def test_private_uses_users_conversations_with_authed_user(self) -> None:
+        responses = [_make_response(_make_channel_page([{"id": "G1", "name": "secret"}]))]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", "private_channel", authed_user="U_INSTALLER")
+
+        assert channels == [{"id": "G1", "name": "secret"}]
+        assert mock_get.call_args.args[0] == "https://slack.com/api/users.conversations"
+        params = mock_get.call_args.kwargs["params"]
+        assert params["types"] == "private_channel"
+        assert params["user"] == "U_INSTALLER"
+
+    def test_private_without_authed_user_omits_user_param(self) -> None:
+        responses = [_make_response(_make_channel_page([{"id": "G1", "name": "secret"}]))]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", "private_channel", authed_user=None)
+
+        assert channels == [{"id": "G1", "name": "secret"}]
+        assert mock_get.call_args.args[0] == "https://slack.com/api/users.conversations"
+        params = mock_get.call_args.kwargs["params"]
+        assert "user" not in params
+
+    def test_paginates_until_cursor_empty(self) -> None:
+        pages = [
+            _make_channel_page([{"id": "C1", "name": "a"}], next_cursor="page2"),
+            _make_channel_page([{"id": "C2", "name": "b"}], next_cursor=""),
+        ]
+        responses = [_make_response(p) for p in pages]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_channels_by_type("token", "public_channel")
+
+        assert [c["id"] for c in channels] == ["C1", "C2"]
+        assert mock_get.call_count == 2
+        assert mock_get.call_args_list[1].kwargs["params"]["cursor"] == "page2"
+
+
+class TestFetchAllChannels:
+    def test_combines_public_and_private(self) -> None:
+        pages = [
+            _make_channel_page([{"id": "C1", "name": "general"}], next_cursor=""),
+            _make_channel_page([{"id": "G1", "name": "secret"}], next_cursor=""),
+        ]
+        responses = [_make_response(p) for p in pages]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._slack_get",
+            side_effect=responses,
+        ) as mock_get:
+            channels = _fetch_all_channels("token", authed_user="U_INSTALLER")
+
+        assert [c["id"] for c in channels] == ["C1", "G1"]
+        assert mock_get.call_count == 2
+        first_url, second_url = mock_get.call_args_list[0].args[0], mock_get.call_args_list[1].args[0]
+        assert first_url == "https://slack.com/api/conversations.list"
+        assert second_url == "https://slack.com/api/users.conversations"
+        # public call must not carry user= scoping; private call must
+        assert "user" not in mock_get.call_args_list[0].kwargs["params"]
+        assert mock_get.call_args_list[1].kwargs["params"]["user"] == "U_INSTALLER"
+
+
+class TestSlackSourceChannelsEndpoint:
+    def _build_source(self, authed_user: str | None) -> Any:
+        return slack_source(
+            access_token="token",
+            endpoint="$channels",
+            team_id=1,
+            job_id="job-1",
+            webhook_source_manager=MagicMock(spec=WebhookSourceManager),
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+            authed_user=authed_user,
+        )
+
+    def test_uses_fetch_all_channels_and_threads_authed_user(self) -> None:
+        sample = [{"id": "C1", "name": "general"}, {"id": "G1", "name": "secret"}]
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=sample,
+        ) as mock_fetch:
+            response = self._build_source(authed_user="U_INSTALLER")
+            items = list(response.items())
+
+        assert items == sample
+        mock_fetch.assert_called_once_with("token", "U_INSTALLER")
+
+    def test_passes_none_authed_user_when_unset(self) -> None:
+        with patch(
+            "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+            return_value=[],
+        ) as mock_fetch:
+            response = self._build_source(authed_user=None)
+            list(response.items())
+
+        mock_fetch.assert_called_once_with("token", None)
