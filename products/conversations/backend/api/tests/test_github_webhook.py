@@ -73,20 +73,20 @@ class TestGithubIssuesWebhook(BaseTest):
         signature: str | None = None,
     ):
         body = json.dumps(payload).encode()
-        headers = {
-            "HTTP_X_GITHUB_EVENT": event_type,
-            "HTTP_X_GITHUB_DELIVERY": delivery_id,
+        headers: dict[str, str] = {
+            "X-GitHub-Event": event_type,
+            "X-GitHub-Delivery": delivery_id,
         }
         if signature is not None:
-            headers["HTTP_X_HUB_SIGNATURE_256"] = signature
+            headers["X-Hub-Signature-256"] = signature
         else:
-            headers["HTTP_X_HUB_SIGNATURE_256"] = _sign(body, secret)
+            headers["X-Hub-Signature-256"] = _sign(body, secret)
 
-        return self.client.post(  # type: ignore[arg-type]
+        return self.client.post(
             "/api/conversations/v1/github/events",
             body,
             content_type="application/json",
-            **headers,
+            headers=headers,
         )
 
     @parameterized.expand(
@@ -140,15 +140,14 @@ class TestGithubIssuesWebhook(BaseTest):
         body = json.dumps(payload).encode()
         expected_hash = hashlib.sha256(body).hexdigest()[:32]
 
-        headers = {
-            "HTTP_X_GITHUB_EVENT": "issues",
-            "HTTP_X_HUB_SIGNATURE_256": _sign(body, WEBHOOK_SECRET),
-        }
-        self.client.post(  # type: ignore[arg-type]
+        self.client.post(
             "/api/conversations/v1/github/events",
             body,
             content_type="application/json",
-            **headers,
+            headers={
+                "X-GitHub-Event": "issues",
+                "X-Hub-Signature-256": _sign(body, WEBHOOK_SECRET),
+            },
         )
 
         call_kwargs = mock_task.delay.call_args[1]
