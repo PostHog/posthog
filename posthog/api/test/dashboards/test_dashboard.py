@@ -876,7 +876,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, (
-            f"layout PATCH 500'd: {response.status_code} body={response.content[:500]}"
+            f"expected 200, got {response.status_code} body={response.content[:500]}"
         )
 
         # Crucial: assert the helper actually wrote the new layouts. Without this, the test

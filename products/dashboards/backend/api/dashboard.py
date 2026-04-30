@@ -752,14 +752,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @staticmethod
     def _update_existing_tile_display_fields(instance: Dashboard, tile_data: dict) -> None:
-        """Update layout/color/etc on an existing tile, or skip silently if the id is unknown.
+        """Update display fields on an existing tile, or skip silently if the id is unknown.
 
-        The display-only payload (``layouts``, ``color``, ``deleted``, ``filters_overrides``,
-        ``show_description``, ``transparent_background``) carries no insight/text/button_tile FK,
-        so it cannot satisfy the ``dash_tile_exactly_one_related_object`` CHECK constraint if it
-        falls through to an INSERT. Using ``update_or_create`` here was a foot-gun that produced
-        500s whenever the frontend posted a stale tile id (cross-dashboard kea contamination,
-        hard-deleted tiles, races with concurrent edits). The fix: never INSERT in this branch.
+        A display-only payload carries no insight/text/button_tile FK, so it cannot satisfy
+        the ``dash_tile_exactly_one_related_object`` CHECK constraint if it falls through to
+        an INSERT. ``update_or_create`` here used to 500 whenever the frontend posted a stale
+        tile id (cross-dashboard contamination, hard-deleted tiles, races). Never INSERT here.
         """
         tile_id = tile_data.get("id")
         if tile_id is None:
@@ -769,8 +767,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if not tile_defaults:
             return
 
-        # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-        existing = DashboardTile.objects_including_soft_deleted.filter(id=tile_id, dashboard=instance).first()
+        existing = DashboardTile.objects_including_soft_deleted.filter(
+            id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
+        ).first()
         if existing is None:
             logger.warning(
                 "dashboard_layout_patch_unknown_tile_skipped",
@@ -783,10 +782,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
-        # ``update_fields`` scopes the UPDATE to only the columns we changed, so a concurrent
-        # write to other columns on the same tile is not clobbered by our stale read of them.
-        # Sticking with ``save()`` (vs queryset ``update()``) keeps the post_save signal that
-        # ``sync_dashboard_tile`` listens to for caching-state invalidation.
+        # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
+        # to other columns aren't clobbered by our stale read. save() (vs queryset.update())
+        # keeps the post_save signal that sync_dashboard_tile listens to for cache invalidation.
         existing.save(update_fields=list(tile_defaults.keys()))
 
     @staticmethod
@@ -886,8 +884,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
-            # Display-only payload — never create a row here (would violate the
-            # exactly-one-related-object CHECK). Skip unknown ids silently.
             DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
 
         return None, False
