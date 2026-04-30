@@ -271,11 +271,17 @@ describe('trendsChartTransforms', () => {
                 })
             })
 
-            it('uses the un-dimmed base color for the trend-line even when the main is compare-previous-dimmed', () => {
-                const series = buildTrendsSeries([makeResult({ compare: true, compare_label: 'previous' })], tlOpts)
-                // Main's color is dimmed by COMPARE_PREVIOUS_DIM_OPACITY; trend-line dim is from baseColor (un-dimmed).
-                expect(series[1].color).toBe(hexToRGBA(RED, 0.5))
-                expect(series[0].color).toBe(hexToRGBA(RED, 0.5))
+            it('uses the un-dimmed base color for the trend-line, independent of compare-previous dimming', () => {
+                // Compare across both compare states. Main.color reflects compare-dimming;
+                // the trend-line is derived from the un-dimmed baseColor, so it must be
+                // identical in both. If the implementation regressed to dimming twice
+                // (e.g. used main.color), current[1].color would diverge from previous[1].color.
+                const current = buildTrendsSeries([makeResult({ compare: true, compare_label: 'current' })], tlOpts)
+                const previous = buildTrendsSeries([makeResult({ compare: true, compare_label: 'previous' })], tlOpts)
+
+                expect(current[0].color).not.toBe(previous[0].color)
+                expect(current[1].color).toBe(previous[1].color)
+                expect(current[1].color).toBe(hexToRGBA(RED, 0.5))
             })
 
             it('fits the trend-line up to dashedFromIndex (excludes the in-progress tail)', () => {
