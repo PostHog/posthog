@@ -10,8 +10,11 @@ describe('shouldShowConnector', () => {
     ): Pick<SourceConfig, 'featureFlag' | 'unreleasedSource'> =>
         overrides as Pick<SourceConfig, 'featureFlag' | 'unreleasedSource'>
 
-    const flagsOn: FeatureFlagsSet = { 'my-flag': true }
-    const flagsOff: FeatureFlagsSet = { 'my-flag': false }
+    // The fixture flag key isn't a real FeatureFlagKey, so cast through unknown to
+    // satisfy strict typing — the predicate only does an indexed lookup, so the key
+    // identity doesn't matter for the logic.
+    const flagsOn = { 'my-flag': true } as unknown as FeatureFlagsSet
+    const flagsOff = { 'my-flag': false } as unknown as FeatureFlagsSet
     const noFlags: FeatureFlagsSet = {}
 
     it.each([
