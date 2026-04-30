@@ -120,12 +120,15 @@ def detect_content_type(data: bytes, filename: str) -> str:
 def _check_zip_bomb(data: bytes) -> None:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            total = sum(info.file_size for info in zf.infolist())
-            if total > MAX_FILE_DECOMPRESSED_BYTES:
-                raise ZipBombError(
-                    f"Decompressed size ({total:,} bytes) exceeds the "
-                    f"{MAX_FILE_DECOMPRESSED_BYTES // (1024 * 1024)} MB cap."
-                )
+            total = 0
+            for info in zf.infolist():
+                with zf.open(info) as f:
+                    while chunk := f.read(65536):
+                        total += len(chunk)
+                        if total > MAX_FILE_DECOMPRESSED_BYTES:
+                            raise ZipBombError(
+                                f"Decompressed size exceeds the {MAX_FILE_DECOMPRESSED_BYTES // (1024 * 1024)} MB cap."
+                            )
     except zipfile.BadZipFile:
         raise FileParseError("File appears corrupt — cannot read as ZIP.")
 

@@ -1109,12 +1109,9 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         return existing.etag if existing and existing.etag else None
 
     outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
-    # `discovered_set` is the source of truth for "is this URL still part of
-    # the crawl?". Building it from `outcomes` would tombstone URLs that
-    # transiently failed SSRF re-validation (e.g., DNS hiccup) even though
-    # the sitemap still lists them. Build it from the raw discovered list
-    # instead — only URLs that genuinely vanished from discovery get tombstoned.
-    discovered_set = set(discovered)
+    # `discovered_set` must use normalized URLs so the comparison against
+    # `existing_by_url` keys (which are normalized stable_ids) is correct.
+    discovered_set = set(safe_urls)
 
     with transaction.atomic():
         fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)

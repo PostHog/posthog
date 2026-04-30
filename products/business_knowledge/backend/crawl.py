@@ -19,13 +19,15 @@ import hashlib
 import threading
 import urllib.parse as urlparse
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 
 import structlog
 
 from . import html_parse, url_fetch
 from .facade.enums import MAX_TEXT_SIZE_BYTES, PER_HOST_CONCURRENCY
+
+CRAWL_TOTAL_TIMEOUT_SECONDS = 120
 
 logger = structlog.get_logger(__name__)
 
@@ -166,7 +168,8 @@ def fetch_many(
             pool.submit(_fetch_one, url, etag=(etag_for(url) if etag_for else None), registry=registry): url
             for url in urls
         }
-        for future in as_completed(futures):
+        done, not_done = wait(futures, timeout=CRAWL_TOTAL_TIMEOUT_SECONDS, return_when=FIRST_EXCEPTION)
+        for future in done:
             try:
                 outcome = future.result()
             except Exception as exc:  # defense in depth — _fetch_one shouldn't raise
@@ -174,4 +177,9 @@ def fetch_many(
                 logger.exception("business_knowledge.crawl.unexpected_error", url=url)
                 outcome = CrawlOutcome(url=url, final_url=url, status="error", error=str(exc))
             results.append(outcome)
+        for future in not_done:
+            future.cancel()
+            url = futures[future]
+            logger.warning("business_knowledge.crawl.timeout", url=url)
+            results.append(CrawlOutcome(url=url, final_url=url, status="error", error="Crawl total timeout exceeded"))
     return results

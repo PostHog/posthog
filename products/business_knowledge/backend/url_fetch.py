@@ -42,7 +42,7 @@ class FetchResult:
     final_url: str
 
 
-def _strip_userinfo(url: str) -> str:
+def strip_userinfo(url: str) -> str:
     """
     Remove `user:pass@` from authority. Userinfo in URLs is a known SSRF
     smuggling vector (some libraries interpret it as the host when stricter
@@ -116,7 +116,7 @@ def fetch_url(url: str, *, etag: str | None = None) -> FetchResult:
     Raises `UrlFetchError` with a user-safe message on any failure.
     """
 
-    current = _strip_userinfo(normalize_url(url))
+    current = strip_userinfo(normalize_url(url))
     session = requests.Session()
     try:
         for _hop in range(URL_MAX_REDIRECTS + 1):
@@ -152,7 +152,7 @@ def fetch_url(url: str, *, etag: str | None = None) -> FetchResult:
                         raise UrlFetchError("Redirect without Location header.")
                     # Resolve relative redirects against the *current* URL,
                     # not the original — matches browser behavior.
-                    next_url = _strip_userinfo(urlparse.urljoin(current, location))
+                    next_url = strip_userinfo(urlparse.urljoin(current, location))
                     current = normalize_url(next_url)
                     continue
 

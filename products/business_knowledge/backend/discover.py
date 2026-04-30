@@ -42,7 +42,7 @@ from .facade.enums import (
     URL_READ_TIMEOUT,
     URL_USER_AGENT,
 )
-from .url_fetch import _strip_userinfo, normalize_url
+from .url_fetch import normalize_url, strip_userinfo
 
 logger = structlog.get_logger(__name__)
 
@@ -84,7 +84,7 @@ def _http_get_text(url: str, *, max_bytes: int = URL_MAX_BYTES) -> str:
     message. Never exposes internal error detail.
     """
 
-    current = _strip_userinfo(normalize_url(url))
+    current = strip_userinfo(normalize_url(url))
     session = requests.Session()
     try:
         for _hop in range(URL_MAX_REDIRECTS + 1):
@@ -113,7 +113,7 @@ def _http_get_text(url: str, *, max_bytes: int = URL_MAX_BYTES) -> str:
                     location = response.headers.get("Location")
                     if not location:
                         raise DiscoverError("Redirect without Location header.")
-                    current = normalize_url(_strip_userinfo(urlparse.urljoin(current, location)))
+                    current = normalize_url(strip_userinfo(urlparse.urljoin(current, location)))
                     continue
 
                 if response.status_code >= 400:
@@ -197,7 +197,7 @@ def _discover_sitemap(entry_url: str, *, config: CrawlConfig) -> list[str]:
     # One level of sitemap-index unfurling. A huge site usually has nested
     # indexes (products, docs, blog). Deeper nesting is rare; we cap at 1 to
     # keep the total network IO bounded on discover.
-    for sub in subs:
+    for sub in subs[:HARD_DISCOVER_CAP]:
         if len(urls) >= HARD_DISCOVER_CAP:
             break
         try:

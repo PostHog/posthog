@@ -177,6 +177,7 @@ def search_knowledge(
             word_filters,
             team_id=team_id,
             source__status=SourceStatus.READY,
+            document__tombstoned_at__isnull=True,
         )
         .select_related("source", "document")
         .only(
