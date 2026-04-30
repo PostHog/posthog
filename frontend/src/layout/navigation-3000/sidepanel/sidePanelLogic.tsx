@@ -15,7 +15,6 @@ import { sidePanelStateLogic } from './sidePanelStateLogic'
 const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Max,
     SidePanelTab.Notebooks,
-    SidePanelTab.Settings,
     SidePanelTab.Activity,
     SidePanelTab.Discussion,
     SidePanelTab.AccessControl,
@@ -62,8 +61,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
-                // Exports and Settings are openable programmatically but not always shown in the nav bar
-                tabs.push(SidePanelTab.Settings)
+                if (sceneSidePanelContext.settings_section) {
+                    tabs.push(SidePanelTab.Settings)
+                }
+
+                // Exports and Support are openable programmatically but not shown in the nav bar
                 tabs.push(SidePanelTab.Exports)
 
                 if (isCloudOrDev) {
@@ -80,15 +82,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
         /** Tabs shown in the navigation bar */
         visibleTabs: [
-            (s) => [s.enabledTabs, s.sceneSidePanelContext],
-            (enabledTabs, sceneSidePanelContext): SidePanelTab[] => {
+            (s) => [s.enabledTabs],
+            (enabledTabs): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
                 const hiddenTabs = [SidePanelTab.Exports]
-                return enabledTabs.filter(
-                    (tab) =>
-                        !hiddenTabs.includes(tab) &&
-                        (tab !== SidePanelTab.Settings || !!sceneSidePanelContext?.settings_section)
-                )
+                return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],
     }),
