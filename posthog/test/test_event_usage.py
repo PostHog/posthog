@@ -247,16 +247,45 @@ class TestGetEventSource(BaseTest):
 
     @parameterized.expand(
         [
-            ("wizard_wraps_mcp", "posthog/wizard 1.0 posthog/mcp-server", EventSource.WIZARD),
-            ("terraform_wraps_mcp", "posthog/terraform-provider 1.0 posthog/mcp-server", EventSource.TERRAFORM),
-            ("posthog_code_wraps_mcp", "posthog/code 1.2.3 posthog/mcp-server", EventSource.POSTHOG_CODE),
+            ("wizard_with_mcp_ua_and_header", "posthog/wizard 1.0 posthog/mcp-server", "mcp", EventSource.WIZARD),
+            ("wizard_with_mcp_ua_no_header", "posthog/wizard 1.0 posthog/mcp-server", None, EventSource.WIZARD),
+            ("wizard_no_mcp_ua_with_header", "posthog/wizard 1.0", "mcp", EventSource.WIZARD),
+            (
+                "terraform_with_mcp_ua_and_header",
+                "posthog/terraform-provider 1.0 posthog/mcp-server",
+                "mcp",
+                EventSource.TERRAFORM,
+            ),
+            (
+                "terraform_with_mcp_ua_no_header",
+                "posthog/terraform-provider 1.0 posthog/mcp-server",
+                None,
+                EventSource.TERRAFORM,
+            ),
+            ("terraform_no_mcp_ua_with_header", "posthog/terraform-provider 1.0", "mcp", EventSource.TERRAFORM),
+            (
+                "posthog_code_with_mcp_ua_and_header",
+                "posthog/code 1.2.3 posthog/mcp-server",
+                "mcp",
+                EventSource.POSTHOG_CODE,
+            ),
+            (
+                "posthog_code_with_mcp_ua_no_header",
+                "posthog/code 1.2.3 posthog/mcp-server",
+                None,
+                EventSource.POSTHOG_CODE,
+            ),
+            ("posthog_code_no_mcp_ua_with_header", "posthog/code 1.2.3", "mcp", EventSource.POSTHOG_CODE),
         ]
     )
-    def test_outer_caller_user_agent_wins_over_x_posthog_client_header(self, _name, user_agent, expected):
-        # Wizard / posthog-code / terraform all wrap MCP — when both signals are present, the
-        # outer caller's UA token must win so attribution reflects who actually drove the request.
+    def test_outer_caller_user_agent_wins_over_mcp_signals(self, _name, user_agent, x_posthog_client, expected):
+        # Wizard / posthog-code / terraform all wrap MCP. Regardless of which MCP signal is
+        # present (UA token, X-Posthog-Client header, or both), the outer caller's UA must win.
         factory = APIRequestFactory()
-        request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp", HTTP_USER_AGENT=user_agent)
+        kwargs = {"HTTP_USER_AGENT": user_agent}
+        if x_posthog_client is not None:
+            kwargs["HTTP_X_POSTHOG_CLIENT"] = x_posthog_client
+        request = factory.get("/fake", **kwargs)
         assert get_event_source(request) == expected
 
 
