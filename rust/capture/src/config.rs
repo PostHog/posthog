@@ -321,9 +321,7 @@ pub struct KafkaConfig {
     pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
 
     // Traces-cluster overrides (consumed by capture-logs). When unset, the
-    // traces producer reuses the corresponding `kafka_*` value above and
-    // shares the logs cluster connection. Setting any of these causes
-    // capture-logs to build a second, independent producer for traces.
+    // traces producer reuses the corresponding `kafka_*` value above.
     pub kafka_traces_hosts: Option<String>,
     pub kafka_traces_tls: Option<bool>,
     pub kafka_traces_client_id: Option<String>,
