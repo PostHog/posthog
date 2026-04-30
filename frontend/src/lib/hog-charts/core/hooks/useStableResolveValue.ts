@@ -1,10 +1,10 @@
 import { useCallback } from 'react'
 
 import type { ResolveValueFn } from '../types'
-import { useLatestSync } from './useLatest'
+import { useLatest } from './useLatest'
 
 export function useStableResolveValue(resolveValue: ResolveValueFn | undefined): ResolveValueFn {
-    const ref = useLatestSync(resolveValue)
+    const ref = useLatest(resolveValue)
     return useCallback<ResolveValueFn>(
         (s, i) => {
             const fn = ref.current

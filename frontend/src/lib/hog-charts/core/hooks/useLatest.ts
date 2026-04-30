@@ -1,17 +1,8 @@
 import type { MutableRefObject } from 'react'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
-// Latest value in a ref, written post-commit. For render-time reads use useLatestSync.
+// Latest value of a prop in a ref, written during render so consumers see it from the same pass.
 export function useLatest<T>(value: T): MutableRefObject<T> {
-    const ref = useRef<T>(value)
-    useEffect(() => {
-        ref.current = value
-    }, [value])
-    return ref
-}
-
-// Like useLatest but writes during render — only when consumers read the ref during their own render.
-export function useLatestSync<T>(value: T): MutableRefObject<T> {
     const ref = useRef<T>(value)
     ref.current = value
     return ref
