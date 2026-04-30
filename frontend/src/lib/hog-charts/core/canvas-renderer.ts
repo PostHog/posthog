@@ -352,17 +352,23 @@ export function drawGrid(
 export function drawCrosshair(
     ctx: CanvasRenderingContext2D,
     dimensions: ChartDimensions,
-    x: number,
-    color: string
+    coord: number,
+    color: string,
+    orientation: 'vertical' | 'horizontal' = 'vertical'
 ): void {
     // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
-    const lineX = Math.round(x) + 0.5
+    const line = Math.round(coord) + 0.5
     ctx.strokeStyle = color
     ctx.lineWidth = 1
     ctx.setLineDash([])
     ctx.beginPath()
-    ctx.moveTo(lineX, dimensions.plotTop)
-    ctx.lineTo(lineX, dimensions.plotTop + dimensions.plotHeight)
+    if (orientation === 'vertical') {
+        ctx.moveTo(line, dimensions.plotTop)
+        ctx.lineTo(line, dimensions.plotTop + dimensions.plotHeight)
+    } else {
+        ctx.moveTo(dimensions.plotLeft, line)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, line)
+    }
     ctx.stroke()
 }
 
@@ -499,17 +505,25 @@ export function drawHighlightPoint(
 
 type DrawHoverFn = (args: ChartDrawArgs) => void
 
+interface ComposeDrawHoverOptions {
+    crosshairColor: string | undefined
+    showCrosshair: boolean
+    axisOrientation?: 'vertical' | 'horizontal'
+    labelToCoord?: (label: string) => number | undefined
+}
+
 // Crosshair drawn first so the chart-type's highlight rings render on top.
 export function composeDrawHoverWithCrosshair(
     getDrawHover: () => DrawHoverFn,
-    crosshairColor: string | undefined,
-    showCrosshair: boolean
+    options: ComposeDrawHoverOptions
 ): DrawHoverFn {
+    const { crosshairColor, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
     return (args) => {
         if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
-            const x = args.scales.x(args.labels[args.hoverIndex])
-            if (x != null && isFinite(x)) {
-                drawCrosshair(args.ctx, args.dimensions, x, crosshairColor)
+            const label = args.labels[args.hoverIndex]
+            const coord = labelToCoord ? labelToCoord(label) : args.scales.x(label)
+            if (coord != null && isFinite(coord)) {
+                drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation)
             }
         }
         getDrawHover()(args)

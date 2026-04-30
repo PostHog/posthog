@@ -111,7 +111,6 @@ export function Chart<Meta = unknown>({
         showCrosshair = false,
         axisOrientation = 'vertical',
     } = config ?? {}
-    const isHorizontal = axisOrientation === 'horizontal'
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
@@ -166,8 +165,14 @@ export function Chart<Meta = unknown>({
     // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useLatest(drawHover)
     const composedDrawHover = useMemo(
-        () => composeDrawHoverWithCrosshair(() => drawHoverRef.current, theme.crosshairColor, showCrosshair),
-        [showCrosshair, theme.crosshairColor]
+        () =>
+            composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+                crosshairColor: theme.crosshairColor,
+                showCrosshair,
+                axisOrientation,
+                labelToCoord,
+            }),
+        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord]
     )
 
     useChartDraw({
