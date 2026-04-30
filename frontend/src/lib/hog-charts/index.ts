@@ -3,8 +3,9 @@ export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
 
 // Base chart (for building new chart types)
-export { Chart, DEFAULT_MARGINS } from './core/Chart'
+export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'
+export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
 
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'

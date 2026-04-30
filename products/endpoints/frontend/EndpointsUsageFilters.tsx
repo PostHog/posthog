@@ -144,7 +144,7 @@ const BreakdownFilter = ({ tabId }: { tabId: string }): JSX.Element => {
                 { value: null, label: 'No breakdown' },
                 { value: EndpointsUsageBreakdown.Endpoint, label: 'By endpoint' },
                 { value: EndpointsUsageBreakdown.MaterializationType, label: 'By execution type' },
-                { value: EndpointsUsageBreakdown.ApiKey, label: 'By API key' },
+                { value: EndpointsUsageBreakdown.ApiKey, label: 'By personal API key' },
                 { value: EndpointsUsageBreakdown.Status, label: 'By status' },
             ]}
             data-attr="breakdown-filter"

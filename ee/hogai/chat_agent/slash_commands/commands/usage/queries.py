@@ -6,7 +6,7 @@ import posthoganalytics
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.tasks.usage_report import (
     AI_BILLING_EXCLUDED_TOOLS,
     AI_COST_MARKUP_PERCENT,
@@ -143,7 +143,12 @@ def get_ai_credits(
 
     usage_report_kind = "posthog_ai_credits_for_conversation" if conversation_id else "posthog_ai_credits_for_team"
 
-    with tags_context(product=Product.MAX_AI, usage_report=usage_report_kind, kind=usage_report_kind):
+    with tags_context(
+        product=Product.MAX_AI,
+        feature=Feature.POSTHOG_AI,
+        usage_report=usage_report_kind,
+        kind=usage_report_kind,
+    ):
         query = f"""
         WITH trace_analysis AS (
             WITH %(excluded_tools)s AS excluded_tools
