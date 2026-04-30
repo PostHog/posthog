@@ -119,7 +119,7 @@ def _verify_partitions(conn: psycopg.Connection, today: date, errors: list[str])
 
 
 def _send_slack_failure(errors: list[str]) -> None:
-    webhook_url = getattr(settings, "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", None)
+    webhook_url = settings.WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL
     if not webhook_url:
         logger.warning("No Slack webhook configured for partition management alerts")
         return
