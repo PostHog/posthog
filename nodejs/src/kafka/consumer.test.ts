@@ -508,6 +508,115 @@ describe('consumer', () => {
             ])
         })
 
+        it('H2: rebalanceTimeoutMs recovery does not cancel the deferred .then(incrementalUnassign)', async () => {
+            // Validates: when the local rebalanceTimeoutMs forces recovery, the deferred
+            // Promise.all(...).then(incrementalUnassign(originalAssignments)) is NOT cancelled.
+            // When the slow task eventually settles, it can fire incrementalUnassign against
+            // partitions that have since been re-assigned to us (cooperative-sticky case),
+            // leaving them stuck with no consumer reading.
+
+            // Use a short timeout so we don't have to wait 20s
+            consumer['rebalanceCoordination'].rebalanceTimeoutMs = 50
+            consumer['maxBackgroundTasks'] = 3
+
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Push a slow task that won't settle until after the recovery window.
+            const p1 = triggerablePromise()
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: p1.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 1, partition: 0 })])
+            await delay(1)
+
+            // Fire revoke. Promise.all([t1]).then(unassign(P0)) is now armed.
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(true)
+
+            // Release the in-flight consume() with empty messages so the loop can iterate to
+            // the rebalance pause check.
+            consumeCallback(null, [])
+
+            // Wait for the local recovery (50ms threshold + 10ms loop poll).
+            await delay(100)
+
+            // Recovery should have reset isRebalancing.
+            expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
+
+            // Simulate cooperative-sticky re-ASSIGN of the SAME partition.
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            expect(mockRdKafkaConsumer.incrementalAssign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+            expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
+
+            // Now resolve the slow task — the deferred .then from the original REVOKE fires.
+            p1.resolve()
+            await delay(20)
+
+            // CORRECT behavior: deferred .then should be cancelled by the timeout recovery
+            // and the subsequent reassign — partition P0 is currently owned by us.
+            // CURRENT behavior: incrementalUnassign(P0) fires, stranding P0 (broker still
+            // thinks we own it; locally we no longer fetch from it).
+            expect(mockRdKafkaConsumer.incrementalUnassign).not.toHaveBeenCalled()
+        })
+
+        it('H3: incrementalUnassign races ahead of offset storage when tasks finish out of order', async () => {
+            // Validates: the rebalance callback's Promise.all snapshots t.promise (the raw task),
+            // not the .finally chain that performs storeOffsets. When tasks finish out of order,
+            // the later task's .finally is suspended on `await Promise.all(promisesToWait)` waiting
+            // for earlier tasks, but Promise.all([t1, t2]) in the rebalance callback resolves the
+            // moment t1 resolves — which queues incrementalUnassign BEFORE the later task's
+            // .finally resumes to call storeOffsets. The late storeOffsets then runs against
+            // revoked partitions and fails silently (consumer.ts:611-627).
+            consumer['maxBackgroundTasks'] = 3
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Push two tasks: queue = [t1, t2]
+            const p1 = triggerablePromise()
+            const p2 = triggerablePromise()
+
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: p1.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 1, partition: 0 })])
+            await delay(1)
+
+            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask: p2.promise }))
+            consumeCallback(null, [createKafkaMessage({ offset: 2, partition: 0 })])
+            await delay(1)
+
+            // Track call order
+            const callOrder: string[] = []
+            mockRdKafkaConsumer.offsetsStore.mockImplementation(((args: any) => {
+                callOrder.push(`offsetsStore(${JSON.stringify(args)})`)
+            }) as any)
+            mockRdKafkaConsumer.incrementalUnassign.mockImplementation((() => {
+                callOrder.push('incrementalUnassign')
+            }) as any)
+
+            // Fire revoke
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+
+            // Resolve OUT OF ORDER: t2 first (forcing t2.finally to await on t1 inside its
+            // promisesToWait branch), then t1.
+            p2.resolve()
+            await delay(1)
+            p1.resolve()
+            await delay(20)
+
+            // CORRECT behavior: ALL offsetsStore calls happen before incrementalUnassign,
+            // so offsets for the revoked partitions are committed before we release them.
+            const isStore = (s: string) => s.startsWith('offsetsStore')
+            const lastStoreIdx = callOrder.map(isStore).lastIndexOf(true)
+            const unassignIdx = callOrder.indexOf('incrementalUnassign')
+            expect(unassignIdx).toBeGreaterThanOrEqual(0)
+            // Bug: unassignIdx will fall BEFORE the second offsetsStore call.
+            expect(unassignIdx).toBeGreaterThan(lastStoreIdx)
+        })
+
         it('should not wait when waitForBackgroundTasksOnRebalance is disabled', async () => {
             defaultConfig.CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE = false
             // Create a consumer with feature disabled
