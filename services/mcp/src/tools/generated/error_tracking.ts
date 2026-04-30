@@ -6,12 +6,10 @@ import {
     ErrorTrackingAssignmentRulesCreateBody,
     ErrorTrackingAssignmentRulesListQueryParams,
     ErrorTrackingGroupingRulesCreateBody,
-    ErrorTrackingIssuesListQueryParams,
     ErrorTrackingIssuesMergeCreateBody,
     ErrorTrackingIssuesMergeCreateParams,
     ErrorTrackingIssuesPartialUpdateBody,
     ErrorTrackingIssuesPartialUpdateParams,
-    ErrorTrackingIssuesRetrieveParams,
     ErrorTrackingIssuesSplitCreateBody,
     ErrorTrackingIssuesSplitCreateParams,
     ErrorTrackingQueryIssueCreateBody,
@@ -120,46 +118,6 @@ const errorTrackingGroupingRulesList = (): ToolBase<
     },
 })
 
-const ErrorTrackingIssuesListSchema = ErrorTrackingIssuesListQueryParams
-
-const errorTrackingIssuesList = (): ToolBase<
-    typeof ErrorTrackingIssuesListSchema,
-    WithPostHogUrl<Schemas.PaginatedErrorTrackingIssueFullList>
-> =>
-    withUiApp('error-issue-list', {
-        name: 'error-tracking-issues-list',
-        schema: ErrorTrackingIssuesListSchema,
-        handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesListSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedErrorTrackingIssueFullList>({
-                method: 'GET',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/`,
-                query: {
-                    limit: params.limit,
-                    offset: params.offset,
-                },
-            })
-            const filtered = {
-                ...result,
-                results: (result.results ?? []).map((item: any) =>
-                    pickResponseFields(item, ['id', 'status', 'name', 'first_seen', 'assignee'])
-                ),
-            } as typeof result
-            return await withPostHogUrl(
-                context,
-                {
-                    ...filtered,
-                    results: await Promise.all(
-                        (filtered.results ?? []).map((item) =>
-                            withPostHogUrl(context, item, `/error_tracking/${item.id}`)
-                        )
-                    ),
-                },
-                '/error_tracking'
-            )
-        },
-    })
-
 const ErrorTrackingIssuesMergeCreateSchema = ErrorTrackingIssuesMergeCreateParams.omit({ project_id: true }).extend(
     ErrorTrackingIssuesMergeCreateBody.shape
 )
@@ -221,25 +179,6 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
                 method: 'PATCH',
                 path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
                 body,
-            })
-            return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
-        },
-    })
-
-const ErrorTrackingIssuesRetrieveSchema = ErrorTrackingIssuesRetrieveParams.omit({ project_id: true })
-
-const errorTrackingIssuesRetrieve = (): ToolBase<
-    typeof ErrorTrackingIssuesRetrieveSchema,
-    WithPostHogUrl<Schemas.ErrorTrackingIssueFull>
-> =>
-    withUiApp('error-issue', {
-        name: 'error-tracking-issues-retrieve',
-        schema: ErrorTrackingIssuesRetrieveSchema,
-        handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesRetrieveSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
-                method: 'GET',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
             })
             return await withPostHogUrl(context, result, `/error_tracking/${result.id}`)
         },
@@ -513,10 +452,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-assignment-rules-list': errorTrackingAssignmentRulesList,
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
-    'error-tracking-issues-list': errorTrackingIssuesList,
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
-    'error-tracking-issues-retrieve': errorTrackingIssuesRetrieve,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,

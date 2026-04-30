@@ -1124,21 +1124,6 @@
             "readOnlyHint": true
         }
     },
-    "error-tracking-issues-list": {
-        "description": "List all error tracking issues in the project. Returns issues with id, status, name, first seen timestamp, and assignee info.",
-        "category": "Error tracking",
-        "feature": "error_tracking",
-        "summary": "List error tracking issues",
-        "title": "List error tracking issues",
-        "required_scopes": ["error_tracking:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "error-tracking-issues-merge-create": {
         "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
         "category": "Error tracking",
@@ -1167,21 +1152,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "error-tracking-issues-retrieve": {
-        "description": "Get a specific error tracking issue by ID. Returns full issue details including status, description, volume, and metadata. After retrieving an issue, consider using `query-session-recordings-list` with an event filter for `$exception` to find session recordings of users who hit this error.",
-        "category": "Error tracking",
-        "feature": "error_tracking",
-        "summary": "Get error tracking issue",
-        "title": "Get error tracking issue",
-        "required_scopes": ["error_tracking:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "error-tracking-issues-split-create": {

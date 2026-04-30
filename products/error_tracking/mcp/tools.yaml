@@ -155,7 +155,7 @@ tools:
         enabled: false
     error-tracking-issues-list:
         operation: error_tracking_issues_list
-        enabled: true
+        enabled: false
         scopes:
             - error_tracking:read
         annotations:
@@ -206,7 +206,7 @@ tools:
         ui_app: error-issue
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
-        enabled: true
+        enabled: false
         scopes:
             - error_tracking:read
         annotations:
