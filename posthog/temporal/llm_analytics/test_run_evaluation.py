@@ -30,6 +30,7 @@ from .run_evaluation import (
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
     execute_llm_judge_activity,
+    extract_event_tools,
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
     run_hog_eval,
@@ -1050,3 +1051,24 @@ class TestSendEvaluationDisabledEmailActivity:
             )
 
             mock_email_class.assert_not_called()
+
+
+class TestExtractEventTools:
+    def test_returns_tools_for_ai_generation(self):
+        properties = {
+            "$ai_tools": [{"type": "function", "function": {"name": "send_email", "description": "Send email"}}],
+        }
+        tools = extract_event_tools("$ai_generation", properties)
+        assert tools is not None
+        assert isinstance(tools, list)
+        assert tools[0]["function"]["name"] == "send_email"
+
+    def test_returns_none_for_non_generation_events(self):
+        # Trace and span events don't carry the tool catalog, so the judge
+        # prompt should omit the Tools section entirely.
+        properties = {"$ai_tools": [{"type": "function", "function": {"name": "x"}}]}
+        assert extract_event_tools("$ai_trace", properties) is None
+        assert extract_event_tools("$ai_span", properties) is None
+
+    def test_returns_none_when_property_missing(self):
+        assert extract_event_tools("$ai_generation", {}) is None

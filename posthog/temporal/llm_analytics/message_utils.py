@@ -10,7 +10,8 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
 
     Handles common message formats from various LLM providers:
     - OpenAI: [{"role": "user", "content": "text"}]
-    - OpenAI tool calling: assistant messages with `tool_calls` (rendered alongside any content)
+    - OpenAI tool calling: assistant messages with `tool_calls` (rendered alongside any content),
+      paired with `role: "tool"` results that carry a `tool_call_id` for correlation
     - Anthropic: [{"role": "user", "content": [{"type": "text", "text": "..."}]}]
     - Simple strings
 
@@ -29,20 +30,9 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
         formatted_parts = []
         for msg in messages:
             if isinstance(msg, dict):
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-
-                # Extract text from content and any OpenAI-style tool_calls
-                text = _extract_content_text(content)
-                tool_calls_text = _format_tool_calls(msg.get("tool_calls"))
-
-                rendered = " ".join(part for part in (text, tool_calls_text) if part)
-                if rendered:
-                    formatted_parts.append(f"{role}: {rendered}" if role else rendered)
-                elif role:
-                    # Preserve the conversation slot when a message has a role
-                    # but no body (e.g. a tool that returned nothing).
-                    formatted_parts.append(f"{role}:")
+                rendered_msg = _render_message(msg)
+                if rendered_msg is not None:
+                    formatted_parts.append(rendered_msg)
             elif isinstance(msg, str):
                 formatted_parts.append(msg)
 
@@ -54,6 +44,37 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
         text = _extract_content_text(content)
         tool_calls_text = _format_tool_calls(messages.get("tool_calls"))
         return " ".join(part for part in (text, tool_calls_text) if part)
+
+
+def _render_message(msg: dict) -> str | None:
+    """Render a single message dict into a `role: body` line.
+
+    Returns None when the message has neither a role nor any body to render
+    (so the caller can skip it).
+    """
+    role = msg.get("role", "")
+    content = msg.get("content", "")
+    text = _extract_content_text(content)
+    tool_calls_text = _format_tool_calls(msg.get("tool_calls"))
+
+    rendered = " ".join(part for part in (text, tool_calls_text) if part)
+
+    # Surface tool_call_id on `role: "tool"` results so the judge can correlate
+    # a tool's output with the assistant call that produced it. Without this,
+    # multi-tool agentic flows lose the call/result pairing entirely.
+    role_label = role
+    if role == "tool":
+        tool_call_id = msg.get("tool_call_id")
+        if tool_call_id:
+            role_label = f"tool[{tool_call_id}]"
+
+    if rendered:
+        return f"{role_label}: {rendered}" if role_label else rendered
+    if role_label:
+        # Preserve the conversation slot when a message has a role
+        # but no body (e.g. a tool that returned nothing).
+        return f"{role_label}:"
+    return None
 
 
 def _extract_content_text(content: Union[str, list, dict, None]) -> str:
@@ -103,6 +124,9 @@ def _format_tool_calls(tool_calls: Any) -> str:
     assistant messages that *only* invoke a tool (content is null) disappear
     from the formatted conversation entirely, leaving an LLM judge unable to
     see what the agent actually did.
+
+    The call id is included so a downstream `role: "tool"` result rendered as
+    `tool[<id>]:` can be paired back to the call that produced it.
     """
     if not isinstance(tool_calls, list):
         return ""
@@ -119,5 +143,65 @@ def _format_tool_calls(tool_calls: Any) -> str:
         args = fn.get("arguments", "")
         if not isinstance(args, str):
             args = json.dumps(args, default=str)
-        parts.append(f"[tool_call: {name}({args})]")
+        call_id = tc.get("id")
+        prefix = f"tool_call {call_id}" if call_id else "tool_call"
+        parts.append(f"[{prefix}: {name}({args})]")
     return " ".join(parts)
+
+
+def format_tool_definitions(tools: Any) -> str:
+    """Render the `$ai_tools` property (the tool catalog available to the agent)
+    into a compact, judge-readable summary.
+
+    For evaluating agentic behavior, the judge often needs to know not just
+    which tools were called but which tools were *callable*. A prompt like
+    "did the agent pick the right tool?" is unanswerable without that catalog.
+
+    Accepts the OpenAI-style `[{"type": "function", "function": {"name": ..., "description": ..., "parameters": {...}}}]`
+    shape, the Anthropic `[{"name": ..., "description": ..., "input_schema": {...}}]`
+    shape, and falls back to JSON-stringifying anything unrecognized rather than
+    silently dropping it.
+    """
+    if not tools:
+        return ""
+
+    if isinstance(tools, str):
+        return tools
+
+    if isinstance(tools, dict):
+        tools = [tools]
+
+    if not isinstance(tools, list):
+        return json.dumps(tools, default=str)
+
+    parts: list[str] = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            parts.append(str(tool))
+            continue
+        rendered = _format_single_tool_definition(tool)
+        if rendered:
+            parts.append(rendered)
+    return "\n".join(parts)
+
+
+def _format_single_tool_definition(tool: dict) -> str:
+    # OpenAI shape: {"type": "function", "function": {"name": ..., "description": ..., "parameters": {...}}}
+    fn = tool.get("function") if isinstance(tool.get("function"), dict) else tool
+    name = fn.get("name") or tool.get("name") or ""
+    description = fn.get("description") or tool.get("description") or ""
+    parameters = fn.get("parameters") if isinstance(fn, dict) else None
+    if parameters is None:
+        # Anthropic uses `input_schema` rather than `parameters`.
+        parameters = tool.get("input_schema")
+
+    if not name:
+        # Unrecognized shape — stringify so the judge still sees something.
+        return json.dumps(tool, default=str)
+
+    line = f"- {name}"
+    if description:
+        line += f": {description}"
+    if parameters:
+        line += f" (params: {json.dumps(parameters, default=str)})"
+    return line

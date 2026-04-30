@@ -17,7 +17,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.llm_analytics.metrics import (
     increment_emit_event_outcome,
     increment_errors,
@@ -561,17 +561,29 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
 
     # Extract input/output based on event type
     input_raw, output_raw = extract_event_io(event_type, properties)
+    tools_raw = extract_event_tools(event_type, properties)
 
     # Extract readable text from message structures
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
+    tools_data = format_tool_definitions(tools_raw)
 
     # Build judge prompt based on allows_na config
     type_config = get_output_type_config(allows_na)
     system_prompt = build_system_prompt(prompt, allows_na)
     response_format = type_config.response_format
 
-    user_prompt = f"""Input: {input_data}
+    # Insert a `Tools:` section between Input and Output when the event captured
+    # the tool catalog. The judge needs to see what the agent *could* call to
+    # evaluate prompts like "did it pick the right tool?".
+    if tools_data:
+        user_prompt = f"""Input: {input_data}
+
+Tools available: {tools_data}
+
+Output: {output_data}"""
+    else:
+        user_prompt = f"""Input: {input_data}
 
 Output: {output_data}"""
 
@@ -711,6 +723,17 @@ def extract_event_io(event_type: str, properties: dict[str, Any]) -> tuple[Any, 
         input_raw = properties.get("$ai_input_state", "")
         output_raw = properties.get("$ai_output_state", "")
     return input_raw, output_raw
+
+
+def extract_event_tools(event_type: str, properties: dict[str, Any]) -> Any:
+    """Extract the tool catalog (`$ai_tools`) captured on a generation event.
+
+    Only `$ai_generation` events carry a tool catalog today; other event types
+    return None so the judge prompt omits the section entirely.
+    """
+    if event_type != "$ai_generation":
+        return None
+    return properties.get("$ai_tools")
 
 
 def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = False) -> dict[str, Any]:
