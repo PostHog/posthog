@@ -24830,7 +24830,7 @@ export namespace Schemas {
       Hog: 'hog',
     } as const;
 
-    export type TaggerConditionPropertiesItem = {[key: string]: unknown};
+    export type TaggerConditionPropertiesItem = { [key: string]: unknown };
 
     export interface TaggerCondition {
       /**
