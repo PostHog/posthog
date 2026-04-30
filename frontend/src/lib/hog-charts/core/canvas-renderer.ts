@@ -1,7 +1,7 @@
 import * as d3 from 'd3'
 
 import { yTickCountForHeight } from './scales'
-import type { ChartDimensions, ChartDrawArgs, ResolvedSeries, Series } from './types'
+import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -437,7 +437,7 @@ export interface BarRect {
  *  out non-drawable bars without distorting the hatch boundary. */
 export function drawBars(
     drawCtx: DrawContext,
-    series: Series,
+    series: ResolvedSeries,
     bars: BarRect[],
     options: { cornerRadius?: number } = {}
 ): void {

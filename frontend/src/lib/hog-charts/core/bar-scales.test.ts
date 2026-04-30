@@ -1,5 +1,5 @@
-import { createBarScales } from '../core/scales'
 import { dimensions, makeSeries } from '../test-helpers'
+import { createBarScales } from './scales'
 
 describe('hog-charts bar scales', () => {
     describe('createBarScales — vertical orientation (default)', () => {
