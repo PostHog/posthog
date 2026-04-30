@@ -328,21 +328,23 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00031625, 8)
         })
 
-        it('extracts Gemini audio input tokens from raw $ai_usage and bills at audio rate', () => {
-            // Simulates a Gemini transcription event where the SDK forwards raw
-            // usageMetadata in $ai_usage but does not pre-populate the
-            // $ai_audio_input_tokens property. Ingestion must extract
-            // promptTokensDetails and bill the audio portion correctly.
+        it('extracts Gemini audio input tokens from snake_case $ai_usage and bills at audio rate', () => {
+            // Simulates a Gemini transcription event coming from posthog-python:
+            // the SDK forwards usage_metadata via to_dict() / vars() which
+            // produces snake_case keys (prompt_tokens_details with token_count
+            // entries) rather than the camelCase form Vercel uses. Ingestion
+            // must extract from this shape and bill the audio portion at the
+            // audio rate even though $ai_audio_input_tokens is not pre-set.
             event.properties!.$ai_model = 'gemini-3-flash-preview'
             event.properties!.$ai_provider = 'gemini'
             event.properties!.$ai_input_tokens = 1000 // 750 audio + 250 text
             event.properties!.$ai_output_tokens = 100
             event.properties!.$ai_usage = {
-                promptTokenCount: 1000,
-                candidatesTokenCount: 100,
-                promptTokensDetails: [
-                    { modality: 'AUDIO', tokenCount: 750 },
-                    { modality: 'TEXT', tokenCount: 250 },
+                prompt_token_count: 1000,
+                candidates_token_count: 100,
+                prompt_tokens_details: [
+                    { modality: 'AUDIO', token_count: 750 },
+                    { modality: 'TEXT', token_count: 250 },
                 ],
             }
 

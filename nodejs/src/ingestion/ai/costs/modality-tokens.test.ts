@@ -709,6 +709,83 @@ describe('extractModalityTokens()', () => {
         })
     })
 
+    describe('snake_case Gemini metadata (posthog-python shape)', () => {
+        // posthog-python forwards Gemini's protobuf usage_metadata via to_dict()
+        // / vars(), which produces snake_case keys (prompt_tokens_details with
+        // modality/token_count entries). Production traces from Python users
+        // use this shape exclusively; the camelCase shape comes from the Vercel
+        // AI SDK on Node.js.
+
+        it('extracts audio + text input from snake_case prompt_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_token_count: 1348,
+                    prompt_tokens_details: [
+                        { modality: 'AUDIO', token_count: 750 },
+                        { modality: 'TEXT', token_count: 598 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(750)
+            expect(result.properties['$ai_text_input_tokens']).toBe(598)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('extracts output modality from snake_case candidates_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    candidates_tokens_details: [
+                        { modality: 'TEXT', token_count: 100 },
+                        { modality: 'IMAGE', token_count: 1290 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_text_output_tokens']).toBe(100)
+            expect(result.properties['$ai_image_output_tokens']).toBe(1290)
+        })
+
+        it('extracts cached audio from snake_case cache_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    cache_tokens_details: [{ modality: 'AUDIO', token_count: 50 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+
+        it('handles snake_case input + output + cache together (full Gemini event)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_token_count: 1348,
+                    candidates_token_count: 100,
+                    cached_content_token_count: 50,
+                    prompt_tokens_details: [
+                        { modality: 'AUDIO', token_count: 750 },
+                        { modality: 'TEXT', token_count: 598 },
+                    ],
+                    candidates_tokens_details: [{ modality: 'TEXT', token_count: 100 }],
+                    cache_tokens_details: [{ modality: 'AUDIO', token_count: 50 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_audio_input_tokens']).toBe(750)
+            expect(result.properties['$ai_text_input_tokens']).toBe(598)
+            expect(result.properties['$ai_text_output_tokens']).toBe(100)
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+    })
+
     describe('extraction counter labels', () => {
         const labelsSpy = jest.spyOn(aiCostModalityExtractionCounter, 'labels')
 

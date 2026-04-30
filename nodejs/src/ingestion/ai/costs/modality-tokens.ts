@@ -10,6 +10,32 @@ const isObject = (value: unknown): value is Record<string, unknown> => {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * Look up a metadata key under either the camelCase or snake_case form. Gemini
+ * arrives camelCased through the Vercel AI SDK (Node.js, raw API JSON) and
+ * snake_cased through posthog-python (protobuf to_dict / vars). Both shapes are
+ * routinely seen in production.
+ */
+const pick = (metadata: Record<string, unknown>, ...keys: string[]): unknown => {
+    for (const key of keys) {
+        const value = metadata[key]
+        if (value !== undefined && value !== null) {
+            return value
+        }
+    }
+    return undefined
+}
+
+const tokenCountOf = (detail: Record<string, unknown>): number | null => {
+    const tokenCount = detail['tokenCount'] ?? detail['token_count']
+    return typeof tokenCount === 'number' ? tokenCount : null
+}
+
+const modalityOf = (detail: Record<string, unknown>): string | null => {
+    const modality = detail['modality']
+    return typeof modality === 'string' ? modality.toLowerCase() : null
+}
+
 type ExtractionSource = 'gemini_input' | 'gemini_output' | 'gemini_cache' | 'openai_input' | 'openai_cache'
 
 /**
@@ -30,9 +56,10 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
     try {
         const extractedSources = new Set<ExtractionSource>()
 
-        // Gemini's promptTokensDetails shape (input modality).
+        // Gemini's promptTokensDetails / prompt_tokens_details shape (input modality).
         // Array form: [{ modality: "AUDIO", tokenCount: 750 }, { modality: "TEXT", tokenCount: 598 }]
-        // Object form: { audioTokens: 750, textTokens: 598 } (defensive fallback)
+        // (token_count snake_case also accepted via tokenCountOf).
+        // Object form: { audioTokens: 750, textTokens: 598 } (defensive fallback).
         const extractInputModality = (tokenDetails: unknown): void => {
             if (!tokenDetails) {
                 return
@@ -43,21 +70,20 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     if (!isObject(detail)) {
                         continue
                     }
-                    const modality = detail['modality']
-                    const tokenCount = detail['tokenCount']
-                    if (typeof modality !== 'string' || typeof tokenCount !== 'number') {
+                    const modality = modalityOf(detail)
+                    const tokenCount = tokenCountOf(detail)
+                    if (modality === null || tokenCount === null) {
                         continue
                     }
-                    const modalityLower = modality.toLowerCase()
-                    if (modalityLower === 'audio' && tokenCount > 0) {
+                    if (modality === 'audio' && tokenCount > 0) {
                         event.properties['$ai_audio_input_tokens'] = tokenCount
                         extractedSources.add('gemini_input')
                     }
-                    if (modalityLower === 'image' && tokenCount > 0) {
+                    if (modality === 'image' && tokenCount > 0) {
                         event.properties['$ai_image_input_tokens'] = tokenCount
                         extractedSources.add('gemini_input')
                     }
-                    if (modalityLower === 'text') {
+                    if (modality === 'text') {
                         event.properties['$ai_text_input_tokens'] = tokenCount
                         extractedSources.add('gemini_input')
                     }
@@ -78,9 +104,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             }
         }
 
-        // Gemini's candidatesTokensDetails shape (output modality).
-        // Array form: [{ modality: "TEXT", tokenCount: 10 }, { modality: "IMAGE", tokenCount: 1290 }]
-        // Object form: { textTokens: 10, imageTokens: 1290 } (defensive fallback)
+        // Gemini's candidatesTokensDetails / candidates_tokens_details shape (output modality).
         const extractOutputModality = (tokenDetails: unknown): void => {
             if (!tokenDetails) {
                 return
@@ -91,17 +115,16 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     if (!isObject(detail)) {
                         continue
                     }
-                    const modality = detail['modality']
-                    const tokenCount = detail['tokenCount']
-                    if (typeof modality !== 'string' || typeof tokenCount !== 'number') {
+                    const modality = modalityOf(detail)
+                    const tokenCount = tokenCountOf(detail)
+                    if (modality === null || tokenCount === null) {
                         continue
                     }
-                    const modalityLower = modality.toLowerCase()
-                    if (modalityLower === 'image' && tokenCount > 0) {
+                    if (modality === 'image' && tokenCount > 0) {
                         event.properties['$ai_image_output_tokens'] = tokenCount
                         extractedSources.add('gemini_output')
                     }
-                    if (modalityLower === 'text') {
+                    if (modality === 'text') {
                         event.properties['$ai_text_output_tokens'] = tokenCount
                         extractedSources.add('gemini_output')
                     }
@@ -118,9 +141,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             }
         }
 
-        // Gemini's cacheTokensDetails shape (cache modality).
-        // Array form: [{ modality: "AUDIO", tokenCount: 50 }, { modality: "TEXT", tokenCount: 250 }]
-        // Object form: { audioTokens: 50 } (defensive fallback)
+        // Gemini's cacheTokensDetails / cache_tokens_details shape (cache modality).
         const extractCacheModality = (tokenDetails: unknown): void => {
             if (!tokenDetails) {
                 return
@@ -131,12 +152,12 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                     if (!isObject(detail)) {
                         continue
                     }
-                    const modality = detail['modality']
-                    const tokenCount = detail['tokenCount']
-                    if (typeof modality !== 'string' || typeof tokenCount !== 'number') {
+                    const modality = modalityOf(detail)
+                    const tokenCount = tokenCountOf(detail)
+                    if (modality === null || tokenCount === null) {
                         continue
                     }
-                    if (modality.toLowerCase() === 'audio' && tokenCount > 0) {
+                    if (modality === 'audio' && tokenCount > 0) {
                         event.properties['$ai_cache_read_audio_tokens'] = tokenCount
                         extractedSources.add('gemini_cache')
                     }
@@ -184,13 +205,17 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
         // Walk each `usage`-shaped metadata object encountered across the SDK
         // wrapper variants and pull every modality breakdown it exposes.
+        // Gemini metadata arrives camelCased through the Vercel AI SDK and
+        // snake_cased through posthog-python; check both forms for each key.
         const extractFromMetadata = (metadata: unknown): void => {
             if (!isObject(metadata)) {
                 return
             }
-            extractInputModality(metadata['promptTokensDetails'])
-            extractOutputModality(metadata['candidatesTokensDetails'] ?? metadata['outputTokenDetails'])
-            extractCacheModality(metadata['cacheTokensDetails'])
+            extractInputModality(pick(metadata, 'promptTokensDetails', 'prompt_tokens_details'))
+            extractOutputModality(
+                pick(metadata, 'candidatesTokensDetails', 'candidates_tokens_details', 'outputTokenDetails')
+            )
+            extractCacheModality(pick(metadata, 'cacheTokensDetails', 'cache_tokens_details'))
             extractOpenAIInputModality(metadata)
             extractOpenAICacheModality(metadata)
         }
