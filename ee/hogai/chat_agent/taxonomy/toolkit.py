@@ -172,6 +172,10 @@ class TaxonomyAgentToolkit:
         return entities
 
     @database_sync_to_async(thread_sensitive=False)
+    def _get_groups(self) -> list[dict]:
+        return self._groups
+
+    @database_sync_to_async(thread_sensitive=False)
     def _get_entity_names(self) -> list[str]:
         return self._entity_names
 
@@ -332,7 +336,7 @@ class TaxonomyAgentToolkit:
             for property_name in property_names:
                 results.append(self._retrieve_session_properties(property_name))
             return results
-        groups = self._groups
+        groups = await self._get_groups()
         query = self._build_query(entity, property_names, groups)
         if query is None:
             results.append(TaxonomyErrorMessages.entity_not_found(entity))
@@ -366,9 +370,10 @@ class TaxonomyAgentToolkit:
     async def retrieve_entity_properties_parallel(self, entities: list[str]) -> dict[str, str]:
         tool_calls = []
         groups = []
+        team_group_types = await self._get_team_group_types()
 
         for entity in entities:
-            if entity in self._team_group_types:
+            if entity in team_group_types:
                 groups.append(entity)
             else:
                 tool_calls.append(
@@ -485,8 +490,9 @@ class TaxonomyAgentToolkit:
 
         entity_to_group_index = {}
         artifacts = []
+        all_groups = await self._get_groups()
         for group_entity in group_entities:
-            group_types = {g["group_type"]: g["group_type_index"] for g in self._groups}
+            group_types = {g["group_type"]: g["group_type_index"] for g in all_groups}
             group_type_index = group_types.get(group_entity, None)
             if group_type_index is not None:
                 entity_to_group_index[group_entity] = group_type_index
