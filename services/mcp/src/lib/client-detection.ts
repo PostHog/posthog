@@ -68,14 +68,6 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // emission in single-exec mode. Slack-launched runs send `"slack"` instead.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
-// Value sent in `x-posthog-mcp-consumer` (or `?consumer=`) by AI-tool plugins
-// that install the PostHog MCP for a user — distinguishes plugin-installed
-// connections from manual URL-paste installs. The wrapped AI client (Claude
-// Code, Cursor, …) is captured separately via MCP `clientInfo.name`, and the
-// MCP server forwards the consumer to the PostHog API as its own
-// `x-posthog-mcp-consumer` header for downstream attribution.
-export const PLUGIN_CONSUMER = 'plugin'
-
 // OAuth application names (from token introspection) for vibe-coding platforms
 // that should default to single-exec mode. These match against the OAuth
 // `client_name` (the registered OAuth app name in PostHog), not the MCP
