@@ -1852,30 +1852,39 @@ jobs:
                   runner: 'depot'
 
     report-test-timings:
-        name: Report per-test timings to PostHog DevEx
-        needs: [django_tests, async-migrations]
+        name: Report per-test timings
+        needs: [django_tests]
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        continue-on-error: true
-        # First attempt only; master always, PRs only when labeled `capture-test-timings`. Skip forks/dependabot (no secrets).
-        if: |
-            always() && github.run_attempt == '1' && github.actor != 'dependabot[bot]' && (
-            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'capture-test-timings')) ||
-            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && github.repository == 'PostHog/posthog'))
+        if: # Run on PostHog/posthog master pushes; on PRs only when labelled `capture-test-timings`. Skip forks/dependabot (no secrets access).
+            always()
+            && github.actor != 'dependabot[bot]'
+            && github.repository == 'PostHog/posthog'
+            && (
+            (github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && contains(github.event.pull_request.labels.*.name, 'capture-test-timings'))
+            || (github.event_name != 'pull_request' && github.ref == 'refs/heads/master')
+            )
         steps:
-            - uses: actions/checkout@b7c39afe7d8be7c0a3b1f6ed9b6c81bdc5dc20b1 # v6.0.0
+            # No `ref:` - always uses master's parser even on labelled PRs, so the script can't be swapped in the same PR.
+            - uses: actions/checkout@v6
+              if: github.run_attempt == '1'
               with:
-                  sparse-checkout: .github/scripts/report_test_timings.py
-                  sparse-checkout-cone-mode: false
+                  fetch-depth: 1
             - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              if: github.run_attempt == '1'
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
+              if: github.run_attempt == '1'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./junit-artifacts
                   pattern: junit-results-*
             - name: Emit per-test events
+              if: github.run_attempt == '1'
+              continue-on-error: true
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               run: uv run --script .github/scripts/report_test_timings.py ./junit-artifacts
