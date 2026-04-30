@@ -1,6 +1,13 @@
 import React, { useCallback, useMemo, useRef } from 'react'
 
-import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } from '../core/canvas-renderer'
+import {
+    type BarRect,
+    type BarRoundedCorners,
+    drawBarHighlight,
+    drawBars,
+    drawGrid,
+    type DrawContext,
+} from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
@@ -37,6 +44,18 @@ export interface BarChartProps<Meta = unknown> {
 
 /** Bars laid out for a single series across all labels, indexed by data index. */
 type SeriesBarLayout = (BarRect | null)[]
+
+/** Pick which corners to round for a bar's cap. The cap is the side away from the
+ *  value-axis baseline; for stacked layers below the topmost we don't round at all. */
+function cornersFor(isHorizontal: boolean, isPositive: boolean, shouldRoundCap: boolean): BarRoundedCorners {
+    if (!shouldRoundCap) {
+        return {}
+    }
+    if (isHorizontal) {
+        return isPositive ? { topRight: true, bottomRight: true } : { topLeft: true, bottomLeft: true }
+    }
+    return isPositive ? { topLeft: true, topRight: true } : { bottomLeft: true, bottomRight: true }
+}
 
 /** Computes bar geometry for one series given the layout mode and band scales.
  *  Returns one entry per data index (or null when the bar is not drawable). */
@@ -83,6 +102,7 @@ function computeSeriesBars(
                 continue
             }
 
+            const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
             if (isHorizontal) {
                 const x = Math.min(valueAtZero, valuePixel)
                 const width = Math.abs(valuePixel - valueAtZero)
@@ -91,11 +111,7 @@ function computeSeriesBars(
                     y: bandStart + groupOffset,
                     width,
                     height: groupBandWidth,
-                    corners: shouldRoundCap
-                        ? raw >= 0
-                            ? { topRight: true, bottomRight: true }
-                            : { topLeft: true, bottomLeft: true }
-                        : {},
+                    corners,
                     dataIndex: i,
                 })
             } else {
@@ -106,11 +122,7 @@ function computeSeriesBars(
                     y,
                     width: groupBandWidth,
                     height,
-                    corners: shouldRoundCap
-                        ? raw >= 0
-                            ? { topLeft: true, topRight: true }
-                            : { bottomLeft: true, bottomRight: true }
-                        : {},
+                    corners,
                     dataIndex: i,
                 })
             }

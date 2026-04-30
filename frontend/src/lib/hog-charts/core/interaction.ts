@@ -100,11 +100,12 @@ export function buildTooltipContext<Meta = unknown>(
         }
     }
 
-    // Vertical: anchor at the topmost (smallest y-pixel) value across visible series.
-    // Horizontal: anchor at the rightmost (largest x-pixel) value across visible series.
-    // In both, this picks the visual "tip" of the data column at this hover index.
-    const valueAnchor =
-        valuePixels.length === 0 ? 0 : interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
+    // Anchor at the visual "tip" of the data column at this hover index — topmost in vertical
+    // mode, rightmost in horizontal mode.
+    let valueAnchor = 0
+    if (valuePixels.length > 0) {
+        valueAnchor = interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
+    }
 
     const position = interactionAxis === 'y' ? { x: valueAnchor, y: bandPixel } : { x: bandPixel, y: valueAnchor }
 
