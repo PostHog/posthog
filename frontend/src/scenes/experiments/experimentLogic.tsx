@@ -179,13 +179,37 @@ export interface ExperimentLogicProps {
 
 export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
 
-export type LastRefreshState = 'in_progress' | 'completed' | 'errored'
+export type CurrentRefreshState = 'in_progress' | 'completed' | 'partial' | 'errored'
+export type FinishedRefreshState = Exclude<CurrentRefreshState, 'in_progress'>
 
-export interface LastRefreshSnapshot {
+export interface CurrentRefreshSnapshot {
     refresh_id: string
     triggered_by: ExperimentTriggeredBy
     started_at: number
-    state: LastRefreshState
+    state: CurrentRefreshState
+}
+
+export function previousRefreshAnalytics(snapshot: CurrentRefreshSnapshot | null): {
+    previous_refresh_id: string | null
+    previous_refresh_age_ms: number | null
+    previous_refresh_state: CurrentRefreshState | null
+    previous_refresh_triggered_by: string | null
+} {
+    if (!snapshot) {
+        return {
+            previous_refresh_id: null,
+            previous_refresh_age_ms: null,
+            previous_refresh_state: null,
+            previous_refresh_triggered_by: null,
+        }
+    }
+    return {
+        previous_refresh_id: snapshot.refresh_id,
+        previous_refresh_age_ms: Date.now() - snapshot.started_at,
+        previous_refresh_state: snapshot.state,
+        // Normalize to the same kebab-case convention `triggered_by` uses (e.g. `auto_refresh` → `auto-refresh`).
+        previous_refresh_triggered_by: snapshot.triggered_by.replace(/_/g, '-'),
+    }
 }
 
 function generateRefreshId(): string {
@@ -707,9 +731,9 @@ export const experimentLogic = kea<experimentLogicType>([
             refreshId,
             triggeredBy,
         }),
-        markRefreshCompleted: (refreshId: string, hasErrors: boolean) => ({
+        markRefreshFinished: (refreshId: string, finalState: FinishedRefreshState) => ({
             refreshId,
-            hasErrors,
+            finalState,
         }),
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
@@ -876,8 +900,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 toggleDebugPanel: (state) => !state,
             },
         ],
-        lastRefresh: [
-            null as LastRefreshSnapshot | null,
+        currentRefresh: [
+            null as CurrentRefreshSnapshot | null,
             {
                 markRefreshStarted: (_, { refreshId, triggeredBy }) => ({
                     refresh_id: refreshId,
@@ -885,11 +909,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     started_at: Date.now(),
                     state: 'in_progress',
                 }),
-                markRefreshCompleted: (state, { refreshId, hasErrors }) => {
+                markRefreshFinished: (state, { refreshId, finalState }) => {
+                    // Stale-id guard: a newer refresh may already be in flight; don't clobber it.
                     if (!state || state.refresh_id !== refreshId) {
                         return state
                     }
-                    return { ...state, state: hasErrors ? 'errored' : 'completed' }
+                    return { ...state, state: finalState }
                 },
             },
         ],
@@ -1727,7 +1752,12 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 )
 
-                actions.markRefreshCompleted(refreshId, caughtError || erroredCount > 0)
+                const finalState: FinishedRefreshState = caughtError
+                    ? 'errored'
+                    : erroredCount > 0
+                      ? 'partial'
+                      : 'completed'
+                actions.markRefreshFinished(refreshId, finalState)
 
                 // Clear notification offer timer
                 clearTimeout(cache.notificationOfferTimer)
@@ -2376,7 +2406,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             triggered_by: 'auto-refresh',
                             auto_refresh_enabled: values.autoRefresh.enabled,
                             auto_refresh_interval: values.autoRefresh.interval,
-                            previous_refresh: values.lastRefresh,
+                            ...previousRefreshAnalytics(values.currentRefresh),
                         })
                         actions.refreshExperimentResults(true, 'auto_refresh')
                     }, values.autoRefresh.interval * 1000)

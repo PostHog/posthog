@@ -7,7 +7,6 @@ import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
-import { LastRefreshSnapshot } from 'scenes/experiments/experimentLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -602,7 +601,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 triggered_by: 'manual' | 'auto-refresh'
                 auto_refresh_enabled?: boolean
                 auto_refresh_interval?: number
-                previous_refresh?: LastRefreshSnapshot | null
+                previous_refresh_id?: string | null
+                previous_refresh_age_ms?: number | null
+                previous_refresh_state?: string | null
+                previous_refresh_triggered_by?: string | null
             }
         ) => ({
             experiment,
@@ -1573,19 +1575,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
-            const previousRefresh = context?.previous_refresh ?? null
             posthog.capture('experiment metrics refreshed', {
                 ...getEventPropertiesForExperiment(experiment),
                 force_refresh: forceRefresh,
                 triggered_by: context?.triggered_by || 'manual',
                 auto_refresh_enabled: context?.auto_refresh_enabled,
                 auto_refresh_interval: context?.auto_refresh_interval,
-                previous_refresh_id: previousRefresh?.refresh_id ?? null,
-                previous_refresh_age_ms: previousRefresh ? Date.now() - previousRefresh.started_at : null,
-                previous_refresh_state: previousRefresh?.state ?? null,
-                // Normalize to the same kebab-case convention as `triggered_by`
-                // (e.g. `auto_refresh` → `auto-refresh`) so the two fields are comparable.
-                previous_refresh_triggered_by: previousRefresh?.triggered_by.replace(/_/g, '-') ?? null,
+                previous_refresh_id: context?.previous_refresh_id ?? null,
+                previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
+                previous_refresh_state: context?.previous_refresh_state ?? null,
+                previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
             })
         },
         reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {

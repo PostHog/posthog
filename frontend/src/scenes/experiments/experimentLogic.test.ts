@@ -307,8 +307,10 @@ describe('experimentLogic', () => {
         })
     })
 
-    describe('lastRefresh tracking', () => {
-        beforeEach(() => {
+    describe('currentRefresh tracking', () => {
+        it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
+            logic.actions.setExperiment(experiment)
+
             useMocks({
                 post: {
                     '/api/environments/:team/query': () => [
@@ -323,39 +325,52 @@ describe('experimentLogic', () => {
                     '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
                 },
             })
-        })
-
-        it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
-            logic.actions.setExperiment(experiment)
 
             const promise = logic.asyncActions.refreshExperimentResults(true, 'manual')
 
             await expectLogic(logic).toDispatchActions(['markRefreshStarted'])
-            expect(logic.values.lastRefresh).toMatchObject({
+            expect(logic.values.currentRefresh).toMatchObject({
                 state: 'in_progress',
                 triggered_by: 'manual',
             })
-            expect(logic.values.lastRefresh?.refresh_id).toEqual(expect.any(String))
+            expect(logic.values.currentRefresh?.refresh_id).toEqual(expect.any(String))
 
             await promise
 
-            expect(logic.values.lastRefresh).toMatchObject({
+            expect(logic.values.currentRefresh).toMatchObject({
                 state: 'completed',
                 triggered_by: 'manual',
             })
         })
 
-        it('keeps refresh_id stable across the start/complete transition', async () => {
-            logic.actions.setExperiment(experiment)
+        it.each(['completed', 'partial', 'errored'] as const)(
+            'transitions to %s when markRefreshFinished fires with that state',
+            (finalState) => {
+                logic.actions.markRefreshStarted('refresh-1', 'manual')
+                expect(logic.values.currentRefresh?.state).toBe('in_progress')
 
-            const promise = logic.asyncActions.refreshExperimentResults(true, 'manual')
-            await expectLogic(logic).toDispatchActions(['markRefreshStarted'])
-            const startedId = logic.values.lastRefresh?.refresh_id
+                logic.actions.markRefreshFinished('refresh-1', finalState)
 
-            await promise
+                expect(logic.values.currentRefresh).toMatchObject({
+                    refresh_id: 'refresh-1',
+                    state: finalState,
+                    triggered_by: 'manual',
+                })
+            }
+        )
 
-            expect(logic.values.lastRefresh?.refresh_id).toBe(startedId)
-            expect(logic.values.lastRefresh?.state).toBe('completed')
+        it('ignores markRefreshFinished for a stale refresh_id and preserves the in-flight snapshot', () => {
+            logic.actions.markRefreshStarted('refresh-1', 'manual')
+            logic.actions.markRefreshStarted('refresh-2', 'auto_refresh')
+
+            // Late completion from the previous refresh shouldn't clobber the new one.
+            logic.actions.markRefreshFinished('refresh-1', 'completed')
+
+            expect(logic.values.currentRefresh).toMatchObject({
+                refresh_id: 'refresh-2',
+                state: 'in_progress',
+                triggered_by: 'auto_refresh',
+            })
         })
     })
 
