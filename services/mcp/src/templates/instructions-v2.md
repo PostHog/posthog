@@ -103,7 +103,7 @@ If the required events or properties do not exist, inform the user immediately i
 2. Choose the appropriate query wrapper tool based on the user's question.
 3. Construct the query schema. Each tool's description includes detailed schema documentation with examples. Be minimalist: only include filters, breakdowns, and settings essential to answer the question.
 4. Execute the query and analyze the results.
-5. Optionally save as an insight with `insight-create-from-query` or add to a dashboard.
+5. Optionally save as an insight with `insight-create` or add to a dashboard.
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
@@ -128,7 +128,7 @@ Key URL patterns:
 
 ### Examples
 
-Before writing any queries, read the PostHog's skill `query-examples` to see if there are any relevant query examples and follow them.
+Before writing any queries, read the PostHog's skill `querying-posthog-data` to see if there are any relevant query examples and follow them.
 
 #### Creating an insight with segmentation
 

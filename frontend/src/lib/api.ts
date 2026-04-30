@@ -4930,6 +4930,22 @@ const api = {
                 .withAction('summary_headline')
                 .create({ data: { force_refresh: forceRefresh } })
         },
+        async generateTranslations(
+            surveyId: Survey['id'],
+            data: {
+                target_language: string
+                source_language?: string
+                overwrite?: boolean
+                survey?: unknown
+            }
+        ): Promise<{
+            translations: Record<string, Record<string, string>>
+            questions: Array<{ id: string; translations: Record<string, Record<string, any>> }>
+            generated_field_paths: string[]
+            trace_id: string
+        }> {
+            return await new ApiRequest().survey(surveyId).withAction('generate_translations').create({ data })
+        },
         async getSurveyStats({
             surveyId,
             dateFrom = null,

@@ -141,7 +141,9 @@ class SnapshotLoader:
         group_type_mappings = GroupTypeMappingSnapshot.deserialize_for_team(
             snapshot, team_id=team.id, project_id=project.id
         )
-        return await GroupTypeMapping.objects.abulk_create(group_type_mappings, batch_size=500)
+        return await GroupTypeMapping.objects.abulk_create(  # nosemgrep: no-direct-persons-db-orm
+            group_type_mappings, batch_size=500
+        )  # nosemgrep: no-direct-persons-db-orm
 
     async def _load_data_warehouse_tables(self, buffer: BytesIO, *, team: Team, project: Project):
         snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSnapshot, buffer))

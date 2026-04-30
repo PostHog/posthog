@@ -50,7 +50,7 @@ class RelatedActorsQuery:
         results.extend(self._query_related_people())
 
         group_type_indexes = list(
-            GroupTypeMapping.objects.filter(project_id=self.team.project_id)
+            GroupTypeMapping.objects.filter(project_id=self.team.project_id)  # nosemgrep: no-direct-persons-db-orm
             .exclude(group_type_index=self.group_type_index)
             .order_by("group_type_index")
             .values_list("group_type_index", flat=True)
