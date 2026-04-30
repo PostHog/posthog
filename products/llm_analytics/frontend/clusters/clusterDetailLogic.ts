@@ -91,6 +91,10 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         setClusterMetrics: (metrics: ClusterMetrics | null) => ({ metrics }),
         setClusterMetricsLoading: (loading: boolean) => ({ loading }),
         loadClusterMetricsForCluster: true,
+        // Declared explicitly so kea-typegen generates a no-arg signature for the
+        // loader action below — without this, the `(_, breakpoint)` loader signature
+        // forces every call site to pass a placeholder argument.
+        loadFilteredItemIds: true,
     }),
 
     reducers({
