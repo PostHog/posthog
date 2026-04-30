@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
-import { visualReviewRunsCountsRetrieve, visualReviewRunsList } from '../generated/api'
+import { visualReviewReposRunsCountsRetrieve, visualReviewReposRunsList } from '../generated/api'
 import type { PaginatedRunListApi, RepoApi, ReviewStateCountsApi } from '../generated/api.schemas'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 import type { visualReviewRunsSceneLogicType } from './visualReviewRunsSceneLogicType'
@@ -59,9 +59,8 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             {
                 loadRuns: async () => {
                     const offset = (values.page - 1) * RUNS_PAGE_SIZE
-                    return await visualReviewRunsList(String(values.currentProjectId), {
+                    return await visualReviewReposRunsList(String(values.currentProjectId), props.repoId, {
                         review_state: values.activeTab,
-                        repo_id: props.repoId,
                         limit: RUNS_PAGE_SIZE,
                         offset,
                     })
@@ -72,9 +71,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             { needs_review: 0, clean: 0, processing: 0, stale: 0 } as ReviewStateCountsApi,
             {
                 loadCounts: async () => {
-                    return await visualReviewRunsCountsRetrieve(String(values.currentProjectId), {
-                        repo_id: props.repoId,
-                    })
+                    return await visualReviewReposRunsCountsRetrieve(String(values.currentProjectId), props.repoId)
                 },
             },
         ],

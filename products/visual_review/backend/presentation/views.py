@@ -18,7 +18,7 @@ from django.utils.cache import get_conditional_response, patch_cache_control, pa
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -61,21 +61,6 @@ from .serializers import (
 )
 
 VISUAL_REVIEW_TAG = "visual_review"
-
-
-def _parse_optional_uuid(raw: str | None, param_name: str) -> UUID | None:
-    """Parse a UUID query param, raising DRF ValidationError on bad input.
-
-    Without this, a bad `?repo_id=abc` would surface as a 500 from the
-    bare `UUID()` constructor. DRF's exception handler turns the
-    raised ValidationError into a 400 with a clean payload.
-    """
-    if not raw:
-        return None
-    try:
-        return UUID(raw)
-    except ValueError:
-        raise serializers.ValidationError({param_name: ["Must be a valid UUID."]})
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
@@ -325,6 +310,44 @@ class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
+class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Listing/aggregation of runs scoped to a single repo.
+
+    Run-by-id actions (retrieve, snapshots, approve, complete, etc.) live on
+    the flat `RunViewSet` so that direct links by run id keep working without
+    forcing the repo into the path.
+    """
+
+    scope_object = "visual_review"
+    scope_object_read_actions = ["list", "counts"]
+    serializer_class = RunSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+        ],
+        responses={200: RunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        """List runs in this repo, optionally filtered by review state."""
+        review_state = request.query_params.get("review_state")
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id)
+        page = self.paginate_queryset(runs)
+        if page is not None:
+            serializer = RunSerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(RunSerializer(instance=runs, many=True).data)
+
+    @extend_schema(responses={200: ReviewStateCountsSerializer})
+    @action(detail=False, methods=["get"])
+    def counts(self, request: Request, **kwargs) -> Response:
+        """Review state counts for runs in this repo."""
+        repo_id = UUID(self.parents_query_dict["repo_id"])
+        return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
+
+
+@extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Visual review runs.
@@ -334,40 +357,8 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts"]
+    scope_object_read_actions = ["retrieve", "snapshots"]
     serializer_class = RunSerializer
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
-            OpenApiParameter("repo_id", str, required=False, description="Filter by repo UUID"),
-        ],
-        responses={200: RunSerializer(many=True)},
-    )
-    def list(self, request: Request, **kwargs) -> Response:
-        """List runs for the team, optionally filtered by review state or repo."""
-        review_state = request.query_params.get("review_state")
-        repo_id_param = request.query_params.get("repo_id")
-        repo_id = _parse_optional_uuid(repo_id_param, "repo_id")
-        runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id)
-        page = self.paginate_queryset(runs)
-        if page is not None:
-            serializer = RunSerializer(instance=page, many=True)
-            return self.get_paginated_response(serializer.data)
-        return Response(RunSerializer(instance=runs, many=True).data)
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter("repo_id", str, required=False, description="Filter by repo UUID"),
-        ],
-        responses={200: ReviewStateCountsSerializer},
-    )
-    @action(detail=False, methods=["get"])
-    def counts(self, request: Request, **kwargs) -> Response:
-        """Review state counts for the runs list, optionally scoped to a repo."""
-        repo_id_param = request.query_params.get("repo_id")
-        repo_id = _parse_optional_uuid(repo_id_param, "repo_id")
-        return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
 
     @validated_request(
         request_serializer=CreateRunInputSerializer,

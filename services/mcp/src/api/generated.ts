@@ -44594,6 +44594,21 @@ export namespace Schemas {
     run_type?: string;
     };
 
+    export type VisualReviewReposRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by review state
+     */
+    review_state?: string;
+    };
+
     export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
@@ -44603,25 +44618,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    };
-
-    export type VisualReviewRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter by repo UUID
-     */
-    repo_id?: string;
-    /**
-     * Filter by review state
-     */
-    review_state?: string;
     };
 
     export type VisualReviewRunsSnapshotsListParams = {
@@ -44648,13 +44644,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    };
-
-    export type VisualReviewRunsCountsRetrieveParams = {
-    /**
-     * Filter by repo UUID
-     */
-    repo_id?: string;
     };
 
     export type WarehouseModelPathsListParams = {

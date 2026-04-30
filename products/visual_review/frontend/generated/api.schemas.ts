@@ -126,41 +126,6 @@ export interface QuarantineInputApi {
     expires_at?: string | null
 }
 
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
-}
-
-export interface SnapshotHistoryEntryApi {
-    current_artifact?: ArtifactApi | null
-    run_id: string
-    snapshot_id: string
-    result: string
-    branch: string
-    commit_sha: string
-    created_at: string
-    /** @nullable */
-    pr_number?: number | null
-    /** @nullable */
-    diff_percentage?: number | null
-    review_state?: string
-}
-
-export interface PaginatedSnapshotHistoryEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SnapshotHistoryEntryApi[]
-}
-
 export interface RunSummaryApi {
     total: number
     changed: number
@@ -205,6 +170,48 @@ export interface PaginatedRunListApi {
     /** @nullable */
     previous?: string | null
     results: RunApi[]
+}
+
+export interface ReviewStateCountsApi {
+    needs_review: number
+    clean: number
+    processing: number
+    stale: number
+}
+
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
+export interface SnapshotHistoryEntryApi {
+    current_artifact?: ArtifactApi | null
+    run_id: string
+    snapshot_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+    /** @nullable */
+    diff_percentage?: number | null
+    review_state?: string
+}
+
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
 }
 
 export type CreateRunInputApiBaselineHashes = { [key: string]: string }
@@ -347,13 +354,6 @@ export interface PaginatedToleratedHashEntryListApi {
     results: ToleratedHashEntryApi[]
 }
 
-export interface ReviewStateCountsApi {
-    needs_review: number
-    clean: number
-    processing: number
-    stale: number
-}
-
 export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
@@ -384,6 +384,21 @@ export type VisualReviewReposQuarantineListParams = {
     run_type?: string
 }
 
+export type VisualReviewReposRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by review state
+     */
+    review_state?: string
+}
+
 export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
@@ -393,25 +408,6 @@ export type VisualReviewReposSnapshotsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type VisualReviewRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter by repo UUID
-     */
-    repo_id?: string
-    /**
-     * Filter by review state
-     */
-    review_state?: string
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
@@ -438,11 +434,4 @@ export type VisualReviewRunsToleratedHashesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type VisualReviewRunsCountsRetrieveParams = {
-    /**
-     * Filter by repo UUID
-     */
-    repo_id?: string
 }

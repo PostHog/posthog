@@ -34,9 +34,8 @@ import type {
     SnapshotApi,
     VisualReviewReposListParams,
     VisualReviewReposQuarantineListParams,
+    VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
-    VisualReviewRunsCountsRetrieveParams,
-    VisualReviewRunsListParams,
     VisualReviewRunsSnapshotsListParams,
     VisualReviewRunsToleratedHashesListParams,
 } from './api.schemas'
@@ -250,6 +249,59 @@ export const visualReviewReposThumbnailsRetrieve = async (
 }
 
 /**
+ * List runs in this repo, optionally filtered by review state.
+ */
+export const getVisualReviewReposRunsListUrl = (
+    projectId: string,
+    repoId: string,
+    params?: VisualReviewReposRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/`
+}
+
+export const visualReviewReposRunsList = async (
+    projectId: string,
+    repoId: string,
+    params?: VisualReviewReposRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedRunListApi> => {
+    return apiMutator<PaginatedRunListApi>(getVisualReviewReposRunsListUrl(projectId, repoId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Review state counts for runs in this repo.
+ */
+export const getVisualReviewReposRunsCountsRetrieveUrl = (projectId: string, repoId: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${repoId}/runs/counts/`
+}
+
+export const visualReviewReposRunsCountsRetrieve = async (
+    projectId: string,
+    repoId: string,
+    options?: RequestInit
+): Promise<ReviewStateCountsApi> => {
+    return apiMutator<ReviewStateCountsApi>(getVisualReviewReposRunsCountsRetrieveUrl(projectId, repoId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Deduped baseline timeline for a snapshot identity. Newest first.
  */
 export const getVisualReviewReposSnapshotsListUrl = (
@@ -289,36 +341,6 @@ export const visualReviewReposSnapshotsList = async (
             method: 'GET',
         }
     )
-}
-
-/**
- * List runs for the team, optionally filtered by review state or repo.
- */
-export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/visual_review/runs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/visual_review/runs/`
-}
-
-export const visualReviewRunsList = async (
-    projectId: string,
-    params?: VisualReviewRunsListParams,
-    options?: RequestInit
-): Promise<PaginatedRunListApi> => {
-    return apiMutator<PaginatedRunListApi>(getVisualReviewRunsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
 }
 
 /**
@@ -532,37 +554,4 @@ export const visualReviewRunsToleratedHashesList = async (
             method: 'GET',
         }
     )
-}
-
-/**
- * Review state counts for the runs list, optionally scoped to a repo.
- */
-export const getVisualReviewRunsCountsRetrieveUrl = (
-    projectId: string,
-    params?: VisualReviewRunsCountsRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/visual_review/runs/counts/?${stringifiedParams}`
-        : `/api/projects/${projectId}/visual_review/runs/counts/`
-}
-
-export const visualReviewRunsCountsRetrieve = async (
-    projectId: string,
-    params?: VisualReviewRunsCountsRetrieveParams,
-    options?: RequestInit
-): Promise<ReviewStateCountsApi> => {
-    return apiMutator<ReviewStateCountsApi>(getVisualReviewRunsCountsRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
 }
