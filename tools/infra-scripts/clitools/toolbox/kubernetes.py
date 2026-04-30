@@ -5,6 +5,22 @@ import sys
 import subprocess
 
 
+def kubectl_cmd(*args: str, context: str | None = None) -> list[str]:
+    """Build a kubectl command with --context if `context` is set.
+
+    Threading the context through every kubectl invocation lets us scope all
+    operations to one cluster without ever mutating the user's global kubeconfig
+    via `kubectl config use-context`. That matters because a wrapper that
+    silently flips the default context can redirect later operational commands
+    (kubectl delete, helm upgrade, …) to the wrong cluster.
+    """
+    cmd = ["kubectl"]
+    if context:
+        cmd.append(f"--context={context}")
+    cmd.extend(args)
+    return cmd
+
+
 def get_available_contexts() -> list:
     """Get available kubernetes contexts."""
     try:
@@ -29,7 +45,12 @@ def get_current_context() -> str | None:
 
 
 def switch_context(context: str) -> bool:
-    """Switch to specified kubernetes context."""
+    """Switch to specified kubernetes context.
+
+    Mutates kubeconfig globally. Prefer ``validate_context`` plus passing
+    ``--context`` per invocation via ``kubectl_cmd``; this function is kept
+    for callers that explicitly want a persistent switch.
+    """
     try:
         subprocess.run(["kubectl", "config", "use-context", context], check=True)
         print(f"✅ Switched to context: {context}")  # noqa: T201
@@ -39,8 +60,22 @@ def switch_context(context: str) -> bool:
         return False
 
 
-def select_context():
-    """List available contexts and let user select one."""
+def validate_context(context: str) -> bool:
+    """Return True if ``context`` is a known kubernetes context.
+
+    Use this when you want to scope a single invocation to a context without
+    mutating kubeconfig via ``switch_context``.
+    """
+    return context in get_available_contexts()
+
+
+def select_context() -> str:
+    """List available contexts and let the user pick one. Returns the chosen name.
+
+    Does **not** call ``kubectl config use-context``; the caller is expected to
+    pass the returned name as ``--context`` to subsequent kubectl invocations
+    via ``kubectl_cmd``. Pressing Enter keeps the current context.
+    """
     contexts = get_available_contexts()
     current = get_current_context()
     if current is None:
@@ -61,20 +96,17 @@ def select_context():
     print(f"\nCurrently using: {current}")  # noqa: T201
     response = input("Enter context number to switch or press Enter to continue with current context: ").strip()
 
-    if response:
-        try:
-            index = int(response) - 1
-            if 0 <= index < len(contexts):
-                if switch_context(contexts[index]):
-                    return contexts[index]
-                else:
-                    print("⚠️ Failed to switch context, continuing with current context.")  # noqa: T201
-                    return current
-            else:
-                print("⚠️ Invalid selection, continuing with current context.")  # noqa: T201
-                return current
-        except ValueError:
-            print("⚠️ Invalid input, continuing with current context.")  # noqa: T201
-            return current
+    if not response:
+        return current
 
+    try:
+        index = int(response) - 1
+    except ValueError:
+        print("⚠️ Invalid input, continuing with current context.")  # noqa: T201
+        return current
+
+    if 0 <= index < len(contexts):
+        return contexts[index]
+
+    print("⚠️ Invalid selection, continuing with current context.")  # noqa: T201
     return current

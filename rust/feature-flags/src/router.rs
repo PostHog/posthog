@@ -70,10 +70,10 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
-    pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
-    pub flags_rate_limiter: FlagsRateLimiter,
-    pub ip_rate_limiter: IpRateLimiter,
+    pub(crate) flags_rate_limiter: FlagsRateLimiter,
+    pub(crate) ip_rate_limiter: IpRateLimiter,
     /// Pre-initialized HyperCacheReader for feature flags (flags.json)
     /// Initialized once at startup to avoid per-request AWS SDK initialization
     pub flags_hypercache_reader: Arc<HyperCacheReader>,
