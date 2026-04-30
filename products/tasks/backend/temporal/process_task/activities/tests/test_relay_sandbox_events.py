@@ -18,7 +18,6 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _is_end_of_turn,
     _is_keepalive_event,
     _is_session_update,
-    _mark_complete_if_run_is_terminal,
     _mark_error_unless_run_is_terminal,
     _relay_loop,
     relay_sandbox_events,
@@ -347,68 +346,7 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream_mock.mark_complete.assert_awaited_once()
         redis_stream_mock.mark_error.assert_not_awaited()
 
-    async def test_terminal_run_marks_stream_complete_on_normal_stream_close(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())
-        redis_stream = cast(TaskRunRedisStream, redis_stream_mock)
-
-        class StubTaskRunQuerySet:
-            def only(self, *_fields: str) -> "StubTaskRunQuerySet":
-                return self
-
-            async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(status="completed")
-
-        monkeypatch.setattr(
-            relay_sandbox_events_module,
-            "TaskRunModel",
-            SimpleNamespace(
-                Status=SimpleNamespace(COMPLETED="completed", FAILED="failed", CANCELLED="cancelled"),
-                DoesNotExist=Exception,
-                objects=StubTaskRunQuerySet(),
-            ),
-        )
-
-        marked_complete = await _mark_complete_if_run_is_terminal(redis_stream, "run-id")
-
-        assert marked_complete is True
-        redis_stream_mock.mark_complete.assert_awaited_once()
-        redis_stream_mock.mark_error.assert_not_awaited()
-
-    async def test_missing_run_marks_stream_error_on_normal_stream_close(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())
-        redis_stream = cast(TaskRunRedisStream, redis_stream_mock)
-
-        class DoesNotExist(Exception):
-            pass
-
-        class StubTaskRunQuerySet:
-            def only(self, *_fields: str) -> "StubTaskRunQuerySet":
-                return self
-
-            async def aget(self, id: str) -> SimpleNamespace:
-                raise DoesNotExist
-
-        monkeypatch.setattr(
-            relay_sandbox_events_module,
-            "TaskRunModel",
-            SimpleNamespace(
-                Status=SimpleNamespace(COMPLETED="completed", FAILED="failed", CANCELLED="cancelled"),
-                DoesNotExist=DoesNotExist,
-                objects=StubTaskRunQuerySet(),
-            ),
-        )
-
-        marked_complete = await _mark_complete_if_run_is_terminal(redis_stream, "run-id")
-
-        assert marked_complete is True
-        redis_stream_mock.mark_complete.assert_not_awaited()
-        redis_stream_mock.mark_error.assert_awaited_once_with("Task run not found")
-
-    async def test_in_progress_normal_stream_close_reconnects_until_exhausted(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_normal_stream_close_marks_stream_complete(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
             mark_complete=AsyncMock(),
@@ -439,25 +377,9 @@ class TestRelaySandboxEventsErrorHandling:
         async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
             return None
 
-        class StubTaskRunQuerySet:
-            def only(self, *_fields: str) -> "StubTaskRunQuerySet":
-                return self
-
-            async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(status="in_progress")
-
         monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
         monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
-        monkeypatch.setattr(
-            relay_sandbox_events_module,
-            "TaskRunModel",
-            SimpleNamespace(
-                Status=SimpleNamespace(COMPLETED="completed", FAILED="failed", CANCELLED="cancelled"),
-                DoesNotExist=Exception,
-                objects=StubTaskRunQuerySet(),
-            ),
-        )
 
         await _relay_loop(
             events_url="https://sandbox.example/events",
@@ -468,12 +390,11 @@ class TestRelaySandboxEventsErrorHandling:
             task_id="task-id",
         )
 
-        assert connect_attempts == relay_sandbox_events_module.MAX_RECONNECT_ATTEMPTS + 1
+        assert connect_attempts == 1
+        sleep_mock.assert_not_awaited()
         redis_stream.write_event.assert_not_awaited()
-        redis_stream.mark_complete.assert_not_awaited()
-        redis_stream.mark_error.assert_awaited_once_with(
-            f"Lost connection to sandbox after {relay_sandbox_events_module.MAX_RECONNECT_ATTEMPTS} reconnection attempts"
-        )
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
 
     async def test_in_progress_run_marks_stream_error_on_relay_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())

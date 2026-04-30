@@ -303,17 +303,9 @@ async def _relay_loop(
                                 return
 
                     # SSE stream ended normally (sandbox closed connection)
-                    if await _mark_complete_if_run_is_terminal(redis_stream, run_id):
-                        logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=run_id)
-                        return
-
-                    reconnect_count += 1
-                    logger.warning(
-                        "relay_sandbox_events_stream_closed_before_terminal_run",
-                        run_id=run_id,
-                        reconnect_count=reconnect_count,
-                    )
-                    await asyncio.sleep(min(reconnect_count * 2, 10))
+                    await redis_stream.mark_complete()
+                    logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
+                    return
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
@@ -345,24 +337,6 @@ async def _relay_loop(
             await heartbeat_task
         except asyncio.CancelledError:
             pass
-
-
-async def _mark_complete_if_run_is_terminal(redis_stream: TaskRunRedisStream, run_id: str) -> bool:
-    try:
-        task_run = await TaskRunModel.objects.only("status").aget(id=run_id)
-    except TaskRunModel.DoesNotExist:
-        await redis_stream.mark_error("Task run not found")
-        return True
-
-    if task_run.status in (
-        TaskRunModel.Status.COMPLETED,
-        TaskRunModel.Status.FAILED,
-        TaskRunModel.Status.CANCELLED,
-    ):
-        await redis_stream.mark_complete()
-        return True
-
-    return False
 
 
 def _is_session_update(event_data: dict) -> bool:
