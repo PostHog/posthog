@@ -254,7 +254,7 @@ class LogsSamplingRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields,
     enabled = models.BooleanField(default=False)
     priority = models.PositiveIntegerField(
         default=0,
-        help_text="Lower values run first; first matching rule wins.",
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
     )
     rule_type = models.CharField(max_length=32, choices=RuleType.choices)
     scope_service = models.CharField(max_length=512, null=True, blank=True)
@@ -262,13 +262,6 @@ class LogsSamplingRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields,
     scope_attribute_filters = models.JSONField(default=list)
     config = models.JSONField(default=dict)
     version = models.PositiveIntegerField(default=1)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
 
     class Meta:
         db_table = "logs_logssamplingrule"
