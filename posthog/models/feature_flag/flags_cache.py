@@ -529,12 +529,15 @@ def verify_team_flags(
         Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
         When verbose=True, includes 'diffs' list with detailed diff information.
     """
-    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch).
+    # The etag rides on the same MGET when enable_etag=True, so the MISSING_ETAG check
+    # below stays per-chunk and never re-introduces a per-team Redis GET.
     if cache_batch_data and team.id in cache_batch_data:
-        cached_data, source = cache_batch_data[team.id]
+        cached_data, source, cached_etag = cache_batch_data[team.id]
     else:
         # Fall back to individual lookup (shouldn't happen in batch verification)
         cached_data, source = flags_hypercache.get_from_cache_with_source(team)
+        cached_etag = flags_hypercache.get_etag(team)
 
     # Get flags from database - use db_batch_data if available to avoid N+1 queries
     if db_batch_data and team.id in db_batch_data:
@@ -565,8 +568,10 @@ def verify_team_flags(
 
     # Without an etag, the Rust feature-flags in-memory cache bypasses every
     # request for this team via the `etag_missing` branch. Surfacing this here
-    # turns a silent perf regression into a counted verifier mismatch.
-    if flags_hypercache.get_etag(team) is None:
+    # turns a silent perf regression into a counted verifier mismatch. The
+    # etag is fetched in the same MGET as the payload (see
+    # HyperCache.batch_get_from_cache), so this stays O(1) per batch.
+    if cached_etag is None:
         return {
             "status": "mismatch",
             "issue": "MISSING_ETAG",
