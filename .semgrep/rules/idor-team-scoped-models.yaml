@@ -140,7 +140,7 @@ rules:
                               |Link
                               |LiveDebuggerBreakpoint
                               |LogsAlertConfiguration
-                              |LogsSamplingRule
+                              |LogsExclusionRule
                               |LogsView
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -160,6 +160,7 @@ rules:
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
+                              |PropertyAccessControl
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
@@ -358,6 +359,7 @@ rules:
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
+                        |PropertyAccessControl
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext

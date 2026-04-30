@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
+import { buildMainTrendsSeries, buildTrendsChartConfig } from 'lib/charts/transforms/trendsChartTransforms'
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
@@ -17,7 +18,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType } from '~/types'
 
 import { InsightEmptyState } from '../../../insights/EmptyStates'
 import { openPersonsModal } from '../../persons-modal/PersonsModal'
@@ -95,38 +95,30 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
-    // Dash the in-progress tail (mirrors LineGraph.tsx). Stickiness indices aren't dates.
-    const isInProgress = !isStickiness && incompletenessOffsetFromEnd < 0
-
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             (indexedResults ?? []).flatMap((r: IndexedTrendResult, index: number) => {
-                const isActiveSeries = !r.compare || r.compare_label !== 'previous'
-                const dashedFromIndex =
-                    isInProgress && isActiveSeries ? r.data.length + incompletenessOffsetFromEnd : undefined
-                const yAxisId = showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
-                const meta: TrendsSeriesMeta = {
-                    action: r.action,
-                    breakdown_value: r.breakdown_value,
-                    compare_label: r.compare_label,
-                    days: r.days,
-                    order: r.action?.order ?? r.id,
-                    filter: r.filter,
-                }
-                const baseColor = getTrendsColor(r)
-                const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
-                const excluded = getTrendsHidden(r)
-                const mainSeries: Series<TrendsSeriesMeta> = {
-                    key: `${r.id}`,
-                    label: r.label ?? '',
-                    data: r.data,
-                    color: displayColor,
-                    yAxisId,
-                    meta,
-                    fill: display === ChartDisplayType.ActionsAreaGraph ? {} : undefined,
-                    stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
-                    visibility: excluded ? { excluded: true } : undefined,
-                }
+                const {
+                    main: mainSeries,
+                    baseColor,
+                    dashedFromIndex,
+                    excluded,
+                } = buildMainTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(r, index, {
+                    display: display ?? undefined,
+                    showMultipleYAxes: showMultipleYAxes ?? undefined,
+                    incompletenessOffsetFromEnd,
+                    isStickiness,
+                    getColor: getTrendsColor,
+                    getHidden: getTrendsHidden,
+                    buildMeta: (rr) => ({
+                        action: rr.action,
+                        breakdown_value: rr.breakdown_value,
+                        compare_label: rr.compare_label,
+                        days: rr.days,
+                        order: rr.action?.order ?? rr.id,
+                        filter: rr.filter,
+                    }),
+                })
                 const series: Series<TrendsSeriesMeta>[] = [mainSeries]
 
                 if (showConfidenceIntervals) {
@@ -135,9 +127,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                         key: `${r.id}__ci`,
                         label: `${r.label ?? ''} (CI)`,
                         data: upper,
-                        color: displayColor,
-                        yAxisId,
-                        meta,
+                        color: mainSeries.color,
+                        yAxisId: mainSeries.yAxisId,
+                        meta: mainSeries.meta,
                         fill: { opacity: 0.2, lowerData: lower },
                         visibility: { excluded, fromTooltip: true, fromValueLabels: true },
                     })
@@ -149,9 +141,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                         key: `${r.id}-ma`,
                         label: `${r.label ?? ''} (Moving avg)`,
                         data: maData,
-                        color: displayColor,
-                        yAxisId,
-                        meta,
+                        color: mainSeries.color,
+                        yAxisId: mainSeries.yAxisId,
+                        meta: mainSeries.meta,
                         stroke: { pattern: [10, 3] },
                         visibility: { fromTooltip: true, fromStack: true },
                     })
@@ -162,7 +154,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                             label: `${r.label ?? ''} (Moving avg)`,
                             data: trendLine(maData),
                             color: hexToRGBA(baseColor, 0.5),
-                            yAxisId,
+                            yAxisId: mainSeries.yAxisId,
                             stroke: { pattern: [1, 3] },
                             visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                         })
@@ -179,7 +171,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                         label: r.label ?? '',
                         data: trendLine(r.data, dashedFromIndex),
                         color: hexToRGBA(baseColor, 0.5),
-                        yAxisId,
+                        yAxisId: mainSeries.yAxisId,
                         stroke: { pattern: [1, 3] },
                         visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                     })
@@ -192,7 +184,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             display,
             getTrendsColor,
             getTrendsHidden,
-            isInProgress,
+            isStickiness,
             incompletenessOffsetFromEnd,
             showMultipleYAxes,
             showMovingAverage,
@@ -219,15 +211,17 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     const chartConfig: LineChartConfig = useMemo(
-        () => ({
-            showGrid: true,
-            showCrosshair: true,
-            tooltip: { pinnable: true, placement: 'top' },
-            yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
-            percentStackView: isPercentStackView,
-            xTickFormatter,
-            yTickFormatter,
-        }),
+        () =>
+            buildTrendsChartConfig({
+                yAxisScaleType,
+                isPercentStackView,
+                showGrid: true,
+                showCrosshair: true,
+                pinnableTooltip: true,
+                tooltipPlacement: 'top',
+                xTickFormatter,
+                yTickFormatter,
+            }),
         [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
