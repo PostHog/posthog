@@ -1212,7 +1212,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
-    def test_list_repositories_raises_when_follow_up_page_fails(self, _mock_expired, mock_get):
+    def test_list_all_repositories_raises_when_later_page_fails(self, _mock_expired, mock_get):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
@@ -1228,12 +1228,13 @@ class TestGitHubIntegrationModel(BaseTest):
         second_page.status_code = 502
         second_page.json.return_value = {"message": "bad gateway"}
 
-        mock_get.side_effect = [first_page, second_page]
+        # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
+        mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories on page"):
-            GitHubIntegration(integration).list_repositories(limit=150, offset=0)
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+            GitHubIntegration(integration).list_all_repositories()
 
-        assert mock_get.call_count == 2
+        assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_list_all_repositories_fetches_all_pages(self, mock_list):
@@ -1254,8 +1255,8 @@ class TestGitHubIntegrationModel(BaseTest):
         assert len(repos) == 130
         assert repos == first_page + second_page
         assert mock_list.call_args_list == [
-            call(limit=100, offset=0),
-            call(limit=100, offset=100),
+            call(page=1, per_page=100),
+            call(page=2, per_page=100),
         ]
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")

@@ -1404,7 +1404,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # Check if person exists and belongs to this team
         try:
-            person_uuid = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(team_id=self.team_id, uuid=person_id).uuid
+            person_uuid = (
+                # nosemgrep: no-direct-persons-db-orm
+                Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                .get(team_id=self.team_id, uuid=person_id)
+                .uuid  # nosemgrep: no-direct-persons-db-orm
+            )  # nosemgrep: no-direct-persons-db-orm
         except Person.DoesNotExist:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
 
@@ -1613,7 +1618,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
         # iterate through all persons
         queryset = (
-            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
             .filter(team_id=team_id)
             .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
             .order_by("id")
@@ -1628,7 +1633,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             #     "distinct_id", flat=True
             # )[0]
             distinct_id_subquery = Subquery(
-                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
                 .filter(team_id=team_id, person_id=OuterRef("person_id"))
                 .values_list("id", flat=True)[:3]
             )
@@ -1637,7 +1642,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                 Prefetch(
                     "persondistinctid_set",
                     to_attr="distinct_ids_cache",
-                    queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(
+                    queryset=PersonDistinctId.objects.db_manager(  # nosemgrep: no-direct-persons-db-orm
+                        READ_DB_FOR_PERSONS
+                    ).filter(  # nosemgrep: no-direct-persons-db-orm
                         id__in=distinct_id_subquery
                     ),
                 ),

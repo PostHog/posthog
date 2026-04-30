@@ -53,10 +53,8 @@ export function SchemasTab({ id }: SchemasTabProps): JSX.Element {
 
 function SchemasTabInner({ id }: { id: string }): JSX.Element {
     const { source } = useValues(sourceSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const isDirectQuerySource =
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && source?.access_method === 'direct'
+    const isDirectQuerySource = source?.access_method === 'direct'
 
     if (isDirectQuerySource) {
         return <DirectQuerySchemasTab id={id} />

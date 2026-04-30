@@ -179,6 +179,39 @@ export interface ExperimentLogicProps {
 
 export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
 
+export type CurrentRefreshState = 'in_progress' | 'completed' | 'partial' | 'errored'
+export type FinishedRefreshState = Exclude<CurrentRefreshState, 'in_progress'>
+
+export interface CurrentRefreshSnapshot {
+    refresh_id: string
+    triggered_by: ExperimentTriggeredBy
+    started_at: number
+    state: CurrentRefreshState
+}
+
+export function previousRefreshAnalytics(snapshot: CurrentRefreshSnapshot | null): {
+    previous_refresh_id: string | null
+    previous_refresh_age_ms: number | null
+    previous_refresh_state: CurrentRefreshState | null
+    previous_refresh_triggered_by: string | null
+} {
+    if (!snapshot) {
+        return {
+            previous_refresh_id: null,
+            previous_refresh_age_ms: null,
+            previous_refresh_state: null,
+            previous_refresh_triggered_by: null,
+        }
+    }
+    return {
+        previous_refresh_id: snapshot.refresh_id,
+        previous_refresh_age_ms: Date.now() - snapshot.started_at,
+        previous_refresh_state: snapshot.state,
+        // Normalize to the same kebab-case convention `triggered_by` uses (e.g. `auto_refresh` → `auto-refresh`).
+        previous_refresh_triggered_by: snapshot.triggered_by.replace(/_/g, '-'),
+    }
+}
+
 function generateRefreshId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
@@ -694,6 +727,14 @@ export const experimentLogic = kea<experimentLogicType>([
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
         }),
+        markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
+            refreshId,
+            triggeredBy,
+        }),
+        markRefreshFinished: (refreshId: string, finalState: FinishedRefreshState) => ({
+            refreshId,
+            finalState,
+        }),
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
@@ -857,6 +898,24 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        currentRefresh: [
+            null as CurrentRefreshSnapshot | null,
+            {
+                markRefreshStarted: (_, { refreshId, triggeredBy }) => ({
+                    refresh_id: refreshId,
+                    triggered_by: triggeredBy,
+                    started_at: Date.now(),
+                    state: 'in_progress',
+                }),
+                markRefreshFinished: (state, { refreshId, finalState }) => {
+                    // Stale-id guard: a newer refresh may already be in flight; don't clobber it.
+                    if (!state || state.refresh_id !== refreshId) {
+                        return state
+                    }
+                    return { ...state, state: finalState }
+                },
             },
         ],
         experiment: [
@@ -1630,18 +1689,24 @@ export const experimentLogic = kea<experimentLogicType>([
             cache.refreshSummariesById = cache.refreshSummariesById ?? {}
             cache.refreshSummariesById[refreshId] = summaries
 
+            actions.markRefreshStarted(refreshId, triggeredBy)
+
             // Start 10s timer to offer browser notifications
             clearTimeout(cache.notificationOfferTimer)
             cache.notificationOfferTimer = setTimeout(() => {
                 actions.setShowNotificationOffer(true)
             }, 10_000)
 
+            let caughtError = false
             try {
                 await Promise.all([
                     asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
                     asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
                     asyncActions.loadExposures(forceRefresh),
                 ])
+            } catch (error) {
+                caughtError = true
+                throw error
             } finally {
                 const totalDurationMs = Math.round(performance.now() - refreshStart)
                 const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
@@ -1686,6 +1751,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
                     }
                 )
+
+                const finalState: FinishedRefreshState = caughtError
+                    ? 'errored'
+                    : erroredCount > 0
+                      ? 'partial'
+                      : 'completed'
+                actions.markRefreshFinished(refreshId, finalState)
 
                 // Clear notification offer timer
                 clearTimeout(cache.notificationOfferTimer)
@@ -2334,6 +2406,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             triggered_by: 'auto-refresh',
                             auto_refresh_enabled: values.autoRefresh.enabled,
                             auto_refresh_interval: values.autoRefresh.interval,
+                            ...previousRefreshAnalytics(values.currentRefresh),
                         })
                         actions.refreshExperimentResults(true, 'auto_refresh')
                     }, values.autoRefresh.interval * 1000)
