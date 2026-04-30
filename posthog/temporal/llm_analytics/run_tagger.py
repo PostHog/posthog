@@ -34,6 +34,11 @@ from products.llm_analytics.backend.models.taggers import Tagger
 logger = structlog.get_logger(__name__)
 
 DEFAULT_TAGGER_MODEL = "gpt-5-mini"
+# Trial-funded fallback when no model_configuration is set — must stay on the allowlist
+# so a future default-model bump can't silently bypass the TRIAL_MODEL_IDS guard.
+assert DEFAULT_TAGGER_MODEL in TRIAL_MODEL_IDS, (
+    f"DEFAULT_TAGGER_MODEL ({DEFAULT_TAGGER_MODEL}) must be in TRIAL_MODEL_IDS"
+)
 
 LLM_TAGGER_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
