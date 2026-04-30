@@ -143,10 +143,17 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         """`Co-authored-by` trailer for git commits attributed to this GitHub user.
 
         Uses GitHub's `<id>+<login>@users.noreply.github.com` format so attribution
-        works regardless of the user's email privacy settings.
+        works regardless of the user's email privacy settings. Returns None if the
+        stored identity is incomplete or malformed — co-author attribution is
+        optional and must not abort the caller.
         """
         login = self.github_login
-        gh_id = self.github_id
+        github_user = self.integration.config.get("github_user")
+        raw_id = github_user.get("id") if isinstance(github_user, dict) else None
+        try:
+            gh_id = int(raw_id) if raw_id is not None else None
+        except (TypeError, ValueError):
+            return None
         if not login or gh_id is None:
             return None
         return f"Co-authored-by: {login} <{gh_id}+{login}@users.noreply.github.com>"
