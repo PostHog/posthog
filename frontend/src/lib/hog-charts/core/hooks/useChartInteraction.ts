@@ -7,6 +7,7 @@ import {
     findNearestIndexFromPositions,
     isInPlotArea,
 } from '../interaction'
+import { defaultResolveValue } from '../types'
 import type {
     ChartDimensions,
     ChartScales,
@@ -16,8 +17,6 @@ import type {
     TooltipContext,
 } from '../types'
 import { useLatest } from './useLatest'
-
-const defaultResolveValue: ResolveValueFn = (series, dataIndex) => series.data[dataIndex] ?? 0
 
 function isTooltipContextEquivalent<Meta>(a: TooltipContext<Meta>, b: TooltipContext<Meta>): boolean {
     if (a.dataIndex !== b.dataIndex || a.label !== b.label) {

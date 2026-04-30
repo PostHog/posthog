@@ -19,6 +19,7 @@ from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
+    SLACK_INTEGRATION_KINDS,
     EmailIntegration,
     GitHubIntegration,
     Integration,
@@ -570,7 +571,24 @@ class TestIntegrationAPIKeyAccess:
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["kind"] == "github"
 
-    def test_list_integrations_only_shows_github_for_api_keys(self, client: HttpClient):
+    @patch(
+        "posthog.models.integration.get_instance_settings",
+        return_value={
+            "SLACK_APP_CLIENT_ID": "test-client-id",
+            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+        },
+    )
+    def test_list_integrations_shows_github_and_slack_for_api_keys(self, _mock_settings, client: HttpClient):
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_LIST",
+            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
+
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -586,9 +604,12 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["kind"] == "github"
-        assert all(integration["kind"] == "github" for integration in results)
+        kinds = {integration["kind"] for integration in results}
+        assert kinds == {"github", "slack"}
+        # twilio_integration is created in the fixture but should remain hidden from API-key callers.
+        assert "twilio" not in kinds
+        # Sensitive credentials never round-trip via the list serializer.
+        assert all("sensitive_config" not in integration for integration in results)
 
     def test_retrieve_github_integration_with_scope_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
@@ -622,6 +643,43 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch(
+        "posthog.models.integration.get_instance_settings",
+        return_value={
+            "SLACK_APP_CLIENT_ID": "test-client-id",
+            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+        },
+    )
+    def test_retrieve_slack_integration_with_scope_succeeds(self, _mock_settings, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_RETRIEVE",
+            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
+
+        key_value = "test_key_retrieve_slack"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["kind"] == "slack"
+        # Sensitive credentials never round-trip via the retrieve serializer.
+        assert "sensitive_config" not in body
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
@@ -852,6 +910,115 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "integration:read" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "kind,scope,expected_status,expected_detail_substring",
+        [
+            ("slack", "integration:read", status.HTTP_200_OK, None),
+            ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
+            ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
+            # GitHub passes the queryset filter (it's a read-allowed kind) but the channels
+            # action's kind guard rejects it with a 400 before SlackIntegration is constructed.
+            ("github", "integration:read", status.HTTP_400_BAD_REQUEST, "Slack"),
+            # Twilio is filtered out of the queryset entirely for API-key callers — 404.
+            ("twilio", "integration:read", status.HTTP_404_NOT_FOUND, None),
+        ],
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_auth_and_kind_matrix(
+        self,
+        mock_slack_class,
+        kind: str,
+        scope: str,
+        expected_status: int,
+        expected_detail_substring: str | None,
+        client: HttpClient,
+    ):
+        if kind in SLACK_INTEGRATION_KINDS:
+            target_integration = Integration.objects.create(
+                team=self.team,
+                kind=kind,
+                integration_id=f"T_{kind.upper()}",
+                config={"authed_user": {"id": "test_user_id"}},
+                sensitive_config={"access_token": "test-token-123"},
+                created_by=self.user,
+            )
+        elif kind == "github":
+            target_integration = self.github_integration
+        elif kind == "twilio":
+            target_integration = self.twilio_integration
+        else:
+            raise ValueError(f"Unhandled kind in test parameters: {kind}")
+
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = [
+            {
+                "id": "C1",
+                "name": "general",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C2",
+                "name": "random",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = f"test_key_{kind}_{scope}".replace(":", "_").replace("-", "_")
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=[scope],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{target_integration.id}/channels/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_200_OK:
+            data = response.json()
+            assert len(data["channels"]) == 2
+            assert data["channels"][0]["id"] == "C1"
+            assert data["channels"][0]["name"] == "general"
+            assert data["channels"][0]["is_private_without_access"] is False
+        elif expected_detail_substring is not None:
+            assert expected_detail_substring in response.json()["detail"]
+
+    def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_NOAUTHEDUSER",
+            config={},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
+
+        key_value = "test_key_no_authed_user"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authed_user" in response.json()["detail"]
 
     def test_create_integration_with_api_key_fails(self, client: HttpClient):
         key_value = "test_key_123"
