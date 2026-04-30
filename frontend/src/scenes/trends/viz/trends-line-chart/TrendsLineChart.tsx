@@ -98,7 +98,12 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
             (indexedResults ?? []).flatMap((r: IndexedTrendResult, index: number) => {
-                const built = buildMainTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(r, index, {
+                const {
+                    main: mainSeries,
+                    baseColor,
+                    dashedFromIndex,
+                    excluded,
+                } = buildMainTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(r, index, {
                     display,
                     showMultipleYAxes,
                     incompletenessOffsetFromEnd,
@@ -114,42 +119,42 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                         filter: rr.filter,
                     }),
                 })
-                const out: Series<TrendsSeriesMeta>[] = [built.main]
+                const series: Series<TrendsSeriesMeta>[] = [mainSeries]
 
                 if (showConfidenceIntervals) {
                     const [lower, upper] = ciRanges(r.data, confidenceLevel / 100)
-                    out.push({
+                    series.push({
                         key: `${r.id}__ci`,
                         label: `${r.label ?? ''} (CI)`,
                         data: upper,
-                        color: built.main.color,
-                        yAxisId: built.main.yAxisId,
-                        meta: built.main.meta,
+                        color: mainSeries.color,
+                        yAxisId: mainSeries.yAxisId,
+                        meta: mainSeries.meta,
                         fill: { opacity: 0.2, lowerData: lower },
-                        visibility: { excluded: built.excluded, fromTooltip: true, fromValueLabels: true },
+                        visibility: { excluded, fromTooltip: true, fromValueLabels: true },
                     })
                 }
 
                 if (showMovingAverage && r.data.length >= movingAverageIntervals) {
                     const maData = movingAverage(r.data, movingAverageIntervals)
-                    out.push({
+                    series.push({
                         key: `${r.id}-ma`,
                         label: `${r.label ?? ''} (Moving avg)`,
                         data: maData,
-                        color: built.main.color,
-                        yAxisId: built.main.yAxisId,
-                        meta: built.main.meta,
+                        color: mainSeries.color,
+                        yAxisId: mainSeries.yAxisId,
+                        meta: mainSeries.meta,
                         stroke: { pattern: [10, 3] },
                         visibility: { fromTooltip: true, fromStack: true },
                     })
 
-                    if (showTrendLines && !built.excluded) {
-                        out.push({
+                    if (showTrendLines && !excluded) {
+                        series.push({
                             key: `${r.id}-ma__trendline`,
                             label: `${r.label ?? ''} (Moving avg)`,
                             data: trendLine(maData),
-                            color: hexToRGBA(built.baseColor, 0.5),
-                            yAxisId: built.main.yAxisId,
+                            color: hexToRGBA(baseColor, 0.5),
+                            yAxisId: mainSeries.yAxisId,
                             stroke: { pattern: [1, 3] },
                             visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                         })
@@ -160,19 +165,19 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 // partial bucket doesn't drag the slope down. Dimmed so the dashed
                 // overlay reads as subordinate to the series line — at full intensity
                 // the two colors visually compete, especially on a dark background.
-                if (showTrendLines && !built.excluded) {
-                    out.push({
+                if (showTrendLines && !excluded) {
+                    series.push({
                         key: `${r.id}__trendline`,
                         label: r.label ?? '',
-                        data: trendLine(r.data, built.dashedFromIndex),
-                        color: hexToRGBA(built.baseColor, 0.5),
-                        yAxisId: built.main.yAxisId,
+                        data: trendLine(r.data, dashedFromIndex),
+                        color: hexToRGBA(baseColor, 0.5),
+                        yAxisId: mainSeries.yAxisId,
                         stroke: { pattern: [1, 3] },
                         visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                     })
                 }
 
-                return out
+                return series
             }),
         [
             indexedResults,
