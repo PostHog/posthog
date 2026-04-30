@@ -10,6 +10,7 @@ import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { handleGitRequest } from '@/routes/git'
 import type { CloudRegion } from '@/tools/types'
 
 import { MCP, RequestProperties } from './mcp'
@@ -174,6 +175,15 @@ const handleRequest = async (
                 'Cache-Control': 'no-store',
             },
         })
+    }
+
+    // Synthetic git plugin distribution — unauthenticated, public endpoints.
+    // Must be checked before the token requirement below.
+    if (url.pathname === '/marketplace.json' || url.pathname.startsWith('/git/')) {
+        const gitResponse = await handleGitRequest(request, url, ctx, log)
+        if (gitResponse) {
+            return gitResponse
+        }
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
