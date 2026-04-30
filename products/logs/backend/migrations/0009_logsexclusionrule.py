@@ -59,7 +59,6 @@ class Migration(migrations.Migration):
                         blank=True,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="+",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
