@@ -66,43 +66,61 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# Install additional language package managers
-RUN npm install -g yarn pnpm typescript ts-node nodemon
+# Install additional language package managers (including Bun)
+RUN npm install -g yarn pnpm typescript ts-node nodemon bun
 
-# Install uv (fast Python package manager)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+# Install uv (fast Python package manager) — pinned to an explicit version
+# so rebuilds are reproducible and supply-chain substitutions via :latest
+# are caught at the Dockerfile change level.
+ARG UV_VERSION=0.7.2
+COPY --from=ghcr.io/astral-sh/uv:${UV_VERSION} /uv /uvx /usr/local/bin/
 
-# Install Go
+# Install Go (with checksum verification against go.dev's official .sha256)
 ARG GO_VERSION=1.24.2
 RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
+    GO_TARBALL="go${GO_VERSION}.linux-${ARCH}.tar.gz" && \
+    curl -fsSL "https://go.dev/dl/${GO_TARBALL}" -o "/tmp/${GO_TARBALL}" && \
+    curl -fsSL "https://go.dev/dl/${GO_TARBALL}.sha256" -o "/tmp/${GO_TARBALL}.sha256" && \
+    echo "$(cat /tmp/${GO_TARBALL}.sha256)  /tmp/${GO_TARBALL}" | sha256sum -c - && \
+    rm -rf /usr/local/go && \
+    tar -C /usr/local -xzf "/tmp/${GO_TARBALL}" && \
+    rm -f "/tmp/${GO_TARBALL}" "/tmp/${GO_TARBALL}.sha256"
 ENV PATH="/usr/local/go/bin:$PATH"
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
 ENV PATH="/root/.cargo/bin:$PATH"
 
-# Install Java 21 + Maven + Gradle
+# Install Java 21, Maven, Ruby, and PHP in a single apt layer
 RUN apt-get update && \
-    apt-get install -y openjdk-21-jdk-headless maven && \
-    rm -rf /var/lib/apt/lists/*
-ARG GRADLE_VERSION=8.12
-RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip && \
-    unzip -d /opt /tmp/gradle.zip && \
-    ln -s "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle && \
-    rm /tmp/gradle.zip
-
-# Install Ruby + Bundler
-RUN apt-get update && \
-    apt-get install -y ruby-full && \
+    apt-get install -y --no-install-recommends \
+        openjdk-21-jdk-headless \
+        maven \
+        ruby-full \
+        php-cli \
+        php-mbstring \
+        php-xml \
+        php-curl \
+        php-zip && \
     rm -rf /var/lib/apt/lists/* && \
     gem install bundler
 
-# Install PHP + Composer
-RUN apt-get update && \
-    apt-get install -y php-cli php-mbstring php-xml php-curl php-zip && \
-    rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# Install Gradle (with checksum verification against services.gradle.org's official .sha256)
+ARG GRADLE_VERSION=8.12
+RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip && \
+    curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip.sha256" -o /tmp/gradle.zip.sha256 && \
+    echo "$(cat /tmp/gradle.zip.sha256)  /tmp/gradle.zip" | sha256sum -c - && \
+    unzip -d /opt /tmp/gradle.zip && \
+    ln -s "/opt/gradle-${GRADLE_VERSION}/bin/gradle" /usr/local/bin/gradle && \
+    rm /tmp/gradle.zip /tmp/gradle.zip.sha256
+
+# Install Composer (with installer signature verification per Composer's official docs)
+RUN curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php && \
+    EXPECTED_SIGNATURE="$(curl -fsSL https://composer.github.io/installer.sig)" && \
+    ACTUAL_SIGNATURE="$(php -r "echo hash_file('sha384', '/tmp/composer-setup.php');")" && \
+    [ "$EXPECTED_SIGNATURE" = "$ACTUAL_SIGNATURE" ] && \
+    php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer && \
+    rm -f /tmp/composer-setup.php
 
 # Install GitHub CLI without adding another apt repository refresh.
 ARG GH_CLI_VERSION=2.89.0
@@ -164,12 +182,17 @@ WORKDIR /tmp/workspace
 RUN python3 --version && \
     node --version && \
     npm --version && \
+    bun --version && \
     go version && \
     rustc --version && \
     cargo --version && \
     java --version && \
+    mvn --version && \
+    gradle --version && \
     ruby --version && \
+    bundler --version && \
     php --version && \
+    composer --version && \
     uv --version
 
 CMD ["/bin/bash"]
