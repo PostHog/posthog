@@ -1,9 +1,15 @@
 import { CODES, Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
+import { captureException } from '../utils/posthog'
 import { delay } from '../utils/utils'
 import { KafkaConsumerV2 } from './consumer-v2'
 
 jest.mock('./admin', () => ({ ensureTopicExists: jest.fn().mockResolvedValue(undefined) }))
+
+// Spy on captureException to assert that the IDLE-keepalive invariant fires when violated.
+jest.mock('../utils/posthog', () => ({
+    captureException: jest.fn(),
+}))
 
 jest.mock('node-rdkafka', () => ({
     KafkaConsumer: jest.fn(),
@@ -74,6 +80,7 @@ describe('KafkaConsumerV2', () => {
     beforeEach(() => {
         consumeCallback = undefined
         registeredRebalanceCb = undefined
+        ;(captureException as jest.Mock).mockClear()
 
         const mockInstance: any = {
             connect: jest.fn().mockImplementation((_: unknown, cb: (err: Error | null) => void) => cb(null)),
@@ -481,6 +488,46 @@ describe('KafkaConsumerV2', () => {
 
         // storeOffsets should NOT be called for this stale task.
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+    })
+
+    describe('IDLE keepalive invariant', () => {
+        it('does NOT call eachBatch or storeOffsets if a message somehow comes back in IDLE', async () => {
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Loop is now in IDLE state, awaiting consume(1, cb) for the keepalive. We have
+            // NOT fired ASSIGN — so no partitions are assigned and the consumer should never
+            // see a real message here. Force-deliver one anyway to simulate the impossible
+            // case and verify the invariant fires.
+            expect(consumeCallback).toBeDefined()
+            const cb = consumeCallback!
+            consumeCallback = undefined
+            cb(null, [createMessage({ offset: 42, partition: 7, topic: 'unexpected-topic' })])
+            await delay(5)
+
+            // No real processing should have happened.
+            expect(eachBatch).not.toHaveBeenCalled()
+            expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+            // captureException should have been invoked with a descriptive error.
+            expect(captureException).toHaveBeenCalledTimes(1)
+            const err = (captureException as jest.Mock).mock.calls[0][0] as Error
+            expect(err.message).toContain('keepalive_unexpected_messages')
+            expect(err.message).toContain('unexpected-topic/7@42')
+        })
+
+        it('does NOT capture an exception when keepalive returns the expected empty batch', async () => {
+            const eachBatch = jest.fn(() => Promise.resolve({}))
+            await consumer.connect(eachBatch)
+
+            // Empty batch is the normal IDLE outcome.
+            expect(consumeCallback).toBeDefined()
+            const cb = consumeCallback!
+            consumeCallback = undefined
+            cb(null, [])
+            await delay(5)
+
+            expect(captureException).not.toHaveBeenCalled()
+        })
     })
 
     it('Health: not connected → error', () => {
