@@ -71,8 +71,8 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
     it.each<[string, dayjs.Dayjs | null, boolean]>([
         ['last refresh is null', null, false],
         ['last refresh is an invalid Dayjs', dayjs(new Date(Number.NaN)), false],
-        ['stalest tile is newer than the auto-force threshold', dayjs().subtract(59, 'minute'), false],
-        ['stalest tile is older than the auto-force threshold', dayjs().subtract(61, 'minute'), true],
+        ['stalest tile is newer than the auto-force threshold', dayjs().subtract(29, 'minute'), false],
+        ['stalest tile is older than the auto-force threshold', dayjs().subtract(31, 'minute'), true],
     ])('when %s, returns expected result', (_, input, expected) => {
         expect(shouldSharedDashboardAutoForceForStaleTime(input)).toBe(expected)
     })
@@ -88,8 +88,8 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         })
 
         it.each<[string, string, boolean]>([
-            ['at exactly the threshold age (60 minutes)', '2026-06-15T11:00:00.000Z', true],
-            ['just under the threshold', '2026-06-15T11:01:00.000Z', false],
+            ['at exactly the threshold age (30 minutes)', '2026-06-15T11:30:00.000Z', true],
+            ['just under the threshold', '2026-06-15T11:31:00.000Z', false],
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
@@ -100,7 +100,7 @@ describe('scheduleSharedDashboardStaleAutoForceIfEligible', () => {
     it('does not invoke trigger when not stale', async () => {
         const trigger = jest.fn()
         scheduleSharedDashboardStaleAutoForceIfEligible({
-            effectiveLastRefresh: dayjs().subtract(30, 'minute'),
+            effectiveLastRefresh: dayjs().subtract(15, 'minute'),
             triggerDashboardRefresh: trigger,
         })
         await flushMicrotasks()
@@ -110,7 +110,7 @@ describe('scheduleSharedDashboardStaleAutoForceIfEligible', () => {
     it('invokes trigger on the next microtask when stale', async () => {
         const trigger = jest.fn()
         scheduleSharedDashboardStaleAutoForceIfEligible({
-            effectiveLastRefresh: dayjs().subtract(61, 'minute'),
+            effectiveLastRefresh: dayjs().subtract(31, 'minute'),
             triggerDashboardRefresh: trigger,
         })
         expect(trigger).not.toHaveBeenCalled()

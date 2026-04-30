@@ -121,8 +121,15 @@ export const QUICK_FILTER_DEBOUNCE_MS = 1500
 /**
  * Shared dashboard: if pessimistic `effectiveLastRefresh` (stalest tile) is older than this many minutes,
  * we may trigger one automatic `force_blocking` refresh after initial tile load (see `scheduleSharedDashboardStaleAutoForceIfEligible`).
+ *
+ * Aligned with `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` (the periodic refresh cadence) so the
+ * staleness budget is consistent: viewers should never see data older than the periodic
+ * interval. The first periodic tick fires 30 min after the user lands on the page; this
+ * one-shot covers the cold-start window where the dashboard's last refresh is already older
+ * than that interval. Backend `SHARED_FORCE_BLOCKING_MIN_AGE` is also pinned to this value,
+ * asserted in `test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval`.
  */
-export const SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES = 60
+export const SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES = AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {

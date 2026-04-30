@@ -1099,17 +1099,18 @@ class TestSharedInsightsExecutionMode(BaseTest):
         self.assertEqual(result, expected_mode)
 
     def test_shared_force_blocking_min_age_matches_frontend_auto_refresh_interval(self) -> None:
-        """The shared-insight force_blocking throttle MUST equal the frontend periodic
-        auto-refresh interval (`AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` in
-        `frontend/src/scenes/dashboard/dashboardUtils.ts`). The `SharedDashboardAutoRefresh`
-        component (`frontend/src/exporter/Exporter.tsx`) ships a `setInterval` that fires
-        `force_blocking` at that cadence on every shared dashboard view. If the backend
-        throttle is larger, every other tick gets silently downgraded — UI claims "Auto
-        refresh every 30m" but actual cadence becomes 60m+.
+        """All three "staleness budget" constants for shared dashboards must be the same value:
 
-        The frontend's separate one-shot stale check (`SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES`)
-        only fires when older than its threshold, so as long as that threshold is ≥ this
-        constant, that path is also fine.
+        - Backend `SHARED_FORCE_BLOCKING_MIN_AGE` (this module) — the server-side throttle.
+        - Frontend `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS` — the periodic auto-refresh interval
+          fired by `SharedDashboardAutoRefresh` in `frontend/src/exporter/Exporter.tsx`.
+        - Frontend `SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES` — the cold-start one-shot
+          threshold in `dashboardUtils.ts:scheduleSharedDashboardStaleAutoForceIfEligible`.
+
+        These three values express the same staleness budget — "viewers should never see data
+        older than X minutes" — from three angles. If any drifts, either the periodic refresh
+        is silently throttled, or the one-shot misses cases the periodic mechanism wouldn't
+        catch in time, or both.
         """
         import re
         from pathlib import Path
@@ -1120,32 +1121,32 @@ class TestSharedInsightsExecutionMode(BaseTest):
             Path(__file__).resolve().parents[3] / "frontend" / "src" / "scenes" / "dashboard" / "dashboardUtils.ts"
         )
         source = frontend_file.read_text()
+
         interval_match = re.search(
             r"export\s+const\s+AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*=\s*(\d+)\s*",
             source,
         )
         assert interval_match, f"Could not find AUTO_REFRESH_INITIAL_INTERVAL_SECONDS in {frontend_file}"
-        frontend_interval_seconds = int(interval_match.group(1))
-        backend_seconds = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds())
-        self.assertEqual(
-            backend_seconds,
-            frontend_interval_seconds,
-            f"Backend SHARED_FORCE_BLOCKING_MIN_AGE ({backend_seconds}s) must equal frontend "
-            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS ({frontend_interval_seconds}s) — otherwise the "
-            f"periodic auto-refresh would be silently throttled. Update both.",
-        )
+        frontend_interval_minutes = int(interval_match.group(1)) // 60
 
+        # Frontend SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES is defined as
+        # `AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60`, so we don't need to grep it separately —
+        # it's locked to the periodic interval at the source.
         stale_match = re.search(
-            r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*(\d+)\s*",
+            r"export\s+const\s+SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES\s*=\s*AUTO_REFRESH_INITIAL_INTERVAL_SECONDS\s*/\s*60",
             source,
         )
-        assert stale_match, f"Could not find SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES in {frontend_file}"
-        frontend_stale_minutes = int(stale_match.group(1))
+        assert stale_match, (
+            f"SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES must be defined as "
+            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60 in {frontend_file} — otherwise the two "
+            f"frontend constants can drift independently."
+        )
+
         backend_minutes = int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds() // 60)
-        self.assertGreaterEqual(
-            frontend_stale_minutes,
+        self.assertEqual(
             backend_minutes,
-            f"Frontend SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES ({frontend_stale_minutes}m) "
-            f"must be ≥ backend SHARED_FORCE_BLOCKING_MIN_AGE ({backend_minutes}m), otherwise the "
-            f"frontend would never fire stale-check refreshes that the backend would honor.",
+            frontend_interval_minutes,
+            f"Backend SHARED_FORCE_BLOCKING_MIN_AGE ({backend_minutes}m) must equal frontend "
+            f"AUTO_REFRESH_INITIAL_INTERVAL_SECONDS ({frontend_interval_minutes}m). Drift breaks "
+            f"the shared-dashboard refresh contract — see the constant's comment for why.",
         )
