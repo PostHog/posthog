@@ -35,6 +35,7 @@ import {
     NotebookNodeSettingsPlacement,
     NotebookNodeType,
 } from '../types'
+import { getNotebookSqlEditorTabId } from './components/NotebookSQLEditor'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
 import {
     type DuckSqlNodeSummary,
@@ -107,9 +108,6 @@ const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean =>
 }
 
 const DEFAULT_DATAFRAME_PAGE_SIZE = 10
-
-const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string): string =>
-    `notebook-sql-${suffix}-${nodeId ?? 'new'}`
 
 const getMountedNotebookSqlEditorCode = (nodeId: string | null | undefined, suffix: string): string | null =>
     sqlEditorLogic.findMounted({ tabId: getNotebookSqlEditorTabId(nodeId, suffix), mode: SQLEditorMode.Embedded })
