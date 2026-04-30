@@ -14,7 +14,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -130,7 +129,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isSelfManagedSource,
         source,
         sourceConnectionDetails,
-        featureFlags,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
@@ -139,10 +137,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         sourceConnectionDetails?.access_method,
         source.access_method
     )
-    const showAccessMethodSelector =
-        currentStep === 2 &&
-        selectedConnector?.name === 'Postgres' &&
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+    const showAccessMethodSelector = currentStep === 2 && selectedConnector?.name === 'Postgres'
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()

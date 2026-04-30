@@ -185,6 +185,7 @@ rules:
                               |Survey
                               |SurveyResponseArchive
                               |Tag
+                              |Tagger
                               |Task
                               |TaskAutomation
                               |TaskRun
@@ -382,6 +383,7 @@ rules:
                         |Survey
                         |SurveyResponseArchive
                         |Tag
+                        |Tagger
                         |Task
                         |TaskAutomation
                         |TaskRun

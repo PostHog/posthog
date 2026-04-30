@@ -67,7 +67,11 @@ export const RetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const MembersListParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
@@ -77,7 +81,11 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const RolesListParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const RolesListQueryParams = /* @__PURE__ */ zod.object({
@@ -87,11 +95,19 @@ export const RolesListQueryParams = /* @__PURE__ */ zod.object({
 
 export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this role.'),
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
 })
 
 export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
-    organization_id: zod.string(),
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to /api/organizations/."
+        ),
     role_id: zod.string(),
 })
 

@@ -175,6 +175,10 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
             asyncHandler(this.postHogFlowBatchInvocation)
         )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/bulk_replay_invocations',
+            asyncHandler(this.postHogflowBulkReplayInvocations)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -604,6 +608,109 @@ export class CdpApi {
         } catch (e) {
             logger.error('Error handling hogflow scheduled invocation', { error: e })
             res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    private postHogflowBulkReplayInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id } = req.params
+            const { items } = req.body as {
+                items: Array<{
+                    clickhouse_event: any
+                    action_id: string
+                    instance_id: string
+                }>
+            }
+
+            if (!Array.isArray(items) || items.length === 0) {
+                return res.status(400).json({ error: 'Missing or empty items array' })
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            const siteUrl = this.config.SITE_URL ?? 'http://localhost:8000'
+            const invocations: any[] = []
+            const logEntries: any[] = []
+            let succeeded = 0
+            let failed = 0
+
+            for (const item of items) {
+                try {
+                    const { clickhouse_event, action_id, instance_id } = item
+
+                    if (!clickhouse_event || !action_id || !instance_id) {
+                        failed++
+                        continue
+                    }
+
+                    const actionExists = hogFlow.actions?.some((a: any) => a.id === action_id)
+                    if (!actionExists) {
+                        failed++
+                        continue
+                    }
+
+                    const globals = convertToHogFunctionInvocationGlobals(clickhouse_event, team, siteUrl)
+                    const triggerGlobals: HogFunctionInvocationGlobals = {
+                        ...globals,
+                        project: {
+                            id: team.id,
+                            name: team.name,
+                            url: `${siteUrl}/project/${team.id}`,
+                        },
+                    }
+                    const filterGlobals = convertToHogFunctionFilterGlobal({
+                        event: globals.event,
+                        person: globals.person,
+                        groups: globals.groups,
+                        variables: {},
+                    })
+
+                    const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+                    invocation.state.currentAction = {
+                        id: action_id,
+                        startedAtTimestamp: Date.now(),
+                    }
+                    invocations.push(invocation)
+
+                    logEntries.push({
+                        team_id: team.id,
+                        log_source: 'hog_flow' as const,
+                        log_source_id: id,
+                        instance_id,
+                        timestamp: DateTime.utc(),
+                        level: 'info' as const,
+                        message: `[Replay] Queued replay for event ${clickhouse_event.uuid ?? 'unknown'} from action ${action_id}. New invocation: ${invocation.id}`,
+                    })
+                    succeeded++
+                } catch {
+                    failed++
+                }
+            }
+
+            if (invocations.length > 0) {
+                await this.cyclotronJobQueue.queueInvocations(invocations)
+
+                // Only write replay markers after invocations are successfully queued,
+                // otherwise failed runs would disappear from the blocked list permanently
+                if (logEntries.length > 0) {
+                    this.invocationResultsService.monitoringService.queueLogs(logEntries, 'hog_flow')
+                    await this.invocationResultsService.flush()
+                }
+            }
+
+            logger.info('⚡️', 'Bulk replay completed', { id, team_id, succeeded, failed })
+            res.json({ succeeded, failed })
+        } catch (e) {
+            logger.error('Error handling hogflow bulk replay', { error: e })
+            res.status(500).json({ error: e.message })
         }
     }
 
