@@ -3949,7 +3949,7 @@
         }
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Creates a new survey in the project.",
@@ -4009,7 +4009,7 @@
         }
     },
     "survey-update": {
-        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "description": "Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you provide may replace existing values. Before changing questions, conditions, appearance, targeting, translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do not send null to clear a field unless the user explicitly asked to remove it.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Update an existing survey by ID.",
