@@ -227,12 +227,15 @@ impl LeaderOps for LeaderBackend {
         let mut req_with_partition = request;
         req_with_partition.partition = partition;
 
-        // Stash fast path. During a handoff's Freezing phase the partition is
-        // registered in the stash table, and writes are queued rather than
-        // forwarded. The coordinator advances to Complete once the handoff
-        // drains; at that point `drain_stash` flushes the queue to the new
-        // owner via `update_person_properties_no_stash` and subsequent
-        // requests fall through to the normal forward path below.
+        // Stash fast path. While a handoff for this partition is in any
+        // non-terminal phase (`Freezing`, `Draining`, or `Warming`), the
+        // partition is registered in the stash table and writes are
+        // queued instead of forwarded. The coordinator atomically writes
+        // `Complete` together with the new `PartitionAssignment`; at
+        // that point `drain_stash` flushes the queue to the new owner
+        // via `update_person_properties_no_stash` (bypassing this hook
+        // to avoid re-enqueueing during drain), and subsequent requests
+        // fall through to the normal forward path below.
         // The stash module emits its own enqueued/rejected counters with
         // appropriate labels at the source; we don't double-count here.
         match self

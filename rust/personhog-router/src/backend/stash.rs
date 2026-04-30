@@ -1,13 +1,17 @@
 //! Per-partition stash queue for the write-path.
 //!
 //! During a partition handoff, the coordinator advances the handoff state
-//! through a `Freezing` phase before transferring ownership. While a
-//! partition is frozen, routers buffer (stash) incoming write requests for
-//! that partition here; once the handoff completes the stashed requests are
-//! drained FIFO to the new owner.
+//! through `Freezing → Draining → Warming → Complete`. From the moment
+//! the handoff is created (in `Freezing`) and until the routing table
+//! flips at `Complete`, routers buffer (stash) incoming write requests
+//! for that partition here. When `Complete` arrives the stashed
+//! requests are drained in arrival order to the new owner.
 //!
-//! This gives the protocol a clean "no split-brain writes" guarantee without
-//! returning errors to callers.
+//! This gives the protocol a clean "no split-brain writes" guarantee
+//! without returning errors to callers — every write that hits the
+//! router during the handoff window is either delivered to the new
+//! owner in arrival order or fails fast with `UNAVAILABLE` once its
+//! per-request deadline expires (see `RouterStashHandler`).
 
 use std::collections::VecDeque;
 use std::sync::Arc;
