@@ -21,6 +21,41 @@ interface UseChartMarginsOptions {
     hideYAxis: boolean
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
+    axisOrientation?: 'vertical' | 'horizontal'
+}
+
+function widestCategoryLabelWidth(
+    labels: string[],
+    xTickFormatter: ((value: string, index: number) => string | null) | undefined
+): number {
+    let widest = 0
+    for (let i = 0; i < labels.length; i++) {
+        const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
+        if (text === null) {
+            continue
+        }
+        widest = Math.max(widest, measureLabelWidth(text))
+    }
+    return widest
+}
+
+function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
+    const range = seriesValueRange(series)
+    if (range.count === 0) {
+        return 0
+    }
+    const min = range.min > 0 ? 0 : range.min
+    const max = range.max < 0 ? 0 : range.max
+    const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
+    if (ticks.length === 0) {
+        return 0
+    }
+    const formatter = yTickFormatter ?? autoFormatterFor(ticks)
+    let widest = 0
+    for (const t of ticks) {
+        widest = Math.max(widest, measureLabelWidth(formatter(t)))
+    }
+    return widest
 }
 
 export function useChartMargins({
@@ -30,7 +65,10 @@ export function useChartMargins({
     hideYAxis,
     xTickFormatter,
     yTickFormatter,
+    axisOrientation = 'vertical',
 }: UseChartMarginsOptions): ChartMargins {
+    const isHorizontal = axisOrientation === 'horizontal'
+
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
             series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID)
@@ -42,38 +80,25 @@ export function useChartMargins({
         if (hideYAxis) {
             return 0
         }
-        const range = seriesValueRange(series)
-        if (range.count === 0) {
-            return 0
+        if (isHorizontal) {
+            return widestCategoryLabelWidth(labels, xTickFormatter)
         }
-        const min = range.min > 0 ? 0 : range.min
-        const max = range.max < 0 ? 0 : range.max
-        const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
-        if (ticks.length === 0) {
-            return 0
-        }
-        const formatter = yTickFormatter ?? autoFormatterFor(ticks)
-        let widest = 0
-        for (const t of ticks) {
-            widest = Math.max(widest, measureLabelWidth(formatter(t)))
-        }
-        return widest
-    }, [series, yTickFormatter, hideYAxis])
+        return widestValueLabelWidth(series, yTickFormatter)
+    }, [series, yTickFormatter, hideYAxis, isHorizontal, labels, xTickFormatter])
 
     const xLabelHalfWidth = useMemo<number>(() => {
-        if (hideXAxis || labels.length === 0) {
+        if (hideXAxis) {
             return 0
         }
-        let widest = 0
-        for (let i = 0; i < labels.length; i++) {
-            const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
-            if (text === null) {
-                continue
-            }
-            widest = Math.max(widest, measureLabelWidth(text))
+        if (isHorizontal) {
+            const widest = widestValueLabelWidth(series, yTickFormatter)
+            return Math.ceil(widest / 2)
         }
-        return Math.ceil(widest / 2)
-    }, [labels, xTickFormatter, hideXAxis])
+        if (labels.length === 0) {
+            return 0
+        }
+        return Math.ceil(widestCategoryLabelWidth(labels, xTickFormatter) / 2)
+    }, [labels, xTickFormatter, hideXAxis, isHorizontal, series, yTickFormatter])
 
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis ? COLLAPSED_AXIS_MARGIN : DEFAULT_MARGINS.bottom

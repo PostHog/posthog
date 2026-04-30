@@ -10,6 +10,12 @@ interface AxisLabelsProps {
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
+    /** Axis orientation: `vertical` (default) puts categories on the x-axis bottom and value ticks on the y-axis left.
+     *  `horizontal` swaps them — categories on the y-axis left, value ticks on the x-axis bottom. */
+    orientation?: 'vertical' | 'horizontal'
+    /** Used for horizontal orientation — maps labels to y pixel coordinates (band centers).
+     *  When omitted, falls back to `scales.x` which only makes sense for vertical orientation. */
+    labelToCoord?: (label: string) => number | undefined
 }
 
 export const LABEL_FONT =
@@ -93,6 +99,8 @@ export function AxisLabels({
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
+    orientation = 'vertical',
+    labelToCoord,
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels } = useChartLayout()
     const yTicks = scales.yTicks()
@@ -106,11 +114,68 @@ export function AxisLabels({
     const rightTicks = useMemo(() => rightAxis?.ticks() ?? [], [rightAxis])
 
     const visibleXLabels = useMemo(
-        () => (hideXAxis ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter)),
-        [hideXAxis, labels, scales.x, xTickFormatter]
+        () =>
+            hideXAxis || orientation === 'horizontal' ? [] : computeVisibleXLabels(labels, scales.x, xTickFormatter),
+        [hideXAxis, labels, scales.x, xTickFormatter, orientation]
     )
 
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
+
+    if (orientation === 'horizontal') {
+        // Categories on the left, numeric ticks on the bottom.
+        // `scales.y` is the value scale (x pixel coords for horizontal); `labelToCoord` maps to y.
+        return (
+            <>
+                {!hideYAxis &&
+                    labels.map((labelText, i) => {
+                        const text = xTickFormatter ? xTickFormatter(labelText, i) : labelText
+                        if (text === null) {
+                            return null
+                        }
+                        const y = labelToCoord ? labelToCoord(labelText) : undefined
+                        if (y == null || !isFinite(y)) {
+                            return null
+                        }
+                        return (
+                            <div
+                                key={`y-cat-${i}`}
+                                style={{
+                                    ...TICK_STYLE_BASE,
+                                    right: dimensions.width - dimensions.plotLeft + 8,
+                                    top: y,
+                                    transform: 'translateY(-50%)',
+                                    color: axisColor,
+                                }}
+                            >
+                                {text}
+                            </div>
+                        )
+                    })}
+                {!hideXAxis &&
+                    yTicks.map((tick: number) => {
+                        const x = scales.y(tick)
+                        if (!isFinite(x)) {
+                            return null
+                        }
+                        const label = yTickFormatter ? yTickFormatter(tick) : String(tick)
+                        return (
+                            <div
+                                key={`x-val-${tick}`}
+                                style={{
+                                    ...TICK_STYLE_BASE,
+                                    left: x,
+                                    top: dimensions.plotTop + dimensions.plotHeight + 8,
+                                    transform: 'translateX(-50%)',
+                                    color: axisColor,
+                                }}
+                            >
+                                {label}
+                            </div>
+                        )
+                    })}
+            </>
+        )
+    }
 
     return (
         <>

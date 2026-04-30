@@ -58,6 +58,11 @@ interface UseChartInteractionOptions<Meta> {
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     resolveValue?: ResolveValueFn
+    /** Which axis the categorical-label hit detection runs on. Defaults to 'x'.
+     *  `'y'` is used for horizontal bar charts where labels are mapped to y pixels. */
+    interactionAxis?: 'x' | 'y'
+    /** When set, used instead of `scales.x` to map labels to coordinates on `interactionAxis`. */
+    labelToCoord?: (label: string) => number | undefined
 }
 
 interface UseChartInteractionResult<Meta> {
@@ -81,6 +86,8 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     onPointClick,
     resolveValue = defaultResolveValue,
+    interactionAxis = 'x',
+    labelToCoord,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
@@ -99,8 +106,12 @@ export function useChartInteraction<Meta = unknown>({
 
     const isPinned = tooltipCtx?.isPinned ?? false
 
-    // Precompute the (x, index) lookup table once per (labels, scales.x) change.
-    const labelPositions = useMemo(() => (scales ? buildLabelPositions(labels, scales.x) : []), [labels, scales])
+    // Precompute the (coord, index) lookup table once per (labels, scale) change.
+    // For vertical orientation this is x positions; for horizontal it's y positions.
+    const labelPositions = useMemo(
+        () => (scales ? buildLabelPositions(labels, labelToCoord ?? scales.x) : []),
+        [labels, scales, labelToCoord]
+    )
 
     // Rebuild or clear the pinned tooltip when its underlying inputs change.
     // Without this, the pin keeps stale values at stale pixel positions after the
@@ -125,11 +136,12 @@ export function useChartInteraction<Meta = unknown>({
                 prev.dataIndex,
                 series,
                 labels,
-                scales.x,
+                labelToCoord ?? scales.x,
                 scales.y,
                 canvasBounds,
                 resolveValueRef.current,
-                scales.yAxes
+                scales.yAxes,
+                interactionAxis
             )
             if (!fresh) {
                 return null
@@ -226,7 +238,8 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
-            const index = findNearestIndexFromPositions(mouseX, labelPositions)
+            const probe = interactionAxis === 'y' ? mouseY : mouseX
+            const index = findNearestIndexFromPositions(probe, labelPositions)
             setHoverIndex(index)
 
             if (index >= 0 && showTooltip) {
@@ -237,11 +250,12 @@ export function useChartInteraction<Meta = unknown>({
                         index,
                         series,
                         labels,
-                        scales.x,
+                        labelToCoord ?? scales.x,
                         scales.y,
                         canvasBounds,
                         resolveValue,
-                        scales.yAxes
+                        scales.yAxes,
+                        interactionAxis
                     )
                 )
             }
@@ -257,6 +271,8 @@ export function useChartInteraction<Meta = unknown>({
             isPinned,
             clearTooltip,
             labelPositions,
+            labelToCoord,
+            interactionAxis,
         ]
     )
 
