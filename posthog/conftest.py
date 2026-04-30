@@ -504,7 +504,7 @@ def pytest_collection_modifyitems(config, items):
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Print db-setup timing details so they don't hide inside the first test's setup."""
-    if not _MIGRATION_TIMINGS and not _DB_SETUP_TIMINGS:
+    if not _MIGRATION_TIMINGS and not any(_DB_SETUP_TIMINGS.values()):
         return
 
     tr = terminalreporter
