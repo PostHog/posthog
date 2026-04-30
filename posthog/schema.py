@@ -8326,7 +8326,7 @@ class SignalInput(
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
         | SignalsAgentSignalInput
-    ) = Field(..., discriminator="source_product")
+    )
 
 
 class SourceFieldFileUploadConfig(BaseModel):
