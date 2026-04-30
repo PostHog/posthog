@@ -116,13 +116,12 @@ buffer that lets compaction's mutation finish before allocation reads the free p
 
 ### 4. Verify the worker has the new workflows registered
 
-The worker needs to know about three workflows:
+The worker needs to know about two workflows:
 
-- `BackfillMaterializedPropertyWorkflow` — legacy per-slot, kept for in-flight runs.
 - `BackfillMaterializedPropertiesBatchWorkflow` — weekly PENDING allocation.
 - `CompactMaterializedColumnsWorkflow` — weekly compaction (self-skips most weeks).
 
-All three are registered in `posthog/temporal/product_analytics/__init__.py:WORKFLOWS`.
+Both are registered in `posthog/temporal/product_analytics/__init__.py:WORKFLOWS`.
 Restart the analytics-platform Temporal worker so it picks up the new workflow
 definition.
 
@@ -291,7 +290,7 @@ time exactly the way it does for normal `mat*\*` columns.
 ### Mutation duration hasn't been measured
 
 The RFC's open question about how long a real backfill takes is still open. The
-`backfill_materialized_column` mutation polls `system.mutations` every 15s with a
+`run_batched_mutation` activity polls `system.mutations` every 15s with a
 12-hour activity timeout, so multi-hour mutations are tolerated, but at the
 production-scale 25B-row teams this is untested. Use Temporal's built-in
 `temporal_activity_execution_latency_seconds{activity_name="run_batched_mutation"}`

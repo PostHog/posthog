@@ -2,7 +2,6 @@
 
 import hashlib
 import dataclasses
-from typing import Optional
 
 from django.db import transaction
 
@@ -35,21 +34,6 @@ DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
 MATERIALIZABLE_PROPERTY_TYPES: set[str] = {str(PropertyType.String)}
 
 
-@dataclasses.dataclass
-class BackfillMaterializedColumnInputs:
-    team_id: int
-    property_name: str
-    mat_column_name: str
-    partition_id: Optional[str] = None
-
-
-@dataclasses.dataclass
-class UpdateSlotStateInputs:
-    slot_id: str
-    state: str
-    error_message: Optional[str] = None
-
-
 def _generate_property_extraction_sql(property_name_param: str = "property_name") -> str:
     """SQL fragment that pulls a single property out of `properties` as a string.
 
@@ -60,150 +44,12 @@ def _generate_property_extraction_sql(property_name_param: str = "property_name"
     column, depending on whether the slot is READY for that property — disagreement would
     show up as different values for the same event before vs after backfill.
 
-    The single-property-per-mutation path uses the default `%(property_name)s` placeholder.
     The batched-mutation path passes a per-slot param key (`prop_<uuid>`) so multiple
-    extractions can coexist in one mutation's params dict. Either way, the literal SQL
-    around the placeholder is identical — that's the parity guarantee the dmat-vs-JSON
-    consistency test pins.
+    extractions can coexist in one mutation's params dict. The literal SQL around the
+    placeholder must stay identical to the HogQL JSON fallback — that's the parity
+    guarantee the dmat-vs-JSON consistency test pins.
     """
     return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %({property_name_param})s), ''), 'null'), '^\"|\"$', '')"
-
-
-@activity.defn
-def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> int:
-    """
-    Backfill a materialized column by running ALTER TABLE UPDATE on historical events.
-
-    Runs the mutation on all shards since sharded_events is a sharded table.
-    Uses mutations_sync=1 to block until each shard's mutation completes.
-
-    Returns 0 (row count not tracked).
-    """
-    extraction_sql = _generate_property_extraction_sql()
-
-    partition_clause = "IN PARTITION %(partition_id)s" if inputs.partition_id else ""
-    query = f"""
-        ALTER TABLE sharded_events
-        UPDATE {inputs.mat_column_name} = {extraction_sql}
-        {partition_clause}
-        WHERE team_id = %(team_id)s
-    """
-
-    params: dict[str, str | int] = {
-        "team_id": inputs.team_id,
-        "property_name": inputs.property_name,
-    }
-    if inputs.partition_id:
-        params["partition_id"] = inputs.partition_id
-
-    logger.info(
-        "Starting backfill for materialized column",
-        team_id=inputs.team_id,
-        property_name=inputs.property_name,
-        mat_column_name=inputs.mat_column_name,
-        partition_id=inputs.partition_id,
-    )
-
-    try:
-        cluster = get_cluster()
-
-        # Execute mutation on one host per shard with mutations_sync=1
-        # This blocks until the mutation completes on each shard
-        def run_mutation(client):
-            client.execute(query, params, settings={"mutations_sync": 1})
-
-        cluster.map_one_host_per_shard(run_mutation).result()
-
-        logger.info(
-            "Backfill mutation completed on all shards",
-            team_id=inputs.team_id,
-            property_name=inputs.property_name,
-            mat_column_name=inputs.mat_column_name,
-        )
-
-        return 0
-
-    except Exception as e:
-        logger.exception(
-            "Backfill failed",
-            team_id=inputs.team_id,
-            property_name=inputs.property_name,
-            mat_column_name=inputs.mat_column_name,
-            error=str(e),
-        )
-        raise
-
-
-@activity.defn
-def update_slot_state(inputs: UpdateSlotStateInputs) -> None:
-    """Update the state of a materialized column slot with activity logging.
-
-    Raises `MaterializedColumnSlot.DoesNotExist` if the slot is gone — this is the legacy
-    per-slot workflow's terminal step and a missing slot at this point means an operator
-    deleted it mid-backfill. Failing loud lets the workflow surface that as an error rather
-    than logging "Workflow completed successfully" against a slot that no longer exists.
-    """
-    slot = MaterializedColumnSlot.objects.select_related("team", "property_definition").get(id=inputs.slot_id)
-    old_state = slot.state
-
-    slot.state = inputs.state
-
-    if inputs.error_message:
-        slot.error_message = inputs.error_message
-        logger.error(
-            "Slot state update with error",
-            slot_id=inputs.slot_id,
-            old_state=old_state,
-            new_state=inputs.state,
-            error_message=inputs.error_message,
-        )
-    elif inputs.state == "BACKFILL":
-        # Clear error message when transitioning to BACKFILL (e.g., on retry)
-        slot.error_message = None
-
-    slot.save()
-
-    logger.info(
-        "Updated slot state",
-        slot_id=inputs.slot_id,
-        team_id=slot.team_id,
-        old_state=old_state,
-        new_state=inputs.state,
-    )
-
-    if inputs.state in ["READY", "ERROR"]:
-        activity_name = (
-            "materialized_column_backfill_completed"
-            if inputs.state == "READY"
-            else "materialized_column_backfill_failed"
-        )
-
-        log_activity(
-            organization_id=slot.team.organization_id,
-            team_id=slot.team_id,
-            user=None,  # System user for workflow-triggered updates
-            was_impersonated=False,
-            item_id=str(slot.id),
-            scope="DataManagement",
-            activity=activity_name,
-            detail=Detail(
-                name=slot.property_definition.name,
-                changes=[
-                    Change(
-                        type="MaterializedColumnSlot",
-                        action="changed",
-                        field="state",
-                        before=old_state,
-                        after=inputs.state,
-                    ),
-                ],
-            ),
-        )
-
-
-# ---------------------------------------------------------------------------
-# Batched weekly workflow (new design — see RFC: dynamic property materialization)
-# ---------------------------------------------------------------------------
 
 
 @dataclasses.dataclass
