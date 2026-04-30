@@ -94,6 +94,54 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
     return p_type == "recording"
 
 
+# Top-level columns of `raw_session_replay_events` (kept in sync with
+# SESSION_REPLAY_EVENTS_COMMON_FIELDS in posthog/hogql/database/schema/session_replay_events.py).
+# A HogQL filter whose key references one of these as its leading identifier resolves
+# under property_to_expr(..., scope="replay") just like the typed session/recording filters,
+# so we recognize it as expected rather than letting it trip UnexpectedQueryProperties.
+REPLAY_SCOPE_TOP_LEVEL_COLUMNS = frozenset(
+    {
+        "session_id",
+        "team_id",
+        "distinct_id",
+        "min_first_timestamp",
+        "max_last_timestamp",
+        "first_url",
+        "all_urls",
+        "click_count",
+        "keypress_count",
+        "mouse_activity_count",
+        "active_milliseconds",
+        "console_log_count",
+        "console_warn_count",
+        "console_error_count",
+        "size",
+        "event_count",
+        "message_count",
+        "snapshot_source",
+        "snapshot_library",
+        "retention_period_days",
+        "is_deleted",
+        "ai_tags_fixed",
+        "ai_tags_freeform",
+        "ai_highlighted",
+    }
+)
+
+_LEADING_IDENTIFIER_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def is_hogql_replay_column_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    if p_type != "hogql":
+        return False
+    p_key = getattr(p, "key", "") or ""
+    match = _LEADING_IDENTIFIER_RE.match(p_key)
+    if not match:
+        return False
+    return match.group(1) in REPLAY_SCOPE_TOP_LEVEL_COLUMNS
+
+
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
@@ -150,6 +198,7 @@ def _strip_person_and_event_and_cohort_properties(
         and not is_cohort_property(p)
         and not is_session_property(p)
         and not is_recording_property(p)
+        and not is_hogql_replay_column_property(p)
     ]
 
     return properties_to_keep

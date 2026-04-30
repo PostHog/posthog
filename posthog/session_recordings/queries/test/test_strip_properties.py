@@ -14,6 +14,7 @@ from posthog.schema import (
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
+    is_hogql_replay_column_property,
     is_recording_property,
     is_session_property,
 )
@@ -44,6 +45,18 @@ class TestStripProperties:
             (
                 "hogql session.properties reference is stripped",
                 HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"),
+            ),
+            (
+                "hogql distinct_id top-level column reference is stripped",
+                HogQLPropertyFilter(key="distinct_id = '3a22a329-1f47-4f3a-bc6e-aaaaaaaaaaaa'"),
+            ),
+            (
+                "hogql session_id top-level column reference is stripped",
+                HogQLPropertyFilter(key="session_id = '0192f7d2-1234-7000-8000-aaaaaaaaaaaa'"),
+            ),
+            (
+                "hogql console_error_count top-level column reference is stripped",
+                HogQLPropertyFilter(key="console_error_count > 0"),
             ),
         ]
     )
@@ -78,6 +91,29 @@ class TestStripProperties:
         assert is_session_property(HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"))
         assert not is_session_property(
             PersonPropertyFilter(key="email", operator=PropertyOperator.EXACT, value="a@b.com")
+        )
+
+    @parameterized.expand(
+        [
+            ("distinct_id equality", "distinct_id = 'abc'", True),
+            ("session_id equality", "session_id = 'abc'", True),
+            ("leading whitespace tolerated", "  distinct_id = 'abc'", True),
+            ("console_error_count comparison", "console_error_count > 0", True),
+            ("snapshot_library equality", "snapshot_library = 'web'", True),
+            ("unrelated identifier is not recognized", "unrelated = 1", False),
+            ("properties.foo is not a top-level column", "properties.foo = 'bar'", False),
+            ("session.properties.X is not a top-level column", "session.properties.$channel_type = 'Direct'", False),
+            ("function call leading expression is not recognized", "lower(distinct_id) = 'abc'", False),
+        ]
+    )
+    def test_is_hogql_replay_column_property(self, _name: str, key: str, expected: bool) -> None:
+        assert is_hogql_replay_column_property(HogQLPropertyFilter(key=key)) is expected
+
+    def test_is_hogql_replay_column_property_only_matches_hogql_type(self) -> None:
+        # An EventPropertyFilter happens to have key="distinct_id" but it's not a hogql expression,
+        # so it shouldn't be classified as a replay-column hogql property.
+        assert not is_hogql_replay_column_property(
+            EventPropertyFilter(key="distinct_id", operator=PropertyOperator.EXACT, value="abc")
         )
 
     def test_is_recording_property_matches_type(self) -> None:
