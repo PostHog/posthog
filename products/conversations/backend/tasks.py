@@ -903,6 +903,12 @@ def _handle_github_comment_event(team: Team, repo: str, action: str, payload: di
     if GithubCommentMapping.objects.filter(github_comment_id=comment_id, team=team).exists():
         return
 
+    # Comments posted via our GitHub App installation token carry
+    # performed_via_github_app — skip these to avoid echoing our own replies.
+    # The post_reply_to_github task will record the mapping once it completes.
+    if comment_data.get("performed_via_github_app"):
+        return
+
     ticket = _find_github_ticket(team.id, repo, issue_number)
     if not ticket:
         ticket = _get_or_create_github_ticket(team, repo, issue_number, payload)
