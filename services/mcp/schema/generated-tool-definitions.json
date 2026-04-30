@@ -2310,7 +2310,7 @@
             "readOnlyHint": false
         }
     },
-    "llma-evaluations-get": {
+    "llma-evaluations-list": {
         "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
         "category": "LLM analytics",
         "feature": "llm_analytics",

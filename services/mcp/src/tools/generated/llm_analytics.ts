@@ -594,12 +594,12 @@ const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Sch
     },
 })
 
-const LlmaEvaluationsGetSchema = EvaluationsListQueryParams
+const LlmaEvaluationsListSchema = EvaluationsListQueryParams
 
-const llmaEvaluationsGet = (): ToolBase<typeof LlmaEvaluationsGetSchema, Schemas.PaginatedEvaluationList> => ({
-    name: 'llma-evaluations-get',
-    schema: LlmaEvaluationsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationsGetSchema>) => {
+const llmaEvaluationsList = (): ToolBase<typeof LlmaEvaluationsListSchema, Schemas.PaginatedEvaluationList> => ({
+    name: 'llma-evaluations-list',
+    schema: LlmaEvaluationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedEvaluationList>({
             method: 'GET',
@@ -1468,7 +1468,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-summary-create': llmaEvaluationSummaryCreate,
     'llma-evaluation-test-hog': llmaEvaluationTestHog,
     'llma-evaluation-update': llmaEvaluationUpdate,
-    'llma-evaluations-get': llmaEvaluationsGet,
+    'llma-evaluations-list': llmaEvaluationsList,
     'llma-prompt-create': llmaPromptCreate,
     'llma-prompt-duplicate': llmaPromptDuplicate,
     'llma-prompt-get': llmaPromptGet,
