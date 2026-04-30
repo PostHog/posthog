@@ -273,7 +273,6 @@ export const FEATURE_FLAGS = {
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-warehouse-sources
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
-    DWH_POSTGRES_DIRECT_QUERY: 'dwh-postgres-direct-query', // owner: #team-data-tools
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse

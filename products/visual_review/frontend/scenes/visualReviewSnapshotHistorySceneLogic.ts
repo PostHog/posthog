@@ -2,6 +2,7 @@ import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
@@ -91,6 +92,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
     selectors({
         identifier: [() => [(_, p) => p.identifier], (identifier: string): string => identifier],
         runType: [() => [(_, p) => p.runType], (runType: string): string => runType],
+        repoId: [() => [(_, p) => p.repoId], (repoId: string): string => repoId],
         primaryTheme: [
             () => [(_, p) => p.identifier],
             (identifier: string): 'light' | 'dark' | null => detectTheme(identifier).theme,
@@ -119,9 +121,14 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
             },
         ],
         breadcrumbs: [
-            () => [(_, p) => p.identifier],
-            (identifier: string): Breadcrumb[] => [
+            () => [(_, p) => p.identifier, (_, p) => p.repoId],
+            (identifier: string, repoId: string): Breadcrumb[] => [
                 { key: 'visual_review', name: 'Visual review', path: '/visual_review' },
+                {
+                    key: ['visual_review_snapshots', repoId],
+                    name: 'Snapshots',
+                    path: urls.visualReviewSnapshotOverview(repoId),
+                },
                 { key: ['visual_review_snapshot_history', identifier], name: identifier },
             ],
         ],

@@ -14,6 +14,10 @@ from ..facade.contracts import (
     ApproveSnapshotInput,
     Artifact,
     AutoApproveResult,
+    BaselineEntry,
+    BaselineOverview,
+    BaselineSparklineDay,
+    BaselineTotals,
     CreateRepoInput,
     CreateRunInput,
     CreateRunResult,
@@ -176,3 +180,30 @@ class UnquarantineQuerySerializer(serializers.Serializer):
 class CreateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = CreateRepoInput
+
+
+class BaselineSparklineDaySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = BaselineSparklineDay
+
+
+class BaselineEntrySerializer(DataclassSerializer):
+    sparkline = BaselineSparklineDaySerializer(many=True)
+
+    class Meta:
+        dataclass = BaselineEntry
+
+
+class BaselineTotalsSerializer(DataclassSerializer):
+    by_run_type = serializers.DictField(child=serializers.IntegerField())
+
+    class Meta:
+        dataclass = BaselineTotals
+
+
+class BaselineOverviewSerializer(DataclassSerializer):
+    entries = BaselineEntrySerializer(many=True)
+    totals = BaselineTotalsSerializer()
+
+    class Meta:
+        dataclass = BaselineOverview

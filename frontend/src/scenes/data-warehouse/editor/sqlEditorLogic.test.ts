@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -905,9 +903,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             logic.actions.setSourceQuery({
                 kind: NodeKind.DataVisualizationNode,
@@ -929,9 +924,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
 
@@ -954,9 +946,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
 
@@ -981,9 +970,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', raw: '1' })
 
@@ -1001,9 +987,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
 
@@ -1058,9 +1041,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
 
@@ -1085,9 +1065,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
 
@@ -1105,10 +1082,6 @@ describe('sqlEditorLogic', () => {
             const performQuerySpy = jest
                 .spyOn(queryRunner, 'performQuery')
                 .mockResolvedValue({ tables: {}, joins: [] } as never)
-
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             databaseLogic.actions.setConnection('conn-123')
             await databaseLogic.asyncActions.loadDatabase()
@@ -1143,9 +1116,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
 
@@ -1189,9 +1159,6 @@ describe('sqlEditorLogic', () => {
                 editor: createMockEditor(),
             })
             logic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-                [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-            })
 
             router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1' })
 

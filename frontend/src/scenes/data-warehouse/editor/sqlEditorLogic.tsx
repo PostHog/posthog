@@ -320,7 +320,7 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         output_tab: values.outputActiveTab,
     }
     const connectionId = values.sourceQuery?.source.connectionId
-    if (values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && connectionId) {
+    if (connectionId) {
         hash['c'] = connectionId
         if (values.sourceQuery?.source.sendRawQuery) {
             hash['raw'] = '1'
@@ -2106,11 +2106,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         selectedConnectionId: [
-            (s) => [s.sourceQuery, s.featureFlags],
-            (sourceQuery, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]) {
-                    return undefined
-                }
+            (s) => [s.sourceQuery],
+            (sourceQuery) => {
                 return sourceQuery.source && 'connectionId' in sourceQuery.source
                     ? sourceQuery.source.connectionId
                     : undefined
@@ -2469,15 +2466,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const connectionIdFromHash =
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                typeof hashParams.c === 'string' &&
-                hashParams.c !== ''
-                    ? hashParams.c
-                    : undefined
-            const sendRawQueryFromHash =
-                connectionIdFromHash !== undefined &&
-                values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                String(hashParams.raw) === '1'
+                typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
+            const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
             const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
