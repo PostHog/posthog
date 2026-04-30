@@ -149,11 +149,6 @@ class Command(BaseCommand):
         except Team.DoesNotExist:
             raise CommandError(f"Team {options['team_id']} not found")
 
-        # `emit_signal()` silently drops records when a `SignalSourceConfig` row
-        # for the (team, source_product, source_type) doesn't exist with enabled=True.
-        # In DEBUG-only dev usage we'd rather auto-enable than silently drop.
-        self._ensure_source_configs_enabled(team, source_assignments)
-
         rng = random.Random(options["seed"])
         all_canonical: list[CanonicalSignal] = []
         for ci, cluster in enumerate(clusters):
@@ -191,6 +186,12 @@ class Command(BaseCommand):
         if options["dry_run"]:
             self.stdout.write(self.style.SUCCESS("Dry run complete — no LLM calls or pipeline emits performed."))
             return
+
+        # `emit_signal()` silently drops records when a `SignalSourceConfig` row
+        # for the (team, source_product, source_type) doesn't exist with enabled=True.
+        # In DEBUG-only dev usage we'd rather auto-enable than silently drop.
+        # Gated behind the dry-run early return so dry runs are side-effect free.
+        self._ensure_source_configs_enabled(team, source_assignments)
 
         # Wrapping: pair each canonical signal with a source kind from source_assignments.
         # If --mix was provided, source_assignments has exactly len(all_canonical) entries.
@@ -256,7 +257,11 @@ class Command(BaseCommand):
             # but SignalSourceConfig stores the lowercase product name (the SignalEmitterOutput.source_product).
             source_product = registry_source.lower()
             source_type = "issue" if registry_schema == "issues" else "ticket"
-            obj, created = SignalSourceConfig.objects.update_or_create(
+            existing = SignalSourceConfig.objects.filter(
+                team=team, source_product=source_product, source_type=source_type
+            ).first()
+            was_disabled = existing is not None and not existing.enabled
+            _, created = SignalSourceConfig.objects.update_or_create(
                 team=team,
                 source_product=source_product,
                 source_type=source_type,
@@ -267,6 +272,13 @@ class Command(BaseCommand):
                     self.style.WARNING(
                         f"Auto-enabled SignalSourceConfig for {source_product}/{source_type} on team {team.id} "
                         f"(was missing — emit_signal would have silently dropped these records)"
+                    )
+                )
+            elif was_disabled:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Re-enabled previously-disabled SignalSourceConfig for {source_product}/{source_type} "
+                        f"on team {team.id} (was enabled=False — emit_signal would have silently dropped these records)"
                     )
                 )
 
@@ -284,17 +296,24 @@ class Command(BaseCommand):
             raise CommandError("Provide either --theme or --clusters")
         if options["clusters"]:
             return [self._parse_one_cluster(spec) for spec in options["clusters"].split(",")]
+        count = options["count"]
+        if count < 1 or count > 20:
+            raise CommandError(f"--count must be between 1 and 20, got {count}")
+        theme = options["theme"].strip()
+        if not theme:
+            raise CommandError("--theme must not be empty")
         return [
             {
-                "theme": options["theme"].strip(),
-                "count": options["count"],
+                "theme": theme,
+                "count": count,
                 "variation": options["variation"],
             }
         ]
 
     def _parse_one_cluster(self, spec: str) -> dict:
         spec = spec.strip()
-        parts = spec.split(":")
+        # rsplit so themes can contain colons (e.g. "TypeError: foo:3:paraphrase").
+        parts = spec.rsplit(":", maxsplit=2)
         if len(parts) not in (2, 3):
             raise CommandError(f"Invalid cluster spec {spec!r}. Expected 'theme:count' or 'theme:count:variation'.")
         theme = parts[0].strip()
