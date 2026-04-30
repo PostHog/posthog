@@ -1118,11 +1118,20 @@ class SessionRecordingViewSet(
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="batch_check_exists")
     def batch_check_exists(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        """Batch check which session IDs have recordings.
+        """Batch check which session IDs have recordings, optionally with persisted AI summary outcomes.
 
         Returns a dict mapping session_id -> exists (boolean).
         Only positive results (exists=True) are cached.
         Negative results are not cached since recordings may still be ingesting.
+
+        When ``include_outcomes`` is truthy, also returns ``outcomes`` mapping session_id ->
+        ``{"description": ...}`` for sessions with a persisted AI summary outcome description.
+
+        This action is deliberately *not* in ``scope_object_read_actions`` so personal API keys
+        cannot call it; outcome descriptions can contain user-activity text and must remain
+        scoped to authenticated session-based access.
+        Sessions without a persisted summary or without an outcome description are omitted from
+        the outcomes map rather than returned with a null value.
         """
         session_ids = request.data.get("session_ids", [])
 
@@ -1132,8 +1141,30 @@ class SessionRecordingViewSet(
         if len(session_ids) > 100:
             raise exceptions.ValidationError("Cannot check more than 100 session IDs at once")
 
+        if not all(isinstance(sid, str) for sid in session_ids):
+            raise exceptions.ValidationError("session_ids must contain only strings")
+
+        include_outcomes = bool(request.data.get("include_outcomes"))
+
         results = SessionReplayEvents().batch_exists(session_ids, self.team)
-        return Response({"results": results})
+        payload: dict[str, Any] = {"results": results}
+
+        if include_outcomes:
+            outcomes: dict[str, dict] = {}
+            try:
+                from ee.models.session_summaries import SingleSessionSummary
+            except ImportError:
+                # Distinguishes OSS deploys (expected) from EE refactors that break the import (silent feature
+                # degradation otherwise).
+                logger.warning("session_summaries module not importable; returning empty outcomes")
+            else:
+                bulk_outcomes = SingleSessionSummary.objects.get_outcomes_bulk(self.team.id, session_ids)
+                for session_id, outcome in bulk_outcomes.items():
+                    if outcome and outcome.get("description"):
+                        outcomes[session_id] = {"description": outcome["description"]}
+            payload["outcomes"] = outcomes
+
+        return Response(payload)
 
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
@@ -1861,21 +1892,9 @@ def list_recordings_from_query(
             default_summary_session_ids = set()
         else:
             with timer("load_summary_existence"), tracer.start_as_current_span("load_summary_existence"):
-                summaries = (
-                    SingleSessionSummary.objects.filter(
-                        team_id=team.id,
-                        session_id__in=recording_ids_in_list,
-                        # Keep this aligned with summarize() default behavior (no extra context).
-                        extra_summary_context__isnull=True,
-                    )
-                    .order_by("session_id", "-created_at")
-                    .distinct("session_id")
-                    .values_list("session_id", "summary__session_outcome")
-                )
-                for session_id, outcome in summaries:
-                    default_summary_session_ids.add(session_id)
-                    if outcome and isinstance(outcome, dict):
-                        summary_outcomes[session_id] = outcome
+                bulk_outcomes = SingleSessionSummary.objects.get_outcomes_bulk(team.id, recording_ids_in_list)
+                default_summary_session_ids = set(bulk_outcomes.keys())
+                summary_outcomes = {sid: outcome for sid, outcome in bulk_outcomes.items() if outcome}
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])

@@ -10,6 +10,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
+from products.tasks.backend.models import Task
 from products.tasks.backend.services.custom_prompt_executor import run_sandbox_agent_get_structured_output
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
 
@@ -129,6 +130,8 @@ async def select_repository_for_report(
         step_name="repo_selection",
         verbose=verbose,
         output_fn=output_fn,
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        internal=True,
     )
     # Validate that the selected repo is actually in the candidate list
     if result.repository is not None:

@@ -51,6 +51,7 @@ interface SQLEditorProps {
     showDatabaseTree?: boolean
     defaultShowDatabaseTree?: boolean
     panel?: SQLEditorPanel
+    showOutputToolbar?: boolean
 }
 
 export function SQLEditor({
@@ -59,6 +60,7 @@ export function SQLEditor({
     showDatabaseTree,
     defaultShowDatabaseTree = true,
     panel = SQLEditorPanel.Full,
+    showOutputToolbar = true,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -187,7 +189,7 @@ export function SQLEditor({
                                     <VariablesQuerySync />
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                                            <OutputPane tabId={tabId || ''} />
+                                            <OutputPane tabId={tabId || ''} showToolbar={showOutputToolbar} />
                                         </div>
                                     ) : (
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
