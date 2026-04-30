@@ -22,17 +22,18 @@ We took RudderStack's two-table model (jobs + append-only status) but kept thing
 
 ### What we use
 
-- **Two tables**: `posthog_externaldatajobbatch` (the jobs) and `posthog_externaldatajobbatchstatus` (append-only status log). A `DISTINCT ON` view (`v_last_external_data_job_batch_status`) gives us the latest status per batch.
+- **Two tables**: `sourcebatch` (the jobs) and `sourcebatchstatus` (append-only status log). A `DISTINCT ON` view (`v_latest_source_batch_status`) gives us the latest status per batch.
 - **Advisory locks** for cross-pod coordination: `pg_try_advisory_lock(namespace, hashtext(team_id:schema_id))` ensures no two pods process the same (team_id, schema_id) simultaneously. Session-level locks held for the duration of group processing, released explicitly after.
 - **Async consumer** (`consumer.py`): single asyncio process that polls, groups batches by (team_id, schema_id), processes groups concurrently via `asyncio.gather`, batches within a group sequentially.
 - **Recovery sweep**: periodic check (every 30s) for batches stuck in `executing` whose advisory lock is not held, those were owned by a crashed pod. Uses a separate connection so it doesn't interfere with the main lock session.
 - **Sync producer** (`producer.py`): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each `send_batch_notification` is a single INSERT.
+- **New DB**: we created a new DB to store these two new tables
 
 ### What we left out
 
-- **Table partitioning / datasets**: RudderStack partitions into 100K-row datasets. We can add range partitioning on `created_at` later. Or we can think about rolling tables too. -> More on decisions to make.
+- **Table partitioning / datasets**: RudderStack partitions into 100K-row datasets. We can add range partitioning on `created_at` later. If the load on the DB becames too much, we will implement this.
 - **COPY bulk inserts**: the producer inserts one row per batch. At our volume, row-level INSERT is fine. (We can always move to bulk insert if needed)
-- **Compaction**: RudderStack runs a background process to merge/drop completed datasets, it stores tables up to 100k rows and then they roll to the next one. We don't need it without partitioning. Old completed rows can be cleaned up with a simple periodic DELETE. -> More on decisions to make.
+- **Compaction**: RudderStack runs a background process to merge/drop completed datasets, it stores tables up to 100k rows and then they roll to the next one. We don't need it at the moment, but if we end up implementing rolling datasets, we will implement this compaction too.
 - **Caching layers**: RudderStack uses "no jobs" caches and active pipeline caches to reduce query load. Our poll query is cheap enough with proper indexing.
 - **Recursive CTE loose index scans**: their trick for finding distinct pipeline IDs efficiently. Our `get_unprocessed_and_lock` query is simple enough without it.
 - **Active Partitions**: RudderStack designs a partition and then it assigns each partition to one processor instance, this is similar to how Kafka partitions work. We don't need this, this will be an overkill as we don't have any spcecifics for a partition.
@@ -41,16 +42,15 @@ We took RudderStack's two-table model (jobs + append-only status) but kept thing
 
 ![Postgres queue architecture](./20260423%20-%20PostgresArchitecture.png)
 
-## Decisions to make
+## Things to look out for during roll out
 
-- **Old row cleanup**: no strategy yet for pruning completed batch/status rows. Likely a simple cron that DELETEs rows older than N days will be enough, but needs a retention policy decision. Also, we may want to consider following RudderStack
-- **Where to place the tables**: right now, the tables are in the same schema as everything else. Should we have them in different schema or even different database?
-- **pg_try_advisory_lock/pg_try_advisory_xact_lock**: I used `pg_try_advisory_lock` because even both of them are non-blocking, having locks on the DB for the time a batch could take didn't seem like a good idea.
+- **Old row cleanup**: no strategy yet for pruning completed batch/status rows. we can start with an hourly process that deletes old rows
+- **DB Load**: we will keep an eye on the load and the locks to make sure the tables can hold the full load of warehouse sources
 
 ## Extra. Paths (CLAUDE GENERATED)
 
-All state transitions are **inserts** into `posthog_externaldatajobbatchstatus`; rows in `posthog_externaldatajobbatch` are never updated.
-The latest state per batch comes from the view `v_last_external_data_job_batch_status` (`DISTINCT ON (batch_id) ... ORDER BY batch_id ASC, id DESC`).
+All state transitions are **inserts** into `sourcebatch`; rows in `sourcebatch` are never updated.
+The latest state per batch comes from the view `v_latest_source_batch_status` (`DISTINCT ON (batch_id) ... ORDER BY batch_id ASC, id DESC`).
 The consumer uses an **autocommit** connection, a **session-level** `pg_try_advisory_lock(ns, hashtext("team_id:schema_id"))`, and polls every ~2s for up to `poll_limit` pending batches via `get_unprocessed_and_lock`.
 
 ### Happy path
