@@ -78,7 +78,7 @@ export function LogsServices(): JSX.Element {
         useValues(logsServicesLogic)
     const { setDateFrom } = useActions(logsServicesLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
-    const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.samplingRules)
+    const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
 
     const presetItems = DATE_OPTIONS.map((opt) => ({
         label: opt.label,

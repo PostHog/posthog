@@ -117,7 +117,7 @@ class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsExclusionRule.objects.all().order_by("priority", "created_at")
     serializer_class = LogsSamplingRuleSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-sampling-rules"
+    posthog_feature_flag = "logs-settings-drop-rules"
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

@@ -13,7 +13,7 @@ import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 
 export function LogsSamplingSection(): JSX.Element | null {
-    const enabled = useFeatureFlag(LogsFeatureFlagKeys.samplingRules)
+    const enabled = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
     if (!enabled) {
         return null
     }

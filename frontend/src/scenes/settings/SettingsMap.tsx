@@ -736,7 +736,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Configure head sampling and path drops before logs reach storage. Rules are evaluated in ingestion order.',
                 component: <LogsSamplingSection />,
-                flag: LogsFeatureFlagKeys.samplingRules,
+                flag: LogsFeatureFlagKeys.dropRules,
                 keywords: ['sample', 'sampling', 'drop', 'volume', 'noise'],
             },
             {
