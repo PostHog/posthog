@@ -1397,7 +1397,9 @@ class SessionRecordingViewSet(
         except:
             return "unknown"
 
-    async def _generate_video_based_summary(self, session_id: str, user: User) -> AsyncGenerator[str, None]:
+    async def _generate_video_based_summary(
+        self, session_id: str, user: User, force_restart: bool = False
+    ) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
 
         Progress events (``session-summary-progress``) carry the workflow's
@@ -1414,6 +1416,7 @@ class SessionRecordingViewSet(
                 session_id=session_id,
                 user=user,
                 team=self.team,
+                force_restart=force_restart,
             ):
                 yield chunk
         except Exception as e:
@@ -1457,6 +1460,7 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
+        force_restart = bool(request.data.get("force_restart", False)) if isinstance(request.data, dict) else False
 
         capture_session_summary_started(
             user=user,
@@ -1468,7 +1472,7 @@ class SessionRecordingViewSet(
             video_based=True,
         )
         response = StreamingHttpResponse(
-            self._generate_video_based_summary(session_id, user),
+            self._generate_video_based_summary(session_id, user, force_restart=force_restart),
             content_type=ServerSentEventRenderer.media_type,
         )
         response["Cache-Control"] = "no-cache"
@@ -1494,6 +1498,10 @@ class SessionRecordingViewSet(
         try:
             async_to_sync(_cancel_summary_workflow)(workflow_id)
         except Exception as e:
+            # Don't surface raw Temporal error strings to the client — gRPC
+            # error messages can leak internal hostnames, namespaces, or TLS
+            # error details. Log the full exception server-side, return a
+            # generic message to the client.
             logger.exception(
                 "session_summary_cancel_failed",
                 error=str(e),
@@ -1501,7 +1509,10 @@ class SessionRecordingViewSet(
                 session_id=session_id,
                 workflow_id=workflow_id,
             )
-            return Response({"cancelled": False, "error": str(e)}, status=500)
+            return Response(
+                {"cancelled": False, "error": "An internal server error occurred. Please try again later."},
+                status=500,
+            )
 
         return Response({"cancelled": True})
 
