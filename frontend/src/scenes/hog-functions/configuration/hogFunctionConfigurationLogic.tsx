@@ -880,15 +880,32 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                                   item_id: 'abcdef',
                                               },
                                           }
-                                        : {
-                                              event: '$pageview',
-                                              properties: {
-                                                  $current_url: currentUrl,
-                                                  $browser: 'Chrome',
-                                                  $ip: '89.160.20.129',
-                                                  this_is_an_example_event: true,
-                                              },
-                                          }),
+                                        : contextId === 'insight-alerts'
+                                          ? {
+                                                event: '$insight_alert_firing',
+                                                properties: {
+                                                    alert_id: uuid(),
+                                                    alert_name: 'Example alert',
+                                                    insight_id: 'example_insight',
+                                                    insight_name: 'Example insight',
+                                                    state: 'Firing',
+                                                    last_checked_at: dayjs().toISOString(),
+                                                    breaches:
+                                                        'Anomaly detected in Pageviews: value 1234.00 (anomaly probability: 95%) using zscore detector',
+                                                    alert_mode: 'detector',
+                                                    detector_type: 'zscore',
+                                                    ensemble_operator: null,
+                                                },
+                                            }
+                                          : {
+                                                event: '$pageview',
+                                                properties: {
+                                                    $current_url: currentUrl,
+                                                    $browser: 'Chrome',
+                                                    $ip: '89.160.20.129',
+                                                    this_is_an_example_event: true,
+                                                },
+                                            }),
                               },
                               person:
                                   contextId !== 'error-tracking'
