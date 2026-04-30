@@ -7,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -39,6 +40,7 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
         []
     )
     const boundLogic = dashboardLogicInstance || fallbackLogicInstance
+    useAttachedLogic(boundLogic, llmAnalyticsSharedLogic)
 
     const {
         itemsLoading: dashboardLoading,
