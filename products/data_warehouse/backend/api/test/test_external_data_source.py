@@ -176,6 +176,19 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
 
+    def test_create_external_data_source_returns_400_for_unreleased_source(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "ActiveCampaign",
+                "payload": {},
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == "This source isn't released yet."
+        assert ExternalDataSource.objects.count() == 0
+
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,

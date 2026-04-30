@@ -869,6 +869,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        if source.get_source_config.unreleasedSource:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This source isn't released yet."},
+            )
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
             return Response(
