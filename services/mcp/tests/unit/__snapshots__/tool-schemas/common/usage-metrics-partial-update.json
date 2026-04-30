@@ -7,12 +7,80 @@
             "type": "string"
         },
         "filters": {
-            "additionalProperties": {},
-            "description": "HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.",
-            "propertyNames": {
-                "type": "string"
-            },
-            "type": "object"
+            "anyOf": [
+                {
+                    "description": "Data-warehouse-source filter shape.",
+                    "properties": {
+                        "key_field": {
+                            "description": "Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.",
+                            "type": "string"
+                        },
+                        "source": {
+                            "const": "data_warehouse",
+                            "type": "string"
+                        },
+                        "table_name": {
+                            "description": "Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.",
+                            "type": "string"
+                        },
+                        "timestamp_field": {
+                            "description": "Timestamp column or HogQL expression on the row (e.g. \"created\" or \"toDateTime(created_at)\"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["source", "table_name", "timestamp_field", "key_field"],
+                    "type": "object"
+                },
+                {
+                    "description": "Events-source filter shape (default).",
+                    "properties": {
+                        "actions": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "events": {
+                            "description": "Events to count or sum over.",
+                            "items": {
+                                "properties": {
+                                    "id": {
+                                        "description": "Event name (e.g. \"$pageview\").",
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "order": {
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "properties": {
+                                        "items": {},
+                                        "type": "array"
+                                    },
+                                    "type": {
+                                        "const": "events",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["id"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "properties": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["events"],
+                    "type": "object"
+                }
+            ],
+            "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
         },
         "format": {
             "description": "How the metric value is formatted in the UI. One of `numeric` or `currency`.\n\n* `numeric` - numeric\n* `currency` - currency",
@@ -48,7 +116,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`."
+            "description": "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table."
         },
         "name": {
             "description": "Name of the usage metric. Must be unique per group type within the project.",
