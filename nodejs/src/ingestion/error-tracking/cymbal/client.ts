@@ -272,26 +272,24 @@ export class CymbalClient {
         url: string,
         items: { request: CymbalRequest; estimatedSize: number }[]
     ): Promise<(CymbalResponse | null)[]> {
-        const results: (CymbalResponse | null)[] = []
-
-        for (const item of items) {
-            try {
-                const [result] = await this.processChunk(url, [item.request])
-                results.push(result)
-            } catch (error) {
-                if (error instanceof CymbalError && error.isTimeout) {
-                    cymbalPoisonPillCounter.inc()
-                    logger.error('🧪', 'cymbal_poison_pill_identified', {
-                        uuid: item.request.uuid,
-                        teamId: item.request.team_id,
-                    })
-                    results.push(null)
-                } else {
+        const results = await Promise.all(
+            items.map(async (item): Promise<CymbalResponse | null> => {
+                try {
+                    const [result] = await this.processChunk(url, [item.request])
+                    return result
+                } catch (error) {
+                    if (error instanceof CymbalError && error.isTimeout) {
+                        cymbalPoisonPillCounter.inc()
+                        logger.error('🧪', 'cymbal_poison_pill_identified', {
+                            uuid: item.request.uuid,
+                            teamId: item.request.team_id,
+                        })
+                        return null
+                    }
                     throw error
                 }
-            }
-        }
-
+            })
+        )
         return results
     }
 
