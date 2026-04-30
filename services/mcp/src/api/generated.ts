@@ -8405,6 +8405,11 @@ export namespace Schemas {
       /** @maxLength 255 */
       name?: string;
       filters?: unknown;
+      /**
+       * Ordered list of HogQL expressions describing the table sort (e.g. ['timestamp DESC']). null means the view predates this feature and the live query's ordering should be preserved on apply; an empty list means explicitly no sort.
+       * @nullable
+       */
+      order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
@@ -26665,6 +26670,11 @@ export namespace Schemas {
       /** @maxLength 255 */
       name?: string;
       filters?: unknown;
+      /**
+       * Ordered list of HogQL expressions describing the table sort (e.g. ['timestamp DESC']). null means the view predates this feature and the live query's ordering should be preserved on apply; an empty list means explicitly no sort.
+       * @nullable
+       */
+      order_by?: string[] | null;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
