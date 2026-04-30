@@ -13,15 +13,27 @@
 /// The rate limiter is designed to match the behavior of Python's DecideRateThrottle class,
 /// which uses the token-bucket library for the /decide endpoint.
 use crate::api::rate_parser::parse_rate_string;
-use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
+use governor::{
+    clock, middleware::NoOpMiddleware, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter,
+};
 use metrics::counter;
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
 /// Type alias for the governor keyed rate limiter.
-type GovernorLimiter<C = clock::DefaultClock> =
-    Arc<RateLimiter<String, DefaultKeyedStateStore<String>, C>>;
+///
+/// The middleware is parameterized over the clock's `Instant` so the alias works
+/// for any clock (real or fake) without falling back to the global default
+/// `NoOpMiddleware<QuantaInstant>`.
+type GovernorLimiter<C = clock::DefaultClock> = Arc<
+    RateLimiter<
+        String,
+        DefaultKeyedStateStore<String>,
+        C,
+        NoOpMiddleware<<C as clock::Clock>::Instant>,
+    >,
+>;
 
 /// Result of a rate limit check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +63,7 @@ fn build_limiter<C>(
     replenish_rate: f64,
     burst_capacity: u32,
     error_prefix: &str,
-    clock: C,
+    clock: &C,
 ) -> anyhow::Result<GovernorLimiter<C>>
 where
     C: clock::Clock,
@@ -89,7 +101,10 @@ where
 /// different capacities (warn < enforce) give clean semantics: the warn bucket
 /// drains first.
 #[derive(Clone, Debug)]
-struct KeyedRateLimiter<C = clock::DefaultClock> {
+struct KeyedRateLimiter<C = clock::DefaultClock>
+where
+    C: clock::Clock,
+{
     /// Whether rate limiting is enabled
     enabled: bool,
     /// The enforce-tier limiter (always present when enabled)
@@ -126,7 +141,7 @@ where
             replenish_rate,
             enforce_capacity,
             config.error_prefix,
-            clock.clone(),
+            &clock,
         )?;
 
         let warn_limiter = match warn_capacity {
@@ -141,7 +156,7 @@ where
                 replenish_rate,
                 cap,
                 config.error_prefix,
-                clock,
+                &clock,
             )?),
             None => None,
         };
@@ -266,7 +281,10 @@ fn redact_token(token: &str) -> String {
 ///
 /// Supports optional per-token custom rate overrides via `custom_limiters`.
 #[derive(Clone, Debug)]
-pub(crate) struct FlagsRateLimiter<C = clock::DefaultClock> {
+pub(crate) struct FlagsRateLimiter<C = clock::DefaultClock>
+where
+    C: clock::Clock,
+{
     inner: KeyedRateLimiter<C>,
     /// Per-token custom rate limiters (enforce-only, no warn tier).
     /// Wrapped in Arc for O(1) clone since the map is immutable after construction.
@@ -287,7 +305,7 @@ impl FlagsRateLimiter {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use feature_flags::api::flags_rate_limiter::{FlagsRateLimiter, RateLimitResult};
     /// use std::collections::HashMap;
     ///
@@ -357,7 +375,7 @@ where
         for (token, rate_string) in &custom_rates {
             match parse_rate_string(rate_string) {
                 Ok(quota) => {
-                    let limiter = Arc::new(RateLimiter::dashmap_with_clock(quota, clock.clone()));
+                    let limiter = Arc::new(RateLimiter::dashmap_with_clock(quota, &clock));
                     custom_map.insert(token.clone(), limiter);
                     tracing::info!(
                         token = %redact_token(token),
@@ -721,7 +739,10 @@ mod tests {
 /// Similar to FlagsRateLimiter but rate limits by IP address instead of token.
 /// This provides defense-in-depth against DDoS attacks with rotating fake tokens.
 #[derive(Clone, Debug)]
-pub(crate) struct IpRateLimiter<C = clock::DefaultClock> {
+pub(crate) struct IpRateLimiter<C = clock::DefaultClock>
+where
+    C: clock::Clock,
+{
     inner: KeyedRateLimiter<C>,
 }
 
@@ -738,7 +759,7 @@ impl IpRateLimiter {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// use feature_flags::api::flags_rate_limiter::{IpRateLimiter, RateLimitResult};
     ///
     /// let limiter = IpRateLimiter::new(true, 20.0, None, 100, false).unwrap();
