@@ -224,41 +224,109 @@ impl StashTable {
         StashDecision::Stashed(rx)
     }
 
-    /// Take the stashed queue and unstash (remove the entry).
-    /// Returns the requests in FIFO order; the caller forwards them to
-    /// the new owner and sends each result back through its reply
-    /// channel.
+    /// Drain stashed requests for `partition` by applying `forward_batch`
+    /// to each batch the loop dequeues, in FIFO order. Loops until the
+    /// queue is empty under the lock, then evicts the dashmap entry.
     ///
-    /// The dashmap entry is evicted *inside* the queue lock, in the
-    /// same critical section as `take`. This makes the tombstone
-    /// transition atomic from any other caller's point of view: by the
-    /// time another caller acquires this `Arc`'s queue lock and
-    /// observes `None`, the dashmap entry is already gone, so a retry
-    /// via `get_or_create` is guaranteed to produce a fresh entry
-    /// rather than re-grab the doomed `Arc`. Without that ordering, a
-    /// concurrent `begin_stash` could initialize a fresh queue on this
-    /// orphaned `Arc` and silently drop subsequent writes (since
-    /// `enqueue_or_forward` calls `dashmap.get`, not `get_or_create`,
-    /// and would observe the entry as gone).
-    pub async fn drain(&self, partition: u32) -> VecDeque<StashedRequest> {
+    /// Each iteration takes the current queue contents into a local
+    /// batch under the lock and releases the lock before applying
+    /// `forward_batch`. Requests that arrive *during* a forward
+    /// iteration land on the same queue (the dashmap entry is still
+    /// present, so `enqueue_or_forward` enqueues them as usual). The
+    /// next loop iteration picks them up. The drain only exits when
+    /// it observes an empty queue under the lock — at which point no
+    /// further arrival can sneak in before the dashmap eviction in
+    /// the same critical section.
+    ///
+    /// This preserves arrival order across the cutover: any request
+    /// stashed before drain finishes is forwarded before drain
+    /// returns. Without this loop pattern, drain would take a single
+    /// snapshot, evict the dashmap entry, and let new requests bypass
+    /// the stash via the live routing path — letting them race ahead
+    /// of older requests still being replayed and corrupting per-key
+    /// ordering at the leader.
+    ///
+    /// Yielding whole batches (rather than one request at a time)
+    /// gives callers the freedom to forward in parallel within a
+    /// batch — for example, by grouping by leader-side serialization
+    /// key and fanning out across keys. Sequential within a key is
+    /// still required to preserve per-key ordering at the leader.
+    ///
+    /// Convergence is workload-dependent: under sustained
+    /// arrival-rate ≥ forward-rate the loop runs as long as load
+    /// continues. Per-request bounded latency is the caller's
+    /// responsibility (e.g. a deadline check inside `forward_batch`
+    /// that fail-fasts past-deadline requests with `UNAVAILABLE`).
+    pub async fn drain<F, Fut>(&self, partition: u32, mut forward_batch: F)
+    where
+        F: FnMut(Vec<StashedRequest>) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
         let stash = match self.inner.get(&partition) {
             Some(entry) => Arc::clone(entry.value()),
-            None => return VecDeque::new(),
+            None => return,
         };
-        let mut guard = stash.queue.lock().await;
-        let queue = guard.take().map(|q| q.requests).unwrap_or_default();
-        // Evict from the dashmap before releasing the queue lock so the
-        // `Some → None` transition and the dashmap eviction are
-        // observed atomically.
-        self.inner.remove(&partition);
-        drop(guard);
-        queue
+
+        loop {
+            let batch = {
+                let mut guard = stash.queue.lock().await;
+                let Some(q) = guard.as_mut() else {
+                    // Already drained — the dashmap entry was removed
+                    // by a concurrent caller. Nothing to do.
+                    return;
+                };
+                if q.requests.is_empty() {
+                    // Queue is empty under the lock. Atomically
+                    // tombstone the queue and evict the dashmap entry
+                    // — both inside this critical section — so any
+                    // racing `enqueue_or_forward` either pushes
+                    // before our lock acquire (forcing us through one
+                    // more loop iteration) or observes the entry
+                    // already gone afterwards.
+                    *guard = None;
+                    self.inner.remove(&partition);
+                    return;
+                }
+                let taken: Vec<StashedRequest> =
+                    std::mem::take(&mut q.requests).into_iter().collect();
+                q.bytes = 0;
+                taken
+            };
+
+            forward_batch(batch).await;
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Collect drained requests into a `Vec` via the forward-batch
+    /// closure. Mirrors the original return-VecDeque API for tests
+    /// that just want to inspect what was drained without exercising
+    /// the per-batch fan-out semantics.
+    ///
+    /// The outer closure is `move` so the Arc clone it owns is
+    /// dropped when drain returns; otherwise it would survive past
+    /// `try_unwrap` and inflate the refcount.
+    async fn drain_to_vec(table: &StashTable, partition: u32) -> Vec<StashedRequest> {
+        let collected = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::clone(&collected);
+        table
+            .drain(partition, move |batch| {
+                let sink = std::sync::Arc::clone(&sink);
+                async move {
+                    sink.lock().unwrap().extend(batch);
+                }
+            })
+            .await;
+        std::sync::Arc::try_unwrap(collected)
+            .ok()
+            .expect("drain finished — outer closure should have dropped its sink clone")
+            .into_inner()
+            .unwrap()
+    }
 
     fn mk_request(team_id: i64, person_id: i64) -> UpdatePersonPropertiesRequest {
         UpdatePersonPropertiesRequest {
@@ -310,9 +378,9 @@ mod tests {
             _ => panic!("expected Stashed"),
         };
 
-        let queue = table.drain(0).await;
-        assert_eq!(queue.len(), 2);
-        let ids: Vec<i64> = queue.iter().map(|s| s.request.person_id).collect();
+        let drained = drain_to_vec(&table, 0).await;
+        assert_eq!(drained.len(), 2);
+        let ids: Vec<i64> = drained.iter().map(|s| s.request.person_id).collect();
         assert_eq!(ids, vec![1, 2]);
 
         // After drain, new requests forward.
@@ -334,7 +402,7 @@ mod tests {
             table.inner.contains_key(&0),
             "begin_stash must populate the entry"
         );
-        drop(table.drain(0).await);
+        drain_to_vec(&table, 0).await;
         assert!(
             !table.inner.contains_key(&0),
             "drain must remove the entry so future requests skip the lock path"
@@ -351,7 +419,7 @@ mod tests {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
-        let drained = table.drain(0).await;
+        let drained = drain_to_vec(&table, 0).await;
         assert_eq!(drained.len(), 1);
 
         // New handoff begins
@@ -469,7 +537,7 @@ mod tests {
 
             // Race the drain against the in-flight enqueues.
             let drain_table = table.clone();
-            let drain_handle = tokio::spawn(async move { drain_table.drain(0).await });
+            let drain_handle = tokio::spawn(async move { drain_to_vec(&drain_table, 0).await });
 
             let drained = drain_handle.await.unwrap();
             let mut stashed_count = 0usize;
@@ -484,17 +552,20 @@ mod tests {
                 }
             }
 
+            // With the loop-drain, every Stashed request is forwarded
+            // through `drain` regardless of when it arrived (concurrent
+            // arrivals during forwarding are caught by the next loop
+            // iteration). The previous "stashed count == drained count"
+            // assertion still holds because no request can be lost.
             assert_eq!(
                 drained.len() + forwarded_count,
                 ENQUEUERS,
                 "every request must be either drained or forwarded (iteration {iteration})"
             );
-            // Stashed count must equal what drain actually took — anything
-            // still in the queue at drain time should be drained.
             assert_eq!(
                 drained.len(),
                 stashed_count,
-                "drained batch size must equal stashed count (iteration {iteration})"
+                "drained count must equal stashed count (iteration {iteration})"
             );
         }
     }
@@ -513,8 +584,8 @@ mod tests {
             _ => panic!("expected Stashed"),
         };
 
-        let mut drained = table.drain(0).await;
-        let req = drained.pop_front().unwrap();
+        let mut drained = drain_to_vec(&table, 0).await;
+        let req = drained.remove(0);
         let response = UpdatePersonPropertiesResponse {
             person: None,
             updated: true,
@@ -542,8 +613,8 @@ mod tests {
         };
         drop(rx);
 
-        let mut drained = table.drain(0).await;
-        let req = drained.pop_front().unwrap();
+        let mut drained = drain_to_vec(&table, 0).await;
+        let req = drained.remove(0);
         let response = UpdatePersonPropertiesResponse {
             person: None,
             updated: false,
@@ -579,7 +650,9 @@ mod tests {
             // begin_stash was the most recent successful call), so a
             // subsequent enqueue sees it and parks.
             let drain_table = table.clone();
-            let drain_handle = tokio::spawn(async move { drain_table.drain(0).await });
+            let drain_handle = tokio::spawn(async move {
+                drain_table.drain(0, |_batch| async {}).await;
+            });
             let begin_table = table.clone();
             let begin_handle = tokio::spawn(async move { begin_table.begin_stash(0).await });
 

@@ -135,6 +135,26 @@ pub struct Config {
     #[envconfig(default = "52428800")]
     pub stash_max_bytes_per_partition: usize,
 
+    /// Per-request deadline for stashed writes, in milliseconds. When
+    /// drain dequeues a request whose `enqueued_at` is older than this,
+    /// it returns `UNAVAILABLE` to the original caller without
+    /// forwarding to the leader. This bounds individual request
+    /// latency under sustained drain load and gives clients a
+    /// definitive retryable error instead of an ambiguous gRPC timeout.
+    /// Should be smaller than typical client gRPC timeouts (often
+    /// 30+ seconds). Default 10 seconds.
+    #[envconfig(default = "10000")]
+    pub stash_max_wait_ms: u64,
+
+    /// Maximum number of stashed requests to forward concurrently
+    /// during a drain, grouped by `(team_id, person_id)`. Within each
+    /// key the requests are forwarded sequentially to preserve per-key
+    /// ordering at the leader; across keys the drain fans out to
+    /// shrink wall-clock drain duration. Set to 1 to force fully
+    /// sequential drain.
+    #[envconfig(default = "32")]
+    pub stash_drain_concurrency: usize,
+
     // ── coordinator (leader election among router-leader pods) ───
     /// Lease TTL for the coordinator leader election
     #[envconfig(default = "15")]
@@ -231,6 +251,10 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn stash_max_wait(&self) -> Duration {
+        Duration::from_millis(self.stash_max_wait_ms)
     }
 
     /// Resolve the K8s namespace from config or the service account mount.

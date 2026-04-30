@@ -205,8 +205,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         ));
 
-        let stash_handler: Arc<dyn StashHandler> =
-            Arc::new(RouterStashHandler::new(Arc::clone(&leader_backend)));
+        let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler::new(
+            Arc::clone(&leader_backend),
+            config.stash_max_wait(),
+            config.stash_drain_concurrency,
+        ));
 
         // Start routing table (etcd registration + assignment/handoff watches)
         let routing_table_handle =

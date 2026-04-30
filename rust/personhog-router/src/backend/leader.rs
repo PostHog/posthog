@@ -231,8 +231,8 @@ impl LeaderOps for LeaderBackend {
         // registered in the stash table, and writes are queued rather than
         // forwarded. The coordinator advances to Complete once the handoff
         // drains; at that point `drain_stash` flushes the queue to the new
-        // owner and subsequent requests fall through to the normal forward
-        // path below.
+        // owner via `update_person_properties_no_stash` and subsequent
+        // requests fall through to the normal forward path below.
         // The stash module emits its own enqueued/rejected counters with
         // appropriate labels at the source; we don't double-count here.
         match self
@@ -259,12 +259,44 @@ impl LeaderOps for LeaderBackend {
             StashDecision::Forward => {}
         }
 
+        self.forward_to_leader(req_with_partition, partition).await
+    }
+}
+
+impl LeaderBackend {
+    /// Forward an update directly to the leader, bypassing the stash
+    /// hook. Used by the drain handler so each replayed request goes to
+    /// the leader instead of re-entering the stash queue (which would
+    /// deadlock the drain — the dashmap entry is still present until
+    /// the drain loop observes the queue empty under the lock).
+    ///
+    /// Callers that want the normal stash-aware path should call
+    /// `update_person_properties` instead. This method assumes its
+    /// caller has already computed the correct partition and stamped
+    /// it onto the request.
+    pub async fn update_person_properties_no_stash(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        let partition = request.partition;
+        self.forward_to_leader(request, partition).await
+    }
+
+    /// Internal: do the actual gRPC forward to the leader for a given
+    /// partition, with retry on transient errors. Shared between the
+    /// normal `update_person_properties` (post-stash) and the drain's
+    /// `update_person_properties_no_stash` path.
+    async fn forward_to_leader(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+        partition: u32,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
         with_retry(
             &self.config.retry_config,
             "update_person_properties",
             || {
                 let client_fut = self.resolve_leader(partition);
-                let req = req_with_partition.clone();
+                let req = request.clone();
                 let client_name = current_client_name();
                 async move {
                     let mut client = client_fut.await?;
