@@ -241,12 +241,12 @@ class LogsAlertEvent(UUIDModel):
         return count
 
 
-class LogsSamplingRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    """User-defined logs sampling / drop rules evaluated in the ingestion worker (when enabled)."""
+class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules to drop or exclude log lines before storage (evaluated in ingestion when enabled)."""
 
     class RuleType(models.TextChoices):
-        SEVERITY_SAMPLING = "severity_sampling", "Severity sampling"
-        PATH_DROP = "path_drop", "Path drop"
+        SEVERITY_SAMPLING = "severity_sampling", "Severity-based reduction"
+        PATH_DROP = "path_drop", "Path exclusion"
         RATE_LIMIT = "rate_limit", "Rate limit"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -264,9 +264,9 @@ class LogsSamplingRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields,
     version = models.PositiveIntegerField(default=1)
 
     class Meta:
-        db_table = "logs_logssamplingrule"
+        db_table = "logs_logsexclusionrule"
         indexes = [
-            models.Index(fields=["team_id", "enabled", "priority"], name="logs_sampling_team_en_pr_idx"),
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
         ]
 
     def __str__(self) -> str:

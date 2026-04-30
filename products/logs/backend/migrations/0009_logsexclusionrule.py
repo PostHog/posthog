@@ -1,4 +1,4 @@
-# Generated manually for logs sampling rules
+# Generated manually for logs exclusion rules (path drops, etc.)
 
 import django.db.models.deletion
 from django.conf import settings
@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="LogsSamplingRule",
+            name="LogsExclusionRule",
             fields=[
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True, null=True)),
@@ -34,15 +34,15 @@ class Migration(migrations.Migration):
                     "priority",
                     models.PositiveIntegerField(
                         default=0,
-                        help_text="Lower values run first; first matching rule wins.",
+                        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
                     ),
                 ),
                 (
                     "rule_type",
                     models.CharField(
                         choices=[
-                            ("severity_sampling", "Severity sampling"),
-                            ("path_drop", "Path drop"),
+                            ("severity_sampling", "Severity-based reduction"),
+                            ("path_drop", "Path exclusion"),
                             ("rate_limit", "Rate limit"),
                         ],
                         max_length=32,
@@ -65,15 +65,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "team",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                    models.ForeignKey(on_delete=models.CASCADE, to="posthog.team"),
                 ),
             ],
             options={
-                "db_table": "logs_logssamplingrule",
+                "db_table": "logs_logsexclusionrule",
             },
         ),
         migrations.AddIndex(
-            model_name="logssamplingrule",
-            index=models.Index(fields=["team_id", "enabled", "priority"], name="logs_sampling_team_en_pr_idx"),
+            model_name="logsexclusionrule",
+            index=models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
         ),
     ]
