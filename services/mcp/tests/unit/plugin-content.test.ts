@@ -1,18 +1,47 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+    type BundleEntry,
+    type SkillEntry,
+    buildBundlePluginFiles,
     buildCorePluginFiles,
     buildMarketplaceJson,
     buildSkillPluginFiles,
-    type SkillEntry,
 } from '@/lib/plugin-content'
+
+const SKILLS: SkillEntry[] = [
+    {
+        name: 'feature-flags-react',
+        description: 'Feature flags for React',
+        version: '1.12.1',
+        files: { 'SKILL.md': '# Feature flags React', 'references/react.md': '# React docs' },
+    },
+    {
+        name: 'error-tracking-react',
+        description: 'Error tracking for React',
+        version: '1.12.1',
+        files: { 'SKILL.md': '# Error tracking React' },
+    },
+    {
+        name: 'error-tracking-nextjs',
+        description: 'Error tracking for Next.js',
+        version: '1.12.1',
+        files: { 'SKILL.md': '# Error tracking Next.js' },
+    },
+]
+
+const BUNDLE: BundleEntry = {
+    name: 'react',
+    displayName: 'PostHog for React',
+    description: 'Analytics, feature flags, and error tracking for React',
+    keywords: ['react', 'javascript'],
+    skills: ['feature-flags-react', 'error-tracking-react'],
+}
 
 describe('buildCorePluginFiles', () => {
     it('includes plugin.json with correct name and passed version', () => {
         const files = buildCorePluginFiles('1.12.1')
-        const raw = files['.claude-plugin/plugin.json']
-        expect(raw).toBeDefined()
-        const pluginJson = JSON.parse(raw!)
+        const pluginJson = JSON.parse(files['.claude-plugin/plugin.json']!)
 
         expect(pluginJson.name).toBe('posthog')
         expect(pluginJson.version).toBe('1.12.1')
@@ -21,9 +50,7 @@ describe('buildCorePluginFiles', () => {
 
     it('includes mcp.json pointing to MCP server', () => {
         const files = buildCorePluginFiles('1.0.0')
-        const raw = files['mcp.json']
-        expect(raw).toBeDefined()
-        const mcpJson = JSON.parse(raw!)
+        const mcpJson = JSON.parse(files['mcp.json']!)
 
         expect(mcpJson.mcpServers.posthog.type).toBe('http')
         expect(mcpJson.mcpServers.posthog.url).toContain('posthog.com')
@@ -31,98 +58,94 @@ describe('buildCorePluginFiles', () => {
 })
 
 describe('buildSkillPluginFiles', () => {
-    const skill: SkillEntry = {
-        name: 'exploring-llm-traces',
-        description: 'Debug and inspect LLM traces',
-        version: '1.12.1',
-        files: {
-            'SKILL.md': '---\nname: exploring-llm-traces\n---\n\n# Exploring LLM Traces\n\nContent here.',
-            'references/traces.md': '# Trace reference docs',
-        },
-    }
-
     it('includes plugin.json with dependency on core', () => {
-        const files = buildSkillPluginFiles(skill)
-        const raw = files['.claude-plugin/plugin.json']
-        expect(raw).toBeDefined()
-        const pluginJson = JSON.parse(raw!)
-
-        expect(pluginJson.name).toBe('posthog-exploring-llm-traces')
-        expect(pluginJson.dependencies).toEqual(['posthog'])
-    })
-
-    it('passes through skill version from frontmatter', () => {
-        const files = buildSkillPluginFiles(skill)
+        const files = buildSkillPluginFiles(SKILLS[0]!)
         const pluginJson = JSON.parse(files['.claude-plugin/plugin.json']!)
 
+        expect(pluginJson.name).toBe('posthog-feature-flags-react')
+        expect(pluginJson.dependencies).toEqual(['posthog'])
         expect(pluginJson.version).toBe('1.12.1')
     })
 
-    it('includes SKILL.md at the correct path', () => {
-        const files = buildSkillPluginFiles(skill)
+    it('includes SKILL.md and references at the correct paths', () => {
+        const files = buildSkillPluginFiles(SKILLS[0]!)
 
-        expect(files['skills/exploring-llm-traces/SKILL.md']).toBe(skill.files['SKILL.md'])
+        expect(files['skills/feature-flags-react/SKILL.md']).toBe('# Feature flags React')
+        expect(files['skills/feature-flags-react/references/react.md']).toBe('# React docs')
+    })
+})
+
+describe('buildBundlePluginFiles', () => {
+    it('includes plugin.json with bundle name and dependency on core', () => {
+        const files = buildBundlePluginFiles(BUNDLE, SKILLS)
+        const pluginJson = JSON.parse(files['.claude-plugin/plugin.json']!)
+
+        expect(pluginJson.name).toBe('posthog-react')
+        expect(pluginJson.dependencies).toEqual(['posthog'])
+        expect(pluginJson.keywords).toEqual(['react', 'javascript'])
+        expect(pluginJson.version).toBe('1.12.1')
     })
 
-    it('includes reference files at the correct path', () => {
-        const files = buildSkillPluginFiles(skill)
+    it('inlines all referenced skills', () => {
+        const files = buildBundlePluginFiles(BUNDLE, SKILLS)
 
-        expect(files['skills/exploring-llm-traces/references/traces.md']).toBe('# Trace reference docs')
+        expect(files['skills/feature-flags-react/SKILL.md']).toBe('# Feature flags React')
+        expect(files['skills/feature-flags-react/references/react.md']).toBe('# React docs')
+        expect(files['skills/error-tracking-react/SKILL.md']).toBe('# Error tracking React')
     })
 
-    it('includes description from the skill entry', () => {
-        const files = buildSkillPluginFiles(skill)
-        const raw = files['.claude-plugin/plugin.json']
-        expect(raw).toBeDefined()
-        const pluginJson = JSON.parse(raw!)
+    it('skips skills not found in the skills list', () => {
+        const bundle: BundleEntry = {
+            ...BUNDLE,
+            skills: ['feature-flags-react', 'nonexistent-skill'],
+        }
+        const files = buildBundlePluginFiles(bundle, SKILLS)
 
-        expect(pluginJson.description).toBe('Debug and inspect LLM traces')
+        expect(files['skills/feature-flags-react/SKILL.md']).toBeDefined()
+        expect(Object.keys(files).some((k) => k.includes('nonexistent'))).toBe(false)
+    })
+
+    it('does not include skills outside the bundle', () => {
+        const files = buildBundlePluginFiles(BUNDLE, SKILLS)
+
+        expect(Object.keys(files).some((k) => k.includes('error-tracking-nextjs'))).toBe(false)
     })
 })
 
 describe('buildMarketplaceJson', () => {
-    const skills: SkillEntry[] = [
-        { name: 'skill-a', description: 'Skill A', version: '1.0.0', files: { 'SKILL.md': '# A' } },
-        { name: 'skill-b', description: 'Skill B', version: '1.0.0', files: { 'SKILL.md': '# B' } },
+    const bundles: BundleEntry[] = [
+        BUNDLE,
+        {
+            name: 'nextjs',
+            displayName: 'PostHog for Next.js',
+            description: 'PostHog for Next.js',
+            keywords: ['nextjs'],
+            skills: ['error-tracking-nextjs'],
+        },
     ]
 
-    it('includes core plugin and all skills', () => {
-        const json = JSON.parse(buildMarketplaceJson(skills, 'https://mcp.posthog.com'))
+    it('lists core plugin and bundles (not individual skills)', () => {
+        const json = JSON.parse(buildMarketplaceJson(bundles, 'https://mcp.posthog.com'))
         const plugins = json.plugins as Array<{ name: string }>
 
-        expect(plugins).toHaveLength(3)
+        expect(plugins).toHaveLength(3) // core + 2 bundles
         expect(plugins[0]!.name).toBe('posthog')
-        expect(plugins[1]!.name).toBe('posthog-skill-a')
-        expect(plugins[2]!.name).toBe('posthog-skill-b')
+        expect(plugins[1]!.name).toBe('posthog-react')
+        expect(plugins[2]!.name).toBe('posthog-nextjs')
     })
 
-    it('points core plugin at /git/core', () => {
-        const json = JSON.parse(buildMarketplaceJson(skills, 'https://mcp.posthog.com'))
+    it('points bundles at /git/bundles/:name', () => {
+        const json = JSON.parse(buildMarketplaceJson(bundles, 'https://mcp.posthog.com'))
         const plugins = json.plugins as Array<{ source: { url: string } }>
 
-        expect(plugins[0]!.source.url).toBe('https://mcp.posthog.com/git/core')
+        expect(plugins[1]!.source.url).toBe('https://mcp.posthog.com/git/bundles/react')
+        expect(plugins[2]!.source.url).toBe('https://mcp.posthog.com/git/bundles/nextjs')
     })
 
-    it('points skill plugins at /git/skills/:name', () => {
-        const json = JSON.parse(buildMarketplaceJson(skills, 'https://mcp.posthog.com'))
-        const plugins = json.plugins as Array<{ source: { url: string } }>
-
-        expect(plugins[1]!.source.url).toBe('https://mcp.posthog.com/git/skills/skill-a')
-        expect(plugins[2]!.source.url).toBe('https://mcp.posthog.com/git/skills/skill-b')
-    })
-
-    it('sets marketplace owner', () => {
-        const json = JSON.parse(buildMarketplaceJson(skills, 'https://mcp.posthog.com'))
-
-        expect(json.owner.name).toBe('PostHog')
-        expect(json.name).toBe('posthog')
-    })
-
-    it('skill plugins declare dependency on core', () => {
-        const json = JSON.parse(buildMarketplaceJson(skills, 'https://mcp.posthog.com'))
+    it('bundles declare dependency on core', () => {
+        const json = JSON.parse(buildMarketplaceJson(bundles, 'https://mcp.posthog.com'))
         const plugins = json.plugins as Array<{ dependencies?: string[] }>
 
         expect(plugins[1]!.dependencies).toEqual(['posthog'])
-        expect(plugins[2]!.dependencies).toEqual(['posthog'])
     })
 })

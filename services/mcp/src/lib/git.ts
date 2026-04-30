@@ -106,11 +106,19 @@ function createCommit(treeSha: string, message: string): GitObject {
 
 export function synthesizeRepo(files: FileTree): { objects: GitObject[]; headSha: string } {
     const objects: GitObject[] = []
+    const seen = new Set<string>()
     const blobShas = new Map<string, string>()
+
+    function addObject(obj: GitObject): void {
+        if (!seen.has(obj.sha)) {
+            seen.add(obj.sha)
+            objects.push(obj)
+        }
+    }
 
     for (const [path, content] of Object.entries(files)) {
         const blob = createBlob(content)
-        objects.push(blob)
+        addObject(blob)
         blobShas.set(path, blob.sha)
     }
 
@@ -138,13 +146,13 @@ export function synthesizeRepo(files: FileTree): { objects: GitObject[]; headSha
             entries.push({ mode: '40000', name, sha: buildTree(child) })
         }
         const tree = createTree(entries)
-        objects.push(tree)
+        addObject(tree)
         return tree.sha
     }
 
     const rootSha = buildTree(root)
     const commit = createCommit(rootSha, 'PostHog plugin')
-    objects.push(commit)
+    addObject(commit)
 
     return { objects, headSha: commit.sha }
 }

@@ -4,6 +4,7 @@
  * Assembles FileTree maps (path → content) for:
  * - The core PostHog plugin (MCP config, hooks, auth)
  * - Individual skill plugins (each with a dependency on core)
+ * - Bundle plugins (multiple skills grouped by framework)
  *
  * Content is sourced from the context-mill archive already fetched
  * by the MCP server for resource registration.
@@ -33,6 +34,14 @@ export interface SkillEntry {
     description: string
     version: string
     files: Record<string, string>
+}
+
+export interface BundleEntry {
+    name: string
+    displayName: string
+    description: string
+    keywords: string[]
+    skills: string[]
 }
 
 /**
@@ -97,6 +106,36 @@ export function extractSkillsFromArchive(archive: Unzipped): SkillEntry[] {
 }
 
 /**
+ * Extract bundle definitions from the context-mill manifest.
+ */
+export function extractBundlesFromArchive(archive: Unzipped): BundleEntry[] {
+    const manifestData = archive['manifest.json']
+    if (!manifestData) {
+        return []
+    }
+
+    const rawManifest = JSON.parse(strFromU8(manifestData))
+    const bundles = rawManifest.bundles as Record<string, {
+        name: string
+        description: string
+        keywords?: string[]
+        skills: string[]
+    }> | undefined
+
+    if (!bundles) {
+        return []
+    }
+
+    return Object.entries(bundles).map(([id, bundle]) => ({
+        name: id,
+        displayName: bundle.name,
+        description: bundle.description,
+        keywords: bundle.keywords ?? [],
+        skills: bundle.skills,
+    }))
+}
+
+/**
  * Build the file tree for the core PostHog plugin.
  * Contains MCP server config and plugin metadata — no skills.
  */
@@ -137,7 +176,6 @@ export function buildCorePluginFiles(version: string): FileTree {
 /**
  * Build the file tree for a single skill plugin.
  * Declares a dependency on the core `posthog` plugin.
- * Includes SKILL.md and all reference files from the inner ZIP.
  */
 export function buildSkillPluginFiles(skill: SkillEntry): FileTree {
     const files: FileTree = {}
@@ -162,10 +200,46 @@ export function buildSkillPluginFiles(skill: SkillEntry): FileTree {
 }
 
 /**
- * Build the marketplace.json catalog listing all available plugins.
- * Served at /marketplace.json for Claude Code to discover.
+ * Build the file tree for a bundle plugin.
+ * Inlines all referenced skills into a single plugin.
  */
-export function buildMarketplaceJson(skills: SkillEntry[], baseUrl: string): string {
+export function buildBundlePluginFiles(bundle: BundleEntry, skills: SkillEntry[]): FileTree {
+    const files: FileTree = {}
+    const skillMap = new Map(skills.map((s) => [s.name, s]))
+
+    const resolvedSkills = bundle.skills
+        .map((id) => skillMap.get(id))
+        .filter((s): s is SkillEntry => s !== undefined)
+
+    const version = resolvedSkills[0]?.version ?? '0.0.0'
+
+    files['.claude-plugin/plugin.json'] = JSON.stringify(
+        {
+            name: `posthog-${bundle.name}`,
+            version,
+            description: bundle.description,
+            dependencies: ['posthog'],
+            author: { name: 'PostHog', email: 'hey@posthog.com' },
+            keywords: bundle.keywords,
+        },
+        null,
+        2
+    )
+
+    for (const skill of resolvedSkills) {
+        for (const [path, content] of Object.entries(skill.files)) {
+            files[`skills/${skill.name}/${path}`] = content
+        }
+    }
+
+    return files
+}
+
+/**
+ * Build the marketplace.json catalog.
+ * Lists the core plugin and bundles (not individual skills).
+ */
+export function buildMarketplaceJson(bundles: BundleEntry[], baseUrl: string): string {
     const plugins = [
         {
             name: 'posthog',
@@ -174,11 +248,12 @@ export function buildMarketplaceJson(skills: SkillEntry[], baseUrl: string): str
             policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
             category: 'Productivity',
         },
-        ...skills.map((skill) => ({
-            name: `posthog-${skill.name}`,
-            source: { source: 'url', url: `${baseUrl}/git/skills/${skill.name}` },
-            description: skill.description,
+        ...bundles.map((bundle) => ({
+            name: `posthog-${bundle.name}`,
+            source: { source: 'url', url: `${baseUrl}/git/bundles/${bundle.name}` },
+            description: bundle.description,
             dependencies: ['posthog'],
+            keywords: bundle.keywords,
             category: 'Productivity',
         })),
     ]
