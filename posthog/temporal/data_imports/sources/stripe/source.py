@@ -71,6 +71,7 @@ PERMISSIONS = [
     "rak_product_read",
     "rak_credit_note_read",
     "rak_invoice_read",
+    "rak_invoice_item_read",  # Separate scope from invoice — /v1/invoiceitems requires this even if invoice_read is set
     "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
     "rak_subscription_read",
     "rak_application_fee_read",
@@ -109,7 +110,7 @@ class StripeSource(
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
             - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
-            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
+            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Invoice items**, **Prices**, and **Subscriptions**
             - Under the **Connect** resource type, select *read* for the **entire resource**
             - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
             These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
@@ -290,8 +291,11 @@ If automatic creation failed due to a permissions error and you're using a restr
                 f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
             )
         except StripePermissionError as e:
-            missing_resources = ", ".join(e.missing_permissions.keys())
-            return False, f"Stripe credentials lack permissions for {missing_resources}"
+            # Surface the per-resource Stripe error so the customer sees what scope is actually missing
+            # (e.g. "Connect not enabled on this account" vs "Billing read scope missing"), not just a
+            # bare list of resource names. Trim each message so the toast stays readable.
+            details = "; ".join(f"{name}: {msg.splitlines()[0][:200]}" for name, msg in e.missing_permissions.items())
+            return False, f"Stripe credentials lack permissions for the following resources — {details}"
         except Exception as e:
             return False, str(e)
 
