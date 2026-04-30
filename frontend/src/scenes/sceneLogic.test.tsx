@@ -1,9 +1,10 @@
-import { kea, path } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -338,6 +339,102 @@ describe('sceneLogic', () => {
         it('returns fallback when storedPinned is null', () => {
             const fallback = [{ ...tabBase, id: 'a', pathname: '/x', active: false }]
             expect(mergePinnedTabs(null, fallback)).toMatchObject([{ id: 'a', pinned: true }])
+        })
+    })
+
+    describe('mounted tab logic reuse on setScene', () => {
+        // Tab-aware logic that holds in-memory draft text (mirrors maxLogic.question)
+        const tabAwareLogic = kea<any>([
+            path(['scenes', 'sceneLogic', 'test', 'tabAwareLogic']),
+            props({} as { tabId: string }),
+            key((props: { tabId: string }) => props.tabId),
+            actions({ setQuestion: (question: string) => ({ question }) as any }),
+            reducers({ question: ['', { setQuestion: (_: string, { question }: any): string => question }] }),
+        ])
+
+        const buildExportedScene = (): any => ({
+            component: Component,
+            logic: tabAwareLogic,
+            paramsToProps: () => ({}),
+        })
+
+        const tabId = 'tab-max'
+        const sceneId = 'TestScene'
+        const sceneKey = 'test'
+
+        const registerTab = (): void => {
+            logic.actions.setTabs([
+                {
+                    id: tabId,
+                    active: true,
+                    pathname: '/max',
+                    search: '',
+                    hash: '',
+                    title: 'Max',
+                    iconType: 'blank',
+                },
+            ])
+        }
+
+        it('reuses the mounted tab logic when setScene fires for the same tab+scene+props', async () => {
+            registerTab()
+            const exportedScene = buildExportedScene()
+
+            await expectLogic(logic, () => {
+                logic.actions.setScene(sceneId, sceneKey, tabId, emptySceneParams, false, exportedScene)
+            }).toFinishAllListeners()
+
+            const firstEntry = logic.cache.mountedTabLogic[tabId]
+            expect(firstEntry).not.toBeUndefined()
+
+            // Simulate switching away and back: clickOnTab pushes the tab's URL, which fires
+            // setScene again for the same tab with identical scene + props.
+            await expectLogic(logic, () => {
+                logic.actions.setScene(sceneId, sceneKey, tabId, emptySceneParams, false, exportedScene)
+            }).toFinishAllListeners()
+
+            // The previously mounted entry must be reused, not torn down and remounted —
+            // otherwise unsent draft state on the inner logic (e.g. maxLogic.question) is wiped.
+            expect(logic.cache.mountedTabLogic[tabId]).toBe(firstEntry)
+        })
+
+        it('remounts when paramsToProps-derived props differ on the same scene', async () => {
+            registerTab()
+            const sceneWithIdProps = (id: string): any => ({
+                component: Component,
+                logic: tabAwareLogic,
+                paramsToProps: () => ({ extra: id }),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setScene(sceneId, sceneKey, tabId, emptySceneParams, false, sceneWithIdProps('1'))
+            }).toFinishAllListeners()
+            const firstEntry = logic.cache.mountedTabLogic[tabId]
+            expect(firstEntry).not.toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.setScene(sceneId, sceneKey, tabId, emptySceneParams, false, sceneWithIdProps('2'))
+            }).toFinishAllListeners()
+
+            expect(logic.cache.mountedTabLogic[tabId]).not.toBe(firstEntry)
+        })
+
+        it('remounts when switching to a different scene in the same tab', async () => {
+            registerTab()
+            const sceneA = buildExportedScene()
+            const sceneB = buildExportedScene()
+
+            await expectLogic(logic, () => {
+                logic.actions.setScene(sceneId, sceneKey, tabId, emptySceneParams, false, sceneA)
+            }).toFinishAllListeners()
+            const firstEntry = logic.cache.mountedTabLogic[tabId]
+            expect(firstEntry).not.toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.setScene('OtherScene', sceneKey, tabId, emptySceneParams, false, sceneB)
+            }).toFinishAllListeners()
+
+            expect(logic.cache.mountedTabLogic[tabId]).not.toBe(firstEntry)
         })
     })
 
