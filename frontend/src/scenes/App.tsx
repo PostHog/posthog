@@ -126,9 +126,7 @@ function AppScene(): JSX.Element | null {
     if (activeExportedScene?.component) {
         const { component: SceneComponent } = activeExportedScene
         sceneElement = (
-            <SceneAnimationRoot
-                key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}
-            >
+            <SceneAnimationRoot key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}>
                 <SceneComponent user={user} {...activeSceneComponentParamsWithTabId} />
             </SceneAnimationRoot>
         )

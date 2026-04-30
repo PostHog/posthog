@@ -17,7 +17,7 @@ import { RefObject, useEffect, useRef } from 'react'
  * the detached element (and its parent tree) can be garbage-collected
  * normally.
  */
-export function useCancelAnimationsOnUnmount<T extends Element>(): RefObject<T | null> {
+export function useCancelAnimationsOnUnmount<T extends Element>(): RefObject<T> {
     const ref = useRef<T>(null)
     useEffect(() => {
         // Capture the element when the effect runs (ref is populated). If we
