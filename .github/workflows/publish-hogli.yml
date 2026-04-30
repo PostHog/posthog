@@ -4,6 +4,7 @@ on:
     push:
         tags:
             - 'hogli-v*'
+    workflow_dispatch:
 
 permissions:
     contents: read
@@ -15,6 +16,11 @@ concurrency:
 jobs:
     publish:
         name: Build and publish
+        # Hard guard: only publish from a tag ref. workflow_dispatch is supported
+        # so a failed publish can be re-run against the existing tag (via
+        # `gh workflow run publish-hogli.yml --ref hogli-vX.Y.Z`); dispatching
+        # from a branch is a no-op.
+        if: startsWith(github.ref, 'refs/tags/hogli-v')
         runs-on: ubuntu-22.04
         timeout-minutes: 10
         environment: pypi-hogli
@@ -50,6 +56,16 @@ jobs:
 
             - name: Validate metadata
               run: uvx twine check dist/*
+
+            - name: Smoke-test built wheel
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#hogli-v}"
+                  uv venv /tmp/hogli-smoke
+                  uv pip install --python /tmp/hogli-smoke/bin/python --find-links dist "hogli==$tag_version"
+                  /tmp/hogli-smoke/bin/hogli --help
 
             - name: Generate build provenance attestation
               uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0

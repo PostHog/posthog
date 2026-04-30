@@ -232,18 +232,20 @@ triggered by pushing a `hogli-v*` tag from `master`.
    ```
 
 The workflow verifies the tag matches the `pyproject.toml` version, builds
-the sdist and wheel with `uv build`, publishes via PyPI trusted publishing
-(OIDC) — no API tokens — and creates a GitHub Release with auto-generated
-notes from the commits since the previous tag.
+the sdist and wheel with `uv build`, smoke-tests the wheel in a fresh
+venv, publishes via PyPI trusted publishing (OIDC) — no API tokens —
+and creates a GitHub Release with auto-generated notes from the commits
+since the previous tag.
 
-To re-trigger after a failed publish, delete and recreate the tag:
+To re-trigger after a failed publish, dispatch the workflow against the
+existing tag — no need to retag:
 
 ```bash
-git push origin :hogli-v0.1.1
-git tag -d hogli-v0.1.1
-git tag hogli-v0.1.1
-git push origin hogli-v0.1.1
+gh workflow run publish-hogli.yml --ref hogli-v0.1.1
 ```
+
+The publish job is guarded by `if: startsWith(github.ref, 'refs/tags/hogli-v')`,
+so dispatches from a branch are no-ops.
 
 ## License
 
