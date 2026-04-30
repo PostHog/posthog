@@ -15,7 +15,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.kafka_client.routing import get_producer
+from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
@@ -674,11 +674,10 @@ async def try_produce_app_metrics(
         "timestamp": timestamp,
     }
 
-    producer = get_producer(topic=KAFKA_APP_METRICS2)
     try:
-        producer.produce(topic=KAFKA_APP_METRICS2, data=run_metric)
-        producer.produce(topic=KAFKA_APP_METRICS2, data=rows_metric)
-        await asyncio.to_thread(producer.flush, 10)
+        async with async_producer_scope(topic=KAFKA_APP_METRICS2) as producer:
+            await producer.produce(topic=KAFKA_APP_METRICS2, data=run_metric)
+            await producer.produce(topic=KAFKA_APP_METRICS2, data=rows_metric)
     except Exception:
         LOGGER.exception(
             "Metrics production failed",
