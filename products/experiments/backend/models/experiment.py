@@ -56,16 +56,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # results change (metrics, exposure_criteria, parameters, ...). Compared to
     # cached result `last_refresh` to flag stale results in the UI. Distinct
     # from `updated_at`, which also bumps on non-config saves like `archived`
-    # or `conclusion`.
-    config_updated_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text=(
-            "Timestamp of the most recent change to fields that affect experiment results "
-            "(metrics, exposure criteria, parameters, etc.). Compare with cached result timestamps "
-            "to detect when results are stale."
-        ),
-    )
+    # or `conclusion`. Help text lives on the serializer field so downstream
+    # OpenAPI/MCP consumers see it without forcing a no-op model migration.
+    config_updated_at = models.DateTimeField(null=True, blank=True)
     archived = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False, null=True)
     type = models.CharField(max_length=40, choices=ExperimentType, null=True, blank=True, default="product")

@@ -4561,7 +4561,9 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
-    config_updated_at: string | null
+    /** Server-set timestamp bumped when fields that affect query results change.
+     * Compared against cached result `last_refresh` to flag stale results. */
+    config_updated_at?: string | null
     holdout_id?: number | null
     holdout?: ExperimentHoldoutType
     stats_config?: {

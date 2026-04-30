@@ -16488,6 +16488,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Timestamp of the most recent change to fields that affect experiment results (metrics, exposure criteria, parameters, etc.). Compare with cached result timestamps to detect when results are stale. */
+      readonly config_updated_at: string;
       /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
     * `web` - web
@@ -27016,6 +27018,8 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       readonly updated_at?: string;
+      /** Timestamp of the most recent change to fields that affect experiment results (metrics, exposure criteria, parameters, etc.). Compare with cached result timestamps to detect when results are stale. */
+      readonly config_updated_at?: string;
       /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
     * `web` - web

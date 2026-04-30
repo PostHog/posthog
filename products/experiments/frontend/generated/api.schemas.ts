@@ -549,6 +549,8 @@ export interface ExperimentApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
+    /** Timestamp of the most recent change to fields that affect experiment results (metrics, exposure criteria, parameters, etc.). Compare with cached result timestamps to detect when results are stale. */
+    readonly config_updated_at: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
 * `web` - web
@@ -647,6 +649,8 @@ export interface PatchedExperimentApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
+    /** Timestamp of the most recent change to fields that affect experiment results (metrics, exposure criteria, parameters, etc.). Compare with cached result timestamps to detect when results are stale. */
+    readonly config_updated_at?: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
 
 * `web` - web

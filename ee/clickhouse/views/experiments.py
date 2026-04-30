@@ -183,6 +183,14 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         default=False,
         help_text="Whether the experiment is archived.",
     )
+    config_updated_at = serializers.DateTimeField(
+        read_only=True,
+        help_text=(
+            "Timestamp of the most recent change to fields that affect experiment results "
+            "(metrics, exposure criteria, parameters, etc.). Compare with cached result timestamps "
+            "to detect when results are stale."
+        ),
+    )
     type = serializers.ChoiceField(
         choices=["web", "product"],
         required=False,
