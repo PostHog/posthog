@@ -1102,6 +1102,26 @@ class DashboardsViewSet(
 
         return results
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "variables_override",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON object to override dashboard variables for this request only (does not persist). "
+                    'Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.'
+                ),
+            ),
+            OpenApiParameter(
+                "filters_override",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON object to override dashboard filters for this request only (does not persist). "
+                    "See dashboard filters schema for available keys."
+                ),
+            ),
+        ],
+    )
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
@@ -1175,6 +1195,32 @@ class DashboardsViewSet(
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
     # ******************************************
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "variables_override",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON object to override dashboard variables for this request only (does not persist). "
+                    'Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable.'
+                ),
+            ),
+            OpenApiParameter(
+                "filters_override",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON object to override dashboard filters for this request only (does not persist). "
+                    "See dashboard filters schema for available keys."
+                ),
+            ),
+            OpenApiParameter(
+                "layoutSize",
+                OpenApiTypes.STR,
+                enum=["sm", "xs"],
+                description="Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile.",
+            ),
+        ],
+    )
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
     def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
@@ -1440,6 +1486,23 @@ class DashboardsViewSet(
                 description=(
                     "'optimized' (default) returns LLM-friendly formatted text per insight. "
                     "'json' returns the raw query result objects."
+                ),
+            ),
+            OpenApiParameter(
+                "variables_override",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON object to override dashboard variables for this request only (does not persist). "
+                    'Format: {"variable_id": {"value": "new_value"}} where variable_id is the UUID of a SQL variable. '
+                    "Use dashboard-get to see the dashboard's current variables and their IDs."
+                ),
+            ),
+            OpenApiParameter(
+                "filters_override",
+                OpenApiTypes.STR,
+                description=(
+                    "JSON object to override dashboard filters for this request only (does not persist). "
+                    "See dashboard filters schema for available keys (e.g., date_from, date_to)."
                 ),
             ),
         ],
