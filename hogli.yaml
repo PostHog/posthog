@@ -510,16 +510,26 @@ db:
     db:prime-test-db:
         steps:
             - db:download-schema
-            - name: restore-to-test-db
-              cmd: |
-                  set -e
-                  set -o pipefail
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
-                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
-                  echo "✅ Restored test_posthog from CI schema artifact"
+            - db:restore-test-db
         description: Download pre-migrated schema and prime the test_posthog database for
-            pytest --reuse-db (used in CI to skip migration overhead)
+            pytest --reuse-db
+        services:
+            - postgresql
+            - docker
+    db:restore-test-db:
+        cmd: |
+            set -e
+            set -o pipefail
+            if [ ! -f .postgres-backups/schema-latest.sql.gz ]; then
+                echo "❌ No schema at .postgres-backups/schema-latest.sql.gz — run db:download-schema first"
+                exit 1
+            fi
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+            docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+            gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+            echo "✅ Restored test_posthog from .postgres-backups/schema-latest.sql.gz"
+        description: Restore test_posthog from a local schema dump (no download). Used by
+            CI after restoring the schema from Actions cache.
         services:
             - postgresql
             - docker
