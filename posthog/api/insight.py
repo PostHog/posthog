@@ -429,7 +429,7 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    dashboards = TeamScopedDashboardsField(
+    dashboards = TeamScopedPrimaryKeyRelatedField(  # type: ignore[assignment]
         help_text="""
         DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
@@ -1281,17 +1281,17 @@ class InsightViewSet(
         span.set_attribute("posthog.order", request.query_params.get("order", ""))
         return super().list(request, *args, **kwargs)
 
-    def get_serializer(self, *args, **kwargs):
+    def paginate_queryset(self, queryset):
+        page = super().paginate_queryset(queryset)
         if (
-            self.action == "list"
-            and kwargs.get("many")
+            page is not None
+            and getattr(self, "action", None) == "list"
             and not self._is_basic_request()
-            and args
             and not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         ):
-            tiles = [tile for insight in args[0] for tile in insight.dashboard_tiles.all()]
+            tiles = [tile for insight in page for tile in insight.dashboard_tiles.all()]
             self.user_permissions.set_preloaded_dashboard_tiles(tiles)
-        return super().get_serializer(*args, **kwargs)
+        return page
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self._is_basic_request():
