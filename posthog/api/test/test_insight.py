@@ -734,16 +734,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_insight_with_many_dashboards("first")
         with capture_db_queries() as ctx:
             response = self.client.get(url)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.json()["results"]), 1)
+            assert response.status_code == status.HTTP_200_OK
+            assert len(response.json()["results"]) == 1
         baseline_query_count = len(ctx.captured_queries)
 
         for n in range(2, 6):
             _create_insight_with_many_dashboards(f"insight-{n}")
             with capture_db_queries() as ctx:
                 response = self.client.get(url)
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(len(response.json()["results"]), n)
+                assert response.status_code == status.HTTP_200_OK
+                assert len(response.json()["results"]) == n
 
             per_insight_m2m_lookups = [
                 q
