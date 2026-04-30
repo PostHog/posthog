@@ -231,7 +231,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         github_token = ""
         should_inject_github_token = ctx.has_github_credentials and (
-            has_repo or ctx.github_user_integration_id is not None
+            has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
         )
         if should_inject_github_token:
             try:

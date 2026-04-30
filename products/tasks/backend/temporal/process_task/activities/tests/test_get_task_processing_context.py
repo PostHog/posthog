@@ -127,6 +127,30 @@ class TestGetTaskProcessingContextActivity:
         assert result.has_github_credentials is True
 
     @pytest.mark.django_db
+    def test_get_task_processing_context_uses_team_integration_without_repository(
+        self, activity_environment, team, user, github_integration
+    ):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task without repository",
+            description="Clone a repo later from chat",
+            origin_product=Task.OriginProduct.SLACK,
+            github_integration=github_integration,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(task_run.id)),
+        )
+
+        assert result.repository is None
+        assert result.github_integration_id == github_integration.id
+        assert result.github_user_integration_id is None
+        assert result.has_github_credentials is True
+
+    @pytest.mark.django_db
     def test_get_task_processing_context_resolves_allowed_domains(self, activity_environment, test_task):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=test_task.team,

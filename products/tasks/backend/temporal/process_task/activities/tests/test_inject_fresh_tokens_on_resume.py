@@ -184,6 +184,57 @@ class TestInjectFreshTokensOnResumeActivity:
         assert prepared.environment_variables["GH_TOKEN"] == "gho_user"
         assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
 
+    def test_prepare_sandbox_injects_team_github_token_without_repository(
+        self, activity_environment, team, user, github_integration
+    ):
+        from products.tasks.backend.models import Task
+
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Repo-less Slack task",
+            description="Clone later from chat",
+            origin_product=Task.OriginProduct.SLACK,
+            github_integration=github_integration,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+        context = TaskProcessingContext(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=task.team_id,
+            team_uuid=str(task.team.uuid),
+            organization_id=str(task.team.organization_id),
+            github_integration_id=github_integration.id,
+            github_user_integration_id=None,
+            repository=None,
+            distinct_id=user.distinct_id or "test-distinct-id",
+            task_created_by_id=user.id,
+            state=task_run.state,
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
+                return_value="ghs_team",
+            ) as get_sandbox_github_token_mock,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token",
+                return_value="oauth_new",
+            ),
+        ):
+            prepared = async_to_sync(activity_environment.run)(
+                prepare_sandbox_for_repository,
+                PrepareSandboxForRepositoryInput(context=context),
+            )
+
+        get_sandbox_github_token_mock.assert_called_once()
+        assert get_sandbox_github_token_mock.call_args.kwargs["repository"] is None
+        assert prepared.repository is None
+        assert prepared.github_token == "ghs_team"
+        assert prepared.environment_variables["GITHUB_TOKEN"] == "ghs_team"
+        assert prepared.environment_variables["GH_TOKEN"] == "ghs_team"
+        assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
+
     def test_build_environment_variables_ignores_other_users_private_sandbox_environment(
         self, task_context, test_task, test_task_run
     ):

@@ -784,6 +784,29 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task.refresh_from_db()
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task.github_integration_id, integration.id)
+        self.assertIsNone(task.github_user_integration_id)
+        self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_start_run_endpoint_triggers_workflow_for_existing_cloud_run(self, mock_workflow):
         task = self.create_task()
         task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
@@ -1379,6 +1402,30 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_200_OK
         task.refresh_from_db()
         assert task.github_user_integration_id == user_integration.id
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task.refresh_from_db()
+        task_run = task.latest_run
+        assert task_run is not None
+        assert task.github_integration_id == integration.id
+        assert task.github_user_integration_id is None
+        assert task_run.state["pr_authorship_mode"] == "bot"
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -2265,6 +2312,30 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task.refresh_from_db()
         run.refresh_from_db()
         self.assertEqual(task.github_user_integration_id, user_integration.id)
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+
+    @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_falls_back_to_team_integration_when_no_user_integration(self, mock_resume):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "user"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        run.refresh_from_db()
+        self.assertEqual(task.github_integration_id, integration.id)
+        self.assertIsNone(task.github_user_integration_id)
+        self.assertEqual(run.state["pr_authorship_mode"], "bot")
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
