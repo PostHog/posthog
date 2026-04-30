@@ -35,11 +35,7 @@ mod tests {
             .with_trap_signals(false)
             .with_prestop_check(false)
             .build();
-        // Drop the handle immediately; we only need the readiness/liveness handlers.
-        let _h = manager.register(
-            "http",
-            ComponentOptions::new().is_observability(true),
-        );
+        let _handle = manager.register("http", ComponentOptions::new().is_observability(true));
         root_router(manager.readiness_handler(), manager.liveness_handler())
     }
 

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use lifecycle::{ComponentOptions, Manager};
-use opensearch_indexer::{api::root_router, app_context::AppContext, config::Config};
+use opensearch_indexer::{api::root_router, config::Config};
 use serve_metrics::setup_metrics_routes;
 use tokio::net::TcpListener;
 use tracing::level_filters::LevelFilter;
@@ -26,8 +26,6 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::init_with_defaults()?;
     let bind = format!("{}:{}", config.host, config.port);
-
-    let _context = AppContext::new(config).await?;
 
     let mut manager = Manager::builder("opensearch-indexer")
         .with_global_shutdown_timeout(Duration::from_secs(60))
