@@ -86,9 +86,9 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                             },
                         ]}
                     />
-                    <CalloutBox type="fyi" title="Personal API Key">
+                    <CalloutBox type="fyi" title="Personal API key">
                         <Markdown>
-                            Your Personal API Key will require `organization:read` and `error_tracking:write` scopes.
+                            Your personal API key will require `organization:read` and `error_tracking:write` scopes.
                         </Markdown>
                     </CalloutBox>
                     <Markdown>
