@@ -24,7 +24,7 @@
   - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
-  - Start dev: `./bin/start`
+  - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
@@ -66,6 +66,10 @@ Keep descriptions high-level, focusing on rationale and architecture for the hum
 - Scope is optional but encouraged when the change is specific to a feature area
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
+
+### Pushing to remote
+
+Pushes trigger CI, which burns runner credits. Refrain from pushing unless explicitly instructed or until the task is complete — batch local commits and push once at the end rather than after every change. If you're mid-task or iterating, keep work local.
 
 ### Public open source repo guidance
 

@@ -42,6 +42,7 @@ def _run(
     env: dict[str, str] | None = None,
     shell: bool = False,
     cwd: str | Path | None = None,
+    preserve_exit_code: bool = False,
 ) -> None:
     """Execute a shell command."""
     if isinstance(command, list):
@@ -63,9 +64,18 @@ def _run(
             check=True,
             shell=shell,
         )
+    except FileNotFoundError as e:
+        click.echo(click.style(f"💥 Command not found: {display}", fg="red", bold=True), err=True)
+        raise SystemExit(127 if preserve_exit_code else 1) from e
     except subprocess.CalledProcessError as e:
-        click.echo(click.style(f"💥 Command failed: {display}", fg="red", bold=True), err=True)
-        raise SystemExit(1) from e
+        # When preserve_exit_code is set the wrapped tool defines its own non-zero
+        # exit codes as part of its public contract (e.g. `phrocs wait` returns 2
+        # for "not yet ready", 3 for "not reachable"). The tool already prints a
+        # structured message; double-narrating it as a "💥 Command failed" makes
+        # CI/script logs noisy for normal outcomes.
+        if not preserve_exit_code:
+            click.echo(click.style(f"💥 Command failed: {display}", fg="red", bold=True), err=True)
+        raise SystemExit(e.returncode if preserve_exit_code else 1) from e
 
 
 def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -> str:
@@ -262,7 +272,11 @@ class BinScriptCommand(Command):
 
     def execute(self, *args: str) -> None:
         """Execute the script with any passed arguments."""
-        _run([str(self.script_path), *args], env=self.env)
+        _run(
+            [str(self.script_path), *args],
+            env=self.env,
+            preserve_exit_code=self.config.get("preserve_exit_code", False),
+        )
 
 
 class DirectCommand(Command):
@@ -304,11 +318,20 @@ class DirectCommand(Command):
                 # Pass args as positional parameters: _ is placeholder for $0, then actual args as $1, $2, etc.
                 escaped_args = " ".join(shlex.quote(arg) for arg in args)
                 cmd_str = f"sh -c {shlex.quote(cmd_str)} _ {escaped_args}"
-            _run(cmd_str, shell=True, env=self.env)
+            _run(
+                cmd_str,
+                shell=True,
+                env=self.env,
+                preserve_exit_code=self.config.get("preserve_exit_code", False),
+            )
         else:
             # Use list format for simple commands without shell operators
             # Use shlex.split() to properly handle quoted arguments
-            _run([*shlex.split(cmd_str), *args], env=self.env)
+            _run(
+                [*shlex.split(cmd_str), *args],
+                env=self.env,
+                preserve_exit_code=self.config.get("preserve_exit_code", False),
+            )
 
 
 def execute_command_config(

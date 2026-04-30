@@ -23,7 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -238,7 +238,12 @@ class TaxonomyAgentToolkit:
             query = EventTaxonomyQuery(actionId=action_id, maxPropertyValues=25, properties=properties)
             verbose_name = f"action with ID {action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team)
-        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
             # Use cache-first execution mode for optimal performance
             response = runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
@@ -628,7 +633,12 @@ class TaxonomyAgentToolkit:
     def _run_actors_taxonomy_query(
         self, query
     ) -> CachedActorsPropertyTaxonomyQueryResponse | CacheMissResponse | QueryStatusResponse:
-        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+        with tags_context(
+            product=Product.MAX_AI,
+            feature=Feature.POSTHOG_AI,
+            team_id=self._team.pk,
+            org_id=self._team.organization_id,
+        ):
             return ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                 analytics_props={"source": EventSource.POSTHOG_AI},
