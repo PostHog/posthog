@@ -53,6 +53,8 @@ jobs:
               shell: python3 {0}
               env:
                   EVENT_NAME: ${{ github.event_name }}
+                  # The filter step is PR-only; on push/schedule its outputs are empty,
+                  # so default to 'false' and let the Python step handle the run-everything case.
                   ACTIONS_CHANGED: ${{ steps.filter.outputs.actions || 'false' }}
                   GO_CHANGED: ${{ steps.filter.outputs.go || 'false' }}
                   C_CPP_CHANGED: ${{ steps.filter.outputs.c_cpp || 'false' }}
