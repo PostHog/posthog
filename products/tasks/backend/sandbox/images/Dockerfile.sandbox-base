@@ -1,5 +1,12 @@
 # Dockerfile for the base sandbox image.
 
+# uv (fast Python package manager) — pinned to an explicit version so rebuilds
+# are reproducible and supply-chain substitutions via :latest are caught at the
+# Dockerfile change level. The ARG must live before any FROM so it is visible
+# to the FROM uv-stage line below.
+ARG UV_VERSION=0.7.2
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-stage
+
 FROM ubuntu:24.04
 
 # Set environment variables to prevent interactive prompts
@@ -69,11 +76,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 # Install additional language package managers (including Bun)
 RUN npm install -g yarn pnpm typescript ts-node nodemon bun
 
-# Install uv (fast Python package manager) — pinned to an explicit version
-# so rebuilds are reproducible and supply-chain substitutions via :latest
-# are caught at the Dockerfile change level.
-ARG UV_VERSION=0.7.2
-COPY --from=ghcr.io/astral-sh/uv:${UV_VERSION} /uv /uvx /usr/local/bin/
+# Install uv (copied from the version-pinned uv-stage at the top of this file)
+COPY --from=uv-stage /uv /uvx /usr/local/bin/
 
 # Install Go (with checksum verification against go.dev's official .sha256)
 ARG GO_VERSION=1.24.2
