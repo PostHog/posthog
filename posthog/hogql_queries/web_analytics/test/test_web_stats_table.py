@@ -1,10 +1,10 @@
 import math
 from collections import defaultdict
 from typing import Any, Optional
-from unittest.mock import patch
 
 import unittest
 from freezegun import freeze_time
+from unittest.mock import patch
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -36,6 +36,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 
