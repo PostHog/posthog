@@ -381,7 +381,7 @@ tools:
         description: >
             Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config
             (prompt or Hog source), or change the model configuration.
-    llma-evaluations-list:
+    llma-evaluations-get:
         operation: evaluations_list
         enabled: true
         scopes:
@@ -396,7 +396,7 @@ tools:
             status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other
             criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog'
             (deterministic Hog code). Results are stored as '$ai_evaluation' events.
-    llma-prompt-archive:
+    llma-prompts-name-archive-create:
         operation: llm_prompts_name_archive_create
         enabled: false
     llma-prompt-create:
@@ -464,7 +464,7 @@ tools:
             summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes
             `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of
             contents, and pair with `content=none` to keep responses small.
-    llma-prompt-resolve:
+    llma-prompts-resolve-name-retrieve:
         operation: llm_prompts_resolve_name_retrieve
         enabled: false
     llma-prompt-update:
@@ -692,7 +692,7 @@ tools:
             of trace or generation IDs and an analysis_level ("trace" or "generation"). Returns per-ID sentiment labels
             with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute.
             Rate-limited.
-    llma-skill-archive:
+    llma-skills-name-archive-create:
         operation: llm_skills_name_archive_create
         enabled: false
     llma-skill-create:
@@ -816,7 +816,7 @@ tools:
             List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use
             descriptions to determine which skill to fetch for a given task. Does not return skill body content (use
             llma-skill-get to fetch full content).
-    llma-skill-resolve:
+    llma-skills-resolve-name-retrieve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
     llma-skill-update:

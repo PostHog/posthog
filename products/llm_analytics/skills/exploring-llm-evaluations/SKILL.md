@@ -39,7 +39,7 @@ AI-generated summary of pass/fail/N/A patterns across many runs.
 
 | Tool                                     | Purpose                                                        |
 | ---------------------------------------- | -------------------------------------------------------------- |
-| `posthog:llma-evaluations-list`          | List/search evaluation configs (filter by name, enabled flag)  |
+| `posthog:llma-evaluations-get`           | List/search evaluation configs (filter by name, enabled flag)  |
 | `posthog:llma-evaluation-get`            | Get a single evaluation config by UUID                         |
 | `posthog:llma-evaluation-create`         | Create a new `llm_judge` or `hog` evaluation                   |
 | `posthog:llma-evaluation-update`         | Update an existing evaluation (name, prompt, enabled, …)       |
@@ -50,8 +50,7 @@ AI-generated summary of pass/fail/N/A patterns across many runs.
 | `posthog:execute-sql`                    | Ad-hoc HogQL over `$ai_evaluation` events                      |
 | `posthog:query-llm-trace`                | Drill into the underlying generation that an evaluation scored |
 
-The first seven `llma-evaluation-*` tools are hand-coded; `llma-evaluation-summary-create`
-is generated from `products/llm_analytics/mcp/tools.yaml`.
+All `llma-evaluation-*` tools are defined in `products/llm_analytics/mcp/tools.yaml`.
 
 ## Event schema
 
@@ -78,7 +77,7 @@ when you eventually go to fix the evaluator (edit the prompt vs. edit the Hog so
 ### Step 1 — Find the evaluation
 
 ```json
-posthog:llma-evaluations-list
+posthog:llma-evaluations-get
 { "search": "hallucination", "enabled": true }
 ```
 
@@ -303,7 +302,7 @@ identical.
 
 ### "Why is evaluation X suddenly failing more?"
 
-1. `llma-evaluations-list` — confirm the evaluation is still enabled and unchanged
+1. `llma-evaluations-get` — confirm the evaluation is still enabled and unchanged
    (compare `evaluation_config.source` or `evaluation_config.prompt` to the version you
    expect)
 2. `llma-evaluation-summary-create` with `filter: "fail"` — get the dominant
@@ -384,14 +383,13 @@ Always surface the relevant link so the user can verify in the UI.
 - Pass `generation_ids: [...]` to scope a summary to a specific cohort of runs (max 250)
 - The `statistics` block in the summary response is computed from raw data, not the LLM
   — trust those counts even if a pattern's `frequency` field is qualitative
-- For rich filtering not supported by `llma-evaluations-list` (e.g. by author or model
+- For rich filtering not supported by `llma-evaluations-get` (e.g. by author or model
   configuration), fall back to `execute-sql` against the `evaluations` Postgres table or
   the `$ai_evaluation` ClickHouse events
 - When showing failure patterns to the user, always include 1-2 example trace links so
   they can validate the pattern visually
-- Hand-coded `llma-evaluation-*` tools and the codegen `llma-evaluation-summary-create`
-  share the same scope object (`llm_analytics`) — `evaluation:read` for read tools,
-  `evaluation:write` for mutating tools, and `llm_analytics:write` for the summary tool
+- `llma-evaluation-*` tools use `evaluation:read` for read tools and `evaluation:write` for
+  mutating tools; `llma-evaluation-summary-create` uses `llm_analytics:write`
 - Hog evaluators are reproducible — if you suspect a regression, `llma-evaluation-test-hog`
   with the suspect source against the failing generations is the fastest way to bisect
   whether the change is in the evaluator or in the producer of the generations
