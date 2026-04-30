@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { autoFormatYTick } from '../scales'
+import { autoFormatterFor } from '../scales'
 import type { ChartScales } from '../types'
 
 type YTickFormatter = (value: number) => string
@@ -8,11 +8,6 @@ type YTickFormatter = (value: number) => string
 interface ResolvedYFormatters {
     left: YTickFormatter
     right: YTickFormatter | undefined
-}
-
-function autoFormatterFor(ticks: number[]): YTickFormatter {
-    const domainMax = ticks.length > 0 ? Math.abs(Math.max(...ticks)) : 1
-    return (v: number) => autoFormatYTick(v, domainMax)
 }
 
 export function useResolvedYFormatters(

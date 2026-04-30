@@ -2,7 +2,7 @@ import * as d3 from 'd3'
 import { useMemo } from 'react'
 
 import { measureLabelWidth } from '../../overlays/AxisLabels'
-import { autoFormatYTick, seriesValueRange } from '../scales'
+import { autoFormatterFor, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
 
@@ -46,8 +46,7 @@ export function useChartMargins<Meta>({
         if (ticks.length === 0) {
             return 0
         }
-        const domainMax = Math.max(...ticks.map((t) => Math.abs(t)))
-        const formatter = yTickFormatter ?? ((v: number) => autoFormatYTick(v, domainMax))
+        const formatter = yTickFormatter ?? autoFormatterFor(ticks)
         let widest = 0
         for (const t of ticks) {
             widest = Math.max(widest, measureLabelWidth(formatter(t)))
