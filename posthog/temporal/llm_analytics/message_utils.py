@@ -190,10 +190,8 @@ def _format_single_tool_definition(tool: dict) -> str:
     fn = tool.get("function") if isinstance(tool.get("function"), dict) else tool
     name = fn.get("name") or tool.get("name") or ""
     description = fn.get("description") or tool.get("description") or ""
-    parameters = fn.get("parameters") if isinstance(fn, dict) else None
-    if parameters is None:
-        # Anthropic uses `input_schema` rather than `parameters`.
-        parameters = tool.get("input_schema")
+    # Anthropic uses `input_schema` rather than `parameters`.
+    parameters = fn.get("parameters") or tool.get("input_schema")
 
     if not name:
         # Unrecognized shape — stringify so the judge still sees something.

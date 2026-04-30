@@ -579,7 +579,8 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
     if tools_data:
         user_prompt = f"""Input: {input_data}
 
-Tools available: {tools_data}
+Tools available:
+{tools_data}
 
 Output: {output_data}"""
     else:
