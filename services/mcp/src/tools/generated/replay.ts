@@ -48,6 +48,30 @@ const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithP
         },
     })
 
+const SessionRecordingSummarizeSchema = CreateSessionSummariesIndividuallyBody
+
+const sessionRecordingSummarize = (): ToolBase<typeof SessionRecordingSummarizeSchema, Schemas.SessionSummaries> =>
+    withUiApp('session-summary', {
+        name: 'session-recording-summarize',
+        schema: SessionRecordingSummarizeSchema,
+        handler: async (context: Context, params: z.infer<typeof SessionRecordingSummarizeSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.session_ids !== undefined) {
+                body['session_ids'] = params.session_ids
+            }
+            if (params.focus_area !== undefined) {
+                body['focus_area'] = params.focus_area
+            }
+            const result = await context.api.request<Schemas.SessionSummaries>({
+                method: 'POST',
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/create_session_summaries_individually/`,
+                body,
+            })
+            return result
+        },
+    })
+
 const SessionRecordingPlaylistCreateSchema = SessionRecordingPlaylistsCreateBody
 
 const sessionRecordingPlaylistCreate = (): ToolBase<
@@ -168,29 +192,6 @@ const sessionRecordingPlaylistsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/replay')
-    },
-})
-
-const SessionRecordingSummarizeSchema = CreateSessionSummariesIndividuallyBody
-
-const sessionRecordingSummarize = (): ToolBase<typeof SessionRecordingSummarizeSchema, Schemas.SessionSummaries> => ({
-    name: 'session-recording-summarize',
-    schema: SessionRecordingSummarizeSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingSummarizeSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.session_ids !== undefined) {
-            body['session_ids'] = params.session_ids
-        }
-        if (params.focus_area !== undefined) {
-            body['focus_area'] = params.focus_area
-        }
-        const result = await context.api.request<Schemas.SessionSummaries>({
-            method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/session_summaries/create_session_summaries_individually/`,
-            body,
-        })
-        return result
     },
 })
 
