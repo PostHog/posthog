@@ -492,8 +492,14 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
 
-    # SLO started is emitted by the interceptor, not this activity
-    mock_analytics.capture.assert_not_called()
+    # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
+    # calls during snapshot build emit query_service SLO events — those are unrelated.
+    subscription_slo_calls = [
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert subscription_slo_calls == []
 
 
 @patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
@@ -829,8 +835,14 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
     assert len(result.exported_asset_ids) == 3
-    # SLO started is emitted by the interceptor, not this activity
-    mock_analytics.capture.assert_not_called()
+    # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
+    # calls during snapshot build emit query_service SLO events — those are unrelated.
+    subscription_slo_calls = [
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert subscription_slo_calls == []
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
