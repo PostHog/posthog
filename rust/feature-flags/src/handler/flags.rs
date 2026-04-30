@@ -4,6 +4,7 @@ use crate::{
         types::{FlagsQueryParams, FlagsResponse},
     },
     flags::{
+        feature_flag_list::PreparedFlags,
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{FeatureFlag, FeatureFlagList},
         flag_service::FlagService,
@@ -15,6 +16,7 @@ use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use super::{evaluation, types::FeatureFlagEvaluationContext, with_canonical_log};
@@ -212,19 +214,28 @@ pub async fn fetch_and_filter(
     // Record cache source in canonical log for observability
     with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
-    let mut flags = flag_result.flag_list.flags;
-    let evaluation_metadata = flag_result.flag_list.evaluation_metadata;
-    let cohorts = flag_result.flag_list.cohorts;
+    let prepared = &flag_result.prepared;
 
-    // Apply override flag definitions if provided
-    if let Some(override_defs) = override_flags_definitions {
-        let overridden_keys = apply_flag_overrides(&mut flags, override_defs);
-        if !overridden_keys.is_empty() {
-            with_canonical_log(|log| {
-                log.flags_overridden = Some(overridden_keys);
-            });
+    // Apply override flag definitions if provided. Overrides require a clone
+    // because `prepared.flags` is Arc-backed and shared across requests.
+    let overridden_flags: Option<PreparedFlags> = match override_flags_definitions {
+        Some(override_defs) => {
+            let mut flags_vec: Vec<FeatureFlag> = prepared.flags.iter().cloned().collect();
+            let overridden_keys = apply_flag_overrides(&mut flags_vec, override_defs);
+            if !overridden_keys.is_empty() {
+                with_canonical_log(|log| {
+                    log.flags_overridden = Some(overridden_keys);
+                });
+            }
+            Some(PreparedFlags::seal(flags_vec))
         }
-    }
+        None => None,
+    };
+
+    let flags: &[FeatureFlag] = match &overridden_flags {
+        Some(p) => p,
+        None => &prepared.flags,
+    };
 
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
@@ -235,14 +246,14 @@ pub async fn fetch_and_filter(
         .collect();
 
     filtered_out_flag_ids.extend(collect_excluded_by_survey_filter(
-        &flags,
+        flags,
         query_params
             .only_evaluate_survey_feature_flags
             .unwrap_or(false),
     ));
     let current_runtime = detect_evaluation_runtime_from_request(headers, explicit_runtime);
-    filtered_out_flag_ids.extend(collect_excluded_by_runtime(&flags, current_runtime));
-    filtered_out_flag_ids.extend(collect_excluded_by_tags(&flags, environment_tags));
+    filtered_out_flag_ids.extend(collect_excluded_by_runtime(flags, current_runtime));
+    filtered_out_flag_ids.extend(collect_excluded_by_tags(flags, environment_tags));
 
     if tracing::enabled!(tracing::Level::DEBUG) {
         let active_count = flags
@@ -258,13 +269,18 @@ pub async fn fetch_and_filter(
         );
     }
 
-    let mut flag_list = FeatureFlagList {
-        flags,
+    // Every shared field of `prepared` is Arc-backed, so this is a handful
+    // of refcount bumps rather than a deep copy of the flag slice, the
+    // `EvaluationMetadata` map, or the cohort vec.
+    let flag_list = FeatureFlagList {
+        flags: match overridden_flags {
+            Some(p) => p,
+            None => PreparedFlags::from_arc(Arc::clone(prepared.flags.as_arc())),
+        },
         filtered_out_flag_ids,
-        evaluation_metadata,
-        cohorts,
+        evaluation_metadata: Arc::clone(&prepared.evaluation_metadata),
+        cohorts: prepared.cohorts.as_ref().map(Arc::clone),
     };
-    flag_list.prepare_regexes();
     Ok(flag_list)
 }
 

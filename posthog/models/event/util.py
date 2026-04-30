@@ -182,7 +182,7 @@ def bulk_create_events(
             person_created_at = person.created_at or datetime64_default_timestamp
         else:
             try:
-                person = Person.objects.get(
+                person = Person.objects.get(  # nosemgrep: no-direct-persons-db-orm
                     persondistinctid__distinct_id=event["distinct_id"],
                     persondistinctid__team_id=team_id,
                 )
@@ -209,7 +209,7 @@ def bulk_create_events(
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
                 try:
-                    group = Group.objects.get(
+                    group = Group.objects.get(  # nosemgrep: no-direct-persons-db-orm
                         team_id=team_id,
                         group_type_index=group_type_index,
                         group_key=value,

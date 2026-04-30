@@ -188,6 +188,7 @@ dependencies = [
     "blake3>=1.0.8",
     "pixelhog~=1.1.0",
     "google-re2>=1.1.20251105",
+    "scrubadub~=2.0.1",
 ]
 
 [dependency-groups]

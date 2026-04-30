@@ -21,6 +21,24 @@ interface UseChartCanvasResult {
     overlayCtx: CanvasRenderingContext2D | null
 }
 
+function sizeCanvas(canvas: HTMLCanvasElement, rect: DOMRect, dpr: number): void {
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    canvas.style.width = `${rect.width}px`
+    canvas.style.height = `${rect.height}px`
+}
+
+function buildDimensions(rect: DOMRect, margins: ChartMargins): ChartDimensions {
+    return {
+        width: rect.width,
+        height: rect.height,
+        plotLeft: margins.left,
+        plotTop: margins.top,
+        plotWidth: Math.max(0, rect.width - margins.left - margins.right),
+        plotHeight: Math.max(0, rect.height - margins.top - margins.bottom),
+    }
+}
+
 export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasResult {
     const { margins } = options
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -28,27 +46,30 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
     const wrapperRef = useRef<HTMLDivElement | null>(null)
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null)
 
+    // Keep margins behind a ref so the ResizeObserver effect can read the latest values
+    // without re-binding when only margins change. Re-binding the observer on every margin
+    // tweak risks a feedback loop when y-tick-width measurement triggers margin recompute.
+    const marginsRef = useRef(margins)
+    marginsRef.current = margins
+    const rectRef = useRef<DOMRect | null>(null)
+
+    // Attach the ResizeObserver once. updateSize reads margins from the ref; when margins
+    // change, the secondary effect below recomputes dimensions from the cached rect.
     useEffect(() => {
         const wrapper = wrapperRef.current
         if (!wrapper) {
             return
         }
 
-        const sizeCanvas = (canvas: HTMLCanvasElement, rect: DOMRect, dpr: number): void => {
-            canvas.width = rect.width * dpr
-            canvas.height = rect.height * dpr
-            canvas.style.width = `${rect.width}px`
-            canvas.style.height = `${rect.height}px`
-        }
-
         const updateSize = (): void => {
             const canvas = canvasRef.current
             const overlayCanvas = overlayCanvasRef.current
-            if (!canvas || !overlayCanvas || !wrapper) {
+            if (!canvas || !overlayCanvas) {
                 return
             }
 
             const rect = wrapper.getBoundingClientRect()
+            rectRef.current = rect
             const dpr = window.devicePixelRatio || 1
 
             sizeCanvas(canvas, rect, dpr)
@@ -63,14 +84,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             setCanvasState({
                 ctx: context,
                 overlayCtx: overlayContext,
-                dimensions: {
-                    width: rect.width,
-                    height: rect.height,
-                    plotLeft: margins.left,
-                    plotTop: margins.top,
-                    plotWidth: Math.max(0, rect.width - margins.left - margins.right),
-                    plotHeight: Math.max(0, rect.height - margins.top - margins.bottom),
-                },
+                dimensions: buildDimensions(rect, marginsRef.current),
             })
         }
 
@@ -84,6 +98,15 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         return () => {
             observer.disconnect()
         }
+    }, [])
+
+    // When margins change without a resize, recompute dimensions from the cached rect.
+    useEffect(() => {
+        const rect = rectRef.current
+        if (!rect) {
+            return
+        }
+        setCanvasState((prev) => (prev ? { ...prev, dimensions: buildDimensions(rect, margins) } : prev))
     }, [margins.left, margins.right, margins.top, margins.bottom])
 
     return {

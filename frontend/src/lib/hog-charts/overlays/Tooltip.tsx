@@ -9,16 +9,22 @@ interface TooltipProps<Meta> {
     placement?: 'follow-data' | 'top'
 }
 
+const TOOLTIP_MIDDLEWARE = [offset(12), flip(), shift({ padding: 8 })]
+
 export function Tooltip<Meta = unknown>({
     context,
     renderTooltip,
     placement = 'follow-data',
 }: TooltipProps<Meta>): React.ReactElement {
+    // In `top` placement the y position is anchored to the canvas top and `position.y` is
+    // unused, so we depend on the resolved y rather than `position.y` directly — otherwise
+    // mousemove rebuilds the virtual reference and triggers a Floating-UI reposition pass
+    // for nothing.
+    const y = placement === 'top' ? context.canvasBounds.top : context.canvasBounds.top + context.position.y
     const virtualReference = useMemo<VirtualElement>(
         () => ({
             getBoundingClientRect() {
                 const x = context.canvasBounds.left + context.position.x
-                const y = placement === 'top' ? context.canvasBounds.top : context.canvasBounds.top + context.position.y
                 return {
                     x,
                     y,
@@ -31,13 +37,13 @@ export function Tooltip<Meta = unknown>({
                 }
             },
         }),
-        [context.position.x, placement === 'follow-data' ? context.position.y : null, context.canvasBounds, placement]
+        [context.position.x, y, context.canvasBounds]
     )
 
     const { refs, floatingStyles } = useFloating({
         placement: placement === 'top' ? 'right-start' : 'right',
         strategy: 'fixed',
-        middleware: [offset(12), flip(), shift({ padding: 8 })],
+        middleware: TOOLTIP_MIDDLEWARE,
     })
 
     useLayoutEffect(() => {

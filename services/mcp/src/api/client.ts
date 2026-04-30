@@ -86,13 +86,7 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            // The consumer self-identifier (`mcpConsumer`) is folded into the User-Agent as
-            // `<consumer>/<wrapped-client>` rather than forwarded as a separate header.
-            'User-Agent': getUserAgent({
-                clientUserAgent: this.config.clientUserAgent,
-                mcpConsumer: this.config.mcpConsumer,
-                mcpClientName: this.config.mcpClientName,
-            }),
+            'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
             ...(this.config.clientUserAgent
                 ? {
                       // Forward the originating client's User-Agent as a custom header so the
@@ -107,6 +101,7 @@ export class ApiClient {
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
+            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
             ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
             'X-PostHog-Client': 'mcp',
         }
@@ -859,9 +854,11 @@ export class ApiClient {
             validate: async ({
                 query,
                 language,
+                connectionId,
             }: {
                 query: string
                 language: 'hogQL' | 'hogQLExpr' | 'hog' | 'hogTemplate'
+                connectionId?: string
             }): Promise<
                 Result<{
                     isValid: boolean
@@ -879,9 +876,13 @@ export class ApiClient {
                 }>
             > => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
+                const queryBody: Record<string, unknown> = { kind: 'HogQLMetadata', language, query }
+                if (connectionId) {
+                    queryBody.connectionId = connectionId
+                }
                 return this.fetchJson(url, {
                     method: 'POST',
-                    body: JSON.stringify({ query: { kind: 'HogQLMetadata', language, query } }),
+                    body: JSON.stringify({ query: queryBody }),
                 })
             },
 

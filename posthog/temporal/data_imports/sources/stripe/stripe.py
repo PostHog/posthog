@@ -6,7 +6,7 @@ from typing import Any, Optional, Union, get_args, get_type_hints
 import orjson
 import pyarrow as pa
 from asgiref.sync import async_to_sync
-from stripe import ListObject, StripeClient
+from stripe import ListObject, RequestsClient, StripeClient
 from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
 )
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
@@ -47,6 +48,12 @@ from products.data_warehouse.backend.models.external_table_definitions import ge
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+
+
+def _tracked_stripe_http_client() -> RequestsClient:
+    """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
+    Stripe SDK call participates in our HTTP logging, metrics, and sample capture."""
+    return RequestsClient(session=make_tracked_session())
 
 
 def _stripe_base_addresses() -> BaseAddresses:
@@ -92,6 +99,7 @@ def get_rows(
         stripe_version="2024-09-30.acacia",
         max_network_retries=2,
         base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
     )
     default_params = {"limit": DEFAULT_LIMIT}
     resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
@@ -322,7 +330,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
     - Raise Exception if the API key is invalid or there's any other error
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses())
+    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
 
     # Test access to all resources we're pulling
     resources_to_check = [
@@ -387,6 +395,7 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
         )
 
         endpoint = client.webhook_endpoints.create(
@@ -428,6 +437,7 @@ def delete_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
         )
 
         endpoints = client.webhook_endpoints.list(params={"limit": 100})
@@ -462,6 +472,7 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
             stripe_version="2024-09-30.acacia",
             max_network_retries=2,
             base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
         )
 
         endpoints = client.webhook_endpoints.list(params={"limit": 100})

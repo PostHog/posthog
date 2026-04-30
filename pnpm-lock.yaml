@@ -739,6 +739,9 @@ importers:
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
+      '@protomaps/basemaps':
+        specifier: ^5.7.2
+        version: 5.7.2
       '@radix-ui/react-accordion':
         specifier: ^1.2.12
         version: 1.2.12(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1060,9 +1063,6 @@ importers:
       posthog-js:
         specifier: 'catalog:'
         version: 1.372.5
-      protomaps-themes-base:
-        specifier: 2.0.0-alpha.1
-        version: 2.0.0-alpha.1
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -8899,6 +8899,10 @@ packages:
 
   '@protobufjs/utf8@1.1.0':
     resolution: {integrity: sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw==}
+
+  '@protomaps/basemaps@5.7.2':
+    resolution: {integrity: sha512-K1Yk6bWdULulYg+R2QRVXx4NzJZan5YQhpejEG0c1/sXruJrfPIPZuakpf3jwAgVmjIRVQwAv+yRafDeN0aaUQ==}
+    hasBin: true
 
   '@puppeteer/browsers@2.13.0':
     resolution: {integrity: sha512-46BZJYJjc/WwmKjsvDFykHtXrtomsCIrwYQPOP7VfMJoZY2bsDF9oROBABR3paDjDcmkUye1Pb1BqdcdiipaWA==}
@@ -20062,10 +20066,6 @@ packages:
 
   protocol-buffers-schema@3.6.0:
     resolution: {integrity: sha512-TdDRD+/QNdrCGCE7v8340QyuXd4kIWIgapsE2+n/SaGiSSbomYl4TjHlvIoCWRpE7wFt02EpB35VVA2ImcBVqw==}
-
-  protomaps-themes-base@2.0.0-alpha.1:
-    resolution: {integrity: sha512-eGAiUpBPAohnMvEHoF7NRWp7YuTNk/JsAVJ4733jqNw+/EF6Q5TMjqCOZScG3YSri5NStJg+9Upb95M2AQ3pjw==}
-    deprecated: This package has been migrated to @protomaps/basemaps with a new major version. See the CHANGELOG at https://github.com/protomaps/basemaps/blob/main/CHANGELOG.md for how to migrate.
 
   proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
@@ -31745,6 +31745,8 @@ snapshots:
   '@protobufjs/pool@1.1.0': {}
 
   '@protobufjs/utf8@1.1.0': {}
+
+  '@protomaps/basemaps@5.7.2': {}
 
   '@puppeteer/browsers@2.13.0':
     dependencies:
@@ -46326,8 +46328,6 @@ snapshots:
       long: 5.3.2
 
   protocol-buffers-schema@3.6.0: {}
-
-  protomaps-themes-base@2.0.0-alpha.1: {}
 
   proxy-addr@2.0.7:
     dependencies:

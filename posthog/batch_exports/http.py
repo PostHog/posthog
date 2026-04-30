@@ -646,13 +646,19 @@ class BatchExportSerializer(serializers.ModelSerializer):
         config = destination_attrs["config"]
         view = self.context.get("view")
 
+        instance = None
         if self.instance is not None:
-            existing_config = self.instance.destination.config
+            instance = self.instance
+            existing_config = instance.destination.config
         elif view is not None and "pk" in view.kwargs:
             # Running validation for a `detail=True` action.
             instance = view.get_object()
             existing_config = instance.destination.config
         else:
+            existing_config = {}
+
+        if instance is not None and destination_type != instance.destination.type:
+            # Start fresh if this is changing the batch export type
             existing_config = {}
         merged_config = recursive_dict_merge(existing_config, config)
 
@@ -968,6 +974,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             if destination_data:
+                if destination_data.get("type", batch_export.destination.type) != batch_export.destination.type:
+                    # Start fresh if this is changing the destination type
+                    batch_export.destination.config = {}
+
                 batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,

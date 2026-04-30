@@ -124,6 +124,7 @@ export function AxisLabels({
                     return (
                         <div
                             key={`y-${tick}`}
+                            data-attr="hog-chart-axis-tick-y"
                             style={{
                                 ...TICK_STYLE_BASE,
                                 right: dimensions.width - dimensions.plotLeft + 8,
@@ -148,6 +149,7 @@ export function AxisLabels({
                     return (
                         <div
                             key={`yr-${tick}`}
+                            data-attr="hog-chart-axis-tick-yr"
                             style={{
                                 ...TICK_STYLE_BASE,
                                 left: dimensions.plotLeft + dimensions.plotWidth + 8,
@@ -164,6 +166,7 @@ export function AxisLabels({
             {visibleXLabels.map(({ index, text, x }) => (
                 <div
                     key={`x-${index}`}
+                    data-attr="hog-chart-axis-tick-x"
                     style={{
                         ...TICK_STYLE_BASE,
                         left: x,
