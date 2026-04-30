@@ -250,8 +250,11 @@ def send_invite(invite_id: str) -> None:
             },
         )
         return
+    # Guard against whitespace-only first_name (.strip() returning "" leaves the subject blank).
     inviter_name = (
-        invite.created_by.first_name.strip() if invite.created_by and invite.created_by.first_name else "Someone"
+        invite.created_by.first_name.strip()
+        if invite.created_by and invite.created_by.first_name and invite.created_by.first_name.strip()
+        else "Someone"
     )
     is_delegation = bool(invite.is_setup_delegation)
     template_name = "delegation_invite" if is_delegation else "invite"

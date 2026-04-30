@@ -404,6 +404,11 @@ class OrganizationInviteViewSet(
         # Wrap feature_enabled in a short timeout so a slow/down flag service can't block
         # every delegation request. Timeout or exception → fail-open (None). Explicit False
         # disables the flow.
+        #
+        # Don't use `with ThreadPoolExecutor(...)` — the context manager's __exit__ calls
+        # shutdown(wait=True) which blocks for the full eval duration even after our timeout
+        # raises, defeating the timeout. Use shutdown(wait=False) in a finally block so the
+        # request returns within ~1s regardless of the flag service's actual latency.
         import concurrent.futures
 
         def _eval() -> Optional[bool]:
@@ -413,11 +418,15 @@ class OrganizationInviteViewSet(
                 send_feature_flag_events=False,
             )
 
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                return executor.submit(_eval).result(timeout=1.0)
+            return executor.submit(_eval).result(timeout=1.0)
         except (concurrent.futures.TimeoutError, Exception):
             return None
+        finally:
+            # cancel_futures=True (Py 3.9+) cancels any not-yet-started futures; the running
+            # one is detached so we don't wait on it.
+            executor.shutdown(wait=False, cancel_futures=True)
 
     @extend_schema(
         request=OrganizationInviteDelegateSerializer,
