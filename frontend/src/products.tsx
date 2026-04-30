@@ -121,6 +121,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
     VisualReviewSettings: () => import('../../products/visual_review/frontend/scenes/VisualReviewSettingsScene'),
+    VisualReviewSnapshotHistory: () =>
+        import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
@@ -220,6 +222,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
     '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+    '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
+        'VisualReviewSnapshotHistory',
+        'visualReviewSnapshotHistory',
+    ],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -544,6 +550,11 @@ export const productConfiguration: Record<string, any> = {
     VisualReviewRuns: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
     VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
+    VisualReviewSnapshotHistory: {
+        name: 'Visual review snapshot history',
+        projectBased: true,
+        iconType: 'visual_review',
+    },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -923,6 +934,8 @@ export const productUrls = {
     visualReviewRuns: (): string => '/visual_review',
     visualReviewSettings: (): string => '/visual_review/settings',
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+    visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
+        `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -1764,7 +1777,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.VISUAL_REVIEW,
         tags: ['alpha'],
         sceneKey: 'VisualReviewRuns',
-        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings'],
+        sceneKeys: ['VisualReviewRuns', 'VisualReviewRun', 'VisualReviewSettings', 'VisualReviewSnapshotHistory'],
     },
     {
         path: 'Web analytics',

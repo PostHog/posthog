@@ -103,7 +103,7 @@ class GroupsTypesViewSet(
 ):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
-    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")
+    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")  # nosemgrep: no-direct-persons-db-orm
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
@@ -115,7 +115,7 @@ class GroupsTypesViewSet(
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(
+            instance = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=row["group_type_index"]
             )
             # Pre-populate the team FK cache so serializer access control checks
@@ -130,7 +130,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(
+            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
@@ -155,7 +155,7 @@ class GroupsTypesViewSet(
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(
+            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
                 project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
@@ -201,7 +201,7 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 @extend_schema(tags=["core"])
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
-    queryset = Group.objects.all()
+    queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
     pagination_class = GroupCursorPagination
     serializer_classes = {
         "find": FindGroupSerializer,
@@ -267,7 +267,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 )
 
         try:
-            obj = GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            obj = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
+                project_id=self.team.project_id, group_type_index=group_type_index
+            )  # nosemgrep: no-direct-persons-db-orm
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
             ).inc()

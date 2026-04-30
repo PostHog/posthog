@@ -1,5 +1,4 @@
 import { startRegistration } from '@simplewebauthn/browser'
-import { isString } from '@tiptap/core'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
@@ -565,7 +564,7 @@ export const signupLogic = kea<signupLogicType>([
                 const regionOverrideFlag = values.featureFlags[FEATURE_FLAGS.REDIRECT_SIGNUPS_TO_INSTANCE]
                 const regionsAllowList = ['eu', 'us']
                 const isRegionOverrideValid =
-                    isString(regionOverrideFlag) && regionsAllowList.includes(regionOverrideFlag)
+                    typeof regionOverrideFlag === 'string' && regionsAllowList.includes(regionOverrideFlag)
                 // KLUDGE: the backend can technically return null
                 // and, we don't want to redirect to the app unless the preflight region is valid
                 const isPreflightRegionValid =

@@ -859,9 +859,11 @@ export class ApiClient {
             validate: async ({
                 query,
                 language,
+                connectionId,
             }: {
                 query: string
                 language: 'hogQL' | 'hogQLExpr' | 'hog' | 'hogTemplate'
+                connectionId?: string
             }): Promise<
                 Result<{
                     isValid: boolean
@@ -879,9 +881,13 @@ export class ApiClient {
                 }>
             > => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
+                const queryBody: Record<string, unknown> = { kind: 'HogQLMetadata', language, query }
+                if (connectionId) {
+                    queryBody.connectionId = connectionId
+                }
                 return this.fetchJson(url, {
                     method: 'POST',
-                    body: JSON.stringify({ query: { kind: 'HogQLMetadata', language, query } }),
+                    body: JSON.stringify({ query: queryBody }),
                 })
             },
 

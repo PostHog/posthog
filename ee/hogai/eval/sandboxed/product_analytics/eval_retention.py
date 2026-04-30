@@ -42,7 +42,7 @@ def _retention_case(
 
 
 @pytest.mark.django_db
-async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client):
+async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         _retention_case(
             name="retention_pageview_default",
@@ -127,7 +127,7 @@ async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client):
     ]
 
     await SandboxedPublicEval(
-        experiment_name="sandboxed-retention",
+        experiment_name=f"sandboxed-retention-{mcp_mode}",
         cases=cases,
         scorers=[
             ExitCodeZero(),
