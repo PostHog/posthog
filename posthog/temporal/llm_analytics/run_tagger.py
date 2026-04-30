@@ -63,7 +63,8 @@ def build_tag_result_schema(tag_names: list[str], min_tags: int = 0, max_tags: i
         constraint_parts.append(f"Minimum {min_tags} tag(s)")
     if max_tags is not None:
         constraint_parts.append(f"Maximum {max_tags} tag(s)")
-    constraint_parts.append("Can be empty if no tags apply")
+    if min_tags == 0:
+        constraint_parts.append("Can be empty if no tags apply")
 
     description = "Tags to apply. " + ". ".join(constraint_parts) + "."
 
@@ -130,31 +131,42 @@ async def fetch_tagger_activity(inputs: RunTaggerInputs) -> dict[str, Any]:
 
     def _fetch():
         try:
-            tagger = Tagger.objects.select_related(
-                "model_configuration",
-                "model_configuration__provider_key",
-            ).get(id=inputs.tagger_id, team_id=inputs.event_data["team_id"])
-
-            model_configuration = None
-            if tagger.model_configuration:
-                mc = tagger.model_configuration
-                model_configuration = {
-                    "provider": mc.provider,
-                    "model": mc.model,
-                    "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
-                }
-
-            return {
-                "id": str(tagger.id),
-                "name": tagger.name,
-                "tagger_type": tagger.tagger_type,
-                "tagger_config": tagger.tagger_config,
-                "team_id": tagger.team_id,
-                "model_configuration": model_configuration,
-            }
+            # Only joins what's actually read below — provider_key is fetched separately
+            # in execute_tagger_activity by id, so don't widen the join here.
+            tagger = Tagger.objects.select_related("model_configuration").get(
+                id=inputs.tagger_id, team_id=inputs.event_data["team_id"]
+            )
         except Tagger.DoesNotExist:
             logger.exception("Tagger not found", tagger_id=inputs.tagger_id)
             raise ValueError(f"Tagger {inputs.tagger_id} not found")
+
+        # Short-circuit when the tagger has been disabled (e.g. by a prior trial-limit
+        # trip) before we run a lagging event through it. The workflow surfaces this
+        # as a skipped result rather than an error.
+        if not tagger.enabled:
+            raise ApplicationError(
+                f"Tagger {inputs.tagger_id} is disabled.",
+                {"error_type": "tagger_disabled"},
+                non_retryable=True,
+            )
+
+        model_configuration = None
+        if tagger.model_configuration:
+            mc = tagger.model_configuration
+            model_configuration = {
+                "provider": mc.provider,
+                "model": mc.model,
+                "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
+            }
+
+        return {
+            "id": str(tagger.id),
+            "name": tagger.name,
+            "tagger_type": tagger.tagger_type,
+            "tagger_config": tagger.tagger_config,
+            "team_id": tagger.team_id,
+            "model_configuration": model_configuration,
+        }
 
     return await database_sync_to_async(_fetch)()
 
@@ -336,7 +348,8 @@ Output: {output_data}"""
         logger.error("LLM tagger returned empty structured response", tagger_id=tagger["id"])
         raise ValueError(f"LLM tagger returned empty structured response for tagger {tagger['id']}")
 
-    assert isinstance(result, TagResult)
+    if not isinstance(result, TagResult):
+        raise TypeError(f"Expected TagResult, got {type(result).__name__} for tagger {tagger['id']}")
 
     # Validate tags — strip any not in the configured set
     valid_tag_names = {tag["name"] for tag in tags}
@@ -563,10 +576,21 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
 
 @temporalio.activity.defn
 async def disable_tagger_activity(tagger_id: str, team_id: int) -> None:
-    """Disable a tagger when trial limit is reached."""
+    """Disable a tagger when trial limit is reached.
+
+    Uses ``.update()`` to bypass ``Tagger.save()``'s bytecode recompilation (matching
+    ``disable_evaluation_activity``'s pattern), then publishes the reload-taggers
+    notification manually — otherwise workers keep the disabled tagger in memory
+    until something else triggers a reload.
+    """
+    from django.db import transaction
+
+    from posthog.plugins.plugin_server_api import reload_taggers_on_workers
 
     def _disable():
-        Tagger.objects.filter(id=tagger_id, team_id=team_id).update(enabled=False)
+        updated = Tagger.objects.filter(id=tagger_id, team_id=team_id).update(enabled=False)
+        if updated:
+            transaction.on_commit(lambda: reload_taggers_on_workers(team_id=team_id, tagger_ids=[tagger_id]))
 
     await database_sync_to_async(_disable)()
 
@@ -585,12 +609,25 @@ class RunTaggerWorkflow(PostHogWorkflow):
         start_time = temporalio.workflow.now()
 
         # Activity 1: Fetch tagger config
-        tagger = await temporalio.workflow.execute_activity(
-            fetch_tagger_activity,
-            inputs,
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            tagger = await temporalio.workflow.execute_activity(
+                fetch_tagger_activity,
+                inputs,
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except temporalio.exceptions.ActivityError as e:
+            if isinstance(e.cause, ApplicationError) and e.cause.details:
+                details = e.cause.details[0]
+                if details.get("error_type") == "tagger_disabled":
+                    return {
+                        "tags": [],
+                        "skipped": True,
+                        "skip_reason": "tagger_disabled",
+                        "message": e.cause.message,
+                        "tagger_id": inputs.tagger_id,
+                    }
+            raise
 
         tagger_type = tagger.get("tagger_type", "llm")
 
