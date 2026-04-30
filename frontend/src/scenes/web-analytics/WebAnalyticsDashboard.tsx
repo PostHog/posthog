@@ -462,7 +462,7 @@ const BotAnalyticsTiles = (): JSX.Element => {
             </LemonBanner>
             {isInternalPosthogTeam && (
                 <LemonBanner type="info" dismissKey="bot-analytics-internal-sample-data" className="mb-4">
-                    Want to see what this looks like with real bot traffic?{' '}
+                    While we're testing this, posthog.com bot traffic is being captured into a separate project.{' '}
                     <Link
                         to="/project/371937/web/bots?date_from=-7d&date_to=&interval=hour&filters=%5B%7B%22key%22%3A%22%24virt_bot_name%22%2C%22value%22%3A%5B%22Meta%20AI%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D"
                         target="_blank"
