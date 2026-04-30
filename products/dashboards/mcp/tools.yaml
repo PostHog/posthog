@@ -157,15 +157,9 @@ tools:
         description: >
             Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set
             refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or
-<<<<<<< HEAD
-            'json' for raw query results. Supports variables_override (JSON object with {"variable_id": {"value":
-            "new_value"}}) and filters_override query params to run insights with one-off overrides without persisting
-            changes to the dashboard. Use dashboard-get to see the dashboard's current variables and their IDs.
-=======
             'json' for raw query results. Supports variables_override (JSON object with {"variable_id": {"value": "new_value"}})
             and filters_override query params to run insights with one-off overrides without persisting changes to the
             dashboard. Use dashboard-get to see the dashboard's current variables and their IDs.
->>>>>>> 0ffb47d9 (chore(dashboards): clarify dashboard-get override params only show merged state)
     dashboard-reorder-tiles:
         operation: dashboards_reorder_tiles_create
         enabled: true
