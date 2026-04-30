@@ -235,7 +235,8 @@ export async function handleGitRequest(
         cacheKey = 'marketplace'
     } else if (pluginType === 'core') {
         const version = skills[0]?.version ?? '0.0.0'
-        files = buildCorePluginFiles(version)
+        const bundles = getBundles(archive)
+        files = buildCorePluginFiles(version, bundles)
         cacheKey = 'core'
     } else if (pluginType === 'bundle') {
         const bundles = getBundles(archive)

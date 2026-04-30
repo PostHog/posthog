@@ -136,10 +136,74 @@ export function extractBundlesFromArchive(archive: Unzipped): BundleEntry[] {
 }
 
 /**
- * Build the file tree for the core PostHog plugin.
- * Contains MCP server config and plugin metadata — no skills.
+ * Generate the recommend-skills SKILL.md content.
+ * Dynamically includes the current bundle catalog so the skill
+ * always recommends from the latest available bundles.
  */
-export function buildCorePluginFiles(version: string): FileTree {
+function buildRecommendSkillContent(bundles: BundleEntry[]): string {
+    const bundleList = bundles
+        .map((b) => `- **posthog-${b.name}**: ${b.description} (keywords: ${b.keywords.join(', ')})`)
+        .join('\n')
+
+    return `---
+name: recommend-posthog-skills
+description: >
+  Detect the user's technology stack and recommend the right PostHog skill
+  bundle. Run this when the user installs the PostHog plugin, asks about
+  PostHog setup, or when you detect a project that could benefit from
+  PostHog integration.
+allowed-tools:
+  - Bash
+  - Read
+---
+
+# Recommend PostHog Skills
+
+You are helping the user install the right PostHog skills for their project.
+
+## Step 1: Detect the technology stack
+
+Check the project for framework indicators:
+
+\`\`\`bash
+# Check for key files
+ls package.json requirements.txt Gemfile go.mod Cargo.toml build.gradle pubspec.yaml 2>/dev/null
+
+# If package.json exists, check dependencies
+cat package.json 2>/dev/null | grep -E '"(next|react|react-native|expo|vue|nuxt|svelte|@sveltejs|astro|angular)"' | head -10
+
+# If requirements.txt or setup.py exists
+cat requirements.txt setup.py pyproject.toml 2>/dev/null | grep -iE '(django|flask|fastapi)' | head -5
+
+# If Gemfile exists
+cat Gemfile 2>/dev/null | grep -iE '(rails|sinatra)' | head -5
+\`\`\`
+
+## Step 2: Match to a bundle
+
+Based on what you find, recommend ONE bundle from this list:
+
+${bundleList}
+
+## Step 3: Recommend installation
+
+Tell the user which bundle matches their stack and give them the install command:
+
+\`\`\`
+/plugin install posthog-{bundle-name}@posthog
+\`\`\`
+
+If the project uses multiple frameworks (e.g., a Next.js frontend + Python backend), recommend multiple bundles.
+
+If no framework is detected, ask the user what they're building.
+`
+}
+
+/**
+ * Build the file tree for the core PostHog plugin.
+ * Contains MCP server config, the recommend-skills skill, and plugin metadata.
+ */
+export function buildCorePluginFiles(version: string, bundles: BundleEntry[] = []): FileTree {
     const files: FileTree = {}
 
     files['.claude-plugin/plugin.json'] = JSON.stringify(
@@ -169,6 +233,10 @@ export function buildCorePluginFiles(version: string): FileTree {
         null,
         2
     )
+
+    if (bundles.length > 0) {
+        files['skills/recommend-posthog-skills/SKILL.md'] = buildRecommendSkillContent(bundles)
+    }
 
     return files
 }
