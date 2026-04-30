@@ -1,7 +1,3 @@
--- Create the denormalized person lookup table for the dedicated feature flags read store.
--- See rfc_internal/engineering/2026-03-03-dedicated-ff-read-store.md and
--- rust/feature-flags/docs/poc-issue.md for the design.
---
 -- One row per person, keyed on (team_id, person_uuid), with a distinct_ids TEXT[]
 -- column indexed by GIN so the flags service can replace its two-table JOIN with a
 -- single PK / GIN read. HASH-partitioned by team_id (64 partitions) to mirror the
@@ -48,8 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_flags_person_gin
     ON flags_person_lookup
     USING GIN (team_id, distinct_ids);
 
--- Heartbeat / lag-monitoring table (poc-issue.md section 1, phase0-next-steps.md
--- section 8). The CDC consumer will write one row per (source, partition) with
+-- Heartbeat / lag-monitoring table. The CDC consumer will write one row per (source, partition) with
 -- the last Kafka offset / event timestamp it processed; the shadow read path will
 -- join against this for staleness checks. Table-only in Step 1; no writes yet.
 CREATE TABLE IF NOT EXISTS flags_read_store_heartbeat (
