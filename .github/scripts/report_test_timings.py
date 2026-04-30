@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["posthoganalytics~=7.13"]
+# dependencies = ["posthoganalytics~=7.13", "defusedxml~=0.7"]
 # ///
 """Emit per-test execution events from Backend CI JUnit XML artifacts.
 
@@ -20,11 +20,12 @@ import os
 import sys
 import logging
 import argparse
-import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from xml.etree.ElementTree import Element  # type-only, parsing goes through defusedxml
 
+import defusedxml.ElementTree as ET  # XXE-safe stdlib drop-in
 from posthoganalytics import Posthog
 
 logger = logging.getLogger("report_test_timings")
@@ -63,7 +64,7 @@ def derive_segment_and_group(artifact_dir_name: str) -> tuple[str, str | None]:
     return "".join(p.title() for p in parts), None
 
 
-def classify_testcase(testcase: ET.Element) -> tuple[str, int]:
+def classify_testcase(testcase: Element) -> tuple[str, int]:
     """Return (outcome, attempts) from a single `<testcase>` element.
 
     pytest-rerunfailures emits prior attempts as `<rerunFailure>` /
@@ -91,14 +92,15 @@ def to_nodeid(classname: str, name: str) -> str:
     return f"{classname.replace('.', '/')}::{name}" if classname else name
 
 
-def iter_testcases(xml_path: Path) -> Iterator[ET.Element]:
+def iter_testcases(xml_path: Path) -> Iterator[Element]:
     """Yield `<testcase>` elements from a junit XML file. Tolerant of malformed input."""
     try:
         tree = ET.parse(xml_path)
     except ET.ParseError as exc:
         logger.warning("failed to parse %s: %s", xml_path, exc)
         return
-    yield from tree.getroot().iter("testcase")
+    root = tree.getroot()
+    yield from root.iter("testcase")
 
 
 def collect_testcases(artifacts_root: Path) -> list[TestEvent]:

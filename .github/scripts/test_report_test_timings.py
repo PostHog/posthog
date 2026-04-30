@@ -69,7 +69,7 @@ def test_to_nodeid(classname: str, name: str, expected: str) -> None:
     ],
 )
 def test_classify_testcase(xml_snippet: str, expected_outcome: str, expected_attempts: int) -> None:
-    import xml.etree.ElementTree as ET
+    import defusedxml.ElementTree as ET
 
     outcome, attempts = report_test_timings.classify_testcase(ET.fromstring(xml_snippet))
     assert outcome == expected_outcome
