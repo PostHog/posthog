@@ -270,11 +270,17 @@ jobs:
                     docker compose -f docker-compose.dev.yml exec -T db \
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
-            - name: Run migrations
+            - name: Restore pre-migrated Django schema
+              # PRs reuse the master migrated-schema artifact and pytest --reuse-db
+              # applies any new migrations on top via Django's keepdb=True path.
+              # Master falls through to pytest's fresh migrate (no artifact lookup).
+              if: ${{ github.event_name == 'pull_request' }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: ./bin/hogli db:prime-test-db
+
+            - name: Run persons migrations
               run: |
-                  # Run Django migrations first
-                  python manage.py migrate
-                  # Then run persons migrations using sqlx
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx database create
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
@@ -287,6 +293,7 @@ jobs:
             - name: Run Dagster tests
               run: |
                   pytest posthog/dags products/**/dags \
+                      --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
