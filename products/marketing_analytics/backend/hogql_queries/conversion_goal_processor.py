@@ -28,6 +28,7 @@ from posthog.models import Action, Team
 
 from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
+from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
 
 DAY_IN_SECONDS = 86400
 LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
@@ -296,6 +297,7 @@ class ConversionGoalProcessor:
                 if precomputed_attribution is not None:
                     return self._build_final_aggregation_query(precomputed_attribution)
             except Exception:
+                CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER.inc()
                 logger.exception(
                     "conversion_goal_precompute_failed",
                     goal_id=self.goal.conversion_goal_id,
@@ -1580,6 +1582,9 @@ class ConversionGoalProcessor:
 
         if for_precompute:
             # fromUnixTimestamp, not toDateTime: timestamps are Int64 here and toDateTime expects String in HogQL.
+            # Organic conversions (no UTM pageview in attribution window) leave last_utm_timestamp=0
+            # via arrayMax over an empty array; fall back to conversion_time so the stored DateTime
+            # is meaningful instead of 1970-01-01.
             select_columns.extend(
                 [
                     ast.Alias(
@@ -1588,7 +1593,23 @@ class ConversionGoalProcessor:
                     ),
                     ast.Alias(
                         alias="touchpoint_timestamp",
-                        expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["last_utm_timestamp"])]),
+                        expr=ast.Call(
+                            name="fromUnixTimestamp",
+                            args=[
+                                ast.Call(
+                                    name="if",
+                                    args=[
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["last_utm_timestamp"]),
+                                            op=ast.CompareOperationOp.Gt,
+                                            right=ast.Constant(value=0),
+                                        ),
+                                        ast.Field(chain=["last_utm_timestamp"]),
+                                        ast.Field(chain=["conversion_time"]),
+                                    ],
+                                ),
+                            ],
+                        ),
                     ),
                     ast.Alias(alias="touchpoint_weight", expr=ast.Constant(value=1.0)),
                 ]
