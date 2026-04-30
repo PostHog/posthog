@@ -2029,20 +2029,19 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             day_key = run_created_at.date().isoformat()
             key = (run_type, identifier)
             buckets = sparkline_by_key[key][day_key]
+            # mypy keeps narrowing `result` (the values_list element) to a
+            # Literal that excludes one of the comparison arms — direct
+            # equality checks against this variable get flagged as
+            # unreachable in either direction. `str(result)` is opaque to
+            # the narrower and lets the four-way classify run as written.
+            result_str = str(result)
             if is_quar:
                 buckets.quarantined += 1
             elif tol_match_id is not None:
                 buckets.tolerated += 1
-            elif result == "unchanged":
+            elif result_str == "unchanged":
                 buckets.clean += 1
-            else:  # type: ignore[unreachable]
-                # `result` ∈ {changed, new, removed, unchanged}. Quarantined and
-                # tolerated paths handle the soft "ok-ish" cases; `unchanged`
-                # is the strict-clean path; anything else is a baseline-moving
-                # event. mypy narrows `result` to `Literal["unchanged"]` here
-                # by some django-stubs path I haven't been able to track down,
-                # which makes the literal `unchanged` arm seem to consume all
-                # cases — hence the ignore on the else.
+            else:
                 buckets.changed += 1
             if diff_pct is not None and diff_pct > 0:
                 drift_sum_by_key[key] += diff_pct
