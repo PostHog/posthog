@@ -58,7 +58,10 @@ PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
 # PostHog Code: personal GitHub integration complete → web → deep-link (see ``AccountConnected`` / ``github-integration``).
 ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
 
-GITHUB_OAUTH_REDIRECT_URI = f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
+
+def github_oauth_redirect_uri() -> str:
+    """GitHub OAuth redirect for personal link; reads SITE_URL at call time so tests can override."""
+    return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
 class UserGitHubAccountSerializer(serializers.Serializer):
@@ -400,7 +403,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
 
     # Exchange code for user-to-server tokens
     if oauth_flow:
-        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=GITHUB_OAUTH_REDIRECT_URI)
+        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
     else:
         authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
@@ -520,7 +523,7 @@ def _attempt_posthog_code_oauth_fast_path(user: User, team: Any, token: str, sta
         timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
     )
     install_url = "https://github.com/login/oauth/authorize?" + urlencode(
-        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": GITHUB_OAUTH_REDIRECT_URI, "state": state}
+        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": github_oauth_redirect_uri(), "state": state}
     )
     return Response({"install_url": install_url, "connect_flow": "oauth_authorize"})
 
