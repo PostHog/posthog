@@ -21,8 +21,9 @@ export function LogsSamplingSection(): JSX.Element | null {
         <BindLogic logic={logsSamplingSectionLogic} props={{}}>
             <div className="space-y-3">
                 <p className="text-muted m-0">
-                    Drop or sample logs before storage using ordered rules. Evaluation runs in ingestion after scrubbing
-                    and optional JSON parse. See the public logs docs for ingestion and retention.
+                    Exclude noisy or sensitive lines before they are stored. Rules are evaluated in order during
+                    ingestion. Use pattern drops (regex on a path or one attribute) or drop by severity; hover ⓘ on the
+                    rule form for details.
                 </p>
                 <LogsSamplingSectionTable />
             </div>
@@ -32,10 +33,10 @@ export function LogsSamplingSection(): JSX.Element | null {
 
 function ruleTypeLabel(t: RuleTypeEnumApi): string {
     if (t === RuleTypeEnumApi.SeveritySampling) {
-        return 'Severity sampling'
+        return 'Drop by severity'
     }
     if (t === RuleTypeEnumApi.PathDrop) {
-        return 'Path drop'
+        return 'Drop when matched'
     }
     return 'Rate limit'
 }
@@ -53,7 +54,7 @@ function LogsSamplingSectionTable(): JSX.Element {
                     size="small"
                     type="tertiary"
                     to={urls.logsSamplingDetail(row.id)}
-                    data-attr="logs-sampling-rule-link"
+                    data-attr="logs-drop-rule-link"
                 >
                     <strong>{row.name}</strong>
                 </LemonButton>
@@ -82,14 +83,14 @@ function LogsSamplingSectionTable(): JSX.Element {
         <div>
             <div className="flex justify-end mb-2">
                 <LemonButton type="primary" icon={<IconPlus />} to={urls.logsSamplingNew()}>
-                    New sampling rule
+                    New drop rule
                 </LemonButton>
             </div>
             <LemonTable
                 columns={columns}
                 dataSource={rules}
                 loading={rulesLoading}
-                emptyState="No sampling rules yet"
+                emptyState="No drop rules yet"
                 rowKey="id"
                 size="small"
             />

@@ -12,18 +12,18 @@ import { logsSamplingFormLogic } from './logsSamplingFormLogic'
 const RULE_TYPE_OPTIONS_CREATE: { value: RuleTypeEnumApi; label: string }[] = [
     {
         value: RuleTypeEnumApi.PathDrop,
-        label: 'Drop when matched (regex patterns)',
+        label: 'Drop when matched (regex on path or attribute)',
     },
     {
         value: RuleTypeEnumApi.SeveritySampling,
-        label: 'Drop or sample by severity',
+        label: 'Drop by severity',
     },
 ]
 
 const ACTION_OPTIONS: { value: SeverityActionChoice; label: string }[] = [
     { value: 'keep', label: 'Keep' },
-    { value: 'drop', label: 'Drop' },
-    { value: 'sample', label: 'Sample' },
+    { value: 'drop', label: 'Drop (not stored)' },
+    { value: 'sample', label: 'Sample (keep some)' },
 ]
 
 function SeverityRow({
@@ -71,7 +71,7 @@ function ruleTypeLabel(ruleType: RuleTypeEnumApi): string {
         return 'Drop when matched'
     }
     if (ruleType === RuleTypeEnumApi.SeveritySampling) {
-        return 'Severity-based'
+        return 'Drop by severity'
     }
     return ruleType
 }
@@ -116,6 +116,14 @@ export function LogsSamplingForm(): JSX.Element {
                 <LemonField.Pure
                     label="What should this rule do?"
                     info="You can create multiple rules; lower priority number runs first. The first rule that matches wins for each log line."
+                    help={
+                        <>
+                            “Drop by severity” is for whole severity levels (info, warn, …). “Drop when matched” is for
+                            regex on a path string or one attribute you pick. Optional{' '}
+                            <strong>Sample (keep some)</strong> on severity only reduces volume while keeping a random
+                            subset per trace.
+                        </>
+                    }
                 >
                     <LemonSelect
                         options={RULE_TYPE_OPTIONS_CREATE}
@@ -128,6 +136,10 @@ export function LogsSamplingForm(): JSX.Element {
                     <LemonTag>{ruleTypeLabel(samplingForm.rule_type)}</LemonTag>
                 </LemonField.Pure>
             )}
+            <p className="text-secondary text-xs -mt-2">
+                Grey text under fields is always visible. The <span className="text-secondary font-semibold">ⓘ</span>{' '}
+                beside a label opens more detail on hover.
+            </p>
             <LemonField.Pure
                 label="Scope: service name (optional)"
                 info="If set, the rule only runs for logs from this service.name. Leave empty to apply to all services."
@@ -150,15 +162,40 @@ export function LogsSamplingForm(): JSX.Element {
             </LemonField.Pure>
             {isPathDrop ? (
                 <>
+                    <LemonBanner type="info">
+                        <div className="text-sm space-y-2">
+                            <div>
+                                <strong>Example — drop health checks (default path):</strong> leave “Attribute key”
+                                empty. Patterns{' '}
+                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">/healthz</code> and{' '}
+                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">/ready</code> — if{' '}
+                                <em>any</em> line matches the log’s path-like value (first of{' '}
+                                <code className="text-xs font-mono">url.path</code>,{' '}
+                                <code className="text-xs font-mono">http.path</code>,{' '}
+                                <code className="text-xs font-mono">http.route</code>,{' '}
+                                <code className="text-xs font-mono">path</code>), the whole log line is dropped.
+                            </div>
+                            <div>
+                                <strong>Example — drop by custom attribute:</strong> attribute key{' '}
+                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">
+                                    deployment.environment
+                                </code>
+                                , pattern{' '}
+                                <code className="text-xs font-mono bg-bg-mid rounded px-1 py-0.5">^staging$</code> —
+                                only that attribute’s string is tested (not the URL). One key per rule; combine scopes
+                                with separate rules if needed.
+                            </div>
+                        </div>
+                    </LemonBanner>
                     <LemonField.Pure
                         label="Attribute key (optional)"
-                        info="Leave empty to match patterns against the default path-like attributes (same order as scope above). If you set a key, every pattern line is tested only against that one string attribute—useful for non-HTTP dimensions. One key per rule; there is no AND/OR builder across multiple keys yet."
-                        help="Patterns are still OR’d: any single matching line drops the log."
+                        info="Not a dropdown: type the exact OpenTelemetry log attribute name (same string as in your SDK / collector). Empty = use PostHog’s built-in path-like attributes in order: url.path, http.path, http.route, path."
+                        help="This is the single string field your regex lines are tested against. It is not a property picker—copy the key from your logs (e.g. http.route) or leave empty for automatic path matching."
                     >
                         <LemonInput
                             value={samplingForm.path_drop_match_attribute_key}
                             onChange={(v) => setSamplingFormValue('path_drop_match_attribute_key', v)}
-                            placeholder="http.route"
+                            placeholder="Leave empty for path — or e.g. http.route"
                         />
                     </LemonField.Pure>
                     <LemonField.Pure
@@ -171,6 +208,7 @@ export function LogsSamplingForm(): JSX.Element {
                                 ingestion—test patterns carefully.
                             </>
                         }
+                        help="Example lines: /internal/ (substring), ^/api/v1/debug/ (prefix), .*noise.* (broad — use carefully). OR across lines: first matching pattern wins the drop."
                     >
                         <LemonTextArea
                             value={samplingForm.path_drop_patterns}
@@ -183,16 +221,36 @@ export function LogsSamplingForm(): JSX.Element {
             ) : null}
             {isSeverity ? (
                 <>
-                    <LemonBanner type="warning">
-                        Severity rules run at ingestion in order with your other rules. <strong>Drop</strong> removes
-                        the line. <strong>Sample</strong> keeps a random fraction per trace id (deterministic for the
-                        same trace). Use <strong>Keep</strong> to leave that level unchanged by this rule.
+                    <LemonBanner type="info">
+                        <div className="text-sm space-y-2">
+                            <div>
+                                <strong>Example — drop only noisy info logs:</strong> set <strong>Info</strong> to{' '}
+                                <strong>Drop (not stored)</strong>, leave Debug / Warn / Error on <strong>Keep</strong>.
+                                Every matching INFO line in scope is removed at ingestion; other levels pass through
+                                unless another rule matches first.
+                            </div>
+                            <div>
+                                <strong>Advanced:</strong> <strong>Sample (keep some)</strong> keeps a stable random
+                                fraction per trace (same trace → same decision). Use when you still want some lines at
+                                that severity in PostHog.
+                            </div>
+                        </div>
                     </LemonBanner>
-                    <div className="font-semibold">Per severity level</div>
-                    <SeverityRow label="Debug" actionKey="severity_debug" rateKey="severity_debug_rate" />
-                    <SeverityRow label="Info" actionKey="severity_info" rateKey="severity_info_rate" />
-                    <SeverityRow label="Warn" actionKey="severity_warn" rateKey="severity_warn_rate" />
-                    <SeverityRow label="Error" actionKey="severity_error" rateKey="severity_error_rate" />
+                    <LemonBanner type="warning">
+                        <strong>Drop</strong> and <strong>Sample (keep some)</strong> both remove data from storage for
+                        affected lines; only <strong>Keep</strong> leaves that severity unchanged for this rule.
+                    </LemonBanner>
+                    <LemonField.Pure
+                        label="Per severity level"
+                        info="Evaluated after scope (service + path filter above). Ordinals follow OpenTelemetry severity on the log line (debug, info, warn, error)."
+                    >
+                        <div className="flex flex-col gap-2">
+                            <SeverityRow label="Debug" actionKey="severity_debug" rateKey="severity_debug_rate" />
+                            <SeverityRow label="Info" actionKey="severity_info" rateKey="severity_info_rate" />
+                            <SeverityRow label="Warn" actionKey="severity_warn" rateKey="severity_warn_rate" />
+                            <SeverityRow label="Error" actionKey="severity_error" rateKey="severity_error_rate" />
+                        </div>
+                    </LemonField.Pure>
                     <div className="font-semibold mt-2">Always keep (optional)</div>
                     <LemonField.Pure
                         label="HTTP status >="
