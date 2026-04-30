@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-29 20:22:06 UTC
+// Generated at: 2026-04-30 20:21:05 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,6 +11,7 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
+    | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
     | 'arcee-ai'
@@ -26,7 +27,6 @@ export type CanonicalProvider =
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'clarifai-bf16'
-    | 'clarifai-fp4'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
@@ -109,6 +109,7 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
+    | 'stealth-int8'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'switchpoint'
