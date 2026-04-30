@@ -12,6 +12,7 @@ from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_harness.budgets import BudgetCaps, resolve_budget
+from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.agent_harness.prompt import build_run_prompt
 from products.signals.backend.agent_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.models import SignalAgentConfig, SignalAgentRun
@@ -85,13 +86,23 @@ async def arun_signals_agent(
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team)
+    # Lazy-seed canonical signals-agent-* skills before we resolve the skill the run
+    # asked for. No-op when the team already has any signals-agent-* row (preserves
+    # edits/forks). Failures here should not crash the run — we log and continue.
+    try:
+        await database_sync_to_async(seed_canonical_skills, thread_sensitive=False)(team)
+    except Exception:
+        logger.exception(
+            "signals_agent: lazy seed failed; continuing with existing team skills",
+            extra={"team_id": team_id},
+        )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
         team, skill_name, version=skill_version
     )
     budget = _budget_for_run(config, budget_overrides)
 
     # Skip-if-running guard. Best-effort — there is a TOCTOU window between this check
-    # and the row insert below, but the spec accepts that for v1 (no claim/lease primitive).
+    # and the row insert below; we accept that until a claim/lease primitive lands.
     if await database_sync_to_async(_has_running_run, thread_sensitive=False)(team_id, config.id):
         logger.info(
             "signals_agent: skipping trigger, prior run still RUNNING",
@@ -143,7 +154,7 @@ async def arun_signals_agent(
             exc=exc,
             runtime_s=runtime_s,
             budget=budget,
-            skill_id=skill.skill_id,
+            skill=skill,
         )
         return RunResult(
             run_id=str(run.id),
@@ -188,8 +199,8 @@ async def _spawn_and_run(
         origin_product=Task.OriginProduct.SIGNALS_AGENT.value,
         verbose=verbose,
     )
-    # Budget is captured on the run row but not enforced in Phase 2 — the spawn path is
-    # one-shot, the budget will gate per-tool-call iteration once Phase 3 lands.
+    # Budget is captured on the run row but not enforced here — the spawn path is one-shot,
+    # so per-tool-call iteration will gate against the budget once the agent-SDK glue lands.
     _ = budget
     return last_message
 
@@ -225,7 +236,11 @@ def _create_run_row(
         skill_name=skill.name,
         skill_version=skill.version,
         status=SignalAgentRun.Status.RUNNING,
-        metadata={"budget": budget.as_dict(), "skill_id": skill.skill_id},
+        metadata={
+            "budget": budget.as_dict(),
+            "skill_id": skill.skill_id,
+            "allowed_tools": skill.allowed_tools_resolution.as_dict(),
+        },
     )
 
 
@@ -244,7 +259,7 @@ def _finalize_failed(
     exc: BaseException,
     runtime_s: float,
     budget: BudgetCaps,
-    skill_id: str,
+    skill: LoadedSkill,
 ) -> None:
     SignalAgentRun.objects.filter(id=run_id).update(
         status=SignalAgentRun.Status.FAILED,
@@ -253,7 +268,8 @@ def _finalize_failed(
         budget_used={"runtime_s": runtime_s},
         metadata={
             "budget": budget.as_dict(),
-            "skill_id": skill_id,
+            "skill_id": skill.skill_id,
+            "allowed_tools": skill.allowed_tools_resolution.as_dict(),
             "error_type": type(exc).__name__,
         },
     )
