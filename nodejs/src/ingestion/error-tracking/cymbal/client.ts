@@ -252,7 +252,6 @@ export class CymbalClient {
                 logger.warn('⚠️', 'cymbal_timeout_fan_out', {
                     url,
                     chunkSize: chunk.length,
-                    teamIds: [...new Set(chunk.map((item) => item.request.team_id))],
                 })
                 const results = await this.fanOutOnTimeout(url, chunk)
                 allResults.push(...results)
