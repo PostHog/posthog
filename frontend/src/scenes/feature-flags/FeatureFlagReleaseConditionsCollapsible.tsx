@@ -16,6 +16,7 @@ import React, { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 
 import {
+    IconBrackets,
     IconCollapse,
     IconCopy,
     IconExpand,
@@ -24,7 +25,6 @@ import {
     IconPeople,
     IconPerson,
     IconPlus,
-    IconTarget,
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
@@ -548,7 +548,7 @@ const ConditionContent = ({
                                         </div>
                                     )}
                                     <div>
-                                        <LemonLabel className="mb-1">Filters</LemonLabel>
+                                        <LemonLabel className="mb-1">Match filters</LemonLabel>
                                         <PropertyFilters
                                             orFiltering={true}
                                             pageKey={`feature-flag-workflow-${id}-${group.sort_key!}`}
@@ -916,12 +916,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const v2MatchByOptions = [
         {
             value: 'properties',
-            icon: <IconTarget className="text-base shrink-0" />,
+            icon: <IconBrackets className="text-base shrink-0" />,
             label: 'Properties',
             description: showGroupsOptions
                 ? 'Target by user or group property filters. Each condition picks its own targeting type.'
                 : 'Target by user property filters.',
-            badge: { type: 'warning' as const, text: 'BETA' },
         },
         ...(onBucketingIdentifierChange
             ? [
