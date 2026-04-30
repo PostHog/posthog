@@ -109,80 +109,163 @@ impl rdkafka::ClientContext for KafkaContext {
 
 #[derive(Clone)]
 pub struct KafkaSink {
-    producer: FutureProducer<KafkaContext>,
+    logs_producer: FutureProducer<KafkaContext>,
+    traces_producer: FutureProducer<KafkaContext>,
     logs_topic: String,
     traces_topic: String,
 }
 
-impl KafkaSink {
-    pub async fn new(config: KafkaConfig, liveness: HealthHandle) -> anyhow::Result<KafkaSink> {
-        info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
+#[allow(clippy::too_many_arguments)]
+fn build_client_config(
+    bootstrap_servers: &str,
+    tls: bool,
+    client_id: &str,
+    compression_codec: &str,
+    producer_acks: &str,
+    producer_linger_ms: u32,
+    producer_queue_mib: u32,
+    message_timeout_ms: u32,
+    producer_message_max_bytes: u32,
+    producer_max_retries: u32,
+    topic_metadata_refresh_interval_ms: u32,
+    metadata_max_age_ms: u32,
+) -> ClientConfig {
+    let mut client_config = ClientConfig::new();
+    client_config
+        .set("bootstrap.servers", bootstrap_servers)
+        .set("statistics.interval.ms", "10000")
+        .set("partitioner", "murmur2_random") // Compatibility with python-kafka
+        .set("metadata.max.age.ms", metadata_max_age_ms.to_string())
+        .set(
+            "topic.metadata.refresh.interval.ms",
+            topic_metadata_refresh_interval_ms.to_string(),
+        )
+        .set("message.send.max.retries", producer_max_retries.to_string())
+        .set("linger.ms", producer_linger_ms.to_string())
+        .set("message.max.bytes", producer_message_max_bytes.to_string())
+        .set("message.timeout.ms", message_timeout_ms.to_string())
+        .set("compression.codec", compression_codec)
+        .set(
+            "queue.buffering.max.kbytes",
+            (producer_queue_mib * 1024).to_string(),
+        )
+        .set("acks", producer_acks);
 
-        let mut client_config = ClientConfig::new();
+    if !client_id.is_empty() {
+        client_config.set("client.id", client_id);
+    }
+
+    if tls {
         client_config
-            .set("bootstrap.servers", &config.kafka_hosts)
-            .set("statistics.interval.ms", "10000")
-            .set("partitioner", "murmur2_random") // Compatibility with python-kafka
-            .set(
-                "metadata.max.age.ms",
-                config.kafka_metadata_max_age_ms.to_string(),
-            )
-            .set(
-                "topic.metadata.refresh.interval.ms",
-                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
-            )
-            .set(
-                "message.send.max.retries",
-                config.kafka_producer_max_retries.to_string(),
-            )
-            .set("linger.ms", config.kafka_producer_linger_ms.to_string())
-            .set(
-                "message.max.bytes",
-                config.kafka_producer_message_max_bytes.to_string(),
-            )
-            .set(
-                "message.timeout.ms",
-                config.kafka_message_timeout_ms.to_string(),
-            )
-            .set("compression.codec", config.kafka_compression_codec)
-            .set(
-                "queue.buffering.max.kbytes",
-                (config.kafka_producer_queue_mib * 1024).to_string(),
-            )
-            .set("acks", config.kafka_producer_acks.to_string());
+            .set("security.protocol", "ssl")
+            .set("enable.ssl.certificate.verification", "false");
+    }
 
-        if !&config.kafka_client_id.is_empty() {
-            client_config.set("client.id", &config.kafka_client_id);
-        }
+    client_config
+}
 
-        if config.kafka_tls {
-            client_config
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", "false");
-        };
+async fn build_producer(
+    client_config: ClientConfig,
+    liveness: HealthHandle,
+    label: &str,
+) -> anyhow::Result<FutureProducer<KafkaContext>> {
+    debug!("rdkafka {label} configuration: {client_config:?}");
+    let producer: FutureProducer<KafkaContext> =
+        client_config.create_with_context(KafkaContext {
+            liveness: liveness.clone(),
+        })?;
 
-        debug!("rdkafka configuration: {client_config:?}");
-        let producer: FutureProducer<KafkaContext> =
-            client_config.create_with_context(KafkaContext {
-                liveness: liveness.clone(),
-            })?;
+    // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
+    // Note: we don't error if we fail to connect as there may be other sinks that report healthy
+    if producer
+        .client()
+        .fetch_metadata(
+            Some("__consumer_offsets"),
+            Timeout::After(Duration::new(10, 0)),
+        )
+        .is_ok()
+    {
+        liveness.report_healthy().await;
+        info!("connected to Kafka brokers ({label})");
+    };
 
-        // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-        // Note: we don't error if we fail to connect as there may be other sinks that report healthy
-        if producer
-            .client()
-            .fetch_metadata(
-                Some("__consumer_offsets"),
-                Timeout::After(Duration::new(10, 0)),
-            )
-            .is_ok()
-        {
-            liveness.report_healthy().await;
-            info!("connected to Kafka brokers");
-        };
+    Ok(producer)
+}
+
+impl KafkaSink {
+    pub async fn new(
+        config: KafkaConfig,
+        logs_liveness: HealthHandle,
+        traces_liveness: HealthHandle,
+    ) -> anyhow::Result<KafkaSink> {
+        info!(
+            "connecting to logs Kafka brokers at {}...",
+            config.kafka_hosts
+        );
+        let logs_client_config = build_client_config(
+            &config.kafka_hosts,
+            config.kafka_tls,
+            &config.kafka_client_id,
+            &config.kafka_compression_codec,
+            &config.kafka_producer_acks,
+            config.kafka_producer_linger_ms,
+            config.kafka_producer_queue_mib,
+            config.kafka_message_timeout_ms,
+            config.kafka_producer_message_max_bytes,
+            config.kafka_producer_max_retries,
+            config.kafka_topic_metadata_refresh_interval_ms,
+            config.kafka_metadata_max_age_ms,
+        );
+        let logs_producer = build_producer(logs_client_config, logs_liveness, "logs").await?;
+
+        let traces_hosts = config
+            .kafka_traces_hosts
+            .clone()
+            .unwrap_or_else(|| config.kafka_hosts.clone());
+        info!("connecting to traces Kafka brokers at {}...", traces_hosts);
+        let traces_client_config = build_client_config(
+            &traces_hosts,
+            config.kafka_traces_tls.unwrap_or(config.kafka_tls),
+            &config
+                .kafka_traces_client_id
+                .clone()
+                .unwrap_or_else(|| config.kafka_client_id.clone()),
+            &config
+                .kafka_traces_compression_codec
+                .clone()
+                .unwrap_or_else(|| config.kafka_compression_codec.clone()),
+            &config
+                .kafka_traces_producer_acks
+                .clone()
+                .unwrap_or_else(|| config.kafka_producer_acks.clone()),
+            config
+                .kafka_traces_producer_linger_ms
+                .unwrap_or(config.kafka_producer_linger_ms),
+            config
+                .kafka_traces_producer_queue_mib
+                .unwrap_or(config.kafka_producer_queue_mib),
+            config
+                .kafka_traces_message_timeout_ms
+                .unwrap_or(config.kafka_message_timeout_ms),
+            config
+                .kafka_traces_producer_message_max_bytes
+                .unwrap_or(config.kafka_producer_message_max_bytes),
+            config
+                .kafka_traces_producer_max_retries
+                .unwrap_or(config.kafka_producer_max_retries),
+            config
+                .kafka_traces_topic_metadata_refresh_interval_ms
+                .unwrap_or(config.kafka_topic_metadata_refresh_interval_ms),
+            config
+                .kafka_traces_metadata_max_age_ms
+                .unwrap_or(config.kafka_metadata_max_age_ms),
+        );
+        let traces_producer =
+            build_producer(traces_client_config, traces_liveness, "traces").await?;
 
         Ok(KafkaSink {
-            producer,
+            logs_producer,
+            traces_producer,
             logs_topic: config.kafka_topic,
             traces_topic: config.kafka_traces_topic,
         })
@@ -190,11 +273,14 @@ impl KafkaSink {
 
     pub fn flush(&self) -> Result<(), KafkaError> {
         // TODO: hook it up on shutdown
-        self.producer.flush(Duration::new(30, 0))
+        self.logs_producer.flush(Duration::new(30, 0))?;
+        self.traces_producer.flush(Duration::new(30, 0))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn write_avro_batch<T: serde::Serialize>(
         &self,
+        producer: &FutureProducer<KafkaContext>,
         topic: &str,
         avro_schema_str: &str,
         token: &str,
@@ -215,7 +301,7 @@ impl KafkaSink {
 
         let payload: Vec<u8> = writer.into_inner()?;
 
-        let future = match self.producer.send_result(FutureRecord {
+        let future = match producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
             partition: None,
@@ -279,6 +365,7 @@ impl KafkaSink {
         }
 
         self.write_avro_batch(
+            &self.logs_producer,
             &self.logs_topic,
             AVRO_SCHEMA,
             token,
@@ -307,6 +394,7 @@ impl KafkaSink {
         }
 
         self.write_avro_batch(
+            &self.traces_producer,
             &self.traces_topic,
             TRACES_AVRO_SCHEMA,
             token,

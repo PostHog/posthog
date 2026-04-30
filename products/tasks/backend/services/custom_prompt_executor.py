@@ -5,6 +5,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
+from products.tasks.backend.models import Task
 from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn, run_prompt
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,8 @@ async def run_sandbox_agent_get_structured_output(
     step_name: str = "",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    origin_product: Task.OriginProduct | None = None,
+    internal: bool = False,
 ) -> _ModelT:
     """Run an agent with a custom prompt in a sandbox and return validated Pydantic output."""
     try:
@@ -31,6 +34,8 @@ async def run_sandbox_agent_get_structured_output(
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
+            origin_product=origin_product,
+            internal=internal,
         )
     except Exception:
         logger.exception("Sandbox execution failed")

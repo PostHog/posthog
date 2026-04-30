@@ -53,8 +53,9 @@ class MultiTurnSession:
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
-        origin_product: str | None = None,
+        origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        internal: bool = False,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first response."""
         task, task_run = await _create_task_and_trigger(
@@ -64,6 +65,7 @@ class MultiTurnSession:
             step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            internal=internal,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns

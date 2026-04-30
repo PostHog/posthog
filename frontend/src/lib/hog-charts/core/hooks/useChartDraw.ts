@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
-import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, Series } from '../types'
+import type { ChartDimensions, ChartDrawArgs, ChartScales, ChartTheme, ResolvedSeries } from '../types'
 
 interface UseChartDrawOptions {
     /** Context for the static layer (grid, lines, areas, points). Redrawn only when chart inputs change. */
@@ -9,7 +9,7 @@ interface UseChartDrawOptions {
     overlayCtx: CanvasRenderingContext2D | null
     dimensions: ChartDimensions | null
     scales: ChartScales | null
-    series: Series[]
+    series: ResolvedSeries[]
     labels: string[]
     hoverIndex: number
     theme: ChartTheme
@@ -36,18 +36,34 @@ export function useChartDraw({
     drawStatic,
     drawHover,
 }: UseChartDrawOptions): void {
+    // Track the in-flight RAF id in a ref so each new effect run can cancel the previous
+    // RAF before scheduling its own. Relying on the React cleanup ordering alone leaves
+    // a window where a stale RAF from render N-1 can paint after render N's setup runs.
+    const staticRafRef = useRef<number | null>(null)
+    const hoverRafRef = useRef<number | null>(null)
+
     // Static layer — redraws only when chart inputs change. Excluded `hoverIndex` from deps
     // on purpose so a hover sweep doesn't repaint every line/area/point per move.
     useEffect(() => {
+        if (staticRafRef.current != null) {
+            cancelAnimationFrame(staticRafRef.current)
+            staticRafRef.current = null
+        }
         if (!ctx || !dimensions || !scales) {
             return
         }
-        const id = requestAnimationFrame(() => {
+        staticRafRef.current = requestAnimationFrame(() => {
+            staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
             drawStatic({ ctx, dimensions, scales, series, labels, hoverIndex: -1, theme })
             ctx.restore()
         })
-        return () => cancelAnimationFrame(id)
+        return () => {
+            if (staticRafRef.current != null) {
+                cancelAnimationFrame(staticRafRef.current)
+                staticRafRef.current = null
+            }
+        }
         // hoverIndex deliberately omitted — see comment above.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ctx, dimensions, scales, series, labels, theme, drawStatic])
@@ -55,14 +71,24 @@ export function useChartDraw({
     // Hover overlay — redraws only when hoverIndex changes (or chart inputs do). Cheap path:
     // clears the overlay canvas and draws a few highlight rings per series, nothing else.
     useEffect(() => {
+        if (hoverRafRef.current != null) {
+            cancelAnimationFrame(hoverRafRef.current)
+            hoverRafRef.current = null
+        }
         if (!overlayCtx || !dimensions || !scales) {
             return
         }
-        const id = requestAnimationFrame(() => {
+        hoverRafRef.current = requestAnimationFrame(() => {
+            hoverRafRef.current = null
             clearAndPrepare(overlayCtx, dimensions)
             drawHover({ ctx: overlayCtx, dimensions, scales, series, labels, hoverIndex, theme })
             overlayCtx.restore()
         })
-        return () => cancelAnimationFrame(id)
+        return () => {
+            if (hoverRafRef.current != null) {
+                cancelAnimationFrame(hoverRafRef.current)
+                hoverRafRef.current = null
+            }
+        }
     }, [overlayCtx, dimensions, scales, series, labels, hoverIndex, theme, drawHover])
 }

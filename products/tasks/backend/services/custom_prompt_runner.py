@@ -62,9 +62,13 @@ async def run_prompt(
     step_name: str = "",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    origin_product: Task.OriginProduct | None = None,
+    internal: bool = False,
 ) -> tuple[str, str]:
     """Spawn a sandbox agent with the given prompt and return (last_message, full_log)."""
-    task, task_run = await _create_task_and_trigger(prompt, context, branch, step_name)
+    task, task_run = await _create_task_and_trigger(
+        prompt, context, branch, step_name, origin_product=origin_product, internal=internal
+    )
     logger.info("custom_prompt: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
     # No try/catch, propagating to the caller, if it fails,
     # to turn into a clear failure instead of JSON parse error
@@ -78,8 +82,9 @@ async def _create_task_and_trigger(
     context: CustomPromptSandboxContext,
     branch: str | None = None,
     step_name: str = "",
-    origin_product: str | None = None,
+    origin_product: Task.OriginProduct | None = None,
     signal_report_id: str | None = None,
+    internal: bool = False,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -87,7 +92,7 @@ async def _create_task_and_trigger(
         team=team,
         title=title,
         description=description,
-        origin_product=Task.OriginProduct(origin_product) if origin_product else Task.OriginProduct.USER_CREATED,
+        origin_product=origin_product or Task.OriginProduct.USER_CREATED,
         user_id=context.user_id,
         repository=context.repository,
         create_pr=False,
@@ -95,6 +100,7 @@ async def _create_task_and_trigger(
         branch=branch,
         signal_report_id=signal_report_id,
         model=context.model,
+        internal=internal,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

@@ -3,7 +3,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { LineChart, ReferenceLine } from 'lib/hog-charts'
 import type { LineChartConfig, ReferenceLineFillSide, ReferenceLineVariant, Series } from 'lib/hog-charts'
 
-import { Stage, useReactiveTheme } from './story-helpers'
+import { Stage, useReactiveTheme } from '../story-helpers'
 
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 

@@ -256,7 +256,6 @@ async def _relay_loop(
                         params=params,
                     ) as event_source:
                         event_source.response.raise_for_status()
-                        reconnect_count = 0  # Reset on successful connection
                         last_event_time[0] = time.monotonic()
 
                         async for sse_event in event_source.aiter_sse():
@@ -274,6 +273,8 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if not _is_keepalive_event(event_data):
+                                reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
                             if _is_end_of_turn(event_data):
@@ -303,7 +304,8 @@ async def _relay_loop(
 
                     # SSE stream ended normally (sandbox closed connection)
                     await redis_stream.mark_complete()
-                return
+                    logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
+                    return
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
@@ -343,6 +345,10 @@ def _is_session_update(event_data: dict) -> bool:
         return False
     notification = event_data.get("notification", {})
     return notification.get("method") == "session/update"
+
+
+def _is_keepalive_event(event_data: dict) -> bool:
+    return event_data.get("type") == "keepalive"
 
 
 _is_end_of_turn = is_turn_complete

@@ -4,7 +4,7 @@ import { LineChart, ReferenceLine, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
 import { ciRanges, trendLine } from 'lib/statistics'
 
-import { playHoverAtFraction, Stage, useReactiveTheme } from './story-helpers'
+import { playHoverAtFraction, Stage, useReactiveTheme } from '../story-helpers'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const BASIC: LineChartConfig = { showGrid: true }
