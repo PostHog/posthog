@@ -222,6 +222,24 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(data.get("connect_flow"), "app_install")
         self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
 
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
+    @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
+    @patch(
+        "posthog.api.user_integration.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    def test_github_start_rejects_when_all_installations_linked(self, _mock_settings, _mock_unlinked):
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345678",
+            config={},
+            sensitive_config={"user_access_token": "ghu_test"},
+        )
+        response = self.client.post("/api/users/@me/integrations/github/start/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already linked", response.json()["detail"])
+
     def test_github_start_without_app_slug_returns_400(self):
         with patch(
             "posthog.api.user_integration.get_instance_settings",

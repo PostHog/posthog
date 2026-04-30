@@ -275,6 +275,15 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             if fast_path_response := _attempt_posthog_code_oauth_fast_path(user, team, token, state):
                 return fast_path_response
 
+        # If the user already has linked integrations, check whether there are
+        # any GitHub App installations they haven't linked yet. If everything
+        # accessible is already linked, there's nothing to add.
+        has_unlinked = _has_unlinked_github_installations(user)
+        if has_unlinked is False:
+            raise exceptions.ValidationError(
+                "All GitHub App installations accessible to your account are already linked."
+            )
+
         # Default: full install flow — user picks an org on GitHub's install page.
         instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
         app_slug = instance_settings.get("GITHUB_APP_SLUG")
@@ -486,6 +495,53 @@ def _resolve_team_for_github_start(user: User, request: Request):
             raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
         return team
     return user.current_team
+
+
+def _has_unlinked_github_installations(user: User) -> bool | None:
+    """Check whether the user has GitHub App installations they haven't linked yet.
+
+    Uses the user's existing OAuth token to call ``GET /user/installations``
+    and compares against their ``UserIntegration`` rows.
+
+    Returns ``True`` if unlinked installations exist, ``False`` if all are
+    linked, or ``None`` if the check couldn't be performed (no existing
+    integration, token refresh failed, network error).
+    """
+    any_integration = UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).first()
+    if any_integration is None:
+        return None
+
+    github = UserGitHubIntegration(any_integration)
+    try:
+        token = github.get_usable_user_access_token()
+    except Exception:
+        return None
+
+    try:
+        response = requests.get(
+            "https://api.github.com/user/installations",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            params={"per_page": 100},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    try:
+        installations = response.json().get("installations", [])
+    except Exception:
+        return None
+
+    github_installation_ids = {str(inst["id"]) for inst in installations if isinstance(inst, dict) and "id" in inst}
+    linked_ids = set(UserIntegration.objects.filter(user=user, kind="github").values_list("integration_id", flat=True))
+    return bool(github_installation_ids - linked_ids)
 
 
 def _attempt_posthog_code_oauth_fast_path(user: User, team: Any, token: str, state: str) -> Response | None:
