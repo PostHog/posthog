@@ -209,9 +209,9 @@ async def generate_file_downloads(inputs: GenerateFileDownloadsInputs) -> FileDo
                 )
                 file_downloads.append(file_download.id)
 
-        async with asyncio.TaskGroup() as tg:
-            for key in keys:
-                tg.create_task(create_file_download(key))
+            async with asyncio.TaskGroup() as tg:
+                for key in keys:
+                    tg.create_task(create_file_download(key))
 
     return file_downloads
 
