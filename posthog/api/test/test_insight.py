@@ -533,7 +533,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 team=self.team,
                 user=mock.ANY,
                 filters_override={},
