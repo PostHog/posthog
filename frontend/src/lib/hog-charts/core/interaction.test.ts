@@ -1,6 +1,6 @@
+import { dimensions, makeSeries } from '../test-helpers'
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from './interaction'
 import type { ResolveValueFn } from './types'
-import { dimensions, makeSeries } from '../test-helpers'
 
 const defaultResolveValue: ResolveValueFn = (s, i) => s.data[i]
 
