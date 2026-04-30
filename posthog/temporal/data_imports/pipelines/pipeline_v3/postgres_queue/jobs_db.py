@@ -166,30 +166,42 @@ class BatchQueue:
         *,
         limit: int = 50,
     ) -> list[PendingBatch]:
-        """Fetch unprocessed batches whose (team_id, schema_id) advisory lock is acquirable."""
+        """Fetch unprocessed batches whose (team_id, schema_id) advisory lock is acquirable.
+
+        Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
+        fully resolved before any advisory lock is acquired.  Without this,
+        Postgres is free to evaluate pg_try_advisory_lock on rows that are
+        later discarded by other predicates or by LIMIT, creating phantom
+        locks that unlock_for_batches never releases.
+        """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                SELECT
-                    b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                    b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                    b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                    b.cumulative_row_count, b.resource_name, b.is_resume,
-                    b.is_first_ever_sync, b.metadata,
-                    COALESCE(s.attempt, 0) AS latest_attempt
-                FROM {BATCH_TABLE} b
-                LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
-                WHERE
-                    (s.batch_id IS NULL OR s.job_state = 'waiting_retry')
-                    AND b.run_uuid NOT IN (
-                        SELECT DISTINCT b2.run_uuid
-                        FROM {BATCH_TABLE} b2
-                        JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
-                        WHERE s2.job_state = 'failed'
-                    )
-                    AND pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(b.team_id::text || ':' || b.schema_id))
-                ORDER BY b.id ASC
-                LIMIT %(limit)s
+                WITH candidates AS MATERIALIZED (
+                    SELECT
+                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+                        b.cumulative_row_count, b.resource_name, b.is_resume,
+                        b.is_first_ever_sync, b.metadata,
+                        COALESCE(s.attempt, 0) AS latest_attempt
+                    FROM {BATCH_TABLE} b
+                    LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    WHERE
+                        (s.batch_id IS NULL OR s.job_state = 'waiting_retry')
+                        AND b.run_uuid NOT IN (
+                            SELECT DISTINCT b2.run_uuid
+                            FROM {BATCH_TABLE} b2
+                            JOIN {STATUS_VIEW} s2 ON b2.id = s2.batch_id
+                            WHERE s2.job_state = 'failed'
+                        )
+                    ORDER BY b.id ASC
+                    LIMIT %(limit)s
+                )
+                SELECT c.*
+                FROM candidates c
+                WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
+                ORDER BY c.id ASC
                 """,
                 {"limit": limit},
             )
@@ -223,23 +235,31 @@ class BatchQueue:
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
     ) -> list[PendingBatch]:
-        """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed)."""
+        """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
+
+        Uses a MATERIALIZED CTE for the same reason as get_unprocessed_and_lock:
+        candidate rows are fully resolved before any advisory lock is probed.
+        """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                SELECT
-                    b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                    b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                    b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                    b.cumulative_row_count, b.resource_name, b.is_resume,
-                    b.is_first_ever_sync, b.metadata,
-                    COALESCE(s.attempt, 0) AS latest_attempt
-                FROM {BATCH_TABLE} b
-                JOIN {STATUS_VIEW} s ON b.id = s.batch_id
-                WHERE
-                    s.job_state = 'executing'
-                    AND pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(b.team_id::text || ':' || b.schema_id))
-                ORDER BY b.id ASC
+                WITH candidates AS MATERIALIZED (
+                    SELECT
+                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+                        b.cumulative_row_count, b.resource_name, b.is_resume,
+                        b.is_first_ever_sync, b.metadata,
+                        COALESCE(s.attempt, 0) AS latest_attempt
+                    FROM {BATCH_TABLE} b
+                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    WHERE s.job_state = 'executing'
+                    ORDER BY b.id ASC
+                )
+                SELECT c.*
+                FROM candidates c
+                WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
+                ORDER BY c.id ASC
                 """,
             )
             rows = await cur.fetchall()
@@ -282,11 +302,11 @@ class BatchQueue:
         *,
         batches: list[PendingBatch],
     ) -> None:
-        """Release advisory locks once per batch, matching the per-row acquisition depth.
+        """Release advisory locks once per returned batch row.
 
-        pg_try_advisory_lock in a WHERE clause is evaluated per row, so the
-        session-level lock depth equals the number of rows returned for each
-        (team_id, schema_id). We must unlock the same number of times.
+        The MATERIALIZED CTE in get_unprocessed_and_lock ensures locks are
+        only acquired on rows that actually appear in the result set, so
+        one unlock per row balances the depth exactly.
         """
         for batch in batches:
             await conn.execute(

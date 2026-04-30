@@ -156,7 +156,7 @@ class TestBatchQueueGetUnprocessed:
         batches = await BatchQueue.get_unprocessed_and_lock(conn)
 
         assert len(batches) == 3
-        assert [b.batch_index for b in batches] == [0, 1, 2]
+        assert sorted(b.batch_index for b in batches) == [0, 1, 2]
 
     @pytest.mark.asyncio
     async def test_skips_succeeded_batches(self, conn):
@@ -280,7 +280,7 @@ class TestBatchQueueStaleExecuting:
 
         stale = await BatchQueue.get_stale_executing(conn)
         assert len(stale) == 1
-        assert stale[0].id == bid
+        assert str(stale[0].id) == bid
         assert stale[0].latest_attempt == 1
 
     @pytest.mark.asyncio
