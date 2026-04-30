@@ -266,10 +266,6 @@ export interface DashboardApi {
      */
     data_color_theme_id?: number | null
     tags?: unknown[]
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
     restriction_level?: RestrictionLevelEnumApi
     readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
@@ -309,10 +305,6 @@ export interface DashboardCollaboratorApi {
     readonly id: string
     readonly dashboard_id: number
     readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
     level: RestrictionLevelEnumApi
     readonly added_at: string
     readonly updated_at: string
@@ -392,10 +384,6 @@ export interface PatchedDashboardApi {
      */
     data_color_theme_id?: number | null
     tags?: unknown[]
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
     restriction_level?: RestrictionLevelEnumApi
     readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
