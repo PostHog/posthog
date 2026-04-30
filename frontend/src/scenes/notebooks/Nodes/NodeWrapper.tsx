@@ -20,7 +20,7 @@ import { hashCodeForString } from 'lib/utils'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import { parseNotebookNodeHTMLAttribute, posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
@@ -524,10 +524,8 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                         name,
                         {
                             ...config,
-                            parseHTML: (element: HTMLElement) => {
-                                const attribute = element.getAttribute(name)
-                                return attribute ? JSON.parse(atob(attribute)) : null
-                            },
+                            parseHTML: (element: HTMLElement) =>
+                                parseNotebookNodeHTMLAttribute(element.getAttribute(name)),
                         },
                     ]
                 })
