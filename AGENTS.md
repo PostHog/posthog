@@ -58,7 +58,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
-Always fill the `## 🤖 Agent context` section when creating PRs.
+Always fill the `## 🤖 Agent context` section when creating PRs — this should surface key human prompts, redirects, and decisions from the author (quoted or paraphrased), not just a summary of what the agent did. Reviewers need to see the intent, not only the diff.
 Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 
 ### Rules
@@ -66,6 +66,10 @@ Keep descriptions high-level, focusing on rationale and architecture for the hum
 - Scope is optional but encouraged when the change is specific to a feature area
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
+
+### Pushing to remote
+
+Pushes trigger CI, which burns runner credits. Refrain from pushing unless explicitly instructed or until the task is complete — batch local commits and push once at the end rather than after every change. If you're mid-task or iterating, keep work local.
 
 ### Public open source repo guidance
 
