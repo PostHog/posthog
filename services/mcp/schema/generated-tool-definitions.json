@@ -3949,7 +3949,7 @@
         }
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Creates a new survey in the project.",
@@ -4009,7 +4009,7 @@
         }
     },
     "survey-update": {
-        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "description": "Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you provide may replace existing values. Before changing questions, conditions, appearance, targeting, translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do not send null to clear a field unless the user explicitly asked to remove it.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Update an existing survey by ID.",
@@ -4069,7 +4069,7 @@
         }
     },
     "usage-metrics-create": {
-        "description": "Create a new usage metric for the project. The metric will surface on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` takes the same shape as HogFunction filters (a dict with an `events` list and optional `properties` list). When `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. Pass `group_type_index: 0`.",
+        "description": "Create a new usage metric for the project. The metric surfaces on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` accepts two shapes:\n(1) Events (default) — HogFunction filter shape with an `events` array.\n(2) Data warehouse — set `source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`. Call `external-data-schemas-list` first to discover synced tables, and `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect column names. DW metrics currently render only on group profiles.\nWhen `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. For DW SUM metrics, `math_property` is the column name (or HogQL expression) to sum on the table. Pass `group_type_index: 0`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create usage metric",
@@ -4114,7 +4114,7 @@
         }
     },
     "usage-metrics-partial-update": {
-        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. `filters` accepts the events shape (default) or the data warehouse shape (`source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`). When switching to DW, call `external-data-schemas-list` to discover synced tables. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. For DW SUM metrics, `math_property` is the column name to sum. DW metrics currently render only on group profiles. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update usage metric",
@@ -4337,6 +4337,134 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "visual-review-repos-list": {
+        "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List visual review repos",
+        "title": "List visual review repos",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-repos-retrieve": {
+        "description": "Get a visual review repo by id. Returns baseline file paths keyed by run_type (e.g. storybook → baseline YAML path in the repo), pr-comment setting, and repo metadata.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Get visual review repo",
+        "title": "Get visual review repo",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-counts-retrieve": {
+        "description": "Return review state counts across all runs for the current project: `needs_review`, `clean`, `processing`, `stale`. Useful as a single call to show reviewer workload before drilling into the list.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Visual review run counts",
+        "title": "Visual review run counts",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-list": {
+        "description": "List visual review runs for the current project. Each run represents a single CI execution that captured screenshots for a commit. Filter by `review_state` (e.g. `needs_review`, `clean`, `processing`, `stale`) to triage workload, or by `pr_number` / `commit_sha` / `branch` to find the specific run(s) blocking a PR. Returns status, review decision, commit sha, branch, pr number, and a summary of changed / new / removed / unchanged snapshots.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List visual review runs",
+        "title": "List visual review runs",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-retrieve": {
+        "description": "Get a visual review run by id. Returns run status, review decision, commit/branch/pr context, a summary (total, changed, new, removed, unchanged, tolerated-matched snapshot counts), and staleness info if a newer run supersedes this one. Use `visual-review-runs-snapshots-list` for per-snapshot diff details.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Get visual review run",
+        "title": "Get visual review run",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-snapshot-history-list": {
+        "description": "List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Snapshot change history",
+        "title": "Snapshot change history",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-snapshots-list": {
+        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Paginated.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List run snapshots",
+        "title": "List run snapshots",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-tolerated-hashes-list": {
+        "description": "List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. Requires `identifier` query parameter.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List tolerated hashes",
+        "title": "List tolerated hashes",
+        "required_scopes": ["visual_review:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
     },
     "web-analytics-weekly-digest": {
         "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
