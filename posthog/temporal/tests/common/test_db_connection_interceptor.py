@@ -27,34 +27,32 @@ class TestDbConnectionInterceptor:
 
 @pytest.mark.asyncio
 class TestDbConnectionActivityInboundInterceptor:
-    async def test_closes_connections_around_activity(self):
+    @pytest.mark.parametrize(
+        "side_effect,return_value",
+        [
+            (None, "ok"),
+            (ValueError("boom"), None),
+        ],
+    )
+    async def test_closes_connections_regardless_of_outcome(self, side_effect, return_value):
         mock_input = MagicMock(spec=ExecuteActivityInput)
 
         next_interceptor = AsyncMock()
-        next_interceptor.execute_activity.return_value = "ok"
+        next_interceptor.execute_activity.side_effect = side_effect
+        next_interceptor.execute_activity.return_value = return_value
 
         interceptor = _DbConnectionActivityInboundInterceptor(next_interceptor)
 
         with patch("posthog.temporal.common.db_connection_interceptor.close_old_connections") as mock_close:
-            result = await interceptor.execute_activity(mock_input)
+            if side_effect is not None:
+                with pytest.raises(type(side_effect)):
+                    await interceptor.execute_activity(mock_input)
+            else:
+                result = await interceptor.execute_activity(mock_input)
+                assert result == return_value
 
-        assert result == "ok"
         assert mock_close.call_count == 2
         next_interceptor.execute_activity.assert_awaited_once_with(mock_input)
-
-    async def test_closes_connections_when_activity_raises(self):
-        mock_input = MagicMock(spec=ExecuteActivityInput)
-
-        next_interceptor = AsyncMock()
-        next_interceptor.execute_activity.side_effect = ValueError("boom")
-
-        interceptor = _DbConnectionActivityInboundInterceptor(next_interceptor)
-
-        with patch("posthog.temporal.common.db_connection_interceptor.close_old_connections") as mock_close:
-            with pytest.raises(ValueError, match="boom"):
-                await interceptor.execute_activity(mock_input)
-
-        assert mock_close.call_count == 2
 
 
 @pytest.mark.django_db(transaction=True)
