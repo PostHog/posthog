@@ -18,7 +18,7 @@ from django.utils.cache import get_conditional_response, patch_cache_control, pa
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -61,6 +61,21 @@ from .serializers import (
 )
 
 VISUAL_REVIEW_TAG = "visual_review"
+
+
+def _parse_optional_uuid(raw: str | None, param_name: str) -> UUID | None:
+    """Parse a UUID query param, raising DRF ValidationError on bad input.
+
+    Without this, a bad `?repo_id=abc` would surface as a 500 from the
+    bare `UUID()` constructor. DRF's exception handler turns the
+    raised ValidationError into a 400 with a clean payload.
+    """
+    if not raw:
+        return None
+    try:
+        return UUID(raw)
+    except ValueError:
+        raise serializers.ValidationError({param_name: ["Must be a valid UUID."]})
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
@@ -333,7 +348,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """List runs for the team, optionally filtered by review state or repo."""
         review_state = request.query_params.get("review_state")
         repo_id_param = request.query_params.get("repo_id")
-        repo_id = UUID(repo_id_param) if repo_id_param else None
+        repo_id = _parse_optional_uuid(repo_id_param, "repo_id")
         runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id)
         page = self.paginate_queryset(runs)
         if page is not None:
@@ -351,7 +366,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def counts(self, request: Request, **kwargs) -> Response:
         """Review state counts for the runs list, optionally scoped to a repo."""
         repo_id_param = request.query_params.get("repo_id")
-        repo_id = UUID(repo_id_param) if repo_id_param else None
+        repo_id = _parse_optional_uuid(repo_id_param, "repo_id")
         return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
 
     @validated_request(

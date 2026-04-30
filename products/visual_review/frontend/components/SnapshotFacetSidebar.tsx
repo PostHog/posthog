@@ -53,6 +53,7 @@ export function SnapshotFacetSidebar({
                                 <button
                                     key={bucket.value}
                                     type="button"
+                                    aria-pressed={active}
                                     onClick={() => onToggle(key, bucket.value)}
                                     className={`flex items-center justify-between gap-2 px-2 py-1 rounded text-xs text-left transition-colors ${
                                         active

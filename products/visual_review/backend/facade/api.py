@@ -183,7 +183,10 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         run = snapshot.run
         artifact = snapshot.current_artifact
         thumbnail = artifact.thumbnail if artifact is not None else None
-        per_day = raw.sparkline_by_id.get(identifier, {})
+        # `(run_type, identifier)` keys mirror the universe shape — see
+        # `_BaselineOverviewRaw.sparkline_by_key` for why.
+        spark_key = (run.run_type, identifier)
+        per_day = raw.sparkline_by_key.get(spark_key, {})
         sparkline = [
             contracts.BaselineSparklineDay(
                 clean=per_day.get(day, _ZERO_SPARK).clean,
@@ -204,9 +207,9 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
-                is_quarantined=(run.run_type, identifier) in raw.quarantined_ids,
+                is_quarantined=spark_key in raw.quarantined_ids,
                 last_run_at=run.completed_at or run.created_at,
-                recent_diff_avg=raw.drift_avg_by_id.get(identifier),
+                recent_diff_avg=raw.drift_avg_by_key.get(spark_key),
                 sparkline=sparkline,
             )
         )
@@ -227,7 +230,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     )
 
 
-_ZERO_SPARK = logic._SparkBuckets()
+_ZERO_SPARK = logic.SparkBuckets()
 
 
 def _build_sparkline_day_keys(now) -> list[str]:

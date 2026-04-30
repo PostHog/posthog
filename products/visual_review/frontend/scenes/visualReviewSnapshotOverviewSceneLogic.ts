@@ -105,6 +105,56 @@ function bucketize(values: string[], labelOf: (v: string) => string = (v) => v):
         .map(([value, count]) => ({ value, count, label: labelOf(value) }))
 }
 
+// Pre-decorated entry shape — the kea selector annotates this on every entry
+// once so subsequent filter passes can compare without re-deriving area/theme/etc.
+type DecoratedEntry = BaselineEntryApi & {
+    _area: string
+    _theme: 'light' | 'dark' | null
+    _typeKey: string
+    _stability: string[]
+}
+
+// Filter dimensions a caller can opt out of, plus the "preset" stat row.
+type FilterDimension = keyof Filters | 'preset'
+
+// Single source of truth for filter logic. `filteredEntries` calls this with no
+// exclusion (full set narrows down); `facetGroups` calls it once per dimension
+// excluding that dimension so its own facet rows don't zero each other out.
+// Without this, the same six clauses lived twice and any new dimension had to
+// be added in both places (the bug greptile flagged).
+function applyFilters(
+    entries: readonly DecoratedEntry[],
+    filters: Filters,
+    exclude?: FilterDimension
+): DecoratedEntry[] {
+    const search = filters.search.trim().toLowerCase()
+    return entries.filter((e) => {
+        if (exclude !== 'preset' && !matchesStatPreset(e, filters.statPreset)) {
+            return false
+        }
+        if (exclude !== 'typeKeys' && filters.typeKeys.length && !filters.typeKeys.includes(e._typeKey)) {
+            return false
+        }
+        if (exclude !== 'areas' && filters.areas.length && !filters.areas.includes(e._area)) {
+            return false
+        }
+        if (
+            exclude !== 'stability' &&
+            filters.stability.length &&
+            !filters.stability.some((s) => e._stability.includes(s as keyof typeof STABILITY_KEYS))
+        ) {
+            return false
+        }
+        if (exclude !== 'theme' && e._theme !== null && e._theme !== filters.theme) {
+            return false
+        }
+        if (exclude !== 'search' && search && !e.identifier.toLowerCase().includes(search)) {
+            return false
+        }
+        return true
+    })
+}
+
 export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOverviewSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewSnapshotOverviewSceneLogic']),
     props({} as VisualReviewSnapshotOverviewSceneLogicProps),
@@ -203,34 +253,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         filteredEntries: [
             (s) => [s.decoratedEntries, s.filters, s.sortLabel],
             (entries, filters, sortLabel) => {
-                const search = filters.search.trim().toLowerCase()
-                const filtered = entries.filter((e) => {
-                    if (!matchesStatPreset(e, filters.statPreset)) {
-                        return false
-                    }
-                    if (filters.typeKeys.length && !filters.typeKeys.includes(e._typeKey)) {
-                        return false
-                    }
-                    if (filters.areas.length && !filters.areas.includes(e._area)) {
-                        return false
-                    }
-                    if (
-                        filters.stability.length &&
-                        !filters.stability.some((s) => e._stability.includes(s as keyof typeof STABILITY_KEYS))
-                    ) {
-                        return false
-                    }
-                    // Theme dedup: only keep entries that match the chosen
-                    // side, OR have no theme suffix at all. That collapses
-                    // light+dark pairs without dropping single-theme stories.
-                    if (e._theme !== null && e._theme !== filters.theme) {
-                        return false
-                    }
-                    if (search && !e.identifier.toLowerCase().includes(search)) {
-                        return false
-                    }
-                    return true
-                })
+                const filtered = applyFilters(entries, filters)
                 if (sortLabel.kind === 'alpha') {
                     filtered.sort((a, b) => a.identifier.localeCompare(b.identifier))
                 } else {
@@ -278,41 +301,9 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         facetGroups: [
             (s) => [s.decoratedEntries, s.filters],
             (entries, filters): FacetGroups => {
-                const filterExcept = (excluded: keyof Filters | 'preset'): typeof entries => {
-                    const search = filters.search.trim().toLowerCase()
-                    return entries.filter((e) => {
-                        if (excluded !== 'preset' && !matchesStatPreset(e, filters.statPreset)) {
-                            return false
-                        }
-                        if (
-                            excluded !== 'typeKeys' &&
-                            filters.typeKeys.length &&
-                            !filters.typeKeys.includes(e._typeKey)
-                        ) {
-                            return false
-                        }
-                        if (excluded !== 'areas' && filters.areas.length && !filters.areas.includes(e._area)) {
-                            return false
-                        }
-                        if (
-                            excluded !== 'stability' &&
-                            filters.stability.length &&
-                            !filters.stability.some((s) => e._stability.includes(s as keyof typeof STABILITY_KEYS))
-                        ) {
-                            return false
-                        }
-                        if (excluded !== 'theme' && e._theme !== null && e._theme !== filters.theme) {
-                            return false
-                        }
-                        if (excluded !== 'search' && search && !e.identifier.toLowerCase().includes(search)) {
-                            return false
-                        }
-                        return true
-                    })
-                }
-                const typeBase = filterExcept('typeKeys')
-                const areaBase = filterExcept('areas')
-                const stabilityBase = filterExcept('stability')
+                const typeBase = applyFilters(entries, filters, 'typeKeys')
+                const areaBase = applyFilters(entries, filters, 'areas')
+                const stabilityBase = applyFilters(entries, filters, 'stability')
                 return {
                     type: bucketize(
                         typeBase.map((e) => e._typeKey),

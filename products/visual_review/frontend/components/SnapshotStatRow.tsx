@@ -46,6 +46,7 @@ export function SnapshotStatRow({
                     <button
                         key={s.value}
                         type="button"
+                        aria-pressed={active}
                         onClick={() => onChange(s.value)}
                         className={`text-left border rounded p-3 transition-colors flex flex-col gap-1 ${
                             active

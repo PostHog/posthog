@@ -1891,7 +1891,12 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     from .facade.contracts import BASELINE_OVERVIEW_MAX_ENTRIES, BASELINE_SPARKLINE_DAYS
 
     now = timezone.now()
-    sparkline_cutoff = now - timedelta(days=BASELINE_SPARKLINE_DAYS)
+    # The sparkline shows DAYS dates inclusive of today (see
+    # `_build_sparkline_day_keys`). `now - DAYS days` would pull rows from a
+    # 31st earlier date that has no day_key — they'd vanish into a bucket
+    # that's never read, but their `diff_percentage` would still skew
+    # `recent_diff_avg`. `DAYS - 1` aligns with the day-key window.
+    sparkline_cutoff = now - timedelta(days=BASELINE_SPARKLINE_DAYS - 1)
 
     # 1. Find the latest non-superseded run on the default branch for every
     # (repo, run_type). The partial unique index `unique_latest_run_per_group`
@@ -1910,8 +1915,8 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             tolerate_30d_by_id={},
             tolerate_90d_by_id={},
             quarantined_ids=set(),
-            sparkline_by_id={},
-            drift_avg_by_id={},
+            sparkline_by_key={},
+            drift_avg_by_key={},
             totals_all=0,
             totals_recent=0,
             totals_frequent=0,
@@ -1942,7 +1947,15 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     total_universe = universe_qs.count()
     truncated = total_universe > BASELINE_OVERVIEW_MAX_ENTRIES
     universe = list(universe_qs[:BASELINE_OVERVIEW_MAX_ENTRIES]) if truncated else list(universe_qs)
+    # Per-entry aggregates (tolerate counts, sparklines) only need to cover the
+    # entries we'll return. Totals must scope across the *full* universe,
+    # otherwise truncation makes them undercount in misleading ways (a 6000-id
+    # repo would show 0 frequently-tolerated if all of them sat past the slice).
     universe_identifiers = list({s.identifier for s in universe})
+    if truncated:
+        full_universe_identifiers = list(universe_qs.values_list("identifier", flat=True).distinct())
+    else:
+        full_universe_identifiers = universe_identifiers
 
     # 3a. Tolerate counts in 30d / 90d windows. Single grouped query each.
     tolerate_30d_by_id: dict[str, int] = {}
@@ -1991,10 +2004,13 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     # One grouped query, then bucket in Python so we keep this portable across
     # SQLite (tests) and Postgres without resorting to TruncDate or SQL CASE.
     # Same loop also accumulates the running drift average so we get
-    # `recent_diff_avg` for free in this single pass.
-    sparkline_by_id: dict[str, dict[str, _SparkBuckets]] = defaultdict(lambda: defaultdict(_SparkBuckets))
-    drift_sum_by_id: dict[str, float] = defaultdict(float)
-    drift_count_by_id: dict[str, int] = defaultdict(int)
+    # `recent_diff_avg` for free in this single pass. Keyed by
+    # `(run_type, identifier)` because the universe is one row per pair —
+    # same identifier in storybook + playwright are *different* baselines and
+    # their sparklines must not bleed into each other.
+    sparkline_by_key: dict[tuple[str, str], dict[str, SparkBuckets]] = defaultdict(lambda: defaultdict(SparkBuckets))
+    drift_sum_by_key: dict[tuple[str, str], float] = defaultdict(float)
+    drift_count_by_key: dict[tuple[str, str], int] = defaultdict(int)
     if universe_identifiers:
         spark_rows = RunSnapshot.objects.filter(
             run__repo_id=repo_id,
@@ -2002,15 +2018,17 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             run__created_at__gte=sparkline_cutoff,
         ).values_list(
             "identifier",
+            "run__run_type",
             "run__created_at",
             "result",
             "is_quarantined",
             "tolerated_hash_match_id",
             "diff_percentage",
         )
-        for identifier, run_created_at, result, is_quar, tol_match_id, diff_pct in spark_rows:
+        for identifier, run_type, run_created_at, result, is_quar, tol_match_id, diff_pct in spark_rows:
             day_key = run_created_at.date().isoformat()
-            buckets = sparkline_by_id[identifier][day_key]
+            key = (run_type, identifier)
+            buckets = sparkline_by_key[key][day_key]
             if is_quar:
                 buckets.quarantined += 1
             elif tol_match_id is not None:
@@ -2020,8 +2038,8 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             else:
                 buckets.clean += 1
             if diff_pct is not None and diff_pct > 0:
-                drift_sum_by_id[identifier] += diff_pct
-                drift_count_by_id[identifier] += 1
+                drift_sum_by_key[key] += diff_pct
+                drift_count_by_key[key] += 1
 
     # 4. Totals computed across the *full* universe (not the truncated slice)
     # so the stat row stays correct when the entries are clipped.
@@ -2033,16 +2051,17 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         totals_all = len(universe)
 
     # Recently / frequently tolerated — counts of distinct identifiers with
-    # ≥1 (or ≥3) tolerations in the rolling window, scoped to the universe.
+    # ≥1 (or ≥3) tolerations in the rolling window. Scope across the *full*
+    # universe so the stat row stays correct under truncation.
     recent_cutoff = now - timedelta(days=30)
     frequent_cutoff = now - timedelta(days=90)
     recent_ids: set[str] = set()
     frequent_ids: set[str] = set()
-    if universe_identifiers:
+    if full_universe_identifiers:
         recent_ids = set(
             ToleratedHash.objects.filter(
                 repo_id=repo_id,
-                identifier__in=universe_identifiers,
+                identifier__in=full_universe_identifiers,
                 created_at__gte=recent_cutoff,
             )
             .values_list("identifier", flat=True)
@@ -2051,7 +2070,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         frequent_grouped = (
             ToleratedHash.objects.filter(
                 repo_id=repo_id,
-                identifier__in=universe_identifiers,
+                identifier__in=full_universe_identifiers,
                 created_at__gte=frequent_cutoff,
             )
             .values("identifier")
@@ -2061,17 +2080,39 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         )
         frequent_ids = set(frequent_grouped)
 
-    quarantined_id_count = len({identifier for _, identifier in quarantined_pairs})
+    # `quarantined_pairs` was built from the truncated set above (per-entry
+    # attached). Re-query for the totals so they cover the full universe.
+    if truncated and full_universe_identifiers:
+        quarantined_id_count = (
+            QuarantinedIdentifier.objects.filter(
+                repo_id=repo_id,
+                identifier__in=full_universe_identifiers,
+            )
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .values("identifier")
+            .distinct()
+            .count()
+        )
+    else:
+        quarantined_id_count = len({identifier for _, identifier in quarantined_pairs})
 
-    # by_run_type counts every entry in the universe, even if truncated. We
-    # approximate from the loaded slice when truncated; a separate aggregate
-    # query is only worth it once we routinely hit truncation.
-    by_run_type: dict[str, int] = dict(Counter(s.run.run_type for s in universe))
+    # by_run_type counts every entry in the universe. Aggregate query under
+    # truncation so it doesn't undercount; in-memory Counter when not truncated
+    # (we already paid for the row hydration).
+    if truncated:
+        by_run_type = dict(
+            universe_qs.values_list("run__run_type")
+            .order_by()
+            .annotate(c=Count("id"))
+            .values_list("run__run_type", "c")
+        )
+    else:
+        by_run_type = dict(Counter(s.run.run_type for s in universe))
 
-    drift_avg_by_id: dict[str, float] = {
-        identifier: drift_sum_by_id[identifier] / drift_count_by_id[identifier]
-        for identifier in drift_count_by_id
-        if drift_count_by_id[identifier] > 0
+    drift_avg_by_key: dict[tuple[str, str], float] = {
+        key: drift_sum_by_key[key] / drift_count_by_key[key]
+        for key in drift_count_by_key
+        if drift_count_by_key[key] > 0
     }
 
     return _BaselineOverviewRaw(
@@ -2079,8 +2120,8 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
         quarantined_ids=quarantined_pairs,
-        sparkline_by_id=sparkline_by_id,
-        drift_avg_by_id=drift_avg_by_id,
+        sparkline_by_key=sparkline_by_key,
+        drift_avg_by_key=drift_avg_by_key,
         totals_all=totals_all,
         totals_recent=len(recent_ids),
         totals_frequent=len(frequent_ids),
@@ -2092,7 +2133,13 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
 
 
 @dataclass
-class _SparkBuckets:
+class SparkBuckets:
+    """One day's classification counts on the stability sparkline.
+
+    Public so the facade can construct a zero-default without reaching into
+    private symbols of this module. Otherwise an internal-only shape.
+    """
+
     clean: int = 0
     tolerated: int = 0
     changed: int = 0
@@ -2110,8 +2157,11 @@ class _BaselineOverviewRaw:
     tolerate_30d_by_id: dict[str, int]
     tolerate_90d_by_id: dict[str, int]
     quarantined_ids: set[tuple[str, str]]
-    sparkline_by_id: dict[str, dict[str, _SparkBuckets]]
-    drift_avg_by_id: dict[str, float]
+    # Sparkline + drift are keyed by `(run_type, identifier)` because the same
+    # identifier in different run types is a different baseline; merging would
+    # bleed storybook stability into playwright stability.
+    sparkline_by_key: dict[tuple[str, str], dict[str, SparkBuckets]]
+    drift_avg_by_key: dict[tuple[str, str], float]
     totals_all: int
     totals_recent: int
     totals_frequent: int
