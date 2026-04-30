@@ -158,7 +158,9 @@ async def test_file_download_workflow_exports_data(
     events_to_export_created, _ = generate_test_data
     assert run.records_completed == len(events_to_export_created)
 
-    prefix = f"batch-exports/{batch_export_id}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}"
+    prefix = (
+        f"batch-exports/{batch_export_id}/{run.id}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}"
+    )
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=s3_client,
         clickhouse_client=clickhouse_client,
@@ -177,16 +179,14 @@ async def test_file_download_workflow_exports_data(
     # Verify BatchExportFileDownload records were created by the workflow.
     file_downloads = [
         file_download
-        async for file_download in BatchExportFileDownload.objects.filter(
-            team_id=ateam.pk, batch_export_id=batch_export_id
-        )
+        async for file_download in BatchExportFileDownload.objects.filter(team_id=ateam.pk, batch_export_run_id=run.id)
     ]
     assert len(file_downloads) > 0
 
     # Each file download should reference a valid S3 key under the expected prefix.
     for fd in file_downloads:
         assert fd.team_id == ateam.pk
-        assert str(fd.batch_export_id) == batch_export_id
+        assert fd.batch_export_run_id == run.id
         assert fd.key.startswith(f"batch-exports/{batch_export_id}/")
         assert fd.created_at is not None
 

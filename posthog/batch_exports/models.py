@@ -481,8 +481,10 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
     """
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
-    batch_export = models.ForeignKey(
-        "BatchExport", on_delete=models.CASCADE, help_text="The batch export that generated these file downloads."
+    batch_export_run = models.ForeignKey(
+        "BatchExportRun",
+        on_delete=models.CASCADE,
+        help_text="The batch export run that generated these file downloads.",
     )
     key = models.TextField(help_text="The S3 key containing the file to download.")
     expires_at = models.DateTimeField(null=True, help_text="When will this key expire, if available.")

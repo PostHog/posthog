@@ -6,7 +6,7 @@ from django.test import override_settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
-from posthog.batch_exports.models import BatchExportFileDownload
+from posthog.batch_exports.models import BatchExportFileDownload, BatchExportRun
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
@@ -79,7 +79,10 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
         batch_export_schema = model
 
     batch_export_id = str(uuid.uuid4())
-    prefix = f"batch-exports/{batch_export_id}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}"
+    run_id = str(uuid.uuid4())
+    prefix = (
+        f"batch-exports/{batch_export_id}/{run_id}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}"
+    )
 
     stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
@@ -90,7 +93,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=exclude_events,
             include_events=None,
-            run_id=None,
+            run_id=run_id,
             backfill_details=None,
             batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
@@ -101,7 +104,7 @@ async def test_export_to_file_download_bucket_puts_data_into_s3(
     export_inputs = ExportInputs(
         batch_export=BatchExportInsertInputs(
             team_id=ateam.pk,
-            run_id=None,
+            run_id=run_id,
             stage_folder=stage_folder,
             batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
@@ -196,12 +199,17 @@ async def test_generate_file_downloads_creates_file_download_records(
         },
         interval="hour",
     )
-    batch_export_id = batch_export.id
+    run = await BatchExportRun.objects.acreate(
+        batch_export=batch_export,
+        status="Completed",
+        data_interval_start="2024-01-01T00:00:00",
+        data_interval_end="2024-01-01T01:00:00",
+    )
 
-    prefix = f"batch-exports/{batch_export_id}"
+    prefix = f"batch-exports/{batch_export_id}/{run.id}"
     test_keys = [
-        f"{prefix}/2024-01-01T00:00:00-2024-01-01T01:00:00.parquet",
-        f"{prefix}/2024-01-01T01:00:00-2024-01-01T02:00:00.parquet",
+        f"{prefix}/2024-01-01T00:00:00-2024-01-01T01:00:00-0.parquet",
+        f"{prefix}/2024-01-01T00:00:00-2024-01-01T01:00:00-1.parquet",
     ]
     for key in test_keys:
         await s3_client.put_object(Bucket=s3_bucket, Key=key, Body=b"test-data")
@@ -209,7 +217,8 @@ async def test_generate_file_downloads_creates_file_download_records(
     try:
         inputs = GenerateFileDownloadsInputs(
             team_id=ateam.pk,
-            batch_export_id=str(batch_export_id),
+            batch_export_id=batch_export_id,
+            batch_export_run_id=str(run.id),
             s3_bucket=S3Bucket(name=s3_bucket, region=region),
             aws_role_arn=aws_role_arn,
             keys=tuple(test_keys),
@@ -225,7 +234,7 @@ async def test_generate_file_downloads_creates_file_download_records(
         file_downloads = [
             file_download
             async for file_download in BatchExportFileDownload.objects.filter(
-                team_id=ateam.pk, batch_export_id=batch_export_id
+                team_id=ateam.pk, batch_export_run_id=run.id
             )
         ]
         assert len(file_downloads) == len(test_keys)
@@ -235,7 +244,7 @@ async def test_generate_file_downloads_creates_file_download_records(
 
         for fd in file_downloads:
             assert fd.team_id == ateam.pk
-            assert fd.batch_export_id == batch_export_id
+            assert fd.batch_export_run_id == run.id
             assert fd.id in file_download_ids
 
         # Running again with the same keys should be idempotent (returns existing IDs).
@@ -246,7 +255,7 @@ async def test_generate_file_downloads_creates_file_download_records(
 
         assert set(file_download_ids_again) == set(file_download_ids)
 
-        count = await BatchExportFileDownload.objects.filter(team_id=ateam.pk, batch_export_id=batch_export_id).acount()
+        count = await BatchExportFileDownload.objects.filter(team_id=ateam.pk, batch_export_run_id=run.id).acount()
         assert count == len(test_keys)
 
     finally:

@@ -37,7 +37,9 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
-FILE_DOWNLOAD_PREFIX = "batch-exports/{batch_export_id}/{{data_interval_start}}-{{data_interval_end}}"
+FILE_DOWNLOAD_PREFIX = (
+    "batch-exports/{batch_export_id}/{batch_export_run_id}/{{data_interval_start}}-{{data_interval_end}}"
+)
 
 NON_RETRYABLE_ERROR_TYPES = ()
 
@@ -161,6 +163,7 @@ class S3Bucket:
 class GenerateFileDownloadsInputs:
     team_id: int
     batch_export_id: str
+    batch_export_run_id: str
     s3_bucket: S3Bucket
     aws_role_arn: str
     keys: tuple[str, ...]
@@ -189,7 +192,7 @@ async def generate_file_downloads(inputs: GenerateFileDownloadsInputs) -> FileDo
     async with Heartbeater():
         credentials = await _get_temporary_credentials_to_head_object(
             inputs.s3_bucket.name,
-            f"batch-exports/{inputs.batch_export_id}",
+            f"batch-exports/{inputs.batch_export_id}/{inputs.batch_export_run_id}",
             role_arn=inputs.aws_role_arn,
         )
         session = aioboto3.Session(
@@ -205,7 +208,10 @@ async def generate_file_downloads(inputs: GenerateFileDownloadsInputs) -> FileDo
 
                 expires_at = parse_expiration(object.get("Expiration"))
                 file_download = await BatchExportFileDownload.objects.acreate(
-                    team_id=inputs.team_id, key=key, expires_at=expires_at, batch_export_id=inputs.batch_export_id
+                    team_id=inputs.team_id,
+                    key=key,
+                    expires_at=expires_at,
+                    batch_export_run_id=inputs.batch_export_run_id,
                 )
                 file_downloads.append(file_download.id)
 
@@ -234,11 +240,13 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
     After obtaining the credentials, we simply run the same function as an S3 batch
     export targeting our own file download bucket.
     """
-    prefix = FILE_DOWNLOAD_PREFIX.format(batch_export_id=inputs.batch_export.batch_export_id)
+    prefix = FILE_DOWNLOAD_PREFIX.format(
+        batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
+    )
 
     credentials = await _get_temporary_credentials_for_multipart_upload(
         inputs.s3_bucket.name,
-        f"batch-exports/{inputs.batch_export.batch_export_id}",
+        f"batch-exports/{inputs.batch_export.batch_export_id}/{inputs.batch_export.run_id}",
         role_arn=inputs.aws_role_arn,
     )
 
@@ -373,6 +381,7 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
             GenerateFileDownloadsInputs(
                 team_id=inputs.team_id,
                 batch_export_id=inputs.batch_export_id,
+                batch_export_run_id=run_id,
                 s3_bucket=S3Bucket(
                     name=settings.BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET,
                     region=settings.BATCH_EXPORTS_FILE_DOWNLOAD_REGION,

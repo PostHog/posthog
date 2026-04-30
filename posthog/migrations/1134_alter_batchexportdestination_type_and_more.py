@@ -66,11 +66,11 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "batch_export",
+                    "batch_export_run",
                     models.ForeignKey(
-                        help_text="The batch export that generated these file downloads.",
+                        help_text="The batch export run that generated these file downloads.",
                         on_delete=django.db.models.deletion.CASCADE,
-                        to="posthog.batchexport",
+                        to="posthog.batchexportrun",
                     ),
                 ),
                 (
