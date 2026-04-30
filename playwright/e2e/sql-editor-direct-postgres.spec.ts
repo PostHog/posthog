@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process'
 
-import { mockFeatureFlags } from '../utils/mockApi'
 import { expect, LOGIN_PASSWORD, LOGIN_USERNAME, test } from '../utils/playwright-test-core'
 
 test.describe('SQL Editor direct Postgres queries', () => {
@@ -23,11 +22,6 @@ test.describe('SQL Editor direct Postgres queries', () => {
                     INSERT INTO ${tableName} (id, label) VALUES (1, 'alpha'), (2, 'beta');
                 `,
             ])
-
-            await mockFeatureFlags(page, {
-                'dwh-postgres-direct-query': true,
-            })
-
             await page.goto('/login')
             await page.evaluate(
                 async ({ email, password }) => {

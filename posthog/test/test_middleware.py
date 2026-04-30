@@ -886,6 +886,141 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
+# Bypass ManifestStaticFilesStorage so admin templates render in tests without a manifest.
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestAdminImpersonationMiddleware(APIBaseTest):
+    """Tests AdminImpersonationMiddleware: admin panel must remain accessible to the
+    original staff user during impersonation, even though `request.user` would
+    normally be the (non-staff) impersonated customer."""
+
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+        self.user.is_staff = True
+        self.user.save()
+
+        # Use Django's standard Client because the loginas admin view expects
+        # form-encoded POST data (APIClient defaults to JSON).
+        self.client = cast(Any, DjangoClient())
+        self.client.force_login(self.user)
+
+    def login_as_other_user(self):
+        # Don't `follow=True` — the post-loginas redirect lands on `/` which renders
+        # the frontend's index.html (not present in tests).
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "false", "reason": "Test impersonation"},
+        )
+
+    def test_admin_index_accessible_during_impersonation(self):
+        """The admin index must respond 200, not redirect to /admin/login/, during impersonation."""
+        self.login_as_other_user()
+
+        # API confirms we're impersonating
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+        # Banner should be rendered with the impersonated user
+        assert b"other-user@posthog.com" in response.content
+
+    def test_admin_index_redirects_when_no_impersonation_and_not_staff(self):
+        """Sanity check: a non-staff user without impersonation still cannot access /admin/."""
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.get("/admin/")
+        # Django redirects to /admin/login/ for unauthorized requests
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    def test_non_admin_paths_still_use_impersonated_user(self):
+        """Outside of /admin/, the impersonated user must remain in effect."""
+        self.login_as_other_user()
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["email"] == "other-user@posthog.com"
+
+    def test_admin_logout_still_sees_impersonated_user(self):
+        """/admin/logout/ must keep the impersonated user as request.user so it can
+        redirect back to that user's admin change page."""
+        self.login_as_other_user()
+
+        response = self.client.get("/admin/logout/")
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+    def test_admin_unaffected_when_not_impersonating(self):
+        """Regular staff users without an impersonation session still access admin normally."""
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+
+    def login_as_other_user_read_only(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            data={"read_only": "true", "reason": "Test read-only impersonation"},
+        )
+
+    @patch("posthog.views.get_client")
+    def test_admin_writes_allowed_during_read_only_impersonation(self, mock_get_client: MagicMock):
+        """Admin POST/PATCH/DELETE actions must not be blocked by the read-only
+        impersonation middleware — admin runs as the original staff user."""
+        mock_redis = MagicMock()
+        mock_redis.ttl.return_value = -1
+        mock_get_client.return_value = mock_redis
+
+        self.login_as_other_user_read_only()
+
+        # POST to /admin/redis/edit-ttl — a function-based admin view registered directly
+        # in the URLconf (not lazy-loaded), so it's reachable in tests. A successful POST
+        # redirects (302) to the redis values list.
+        response = self.client.post(
+            "/admin/redis/edit-ttl",
+            data={"key": "test:key", "ttl_seconds": "60"},
+        )
+
+        # Endpoint must be reached (would-be 404 means the test isn't proving anything).
+        assert response.status_code != 404, "admin URL not registered in test environment"
+        # Middleware must not return its read-only 403.
+        assert response.status_code != 403, f"unexpected 403: {response.content!r}"
+        # Sanity check the write actually happened.
+        mock_redis.expire.assert_called_once_with("test:key", 60)
+
+    def test_api_writes_still_blocked_during_read_only_impersonation(self):
+        """Non-admin write requests must still be blocked under read-only impersonation."""
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        self.login_as_other_user_read_only()
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/")
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_read_only"
+
+    def test_admin_blocked_when_original_user_loses_staff(self):
+        """If the original (impersonator) user is no longer staff, admin access is denied."""
+        self.login_as_other_user()
+
+        # Demote the original user mid-session.
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.get("/admin/")
+        # No swap happens (original isn't staff anymore) → impersonated non-staff user blocked
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
+@override_settings(ADMIN_PORTAL_ENABLED=True)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
+@override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_SECRET=None)
 class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
     other_user: User
 

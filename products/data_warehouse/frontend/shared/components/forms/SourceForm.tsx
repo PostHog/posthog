@@ -624,10 +624,7 @@ export function SourceFormComponent({
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery =
-        sourceConfig.name === 'Postgres' &&
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-        selectedAccessMethod === 'direct'
+    const isPostgresDirectQuery = sourceConfig.name === 'Postgres' && selectedAccessMethod === 'direct'
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -651,25 +648,22 @@ export function SourceFormComponent({
 
     return (
         <div className="space-y-4 ph-no-capture">
-            {!isUpdateMode &&
-                sourceConfig.name === 'Postgres' &&
-                showAccessMethodSelector &&
-                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
-                    <>
-                        <LemonField name="access_method">
-                            {({ value, onChange }) => (
-                                <SourceAccessMethodSelector
-                                    value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
-                                    onChange={(nextValue) => {
-                                        setSelectedAccessMethod(nextValue)
-                                        onChange(nextValue)
-                                    }}
-                                />
-                            )}
-                        </LemonField>
-                        <LemonDivider />
-                    </>
-                )}
+            {!isUpdateMode && sourceConfig.name === 'Postgres' && showAccessMethodSelector && (
+                <>
+                    <LemonField name="access_method">
+                        {({ value, onChange }) => (
+                            <SourceAccessMethodSelector
+                                value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
+                                onChange={(nextValue) => {
+                                    setSelectedAccessMethod(nextValue)
+                                    onChange(nextValue)
+                                }}
+                            />
+                        )}
+                    </LemonField>
+                    <LemonDivider />
+                </>
+            )}
             {isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"

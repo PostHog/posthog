@@ -552,11 +552,25 @@ class TaskRun(models.Model):
         self.error_message = None
 
         state = self.state or {}
+        prior_snapshot_external_id = state.get("snapshot_external_id")
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_ts", None)
+        if not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS:
+            state.pop("snapshot_external_id", None)
         self.state = state
+
+        logger.info(
+            "prepare_for_cloud_handoff",
+            run_id=str(self.id),
+            task_id=str(self.task_id),
+            use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            prior_snapshot_external_id=prior_snapshot_external_id,
+            stripped_snapshot_external_id=(
+                prior_snapshot_external_id is not None and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
+            ),
+        )
 
         self.save(
             update_fields=[
@@ -652,6 +666,56 @@ class TaskRun(models.Model):
         """Base prefix for storing artifacts in S3."""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
+
+    def get_resume_chain(self, max_depth: int = 10) -> list["TaskRun"]:
+        """Walk `state.resume_from_run_id` from this run upward.
+
+        Returns runs ordered oldest-ancestor → ... → parent → this. Bounded
+        depth and a seen-set guard against cycles. The walk is scoped to this
+        task — a stale cross-task `resume_from_run_id` is silently dropped.
+
+        Loads sibling runs in a single query and walks in-memory so chain depth
+        doesn't translate to per-hop database round trips.
+        """
+        chain: list[TaskRun] = [self]
+        if max_depth <= 0:
+            return chain
+
+        # Walking the chain only needs id/state/artifacts and the bits that
+        # `log_url` derives from (team_id, task_id). Fetching the full row would
+        # pull every column for every historical run on the task.
+        siblings_qs = self.task.runs.only("id", "team_id", "task_id", "state", "artifacts")
+        siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in siblings_qs}
+        seen: set[str] = {str(self.id)}
+        current: TaskRun | None = self
+        depth = 0
+        while current is not None and depth < max_depth:
+            prior_id_raw = (current.state or {}).get("resume_from_run_id")
+            if not prior_id_raw:
+                break
+            try:
+                prior_id = str(uuid.UUID(str(prior_id_raw)))
+            except (ValueError, TypeError):
+                break
+            if prior_id in seen:
+                break
+            seen.add(prior_id)
+            current = siblings_by_id.get(prior_id)
+            if current is None:
+                break
+            chain.append(current)
+            depth += 1
+        chain.reverse()
+        return chain
+
+    def find_artifact_in_resume_chain(self, storage_path: str) -> dict | None:
+        """Find an artifact by storage_path on this run or any ancestor in the resume chain."""
+        # Iterate newest-first since artifact is more likely to be on this run.
+        for run in reversed(self.get_resume_chain()):
+            for entry in run.artifacts or []:
+                if entry.get("storage_path") == storage_path:
+                    return entry
+        return None
 
     @staticmethod
     def _is_agent_message_chunk(entry: dict) -> bool:

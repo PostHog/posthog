@@ -39,6 +39,7 @@ class Product(StrEnum):
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
     MAX_AI = "max_ai"
+    MCP = "mcp"
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
@@ -89,6 +90,13 @@ class Feature(StrEnum):
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
     MANAGEMENT_COMMAND = "management_command"
+    LLM_ANALYTICS = "llm_analytics"
+    # Endpoints product features
+    ENDPOINT_EXECUTION = "endpoint_execution"  # external API callers (personal_api_key or oauth)
+    ENDPOINT_PLAYGROUND = "endpoint_playground"  # frontend Playground tab (browser session auth)
+    ENDPOINT_LAST_EXECUTION = "endpoint_last_execution"  # Usage tab query_log lookup
+    POSTHOG_AI = "posthog_ai"
+    MCP = "mcp"
 
 
 class TemporalTags(BaseModel):
@@ -357,12 +365,21 @@ def reset_query_tags():
 
 
 class QueryCounter:
+    SLOW_QUERY_THRESHOLD_S = 0.05
+
     def __init__(self):
         self.total_query_time = 0.0
+        self.count = 0
+        self.max_query_time = 0.0
+        self.slow_count = 0
 
     @property
     def query_time_ms(self):
         return self.total_query_time * 1000
+
+    @property
+    def max_query_time_ms(self):
+        return self.max_query_time * 1000
 
     def __call__(self, execute, *args, **kwargs):
         import time
@@ -372,7 +389,13 @@ class QueryCounter:
         try:
             return execute(*args, **kwargs)
         finally:
-            self.total_query_time += time.perf_counter() - start_time
+            elapsed = time.perf_counter() - start_time
+            self.total_query_time += elapsed
+            self.count += 1
+            if elapsed > self.max_query_time:
+                self.max_query_time = elapsed
+            if elapsed > self.SLOW_QUERY_THRESHOLD_S:
+                self.slow_count += 1
 
 
 @contextmanager

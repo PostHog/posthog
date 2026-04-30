@@ -118,7 +118,40 @@ function loadOpenApi(): OpenApiSpec {
         console.error(`OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`)
         process.exit(1)
     }
-    return JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    const spec = JSON.parse(fs.readFileSync(OPENAPI_PATH, 'utf-8')) as OpenApiSpec
+    inlineParameterRefs(spec)
+    return spec
+}
+
+/**
+ * Replace ``{$ref: '#/components/parameters/...'}`` entries in operation parameters with the
+ * fully resolved parameter object. The rest of this script reads ``parameter.in`` /
+ * ``parameter.name`` directly, which would silently return ``undefined`` for ref-only entries
+ * and cause downstream tools to mis-handle path/query params (e.g. dropping the
+ * ``project_id`` / ``organization_id`` auto-resolved omit).
+ */
+function inlineParameterRefs(spec: OpenApiSpec): void {
+    const parameterComponents = (spec.components as { parameters?: Record<string, unknown> } | undefined)?.parameters
+    if (!parameterComponents) {
+        return
+    }
+    for (const methods of Object.values(spec.paths ?? {})) {
+        for (const op of Object.values(methods ?? {}) as Array<{ parameters?: unknown[] }>) {
+            if (!op?.parameters || !Array.isArray(op.parameters)) {
+                continue
+            }
+            op.parameters = op.parameters.map((param) => {
+                if (param && typeof param === 'object' && '$ref' in param && typeof param.$ref === 'string') {
+                    const name = param.$ref.replace('#/components/parameters/', '')
+                    const resolved = parameterComponents[name]
+                    if (resolved) {
+                        return resolved
+                    }
+                }
+                return param
+            })
+        }
+    }
 }
 
 /**

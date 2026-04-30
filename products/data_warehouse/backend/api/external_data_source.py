@@ -1476,6 +1476,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": str(e)},
             )
 
+        # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
+        # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
+        # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
+        cdc_enabled = is_cdc_enabled_for_team(self.team)
         data = [
             {
                 "table": schema.name,
@@ -1484,7 +1488,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
+                "cdc_available": schema.supports_cdc if cdc_enabled else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,

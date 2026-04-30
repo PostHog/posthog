@@ -356,7 +356,14 @@ export const QueryRunInputSchema = z.object({
     query: QueryRunQuerySchema,
 })
 
-export const HogQLSchemaInputSchema = z.object({})
+export const HogQLSchemaInputSchema = z.object({
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+        ),
+})
 
 export const QueryValidateInputSchema = z.object({
     query: z
@@ -370,6 +377,12 @@ export const QueryValidateInputSchema = z.object({
         .default('hogQL')
         .describe(
             "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
