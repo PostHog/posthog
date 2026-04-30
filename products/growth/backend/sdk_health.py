@@ -278,18 +278,12 @@ def _load_github_sdk_data() -> dict[str, dict]:
     return data
 
 
-# Suppress sdk_outdated health issues when the latest release is younger than this — gives
-# teams a window to upgrade before we surface a freshly-released SDK as outdated.
 SDK_FRESHNESS_GRACE_PERIOD_DAYS = 7
 
 
 @cache_for(timedelta(seconds=60))
 def sdks_within_freshness_grace_period() -> set[str]:
-    """Return SDK names whose latest published version is younger than the grace period.
-
-    Memoized per-process so the per-request health-issue endpoints don't fan out to Redis
-    every call; the underlying data only changes when the GitHub SDK versions DAG re-runs.
-    """
+    """Return SDK names whose latest published version is younger than the grace period."""
     try:
         github_data = _load_github_sdk_data()
     except (RedisError, ValueError, TypeError):
