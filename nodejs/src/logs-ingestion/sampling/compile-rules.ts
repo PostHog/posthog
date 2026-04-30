@@ -7,6 +7,8 @@ export type SamplingRuleRow = {
     scope_path_pattern: string | null
     scope_attribute_filters: unknown
     config: Record<string, unknown>
+    /** Row version from DB; used by cache watermark only, ignored by compileRuleSet. */
+    version?: number
 }
 
 const defaultSeverityActions = (): [SeverityAction, SeverityAction, SeverityAction, SeverityAction] => [

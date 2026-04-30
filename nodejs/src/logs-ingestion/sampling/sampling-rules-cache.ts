@@ -24,7 +24,7 @@ export class SamplingRulesCache {
         }
         const rows = await this.fetchRules(teamId)
         const compiled = compileRuleSet(rows)
-        const vw = rows.reduce((m, r) => Math.max(m, r.version), 0)
+        const vw = rows.reduce((m, r) => Math.max(m, r.version ?? 0), 0)
         this.cache.set(teamId, { compiled, versionWatermark: vw, fetchedAtMs: now })
         return compiled
     }

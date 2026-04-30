@@ -12,7 +12,7 @@ import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 
-export function LogsSamplingSection(): JSX.Element {
+export function LogsSamplingSection(): JSX.Element | null {
     const enabled = useFeatureFlag(LogsFeatureFlagKeys.samplingRules)
     if (!enabled) {
         return null
@@ -49,7 +49,12 @@ function LogsSamplingSectionTable(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             render: (_, row) => (
-                <LemonButton to={urls.logsSamplingDetail(row.id)} data-attr="logs-sampling-rule-link" noStyle>
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    to={urls.logsSamplingDetail(row.id)}
+                    data-attr="logs-sampling-rule-link"
+                >
                     <strong>{row.name}</strong>
                 </LemonButton>
             ),

@@ -78,13 +78,14 @@ function parseSeverityPart(
     if (!raw || typeof raw.type !== 'string') {
         return
     }
+    const patch = form as unknown as Record<string, unknown>
     if (raw.type === 'drop') {
-        ;(form as Record<string, unknown>)[prefix] = 'drop'
+        patch[prefix] = 'drop'
     } else if (raw.type === 'sample' && typeof raw.rate === 'number') {
-        ;(form as Record<string, unknown>)[prefix] = 'sample'
-        ;(form as Record<string, unknown>)[`${prefix}_rate`] = raw.rate
+        patch[prefix] = 'sample'
+        patch[`${prefix}_rate`] = raw.rate
     } else {
-        ;(form as Record<string, unknown>)[prefix] = 'keep'
+        patch[prefix] = 'keep'
     }
 }
 
