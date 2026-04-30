@@ -278,6 +278,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         operation_id="create_session_summaries_individually",
         description="Generate AI individual summary for each session, without grouping.",
         request=SessionSummariesSerializer,
+        tags=["replay"],
     )
     @action(methods=["POST"], detail=False, required_scopes=["session_recording:read"])
     def create_session_summaries_individually(self, request: Request, **kwargs) -> Response:
