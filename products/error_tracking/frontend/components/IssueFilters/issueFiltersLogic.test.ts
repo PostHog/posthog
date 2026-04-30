@@ -1,7 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import {
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
 
 import { issueFiltersLogic } from './issueFiltersLogic'
 
@@ -19,13 +25,13 @@ describe('issueFiltersLogic', () => {
     })
 
     describe('mergedFilterGroup', () => {
-        const propA = {
+        const propA: EventPropertyFilter = {
             type: PropertyFilterType.Event,
             key: '$browser',
             operator: PropertyOperator.Exact,
             value: ['Chrome'],
         }
-        const propB = {
+        const propB: EventPropertyFilter = {
             type: PropertyFilterType.Event,
             key: '$os',
             operator: PropertyOperator.Exact,

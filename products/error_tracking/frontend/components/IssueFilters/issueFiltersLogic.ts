@@ -119,14 +119,10 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                     filtersFromQuickFilters.length > 0
 
                 const innerValues = shouldNestOmnisearch
-                    ? [
-                          { type: FilterLogicalOperator.Or, values: omnisearchFilters },
-                          ...filtersFromQuickFilters,
-                      ]
+                    ? [{ type: FilterLogicalOperator.Or, values: omnisearchFilters }, ...filtersFromQuickFilters]
                     : [...omnisearchFilters, ...filtersFromQuickFilters]
 
-                const innerType =
-                    filtersFromQuickFilters.length === 0 ? omnisearchType : FilterLogicalOperator.And
+                const innerType = filtersFromQuickFilters.length === 0 ? omnisearchType : FilterLogicalOperator.And
 
                 return {
                     type: FilterLogicalOperator.And,

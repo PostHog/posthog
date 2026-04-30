@@ -11,6 +11,9 @@
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@dnd-kit/core": "*",
         "@dnd-kit/modifiers": "*",
