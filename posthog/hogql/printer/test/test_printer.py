@@ -4955,6 +4955,60 @@ class TestPostgresPrinter(BaseTest):
             self._select(query)
         self.assertIn(expected_error, str(ctx.exception))
 
+    def _context_with_table_functions(self, *function_names: str) -> HogQLContext:
+        return HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            direct_postgres_connection_metadata={
+                "available_table_functions": list(function_names),
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("unnest", "SELECT unnest FROM unnest(ARRAY[1, 2, 3])", "unnest("),
+            (
+                "regexp_matches",
+                "SELECT regexp_matches FROM regexp_matches('abc', '.', 'g')",
+                "regexp_matches(",
+            ),
+            (
+                "jsonb_array_elements_text",
+                "SELECT jsonb_array_elements_text FROM jsonb_array_elements_text('[\"a\"]')",
+                "jsonb_array_elements_text(",
+            ),
+        ]
+    )
+    def test_opaque_table_function_from_introspected_metadata(self, name, query, expected):
+        context = self._context_with_table_functions(name)
+        printed = self._select(query, context=context)
+        self.assertIn(expected, printed)
+
+    def test_opaque_table_function_unknown_name_still_errors(self):
+        context = self._context_with_table_functions("unnest")
+        with self.assertRaises(QueryError) as ctx:
+            self._select("SELECT * FROM totally_made_up_function(1)", context=context)
+        self.assertIn("Unknown table", str(ctx.exception))
+
+    def test_opaque_table_function_requires_args(self):
+        context = self._context_with_table_functions("unnest")
+        with self.assertRaises(QueryError) as ctx:
+            self._select("SELECT * FROM unnest", context=context)
+        self.assertIn("Unknown table", str(ctx.exception))
+
+    def test_opaque_table_function_rejects_empty_call(self):
+        context = self._context_with_table_functions("unnest")
+        with self.assertRaises(QueryError) as ctx:
+            self._select("SELECT * FROM unnest()", context=context)
+        self.assertIn("requires at least 1 argument", str(ctx.exception))
+
+    def test_opaque_table_function_falls_back_to_hardcoded_range_without_metadata(self):
+        # Connections that haven't refreshed since this rolled out won't have
+        # `available_table_functions` in their metadata. The hand-rolled RangeTable
+        # / GenerateSeriesTable registrations keep those two working.
+        printed = self._select("SELECT range FROM range(10)")
+        self.assertIn("range(10)", printed)
+
     @parameterized.expand(
         [
             (

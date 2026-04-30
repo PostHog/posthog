@@ -186,8 +186,21 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
         handleGithubCallback: async ({ searchParams }) => {
             const { state, installation_id, code } = searchParams
-            const { next, token } = fromParamsGivenUrl(state ?? '')
+            const { next, token, source } = fromParamsGivenUrl(state ?? '')
             const stateToken = token || state
+
+            // User-level GitHub flow (personal integrations / UserIntegration): redirect to the
+            // backend endpoint which handles UserIntegration creation server-side.
+            if (source === 'user_integration') {
+                const backendUrl = combineUrl('/complete/github-link/', {
+                    installation_id,
+                    code,
+                    state: stateToken,
+                }).url
+                window.location.href = backendUrl
+                return
+            }
+
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             try {

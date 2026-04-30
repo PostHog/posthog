@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconClock, IconDatabase, IconInfo, IconRefresh } from '@posthog/icons'
+import { IconClock, IconDatabase, IconInfo, IconList, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -15,6 +15,7 @@ import {
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
 
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, MaterializationPreview } from '../endpointSceneLogic'
@@ -234,10 +235,17 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
         materializationPreview,
         bucketOverrides,
     } = useValues(endpointSceneLogic({ tabId }))
+    const [runsModalOpen, setRunsModalOpen] = useState(false)
 
     if (!endpoint) {
         return <></>
     }
+
+    const savedQueryId =
+        viewingVersion?.materialization?.saved_query_id ??
+        loadedMaterializationStatus?.saved_query_id ??
+        endpoint.materialization?.saved_query_id ??
+        null
 
     const versionMaterialization = viewingVersion?.materialization ?? endpoint.materialization
     const freshMaterialization = loadedMaterializationStatus ?? versionMaterialization
@@ -319,6 +327,14 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
                                         loading={materializationStatusLoading}
                                         tooltip="Refresh status"
                                     />
+                                    {savedQueryId && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            icon={<IconList />}
+                                            onClick={() => setRunsModalOpen(true)}
+                                            tooltip="View materialization runs"
+                                        />
+                                    )}
                                 </div>
                             </div>
 
@@ -364,6 +380,13 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
                     )}
                 </div>
             )}
+            <MaterializationStatusModal
+                isOpen={runsModalOpen}
+                onClose={() => setRunsModalOpen(false)}
+                viewId={savedQueryId}
+                viewName={endpoint.name}
+                kind="endpoint"
+            />
         </div>
     )
 }

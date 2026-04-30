@@ -30,6 +30,7 @@ from posthog.schema import (
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema
@@ -83,6 +84,8 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 # which is the signal to register them.
 _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
+    "Dashboard": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.INSIGHT},
+    "Insight": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.INSIGHT},
     "EndpointScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
     # Data management surfaces fan out into ad-hoc queries (e.g. the promoted-property picker
@@ -284,7 +287,15 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            detail = str(e)
+            extra: dict | None = None
+            if isinstance(e, ExposedHogQLError):
+                request_user = request.user if isinstance(request.user, User) else None
+                detail, extra = enrich_hogql_validation_error(query, self.team, request_user, detail)
+            validation_error = ValidationError(detail, getattr(e, "code_name", None))
+            if extra is not None:
+                validation_error.extra = extra  # type: ignore[attr-defined]
+            raise validation_error
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)

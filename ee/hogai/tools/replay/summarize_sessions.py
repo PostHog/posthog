@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
@@ -254,7 +254,12 @@ class SummarizeSessionsTool(MaxTool):
 
         # Execute the query to get session IDs
         try:
-            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            with tags_context(
+                product=Product.MAX_AI,
+                feature=Feature.POSTHOG_AI,
+                team_id=self._team.pk,
+                org_id=self._team.organization_id,
+            ):
                 query_runner = SessionRecordingListFromQuery(
                     team=self._team, query=replay_filters, hogql_query_modifiers=None
                 )

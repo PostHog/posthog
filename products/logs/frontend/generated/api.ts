@@ -619,7 +619,7 @@ export const pluginConfigsLogsList = async (
 }
 
 /**
- * Fetch the logs for a task run. Returns JSONL formatted log entries.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
  * @summary Get task run logs
  */
 export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {

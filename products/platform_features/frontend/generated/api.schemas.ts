@@ -386,10 +386,6 @@ export const OrganizationMembershipLevelEnumApi = {
 export interface OrganizationMemberApi {
     readonly id: string
     readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
     level?: OrganizationMembershipLevelEnumApi
     readonly joined_at: string
     readonly updated_at: string
@@ -410,10 +406,6 @@ export interface PaginatedOrganizationMemberListApi {
 export interface PatchedOrganizationMemberApi {
     readonly id?: string
     readonly user?: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
     level?: OrganizationMembershipLevelEnumApi
     readonly joined_at?: string
     readonly updated_at?: string

@@ -350,6 +350,8 @@ class TestEvaluateSingleAlert(APIBaseTest):
         for target in (
             "products.logs.backend.temporal.activities.record_check_duration",
             "products.logs.backend.temporal.activities.record_scheduler_lag",
+            "products.logs.backend.temporal.activities.record_clickhouse_duration",
+            "products.logs.backend.temporal.activities.record_alert_save_duration",
             "products.logs.backend.temporal.activities.increment_checks_total",
             "products.logs.backend.temporal.activities.increment_check_errors",
         ):

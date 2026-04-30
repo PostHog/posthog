@@ -14,11 +14,16 @@ Dedicated ClickHouse table for AI events with extracted columns
 
 ## Env vars
 
-| Var                                        | Default | Purpose                                 |
-| ------------------------------------------ | ------- | --------------------------------------- |
-| `INGESTION_AI_EVENT_SPLITTING_ENABLED`     | `false` | Master switch for dual-writing          |
-| `INGESTION_AI_EVENT_SPLITTING_TEAMS`       | `*`     | Team allowlist (`*` or comma-separated) |
-| `INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY` | `false` | Strip heavy props from `events` copy    |
+| Var                                              | Default | Purpose                                                             |
+| ------------------------------------------------ | ------- | ------------------------------------------------------------------- |
+| `INGESTION_AI_EVENT_SPLITTING_ENABLED`           | `false` | Master switch for dual-writing                                      |
+| `INGESTION_AI_EVENT_SPLITTING_TEAMS`             | `*`     | Always-routed teams (`*` or comma-separated). Unioned with the pct. |
+| `INGESTION_AI_EVENT_SPLITTING_PERCENTAGE`        | `0`     | Sticky % rollout, deterministic per team_id and monotonic           |
+| `INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS` | ``      | Team allowlist for strip-heavy phase (`*` or comma-separated)       |
+
+A team is routed to `ai_events` if it's in `_TEAMS` **or** its team_id bucket falls under `_PERCENTAGE`.
+Buckets are stable (Knuth multiplicative hash of `team_id`), so every team in at X% stays in at any
+Y% > X%. `_TEAMS=*` and `_PERCENTAGE=100` are both ways to route everyone.
 
 ## Feature flag
 
@@ -58,10 +63,13 @@ INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY=false   # keep heavy props in events
 
 ### Phase 5: Expand and flip reads for everyone
 
-- Expand env var teams + feature flag to more teams, then all
-- Monitor query latency and data completeness
-- Once stable: set `STRIP_HEAVY=true` -> events stops getting heavy props
-- CH team is free to rewrite `events` history to drop heavy columns
+- Expand `_PERCENTAGE` 10 → 25 → 50 → 100 to widen the write rollout.
+  Each step is a one-line charts PR. Bucketing is sticky per team, so increases only add
+  teams, never remove them. Test teams pinned in `_TEAMS` stay routed regardless of the percentage.
+- Expand the read-side feature flag to match.
+- Monitor query latency and data completeness.
+- Once stable: set `_STRIP_HEAVY_TEAMS=*` so events stops getting heavy props.
+- CH team is free to rewrite `events` history to drop heavy columns.
 
 ### Phase 6: Cleanup (see section below)
 
@@ -113,9 +121,9 @@ After stable GA and CH team has rewritten events history:
 
 ### Node.js write side
 
-- [ ] Remove `INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY` env var
+- [ ] Remove `INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS` env var
       (stripping becomes unconditional, or unnecessary if CH MV strips)
-- [ ] Remove `INGESTION_AI_EVENT_SPLITTING_TEAMS` env var
+- [ ] Remove `INGESTION_AI_EVENT_SPLITTING_TEAMS` and `INGESTION_AI_EVENT_SPLITTING_PERCENTAGE` env vars
       (splitting applies to all teams)
 - [ ] Simplify `SplitAiEventsStepConfig` to just `enabled: boolean`
 - [ ] If CH team changes events MV to exclude heavy props at the table level,

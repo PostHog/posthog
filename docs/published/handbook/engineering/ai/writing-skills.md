@@ -101,8 +101,8 @@ Every skill entry point must have YAML frontmatter with `name` and `description`
 
 ```yaml
 ---
-name: query-examples
-description: 'HogQL query examples and reference material for PostHog data. Read when writing SQL queries...'
+name: querying-posthog-data
+description: 'Required reading before writing any HogQL/SQL or calling execute-sql against PostHog...'
 ---
 ```
 
@@ -114,7 +114,7 @@ Both fields are required and validated at build time.
 Reference files are loaded on demand – only the entry point is read initially.
 Keep `SKILL.md` under 500 lines and split detailed content into `references/`.
 
-See [`query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md)
+See [`querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md)
 for how this works in practice –
 the entry point links to 30+ reference files
 covering model schemas, query patterns, and HogQL extensions.
@@ -130,8 +130,8 @@ Use lowercase kebab-case. Prefer gerund form (verb + -ing):
 
 | Pattern                   | Examples                                                                  |
 | ------------------------- | ------------------------------------------------------------------------- |
-| Gerund form (preferred)   | `exploring-llm-traces`, `writing-hogql-queries`, `managing-feature-flags` |
-| Noun phrases (acceptable) | `query-examples`, `error-tracking-guide`                                  |
+| Gerund form (preferred)   | `querying-posthog-data`, `exploring-llm-traces`, `managing-feature-flags` |
+| Noun phrases (acceptable) | `error-tracking-guide`                                                    |
 
 Skills **must not** be prefixed with `posthog-*`.
 The `posthog-` prefix is added automatically depending on the consumer agent.
@@ -206,13 +206,13 @@ see [`exploring-llm-traces/SKILL.md`](https://github.com/PostHog/posthog/blob/ma
 The agent knows _which_ tools to use, _in what order_, and what a successful result looks like –
 which is exactly what separates a skill from a generic prompt.
 
-### Good: `query-examples`
+### Good: `querying-posthog-data`
 
 A reference skill with a clear entry point and 30+ reference files:
 
-- Entry point ([`SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md))
+- Entry point ([`SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md))
   links to model schemas, query patterns, and HogQL extensions.
-- Guidelines file ([`references/guidelines.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/references/guidelines.md))
+- Guidelines file ([`references/guidelines.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/references/guidelines.md))
   explains schema verification workflow, time ranges, joins, and HogQL differences.
 - Uses progressive disclosure – agents load only the references they need.
 
@@ -362,13 +362,13 @@ To test a product skill locally with Claude Code, sync it to `.agents/skills/`:
 
 ```sh
 # Build and sync a specific skill
-hogli sync:skill -- --name query-examples
+hogli sync:skill -- --name querying-posthog-data
 
-# The skill is now available at .agents/skills/query-examples/
+# The skill is now available at .agents/skills/querying-posthog-data/
 # Claude Code picks it up via the .claude/skills -> .agents/skills symlink
 
 # When done testing, remove the synced copy
-hogli unsync:skill -- --name query-examples
+hogli unsync:skill -- --name querying-posthog-data
 ```
 
 Synced skills are automatically gitignored and should not be committed.

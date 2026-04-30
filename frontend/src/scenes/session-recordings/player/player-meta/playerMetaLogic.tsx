@@ -188,10 +188,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summaryDisabledReason: [
             (s) => [s.allItemsByMiniFilterKey],
             (allItemsByMiniFilterKey): string | undefined => {
-                const hasAutocapture = !!allItemsByMiniFilterKey['events-autocapture']?.length
-                if (hasAutocapture) {
-                    return undefined
-                }
                 const hasAnyEvents = [
                     'events-posthog',
                     'events-custom',
@@ -199,9 +195,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     'events-autocapture',
                     'events-exceptions',
                 ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
-                return hasAnyEvents
-                    ? 'This session has no autocapture events. Enable autocapture in your project settings to use AI summaries.'
-                    : 'Session events are not available yet. Try again in a few minutes.'
+                return hasAnyEvents ? undefined : 'Session events are not available yet. Try again in a few minutes.'
             },
         ],
         loading: [
