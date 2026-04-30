@@ -1,0 +1,13 @@
+{
+    "uuid": "0194b2ce-f18c-7785-8fc1-299e70777852",
+    "team_id": 42,
+    "project_id": 42,
+    "event": "$ai_generation",
+    "distinct_id": "test-user-123",
+    "properties": "{\"$ai_model\":\"gpt-4\",\"$ai_provider\":\"openai\",\"$ai_trace_id\":\"537b7988-0186-494f-a313-77a5a8f7db26\",\"$ai_span_id\":\"1ef92c9d-4846-4dc9-bc3b-2d0ec78e2485\",\"$ai_input\":[{\"role\":\"user\",\"content\":\"Hello\"}],\"$ai_output\":\"Hi there\",\"$ai_output_choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hi there\"},\"finish_reason\":\"stop\"}],\"$ai_input_state\":{\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]},\"$ai_output_state\":{\"messages\":[{\"role\":\"assistant\",\"content\":\"Hi there\"}]},\"$ai_tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"Get weather by city\"}}],\"$ai_input_tokens\":10,\"$ai_output_tokens\":15,\"$ai_total_cost_usd\":0.001,\"$ai_latency\":0.5,\"$ai_is_error\":false,\"$lib\":\"posthog-python\",\"$lib_version\":\"3.11.0\"}",
+    "timestamp": "2025-01-29 16:04:53.816000",
+    "created_at": "2025-01-29 16:04:53.816000",
+    "elements_chain": null,
+    "person_id": "01948e98-5a50-0000-3306-c86d238dd29e",
+    "person_mode": "Full"
+}
