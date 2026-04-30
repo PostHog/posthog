@@ -1652,7 +1652,8 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
     def test_list_internal_true_is_ignored_for_non_staff_in_production(self):
         # Non-staff user with DEBUG=False must not have internal tasks surfaced.
         self.assertFalse(self.user.is_staff)
-        response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        with self.settings(DEBUG=False):
+            response = self.client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -1672,13 +1673,12 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
     def test_list_internal_true_shows_only_internal_tasks_for_staff(self):
         # Staff users can list internal tasks even with DEBUG=False.
-        self.user.is_staff = True
-        self.user.save()
-        try:
-            response = self.client.get("/api/projects/@current/tasks/?internal=true")
-        finally:
-            self.user.is_staff = False
-            self.user.save()
+        staff_user = User.objects.create_user(email="staff@example.com", password="password", is_staff=True)
+        self.organization.members.add(staff_user)
+        staff_client = APIClient()
+        staff_client.force_authenticate(staff_user)
+        with self.settings(DEBUG=False):
+            response = staff_client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
