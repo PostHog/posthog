@@ -136,7 +136,7 @@ impl PostgresStorage {
             UPDATE flags_person_lookup
             SET distinct_ids = array_remove(distinct_ids, $1)
             WHERE team_id = $2
-              AND $1 = ANY(distinct_ids)
+              AND distinct_ids @> ARRAY[$1]::text[]
               AND person_uuid != $3
             "#,
         )
