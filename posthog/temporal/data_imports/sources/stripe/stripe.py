@@ -309,8 +309,13 @@ def stripe_source(
 class StripePermissionError(Exception):
     """Raised when Stripe API key is valid but lacks read permission for a resource."""
 
-    def __init__(self, missing_permissions: dict[str, str]):
+    def __init__(self, missing_permissions: dict[str, str], permission_only: Optional[set[str]] = None):
         self.missing_permissions = missing_permissions
+        # Resources that failed with a clean stripe.PermissionError (403). Callers can use this
+        # to decide whether to include the verbose underlying Stripe message in user-facing output:
+        # 403s are self-explanatory ("missing X read scope"), so a bare resource name suffices,
+        # while unknown errors should be surfaced verbatim because the cause is non-obvious.
+        self.permission_only = permission_only if permission_only is not None else set(missing_permissions.keys())
         message = f"Stripe API key lacks permissions for: {', '.join(missing_permissions.keys())}"
         super().__init__(message)
 
@@ -351,6 +356,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
     ]
 
     missing_permissions: dict[str, str] = {}
+    permission_only: set[str] = set()
 
     if table_name:
         resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
@@ -366,15 +372,19 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
             # 401 — key itself is bad; no point checking other resources, every call will 401 the same way.
             raise StripeAuthenticationError(str(e)) from e
         except stripe_lib.PermissionError as e:
-            # 403 — this specific resource is not authorized for the key.
-            missing_permissions[resource_name] = str(e)
+            # 403 — this specific resource is not authorized for the key. The user_message is the
+            # concise Stripe explanation; str(e) on a stripe error includes request id, status code,
+            # and headers — way too noisy when the cause ("missing X read scope") is already obvious
+            # from the resource name.
+            missing_permissions[resource_name] = getattr(e, "user_message", None) or str(e)
+            permission_only.add(resource_name)
         except Exception as e:
             # Treat unknown errors as permission failures so the user still gets actionable output,
             # but include the raw Stripe message so they can see what actually went wrong.
             missing_permissions[resource_name] = str(e)
 
     if missing_permissions:
-        raise StripePermissionError(missing_permissions)
+        raise StripePermissionError(missing_permissions, permission_only=permission_only)
 
     return True
 

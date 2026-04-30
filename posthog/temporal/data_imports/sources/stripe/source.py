@@ -291,11 +291,20 @@ If automatic creation failed due to a permissions error and you're using a restr
                 f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
             )
         except StripePermissionError as e:
-            # Surface the per-resource Stripe error so the customer sees what scope is actually missing
-            # (e.g. "Connect not enabled on this account" vs "Billing read scope missing"), not just a
-            # bare list of resource names. Trim each message so the toast stays readable.
-            details = "; ".join(f"{name}: {msg.splitlines()[0][:200]}" for name, msg in e.missing_permissions.items())
-            return False, f"Stripe credentials lack permissions for the following resources — {details}"
+            # Pure 403s are self-explanatory — the resource name already tells the customer which
+            # Stripe scope to enable, and Stripe's verbose error (request id, status, headers)
+            # bloats the toast without adding signal. Only surface the underlying message for
+            # resources that failed with a non-permission exception (network, schema, rate limit,
+            # etc.) where the cause isn't obvious from the resource name alone.
+            unknown = {name: msg for name, msg in e.missing_permissions.items() if name not in e.permission_only}
+            resources = ", ".join(e.missing_permissions.keys())
+            if not unknown:
+                return False, f"Stripe credentials lack permissions for {resources}"
+            details = "; ".join(f"{name}: {msg.splitlines()[0][:200]}" for name, msg in unknown.items())
+            return (
+                False,
+                f"Stripe credentials lack permissions for {resources}. Additional errors — {details}",
+            )
         except Exception as e:
             return False, str(e)
 
