@@ -8406,7 +8406,7 @@ export namespace Schemas {
       name?: string;
       filters?: unknown;
       /**
-       * Ordered list of HogQL expressions describing the table sort (e.g. ['timestamp DESC']). null means the view predates this feature and the live query's ordering should be preserved on apply; an empty list means explicitly no sort.
+       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
        * @nullable
        */
       order_by?: string[] | null;
@@ -26671,7 +26671,7 @@ export namespace Schemas {
       name?: string;
       filters?: unknown;
       /**
-       * Ordered list of HogQL expressions describing the table sort (e.g. ['timestamp DESC']). null means the view predates this feature and the live query's ordering should be preserved on apply; an empty list means explicitly no sort.
+       * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
        * @nullable
        */
       order_by?: string[] | null;

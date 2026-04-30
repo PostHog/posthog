@@ -24,12 +24,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         allow_empty=True,
-        help_text=(
-            "Ordered list of HogQL expressions describing the table sort "
-            "(e.g. ['timestamp DESC']). null means the view predates this "
-            "feature and the live query's ordering should be preserved on "
-            "apply; an empty list means explicitly no sort."
-        ),
+        help_text="Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.",
     )
 
     class Meta:
@@ -103,6 +98,17 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if len(columns) > 100:
             return Response({"error": "cannot configure more than 100 columns"}, status=400)
+
+        order_by = request.data.get("order_by")
+        if order_by is not None:
+            if not isinstance(order_by, list):
+                return Response({"error": "order_by must be a list"}, status=400)
+
+            if not all(isinstance(item, str) for item in order_by):
+                return Response({"error": "all order_by entries must be strings"}, status=400)
+
+            if len(order_by) > 100:
+                return Response({"error": "cannot order by more than 100 expressions"}, status=400)
 
         return super().create(request, *args, **kwargs)
 

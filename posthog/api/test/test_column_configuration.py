@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ColumnConfiguration, User
@@ -247,31 +248,44 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "cannot configure more than 100 columns" in response.json()["error"]
 
-    def test_create_with_order_by(self):
+    @parameterized.expand(
+        [
+            ("populated", ["timestamp DESC"]),
+            ("empty list (distinct from null)", []),
+        ]
+    )
+    def test_create_with_order_by(self, _name: str, order_by: list[str]):
         response = self.client.post(
             f"/api/environments/{self.team.id}/column_configurations/",
             {
                 "context_key": "people-list",
                 "columns": ["*", "person", "timestamp"],
-                "order_by": ["timestamp DESC"],
+                "order_by": order_by,
             },
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["order_by"] == ["timestamp DESC"]
+        assert response.json()["order_by"] == order_by
 
-    def test_create_with_empty_order_by(self):
+    @parameterized.expand(
+        [
+            ("non-list", "timestamp DESC", "order_by must be a list"),
+            ("non-string entry", ["timestamp DESC", 5], "all order_by entries must be strings"),
+            ("too many entries", [f"col_{i}" for i in range(101)], "cannot order by more than 100 expressions"),
+        ]
+    )
+    def test_invalid_order_by_is_rejected(self, _name: str, order_by, expected_error: str):
         response = self.client.post(
             f"/api/environments/{self.team.id}/column_configurations/",
             {
                 "context_key": "people-list",
                 "columns": ["*", "person", "timestamp"],
-                "order_by": [],
+                "order_by": order_by,
             },
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["order_by"] == [], "Explicit empty order_by is preserved (distinct from null)"
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["error"]
 
     def test_legacy_row_serializes_order_by_as_null(self):
         config = ColumnConfiguration.objects.create(
