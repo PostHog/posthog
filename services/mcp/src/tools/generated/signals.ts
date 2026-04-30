@@ -17,7 +17,7 @@ const signalsReportsList = (): ToolBase<
     typeof SignalsReportsListSchema,
     WithPostHogUrl<Schemas.PaginatedSignalReportList>
 > => ({
-    name: 'signals-reports-list',
+    name: 'inbox-reports-list',
     schema: SignalsReportsListSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsReportsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
@@ -74,7 +74,7 @@ const signalsReportsRetrieve = (): ToolBase<
     typeof SignalsReportsRetrieveSchema,
     WithPostHogUrl<Schemas.SignalReport>
 > => ({
-    name: 'signals-reports-retrieve',
+    name: 'inbox-reports-retrieve',
     schema: SignalsReportsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsReportsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
@@ -92,7 +92,7 @@ const signalsSourceConfigsList = (): ToolBase<
     typeof SignalsSourceConfigsListSchema,
     WithPostHogUrl<Schemas.PaginatedSignalSourceConfigList>
 > => ({
-    name: 'signals-source-configs-list',
+    name: 'inbox-source-configs-list',
     schema: SignalsSourceConfigsListSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsSourceConfigsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
@@ -137,7 +137,7 @@ const signalsSourceConfigsRetrieve = (): ToolBase<
     typeof SignalsSourceConfigsRetrieveSchema,
     WithPostHogUrl<Schemas.SignalSourceConfig>
 > => ({
-    name: 'signals-source-configs-retrieve',
+    name: 'inbox-source-configs-retrieve',
     schema: SignalsSourceConfigsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof SignalsSourceConfigsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
@@ -150,8 +150,8 @@ const signalsSourceConfigsRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'signals-reports-list': signalsReportsList,
-    'signals-reports-retrieve': signalsReportsRetrieve,
-    'signals-source-configs-list': signalsSourceConfigsList,
-    'signals-source-configs-retrieve': signalsSourceConfigsRetrieve,
+    'inbox-reports-list': signalsReportsList,
+    'inbox-reports-retrieve': signalsReportsRetrieve,
+    'inbox-source-configs-list': signalsSourceConfigsList,
+    'inbox-source-configs-retrieve': signalsSourceConfigsRetrieve,
 }

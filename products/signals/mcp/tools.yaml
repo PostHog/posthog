@@ -9,16 +9,16 @@ feature: signals
 url_prefix: /signals
 ui_apps: {}
 tools:
-    signals-processing-list:
+    inbox-processing-list:
         operation: signals_processing_list
         enabled: false
-    signals-processing-pause-destroy:
+    inbox-processing-pause-destroy:
         operation: signals_processing_pause_destroy
         enabled: false
-    signals-processing-pause-update:
+    inbox-processing-pause-update:
         operation: signals_processing_pause_update
         enabled: false
-    signals-reports-list:
+    inbox-reports-list:
         operation: signals_reports_list
         enabled: true
         scopes:
@@ -53,7 +53,7 @@ tools:
                 - implementation_pr_url
                 - created_at
                 - updated_at
-    signals-reports-retrieve:
+    inbox-reports-retrieve:
         operation: signals_reports_retrieve
         enabled: true
         scopes:
@@ -69,13 +69,13 @@ tools:
             actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR
             if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL
             query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.
-    signals-source-configs-create:
+    inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: false
-    signals-source-configs-destroy:
+    inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
-    signals-source-configs-list:
+    inbox-source-configs-list:
         operation: signals_source_configs_list
         enabled: true
         scopes:
@@ -101,10 +101,10 @@ tools:
                 - status
                 - created_at
                 - updated_at
-    signals-source-configs-partial-update:
+    inbox-source-configs-partial-update:
         operation: signals_source_configs_partial_update
         enabled: false
-    signals-source-configs-retrieve:
+    inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true
         scopes:
@@ -118,7 +118,7 @@ tools:
         description: >
             Get a single signal source config by ID. Returns the full record including source_product, source_type,
             enabled flag, configuration JSON, and current status of the underlying data import or workflow.
-    signals-source-configs-update:
+    inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
     users-signal-autonomy-create:
