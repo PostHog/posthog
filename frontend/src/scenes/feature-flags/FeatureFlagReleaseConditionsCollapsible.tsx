@@ -1017,7 +1017,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     // Compute current selected option (shared between keyboard navigation and selection rendering)
     const currentSelected = isTargetingV2Enabled
-        ? isDeviceTargeting
+        ? isDeviceTargeting && onBucketingIdentifierChange
             ? 'device'
             : 'properties'
         : isMixedTargeting
