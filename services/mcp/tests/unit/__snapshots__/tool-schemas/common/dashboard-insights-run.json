@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "filters_override": {
+            "description": "JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys (e.g., date_from, date_to).",
+            "type": "string"
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
@@ -13,6 +17,10 @@
         "refresh": {
             "description": "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.",
             "enum": ["blocking", "force_blocking", "force_cache"],
+            "type": "string"
+        },
+        "variables_override": {
+            "description": "JSON object to override dashboard variables for this request only (does not persist). Format: {\"variable_id\": {\"value\": \"new_value\"}} where variable_id is the UUID of a SQL variable. Use dashboard-get to see the dashboard's current variables and their IDs.",
             "type": "string"
         }
     },

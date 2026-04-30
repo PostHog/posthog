@@ -1,9 +1,17 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "filters_override": {
+            "description": "JSON object to override dashboard filters for this request only (does not persist). See dashboard filters schema for available keys.",
+            "type": "string"
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
+        },
+        "variables_override": {
+            "description": "JSON object to override dashboard variables for this request only (does not persist). Format: {\"variable_id\": {\"value\": \"new_value\"}} where variable_id is the UUID of a SQL variable.",
+            "type": "string"
         }
     },
     "required": ["id"],
