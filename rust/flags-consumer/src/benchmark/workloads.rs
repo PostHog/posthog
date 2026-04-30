@@ -333,6 +333,7 @@ pub async fn phase_concurrent_reads_writes(
                     "SELECT person_uuid, distinct_ids, properties \
                      FROM flags_person_lookup \
                      WHERE team_id = $1 AND distinct_ids @> ARRAY[$2]::text[] \
+                       AND deleted_at IS NULL \
                      LIMIT 1",
                 )
                 .bind(team_id)
@@ -401,6 +402,7 @@ async fn check_read_query_plan(pool: &PgPool, data: &BenchmarkData) -> QueryPlan
          SELECT person_uuid, distinct_ids, properties \
          FROM flags_person_lookup \
          WHERE team_id = $1 AND distinct_ids @> ARRAY[$2]::text[] \
+           AND deleted_at IS NULL \
          LIMIT 1",
     )
     .bind(team_id)

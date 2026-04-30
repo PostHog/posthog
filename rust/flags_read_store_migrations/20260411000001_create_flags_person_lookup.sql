@@ -13,6 +13,9 @@
 -- lookups within a partition.
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 
+-- `deleted_at` keeps tombstoned rows around so the upsert's version guard
+-- still has a row to compare against and can reject stale PersonUpdate
+-- messages arriving after a delete. Reads must filter `deleted_at IS NULL`.
 CREATE TABLE IF NOT EXISTS flags_person_lookup (
     team_id              INTEGER NOT NULL,
     person_uuid          UUID NOT NULL,
@@ -20,6 +23,7 @@ CREATE TABLE IF NOT EXISTS flags_person_lookup (
     properties           JSONB NOT NULL DEFAULT '{}'::jsonb,
     person_version       BIGINT NOT NULL DEFAULT 0,
     distinct_id_version  BIGINT NOT NULL DEFAULT 0,
+    deleted_at           TIMESTAMPTZ,
     PRIMARY KEY (team_id, person_uuid)
 ) PARTITION BY HASH (team_id);
 

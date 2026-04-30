@@ -23,6 +23,7 @@ pub async fn create_schema(pool: &PgPool) -> anyhow::Result<()> {
             properties           JSONB NOT NULL DEFAULT '{}'::jsonb,
             person_version       BIGINT NOT NULL DEFAULT 0,
             distinct_id_version  BIGINT NOT NULL DEFAULT 0,
+            deleted_at           TIMESTAMPTZ,
             PRIMARY KEY (team_id, person_uuid)
         ) PARTITION BY HASH (team_id)
         "#,

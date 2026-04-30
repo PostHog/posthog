@@ -79,8 +79,10 @@ impl PostgresStorage {
         Ok(result.rows_affected())
     }
 
-    /// Batch-delete persons via UNNEST.
+    /// Soft-delete: keep the row so the upsert's version guard can still
+    /// reject stale `PersonUpdate` messages arriving after the delete.
     /// The incoming version includes a +100 bump from the producer for deletions.
+    /// `distinct_ids` is cleared so the GIN index can't surface tombstoned rows.
     pub async fn batch_delete_persons(
         &self,
         deletions: &[PersonDeletionData],
@@ -100,15 +102,17 @@ impl PostgresStorage {
 
         let result = sqlx::query(
             r#"
-            DELETE FROM flags_person_lookup f
-            USING (
-                SELECT *
+            INSERT INTO flags_person_lookup
+                (team_id, person_uuid, distinct_ids, properties, person_version, deleted_at)
+                SELECT team_id, person_uuid, ARRAY[]::text[], '{}'::jsonb, version, NOW()
                 FROM UNNEST($1::int[], $2::uuid[], $3::bigint[])
                     AS t(team_id, person_uuid, version)
-            ) AS incoming
-            WHERE f.team_id = incoming.team_id
-              AND f.person_uuid = incoming.person_uuid
-              AND f.person_version < incoming.version
+            ON CONFLICT (team_id, person_uuid) DO UPDATE SET
+                distinct_ids = ARRAY[]::text[],
+                properties = '{}'::jsonb,
+                person_version = EXCLUDED.person_version,
+                deleted_at = NOW()
+            WHERE flags_person_lookup.person_version < EXCLUDED.person_version
             "#,
         )
         .bind(&team_ids)
