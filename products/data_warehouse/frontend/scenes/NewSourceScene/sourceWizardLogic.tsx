@@ -335,8 +335,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
-        toggleAllTables: (selectAll: boolean) => ({ selectAll }),
+        toggleAllTables: (selectAll: boolean, tableNames?: string[]) => ({ selectAll, tableNames }),
         toggleDirectQuerySchemaGroup: (schemaName: string, shouldSync: boolean) => ({ schemaName, shouldSync }),
+        setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
         setExpandedDirectQuerySchemaKeys: (expandedSchemaKeys: string[]) => ({ expandedSchemaKeys }),
         syncExpandedDirectQuerySchemaKeys: (groupedSchemaKeys: string[], fingerprint: string) => ({
             groupedSchemaKeys,
@@ -420,10 +421,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
-                toggleAllTables: (state, { selectAll }) => {
+                toggleAllTables: (state, { selectAll, tableNames }) => {
+                    if (!tableNames) {
+                        return state.map((schema) => ({
+                            ...schema,
+                            should_sync: selectAll,
+                        }))
+                    }
+                    const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
-                        should_sync: selectAll,
+                        should_sync: targetSet.has(schema.table) ? selectAll : schema.should_sync,
                     }))
                 },
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
@@ -466,6 +474,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             '',
             {
                 syncExpandedDirectQuerySchemaKeys: (_, { fingerprint }) => fingerprint,
+                onClear: () => '',
+                clearSource: () => '',
+            },
+        ],
+        schemaNameFilter: [
+            '',
+            {
+                setSchemaNameFilter: (_, { schemaNameFilter }) => schemaNameFilter,
                 onClear: () => '',
                 clearSource: () => '',
             },
@@ -843,11 +859,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (s) => [s.manualLinkingProvider],
             (manualLinkingProvider: ManualLinkSourceType | null): boolean => manualLinkingProvider !== null,
         ],
+        filteredDatabaseSchema: [
+            (s) => [s.databaseSchema, s.schemaNameFilter],
+            (
+                databaseSchema: ExternalDataSourceSyncSchema[],
+                schemaNameFilter: string
+            ): ExternalDataSourceSyncSchema[] => {
+                if (!schemaNameFilter) {
+                    return databaseSchema
+                }
+                const filter = schemaNameFilter.toLowerCase()
+                return databaseSchema.filter((schema) => (schema.label ?? schema.table).toLowerCase().includes(filter))
+            },
+        ],
         tablesAllToggledOn: [
-            (s) => [s.databaseSchema],
-            (databaseSchema: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' => {
-                const enabledCount = databaseSchema.filter((schema) => schema.should_sync).length
-                const totalCount = databaseSchema.length
+            (s) => [s.filteredDatabaseSchema],
+            (filteredDatabaseSchema: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' => {
+                if (filteredDatabaseSchema.length === 0) {
+                    return false
+                }
+                const enabledCount = filteredDatabaseSchema.filter((schema) => schema.should_sync).length
+                const totalCount = filteredDatabaseSchema.length
                 return enabledCount === totalCount ? true : enabledCount > 0 ? 'indeterminate' : false
             },
         ],
@@ -856,9 +888,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (source): string | null => (typeof source.payload.schema === 'string' ? source.payload.schema : null),
         ],
         groupedDirectQueryDatabaseSchema: [
-            (s) => [s.databaseSchema, s.directQueryDefaultSchema],
-            (databaseSchema, directQueryDefaultSchema) =>
-                groupDirectQueryTablesBySchema(databaseSchema, directQueryDefaultSchema),
+            (s) => [s.filteredDatabaseSchema, s.directQueryDefaultSchema],
+            (filteredDatabaseSchema, directQueryDefaultSchema) =>
+                groupDirectQueryTablesBySchema(filteredDatabaseSchema, directQueryDefaultSchema),
         ],
         groupedDirectQuerySchemaKeys: [
             (s) => [s.groupedDirectQueryDatabaseSchema],
@@ -1407,13 +1439,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
         },
-        toggleAllTables: ({ selectAll }) => {
-            actions.setDatabaseSchemas(
-                values.databaseSchema.map((schema) => ({
-                    ...schema,
-                    should_sync: selectAll,
-                }))
-            )
+        toggleAllTables: () => {
+            // databaseSchema reducer already applied the toggle; re-emit so the
+            // setDatabaseSchemas listener (syncExpandedDirectQuerySchemaKeys) fires.
+            actions.setDatabaseSchemas(values.databaseSchema)
         },
     })),
     urlToAction(({ actions, values }) => {
