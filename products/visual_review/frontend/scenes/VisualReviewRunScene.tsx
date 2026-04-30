@@ -190,8 +190,6 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshotsLoading,
         selectedSnapshot,
         sortedChangedSnapshots,
-        snapshotHistory,
-        snapshotHistoryLoading,
         toleratedHashes,
         toleratedHashesLoading,
         quarantinedIdentifiers,
@@ -488,8 +486,6 @@ export function VisualReviewRunScene(): JSX.Element {
                     {selectedSnapshot ? (
                         <SnapshotDiffViewer
                             snapshot={selectedSnapshot}
-                            snapshotHistory={snapshotHistory}
-                            snapshotHistoryLoading={snapshotHistoryLoading}
                             toleratedHashes={toleratedHashes}
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}

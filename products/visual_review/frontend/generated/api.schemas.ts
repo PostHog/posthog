@@ -340,11 +340,7 @@ export type VisualReviewReposQuarantineListParams = {
     run_type?: string
 }
 
-export type VisualReviewReposSnapshotHistoryListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string
+export type VisualReviewReposSnapshotsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -353,10 +349,6 @@ export type VisualReviewReposSnapshotHistoryListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    /**
-     * Run type (storybook, playwright, ...)
-     */
-    run_type: string
 }
 
 export type VisualReviewRunsListParams = {
@@ -372,21 +364,6 @@ export type VisualReviewRunsListParams = {
      * Filter by review state
      */
     review_state?: string
-}
-
-export type VisualReviewRunsSnapshotHistoryListParams = {
-    /**
-     * Snapshot identifier
-     */
-    identifier: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type VisualReviewRunsSnapshotsListParams = {

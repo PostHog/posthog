@@ -1,5 +1,6 @@
 """Integration tests for visual_review DRF views."""
 
+from urllib.parse import quote
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -233,8 +234,14 @@ class TestRunViewSet(APIBaseTest):
             result=result,
         )
 
-    def test_repo_snapshot_history(self):
-        """Repo-scoped history returns one entry per distinct baseline (`current_artifact_id`),
+    def _history_url(self, identifier: str, run_type: str = RunType.STORYBOOK) -> str:
+        return (
+            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}"
+            f"/snapshots/{run_type}/{quote(identifier, safe='')}/"
+        )
+
+    def test_snapshot_history(self):
+        """History returns one entry per distinct baseline (`current_artifact_id`),
         scoped to default-branch + completed runs.
         """
         # Two completed master runs share `hash-A` → same artifact → must collapse to one entry.
@@ -256,10 +263,7 @@ class TestRunViewSet(APIBaseTest):
             result=SnapshotResult.NEW,
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/snapshot-history/",
-            {"identifier": "Button", "run_type": RunType.STORYBOOK},
-        )
+        response = self.client.get(self._history_url("Button"))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
@@ -274,14 +278,13 @@ class TestRunViewSet(APIBaseTest):
             self.assertIn("review_state", entry)
             self.assertIn("diff_percentage", entry)
 
-    def test_repo_snapshot_history_requires_identifier_and_run_type(self):
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/snapshot-history/"
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        # Missing run_type alone also rejected.
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/snapshot-history/",
-            {"identifier": "Button"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_snapshot_history_with_special_chars_in_identifier(self):
+        """Identifiers with `--`, spaces and dots round-trip via percent-encoding.
+
+        Note: identifiers containing `/` are NOT supported with this encoding scheme —
+        ASGI servers decode `%2F` to `/` before URL routing, breaking the path regex.
+        Don't ship snapshot identifiers with literal slashes.
+        """
+        response = self.client.get(self._history_url("Components-Button--default v2.0"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)

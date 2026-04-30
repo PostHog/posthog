@@ -11,12 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
-import type {
-    QuarantinedIdentifierEntryApi,
-    SnapshotApi,
-    SnapshotHistoryEntryApi,
-    ToleratedHashEntryApi,
-} from '../generated/api.schemas'
+import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { DiffPercentage } from './DiffPercentage'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
@@ -188,8 +183,6 @@ function QuarantineAction({
 
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
-    snapshotHistory?: SnapshotHistoryEntryApi[]
-    snapshotHistoryLoading?: boolean
     toleratedHashes?: ToleratedHashEntryApi[]
     toleratedHashesLoading?: boolean
     onApprove?: () => void
@@ -211,8 +204,6 @@ interface SnapshotDiffViewerProps {
 
 export function SnapshotDiffViewer({
     snapshot,
-    snapshotHistory,
-    snapshotHistoryLoading,
     toleratedHashes,
     toleratedHashesLoading,
     onApprove,
@@ -492,6 +483,19 @@ export function SnapshotDiffViewer({
                     <div>
                         <h4 className="text-xs font-semibold text-muted mb-2">Identifier</h4>
                         <div className="space-y-2">
+                            <div className="text-xs">
+                                {repoId && runType ? (
+                                    <Link
+                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        className="font-mono text-default break-all"
+                                        title="View history"
+                                    >
+                                        {snapshot.identifier}
+                                    </Link>
+                                ) : (
+                                    <span className="font-mono break-all">{snapshot.identifier}</span>
+                                )}
+                            </div>
                             {width && height && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Resolution</span>
@@ -509,52 +513,50 @@ export function SnapshotDiffViewer({
                             {snapshot.baseline_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Before</span>
-                                    <span className="font-mono">
-                                        {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
-                                    </span>
+                                    {repoId && runType ? (
+                                        <Link
+                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            className="font-mono"
+                                            title="View history"
+                                        >
+                                            {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
+                                        </Link>
+                                    ) : (
+                                        <span className="font-mono">
+                                            {snapshot.baseline_artifact.content_hash.slice(0, 10)}…
+                                        </span>
+                                    )}
                                 </div>
                             )}
                             {snapshot.current_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">After</span>
-                                    <span className="font-mono">
-                                        {snapshot.current_artifact.content_hash.slice(0, 10)}…
-                                    </span>
+                                    {repoId && runType ? (
+                                        <Link
+                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            className="font-mono"
+                                            title="View history"
+                                        >
+                                            {snapshot.current_artifact.content_hash.slice(0, 10)}…
+                                        </Link>
+                                    ) : (
+                                        <span className="font-mono">
+                                            {snapshot.current_artifact.content_hash.slice(0, 10)}…
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            {repoId && runType && (
+                                <div className="pt-1">
+                                    <Link
+                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        className="text-xs"
+                                    >
+                                        View history →
+                                    </Link>
                                 </div>
                             )}
                         </div>
-                    </div>
-
-                    {/* History */}
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-xs font-semibold text-muted m-0">History</h4>
-                            {repoId && runType && (
-                                <Link
-                                    to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
-                                    className="text-xs"
-                                >
-                                    View full
-                                </Link>
-                            )}
-                        </div>
-                        {snapshotHistoryLoading ? (
-                            <div className="space-y-2">
-                                <LemonSkeleton className="h-4 w-full" />
-                                <LemonSkeleton className="h-4 w-3/4" />
-                            </div>
-                        ) : snapshotHistory && snapshotHistory.length > 0 ? (
-                            <div className="space-y-1.5">
-                                {snapshotHistory.map((entry) => (
-                                    <div key={entry.run_id} className="flex items-center justify-between text-xs">
-                                        <span className="font-mono text-muted">{entry.commit_sha.slice(0, 7)}</span>
-                                        <SnapshotStatusIndicator result={entry.result} reviewState="" size="medium" />
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-xs text-muted">No history yet</p>
-                        )}
                     </div>
 
                     {/* Tolerated hashes */}

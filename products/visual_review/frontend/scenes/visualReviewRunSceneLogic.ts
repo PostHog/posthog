@@ -16,7 +16,6 @@ import {
     visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
-    visualReviewRunsSnapshotHistoryList,
     visualReviewRunsSnapshotsList,
     visualReviewRunsToleratedHashesList,
 } from '../generated/api'
@@ -25,7 +24,6 @@ import type {
     RepoApi,
     RunApi,
     SnapshotApi,
-    SnapshotHistoryEntryApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
@@ -132,21 +130,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         return null
                     }
                     return visualReviewReposRetrieve(String(values.currentProjectId), run.repo_id)
-                },
-            },
-        ],
-        snapshotHistory: [
-            [] as SnapshotHistoryEntryApi[],
-            {
-                loadSnapshotHistory: async (identifier: string) => {
-                    const response = await visualReviewRunsSnapshotHistoryList(
-                        String(values.currentProjectId),
-                        props.runId,
-                        {
-                            identifier,
-                        }
-                    )
-                    return response.results
                 },
             },
         ],
@@ -276,7 +259,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         setSelectedSnapshotId: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
-                actions.loadSnapshotHistory(snapshot.identifier)
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
@@ -287,7 +269,6 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         loadSnapshotsSuccess: () => {
             const snapshot = values.selectedSnapshot
             if (snapshot) {
-                actions.loadSnapshotHistory(snapshot.identifier)
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },

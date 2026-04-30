@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
-import { visualReviewReposRetrieve, visualReviewReposSnapshotHistoryList } from '../generated/api'
+import { visualReviewReposRetrieve, visualReviewReposSnapshotsList } from '../generated/api'
 import type { RepoApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import type { visualReviewSnapshotHistorySceneLogicType } from './visualReviewSnapshotHistorySceneLogicType'
 
@@ -56,10 +56,12 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
             [] as SnapshotHistoryEntryApi[],
             {
                 loadHistory: async () => {
-                    const response = await visualReviewReposSnapshotHistoryList(
+                    const response = await visualReviewReposSnapshotsList(
                         String(values.currentProjectId),
                         props.repoId,
-                        { identifier: props.identifier, run_type: props.runType, limit: 100 }
+                        props.runType,
+                        encodeURIComponent(props.identifier),
+                        { limit: 100 }
                     )
                     return response.results
                 },
@@ -74,10 +76,12 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                         return []
                     }
                     const partner = `${stem}--${theme === 'light' ? 'dark' : 'light'}`
-                    const response = await visualReviewReposSnapshotHistoryList(
+                    const response = await visualReviewReposSnapshotsList(
                         String(values.currentProjectId),
                         props.repoId,
-                        { identifier: partner, run_type: props.runType, limit: 100 }
+                        props.runType,
+                        encodeURIComponent(partner),
+                        { limit: 100 }
                     )
                     return response.results
                 },

@@ -1,6 +1,7 @@
 """Seed visual review with a long history for one snapshot identifier (light + dark)."""
 
 import random
+from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -113,6 +114,7 @@ class Command(BaseCommand):
                 completed_at=timezone.now(),
             )
             if placeholder is not None:
+                assert prev_master_run is not None  # placeholder only created when prev exists
                 # Re-point: prev → real new run, then drop the placeholder.
                 Run.objects.filter(id=prev_master_run.id).update(superseded_by=run)
                 placeholder.delete()
@@ -120,9 +122,9 @@ class Command(BaseCommand):
                 prev_master_run = run
             # Rewind created_at so the timeline isn't bunched at "now".
             Run.objects.filter(id=run.id).update(
-                created_at=timezone.now() - timezone.timedelta(days=age_days),
-                approved_at=timezone.now() - timezone.timedelta(days=age_days),
-                completed_at=timezone.now() - timezone.timedelta(days=age_days),
+                created_at=timezone.now() - timedelta(days=age_days),
+                approved_at=timezone.now() - timedelta(days=age_days),
+                completed_at=timezone.now() - timedelta(days=age_days),
             )
 
             for theme in ("light", "dark"):
@@ -154,7 +156,7 @@ class Command(BaseCommand):
                     baseline_artifact=artifact if result == SnapshotResult.CHANGED else None,
                     result=result,
                     review_state=ReviewState.APPROVED,
-                    reviewed_at=timezone.now() - timezone.timedelta(days=age_days),
+                    reviewed_at=timezone.now() - timedelta(days=age_days),
                     approved_hash=content_hash,
                     diff_percentage=round(random.uniform(0.2, 18.0), 2) if result == SnapshotResult.CHANGED else None,
                     diff_pixel_count=random.randint(50, 12000) if result == SnapshotResult.CHANGED else None,
