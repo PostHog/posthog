@@ -107,7 +107,8 @@ function bucketize(values: string[], labelOf: (v: string) => string = (v) => v):
 
 // Pre-decorated entry shape — the kea selector annotates this on every entry
 // once so subsequent filter passes can compare without re-deriving area/theme/etc.
-type DecoratedEntry = BaselineEntryApi & {
+// Exported so the kea-typegen output can resolve it.
+export type DecoratedEntry = BaselineEntryApi & {
     _area: string
     _theme: 'light' | 'dark' | null
     _typeKey: string
