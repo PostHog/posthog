@@ -115,14 +115,15 @@ def _fetch_group_types_via_personhog(project_id: int) -> list[dict[str, Any]]:
     return result
 
 
-def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
+def get_group_types_for_project(project_id: int, *, bypass_cache: bool = False) -> list[dict[str, Any]]:
     """Fetch group types from cache, falling back to personhog then ORM, then stale cache, then empty list."""
     cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
     stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}"
 
-    cached = get_safe_cache(cache_key)
-    if cached is not None:
-        return cached
+    if not bypass_cache:
+        cached = get_safe_cache(cache_key)
+        if cached is not None:
+            return cached
 
     try:
         result = _fetch_group_types_via_personhog(project_id)

@@ -678,7 +678,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             matching_mapping = next(
                 (
                     m
-                    for m in get_group_types_for_project(instance.team.project_id)
+                    for m in get_group_types_for_project(instance.team.project_id, bypass_cache=True)
                     if m["detail_dashboard_id"] == instance.id
                 ),
                 None,
