@@ -19688,6 +19688,11 @@ export namespace Schemas {
        * @nullable
        */
       activity_score?: number | null;
+      /**
+       * Server-evaluated indicator for whether the AI session summary feature is enabled for the requesting user. Source of truth for the player summary dock visibility — the same check the `/summarize` endpoint enforces, exposed up-front so the UI never offers a button the backend would reject.
+       * @nullable
+       */
+      can_summarize?: boolean | null;
       /** @nullable */
       click_count?: number | null;
       /** @nullable */
