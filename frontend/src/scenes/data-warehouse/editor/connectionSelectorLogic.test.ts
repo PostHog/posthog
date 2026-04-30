@@ -1,8 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -14,7 +12,6 @@ describe('connectionSelectorLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
         jest.spyOn(api.externalDataSources, 'connections').mockResolvedValue([
             {
                 id: 'conn-123',
@@ -29,11 +26,7 @@ describe('connectionSelectorLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('loads connection options on mount when direct query is enabled', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-        })
-
+    it('loads connection options on mount', async () => {
         logic = connectionSelectorLogic({ selectedConnectionId: undefined })
         logic.mount()
 

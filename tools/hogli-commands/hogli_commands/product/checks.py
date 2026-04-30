@@ -321,12 +321,29 @@ class FileFolderConflictsCheck(ProductCheck):
         if not ctx.backend_dir.exists():
             return CheckResult(skip=True)
 
-        conflicts = []
+        # Collect "<name>" stems that may be expressed as either a file or a
+        # package, from two structure shapes:
+        #   - "<name>.py" with `can_be_folder: true` (e.g. models.py)
+        #   - "<name>/__init__.py"                   (e.g. logic/__init__.py)
+        # Any package init file in the canonical structure (facade, presentation,
+        # tasks, tests, ...) qualifies; this also catches a stray `tasks.py`
+        # next to `tasks/`, which is always a mistake.
+        stems: set[str] = set()
         for path, config in flatten_structure(ctx.structure.get("backend_files", {})).items():
-            if not config.get("can_be_folder", False):
-                continue
-            if (ctx.backend_dir / path).exists() and (ctx.backend_dir / path.replace(".py", "")).exists():
-                conflicts.append(f"Both 'backend/{path}' and 'backend/{path.replace('.py', '/')}' exist — pick one")
+            if config.get("can_be_folder", False) and path.endswith(".py"):
+                stems.add(path[: -len(".py")])
+            elif path.endswith("/__init__.py"):
+                stems.add(path[: -len("/__init__.py")])
+
+        # Conflict if both `<stem>.py` and `<stem>/` directory exist on disk.
+        # Check the directory itself (not `__init__.py`) so a half-migrated state
+        # without `__init__.py` is still flagged.
+        conflicts = []
+        for stem in sorted(stems):
+            file_form = ctx.backend_dir / f"{stem}.py"
+            dir_form = ctx.backend_dir / stem
+            if file_form.is_file() and dir_form.is_dir():
+                conflicts.append(f"Both 'backend/{stem}.py' and 'backend/{stem}/' exist — pick one")
 
         if conflicts:
             return CheckResult(

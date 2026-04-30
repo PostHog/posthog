@@ -1040,11 +1040,14 @@ class SlackIntegrationError(Exception):
     pass
 
 
+SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
+
+
 class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind not in ("slack", "slack-posthog-code"):
+        if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration

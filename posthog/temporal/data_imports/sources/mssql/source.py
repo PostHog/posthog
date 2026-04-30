@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.temporal.data_imports.sources.mssql.mssql import (
     filter_mssql_incremental_fields,
+    get_leading_index_columns_for_schemas as get_mssql_leading_index_columns_for_schemas,
     get_primary_keys_for_schemas as get_mssql_primary_keys_for_schemas,
     get_schemas as get_mssql_schemas,
     mssql_source,
@@ -153,8 +154,19 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                 structlog.get_logger().warning("Failed to detect primary keys for MSSQL schemas", exc_info=e)
                 detected_pks = {}
 
+            indexed_columns_by_table = get_mssql_leading_index_columns_for_schemas(
+                host=host,
+                port=port,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                schema=config.schema,
+                table_names=list(db_schemas.keys()),
+            )
+
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_mssql_incremental_fields(columns)
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -162,6 +174,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]

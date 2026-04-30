@@ -17,10 +17,16 @@ const LARGE_AI_PROPERTIES = new Set([
 export interface SplitAiEventsStepConfig {
     enabled: boolean
     /**
-     * '*' for all teams, or a small array of enabled team IDs.
+     * '*' for all teams, or a small array of always-routed team IDs.
      * Hot-path lookup uses Array.includes; expected size is ~3–10, which beats Set in V8.
      */
     enabledTeams: number[] | '*'
+    /**
+     * Sticky percentage rollout (0-100), unioned with enabledTeams. A team is routed if it's
+     * in the allowlist OR its bucket falls under the percentage. Bucketing is deterministic on
+     * team_id, so the rollout is monotonic — every team in at X% stays in at any Y% > X%.
+     */
+    enabledPercentage: number
     /**
      * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
      * where heavy columns live only in the AI events table. '*' for all teams, or a small array of team IDs.
@@ -89,14 +95,47 @@ function parseTeamsList(teamsStr: string): number[] | '*' {
         .filter((n) => !isNaN(n))
 }
 
+function clampPercentage(pct: number): number {
+    if (Number.isNaN(pct) || pct <= 0) {
+        return 0
+    }
+    if (pct >= 100) {
+        return 100
+    }
+    return pct
+}
+
+/**
+ * Stable bucket [0, 99] for a team id. Knuth's multiplicative hash so consecutive
+ * team ids don't cluster into the same bucket.
+ */
+function teamRolloutBucket(teamId: number): number {
+    return (Math.imul(teamId, 2654435761) >>> 0) % 100
+}
+
+function isTeamRouted(teams: number[] | '*', percentage: number, teamId: number): boolean {
+    if (teams === '*' || percentage >= 100) {
+        return true
+    }
+    if (teams.includes(teamId)) {
+        return true
+    }
+    if (percentage <= 0) {
+        return false
+    }
+    return teamRolloutBucket(teamId) < percentage
+}
+
 export function parseSplitAiEventsConfig(
     enabled: boolean,
     teamsStr: string,
-    stripHeavyTeamsStr: string
+    stripHeavyTeamsStr: string,
+    percentage: number = 0
 ): SplitAiEventsStepConfig {
     return {
         enabled,
         enabledTeams: parseTeamsList(teamsStr),
+        enabledPercentage: clampPercentage(percentage),
         stripHeavyTeams: parseTeamsList(stripHeavyTeamsStr),
     }
 }
@@ -105,7 +144,7 @@ export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
     config: SplitAiEventsStepConfig
 ): ProcessingStep<T, T & SplitAiEventsStepOutput> {
     return function splitAiEventsStep(input) {
-        if (!config.enabled || (config.enabledTeams !== '*' && !config.enabledTeams.includes(input.teamId))) {
+        if (!config.enabled || !isTeamRouted(config.enabledTeams, config.enabledPercentage, input.teamId)) {
             return Promise.resolve(ok(input))
         }
 

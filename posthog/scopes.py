@@ -79,6 +79,7 @@ APIScopeObject = Literal[
     "streamlit_app",
     "subscription",
     "survey",
+    "tagger",
     "ticket",
     "task",
     "tracing",

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-28 10:38:44 UTC
+// Generated at: 2026-04-29 20:22:06 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,7 +11,6 @@ export type CanonicalProvider =
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
     | 'arcee-ai'
@@ -46,6 +45,7 @@ export type CanonicalProvider =
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-vertex'
+    | 'google-vertex-eu'
     | 'google-vertex-europe'
     | 'google-vertex-global'
     | 'google-vertex-us'
@@ -95,6 +95,7 @@ export type CanonicalProvider =
     | 'parasail-int8'
     | 'perplexity'
     | 'phala'
+    | 'poolside-fp8'
     | 'reka-bf16'
     | 'reka-fp8'
     | 'relace-bf16'
