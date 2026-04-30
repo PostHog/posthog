@@ -19,6 +19,18 @@ const SUMMARIZATION_TIMEOUT_MS = 10 * 60 * 1000
 // same backend workflow.
 const inFlightSessionIds = new Set<string>()
 
+// Per-session AbortControllers so `cancelSummarization` can tear down the SSE
+// fetch (and its underlying reader) for a specific session. The backend Temporal workflow is aborted.
+const abortControllersBySessionId = new Map<string, AbortController>()
+
+// Sessions whose previous summarization was user-cancelled. The next
+// `startSummarization` for these sessions sends `force_restart=true` so the
+// backend uses TERMINATE_EXISTING and cleanly preempts any workflow still
+// finishing its CANCEL_REQUESTED -> CANCELLED transition. The flag is consumed
+// (deleted) by the next start so a subsequent click without an intervening
+// cancel falls back to the default attach-to-existing behavior.
+const cancelledSessionIds = new Set<string>()
+
 /**
  * Singleton store for in-flight session summarization state, keyed by session id.
  *
@@ -31,6 +43,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
     path(['scenes', 'session-recordings', 'player', 'player-meta', 'sessionSummaryProgressLogic']),
     actions({
         startSummarization: (sessionId: SessionRecordingType['id']) => ({ sessionId }),
+        cancelSummarization: (sessionId: SessionRecordingType['id']) => ({ sessionId }),
         setLoading: (sessionId: string, loading: boolean) => ({ sessionId, loading }),
         setProgress: (sessionId: string, progress: SummarizationProgress | null) => ({ sessionId, progress }),
         setSummary: (sessionId: string, summary: SessionSummaryContent | null) => ({ sessionId, summary }),
@@ -46,6 +59,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 setLoading: (state, { sessionId, loading }) => ({ ...state, [sessionId]: loading }),
                 setSummary: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
                 setError: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
+                cancelSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: false }),
             },
         ],
         progressBySessionId: [
@@ -54,6 +68,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
                 setProgress: (state, { sessionId, progress }) => ({ ...state, [sessionId]: progress }),
                 setSummary: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
+                cancelSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
             },
         ],
         summaryBySessionId: [
@@ -118,12 +133,23 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             }
             inFlightSessionIds.add(sessionId)
 
+            const controller = new AbortController()
+            abortControllersBySessionId.set(sessionId, controller)
+
+            // Consume the post-cancel flag exactly once so a follow-up click
+            // without an intervening cancel uses the default attach-to-existing
+            // behavior on the backend.
+            const forceRestart = cancelledSessionIds.delete(sessionId)
+
             const timeout = window.setTimeout(() => {
                 actions.setLoading(sessionId, false)
             }, SUMMARIZATION_TIMEOUT_MS)
 
             try {
-                const response = await api.recordings.summarizeStream(sessionId)
+                const response = await api.recordings.summarizeStream(sessionId, {
+                    signal: controller.signal,
+                    forceRestart,
+                })
                 const reader = response.body?.getReader()
                 if (!reader) {
                     throw new Error('No reader available')
@@ -159,6 +185,10 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                     parser.feed(decoder.decode(value))
                 }
             } catch (err) {
+                // User-initiated cancellation: surface no error, keep state cleared by the cancel listener.
+                if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+                    return
+                }
                 if (err instanceof ApiError) {
                     lemonToast.error(err.message)
                     actions.setLoading(sessionId, false)
@@ -168,8 +198,40 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 }
             } finally {
                 window.clearTimeout(timeout)
-                inFlightSessionIds.delete(sessionId)
+                // Only clean up entries that still belong to *this* run. After a
+                // cancel, the synchronous abort schedules our reader's rejection
+                // as a microtask; if startSummarization is invoked again before
+                // that microtask runs (tests, programmatic callers), the new
+                // run's controller and in-flight entry will already be in the
+                // maps. Identity-checking the controller prevents the old
+                // listener from evicting them.
+                if (abortControllersBySessionId.get(sessionId) === controller) {
+                    abortControllersBySessionId.delete(sessionId)
+                    inFlightSessionIds.delete(sessionId)
+                }
             }
+        },
+        cancelSummarization: ({ sessionId }) => {
+            // Tear down local state first so late-arriving SSE events from the
+            // already-buffered stream can't repopulate progress/summary after
+            // the user clicked cancel. Also frees the in-flight slot
+            // immediately so a subsequent Summarize click isn't dropped by the
+            // duplicate-start guard.
+            const controller = abortControllersBySessionId.get(sessionId)
+            abortControllersBySessionId.delete(sessionId)
+            inFlightSessionIds.delete(sessionId)
+            // Mark this session so the next startSummarization sends
+            // ``force_restart=true``. The backend then uses TERMINATE_EXISTING
+            // to atomically preempt any workflow that's still mid-cancellation.
+            cancelledSessionIds.add(sessionId)
+            controller?.abort()
+
+            // Fire-and-forget the backend cancel — don't block UI on the
+            // Temporal RPC. The workflow may have already finished or never
+            // started; both are fine.
+            void api.recordings.cancelSummarize(sessionId).catch((err) => {
+                posthog.captureException(err)
+            })
         },
     })),
 ])

@@ -41,6 +41,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.monitoring import Feature
 from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
     Feature as TagFeature,
     Product,
@@ -1417,6 +1418,72 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertIn("results", data)
         self.assertNotIn("formatted_results", data)
+
+
+class TestMcpProductTaggingEndToEnd(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end tests that an MCP request to the /query endpoint ends up tagged as
+    product=mcp in `system.query_log` — *unless* a more specific product was set somewhere
+    along the way, in which case MCP must not override it.
+
+    The fallback lives in `sync_execute`, so to exercise it we need a real ClickHouse query
+    to run and the `query_log` entry to be flushed and read back."""
+
+    ENDPOINT = "query"
+
+    def _get_log_comment_for_team(self) -> dict:
+        """Return the log_comment of the most recent QueryFinish entry for this team."""
+        sync_execute("SYSTEM FLUSH LOGS")
+        rows = sync_execute(
+            "SELECT log_comment FROM system.query_log "
+            "WHERE JSONExtractInt(log_comment, 'team_id') = %(team_id)s "
+            "AND type = 'QueryFinish' "
+            "ORDER BY event_time DESC LIMIT 1",
+            {"team_id": self.team.pk},
+        )
+        assert rows, f"No query_log entry found for team {self.team.pk}"
+        return json.loads(rows[0][0])
+
+    def test_mcp_request_without_view_setting_product_falls_back_to_mcp(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "EventsQuery", "select": ["event"]}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], Product.MCP.value)
+
+    def test_mcp_request_with_inferred_product_keeps_inferred_product(self):
+        # `tags.scene="SQLEditor"` triggers `_infer_query_tags` to set product=DATA_WAREHOUSE.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT 1",
+                    "tags": {"scene": "SQLEditor"},
+                }
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertEqual(comment["source"], "mcp")
+        self.assertEqual(comment["product"], ProductKey.DATA_WAREHOUSE.value)
+
+    def test_non_mcp_request_does_not_set_product_to_mcp(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "EventsQuery", "select": ["event"]}},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment = self._get_log_comment_for_team()
+        self.assertNotEqual(comment.get("source"), "mcp")
+        self.assertNotEqual(comment.get("product"), Product.MCP.value)
 
 
 class TestInferQueryTags(APIBaseTest):

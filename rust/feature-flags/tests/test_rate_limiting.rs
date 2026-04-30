@@ -347,12 +347,11 @@ async fn test_rate_limit_ip_fallback_on_malformed_body() -> Result<()> {
 
 #[tokio::test]
 async fn test_rate_limit_replenishment() -> Result<()> {
-    // Test that rate limit replenishes over time
     let mut config = Config::default_test_config();
     config.flags_rate_limit_enabled = FlexBool(true);
     config.flags_rate_limit_log_only = FlexBool(false);
     config.flags_bucket_capacity = 1;
-    config.flags_bucket_replenish_rate = 1.0; // 1 token per second
+    config.flags_bucket_replenish_rate = 1.0;
 
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(redis_client.clone())
@@ -367,7 +366,6 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         .await
         .unwrap();
 
-    // Insert config into hypercache
     let remote_config = json!({
         "supportedCompression": ["gzip", "gzip-js"],
         "config": {}
@@ -382,7 +380,6 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "distinct_id": "user123",
     });
 
-    // First request should succeed
     let response = client
         .post(format!("http://{}/flags", server.addr))
         .header("content-type", "application/json")
@@ -392,7 +389,6 @@ async fn test_rate_limit_replenishment() -> Result<()> {
 
     assert_eq!(response.status(), StatusCode::OK, "First request allowed");
 
-    // Second request should be rate limited
     let response = client
         .post(format!("http://{}/flags", server.addr))
         .header("content-type", "application/json")
@@ -406,10 +402,10 @@ async fn test_rate_limit_replenishment() -> Result<()> {
         "Second request blocked"
     );
 
-    // Wait for token to replenish (1 second + buffer)
+    // Replenish window is ~1s (1 token/sec); 1100ms gives a small buffer without
+    // depending on sub-100ms inter-request timing on loaded CI runners.
     tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
 
-    // Third request should succeed after replenishment
     let response = client
         .post(format!("http://{}/flags", server.addr))
         .header("content-type", "application/json")

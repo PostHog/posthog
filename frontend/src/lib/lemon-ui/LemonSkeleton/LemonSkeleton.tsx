@@ -1,5 +1,6 @@
 import './LemonSkeleton.scss'
 
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { range } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -12,27 +13,42 @@ export interface LemonSkeletonProps {
     fade?: boolean
     active?: boolean
 }
-export function LemonSkeleton({ className, repeat, active = true, fade = false }: LemonSkeletonProps): JSX.Element {
-    const content = (
-        <div className={cn('LemonSkeleton rounded', !active && 'LemonSkeleton--static', className || 'h-4 w-full')}>
+
+// Extracted as its own component so each `repeat={N}` instance gets its own
+// ref + `useCancelAnimationsOnUnmount` hook. Inlining this back into
+// `LemonSkeleton` would mean the same JSX is reused across N repeats, all
+// sharing one ref — only the last-mounted skeleton would have its animations
+// cancelled, silently disabling the leak fix for the repeat case.
+function LemonSkeletonItem({
+    className,
+    active = true,
+}: Pick<LemonSkeletonProps, 'className' | 'active'>): JSX.Element {
+    const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
+    return (
+        <div
+            ref={ref}
+            className={cn('LemonSkeleton rounded', !active && 'LemonSkeleton--static', className || 'h-4 w-full')}
+        >
             {/* The span is for accessibility, but also because @storybook/test-runner smoke tests require content */}
             <span>Loading…</span>
         </div>
     )
+}
 
+export function LemonSkeleton({ className, repeat, active = true, fade = false }: LemonSkeletonProps): JSX.Element {
     if (repeat) {
         return (
             <>
                 {range(repeat).map((i) => (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div key={i} style={fade ? { opacity: 1 - i / repeat } : undefined}>
-                        {content}
+                        <LemonSkeletonItem className={className} active={active} />
                     </div>
                 ))}
             </>
         )
     }
-    return content
+    return <LemonSkeletonItem className={className} active={active} />
 }
 
 LemonSkeleton.Text = function LemonSkeletonText({ className, ...props }: LemonSkeletonProps) {
