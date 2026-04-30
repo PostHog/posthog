@@ -56,9 +56,15 @@ class SourceBatchStatus(UUIDModel):
         WAITING_RETRY = "waiting_retry", "waiting_retry"
         FAILED = "failed", "failed"
 
+    # No DB-level FK constraint: sourcebatch is range-partitioned on
+    # created_at, making its PK composite (id, created_at). A real FK
+    # would require batch_created_at here. Referential integrity is
+    # enforced in application code — statuses are only inserted for
+    # known batch IDs.
     batch = models.ForeignKey(
         SourceBatch,
-        on_delete=models.CASCADE,
+        on_delete=models.DO_NOTHING,
+        db_constraint=False,
         related_name="statuses",
     )
     job_state = models.CharField(max_length=32, choices=State.choices)
