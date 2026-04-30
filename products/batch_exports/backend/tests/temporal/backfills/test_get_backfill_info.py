@@ -9,7 +9,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.utils import uuid7
-from posthog.temporal.common.clickhouse import ClickHouseQueryTimeOutError
+from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, insert_sessions_in_clickhouse
 
 from products.batch_exports.backend.temporal.backfill_batch_export import (
@@ -263,7 +263,7 @@ class TestGetBackfillInfoForEvents:
         self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
     ):
         mock_clickhouse_client.mock_client.read_query_as_jsonl = AsyncMock(
-            side_effect=ClickHouseQueryTimeOutError("Code: 159. TIMEOUT_EXCEEDED")
+            side_effect=ClickHouseQueryTimeoutError("Code: 159. TIMEOUT_EXCEEDED")
         )
 
         batch_export = await create_batch_export()
@@ -671,7 +671,7 @@ class TestGetBackfillInfoForPersons:
         self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
     ):
         mock_clickhouse_client.mock_client.read_query_as_jsonl = AsyncMock(
-            side_effect=ClickHouseQueryTimeOutError("Code: 159. TIMEOUT_EXCEEDED")
+            side_effect=ClickHouseQueryTimeoutError("Code: 159. TIMEOUT_EXCEEDED")
         )
 
         batch_export = await create_batch_export()
@@ -876,7 +876,7 @@ class TestGetBackfillInfoForSessions:
         self, mock_clickhouse_client, run_get_backfill_info, create_batch_export
     ):
         mock_clickhouse_client.mock_client.read_query_as_jsonl = AsyncMock(
-            side_effect=ClickHouseQueryTimeOutError("Code: 159. TIMEOUT_EXCEEDED")
+            side_effect=ClickHouseQueryTimeoutError("Code: 159. TIMEOUT_EXCEEDED")
         )
 
         batch_export = await create_batch_export()

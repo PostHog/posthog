@@ -158,7 +158,7 @@ class ClickHouseClientTimeoutError(ClickHouseError):
         super().__init__(f"Timed-out waiting for response running query '{query_id}'", query, query_id)
 
 
-class ClickHouseQueryTimeOutError(ClickHouseError):
+class ClickHouseQueryTimeoutError(ClickHouseError):
     """Exception raised when a query exceeds the server-side max execution time."""
 
     def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
@@ -379,7 +379,7 @@ class ClickHouseClient:
             "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
             "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
             "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
-            "TIMEOUT_EXCEEDED": ClickHouseQueryTimeOutError,
+            "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:

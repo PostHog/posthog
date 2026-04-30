@@ -26,7 +26,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
-    ClickHouseQueryTimeOutError,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     get_client,
 )
@@ -551,8 +551,8 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
                 total_records_count=None,
                 interval_seconds=interval_seconds,
             )
-    except (ClickHouseQueryTimeOutError, ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError) as e:
-        if isinstance(e, ClickHouseQueryTimeOutError):
+    except (ClickHouseQueryTimeoutError, ClickHouseMemoryLimitExceededError, ClickHouseTooManyBytesError) as e:
+        if isinstance(e, ClickHouseQueryTimeoutError):
             logger.warning(
                 "Backfill estimation query timed out, proceeding without estimate",
                 model=model,

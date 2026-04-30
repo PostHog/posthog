@@ -15,7 +15,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
-    ClickHouseQueryTimeOutError,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
     add_log_comment_param,
@@ -173,7 +173,7 @@ def _mock_internal_session_post(return_value):
         ),
         (
             "Code: 159. DB::Exception: Estimated query execution time (300.5 seconds) is too long. Maximum: 300. (TIMEOUT_EXCEEDED) (version x.x.x.x (official build))",
-            ClickHouseQueryTimeOutError,
+            ClickHouseQueryTimeoutError,
         ),
         (
             "Code: 279. DB::Exception: All replicas are stale: While executing Remote. (ALL_REPLICAS_ARE_STALE) (version x.x.x.x (official build))",
