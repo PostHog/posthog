@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.hogql import ast
@@ -47,7 +48,7 @@ class RetentionBaseQueryBuilder(ABC):
     def start_entity_expr(self) -> ast.Expr:
         return self.runner.start_entity_expr
 
-    @property
+    @cached_property
     def start_entity_expr_no_props(self) -> ast.Expr:
         # Start-event matcher with property filters stripped — used to anchor "first ever" against the unfiltered stream.
         clean_start_event = self.start_event.model_copy(deep=True)

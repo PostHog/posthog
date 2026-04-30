@@ -2921,8 +2921,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         }
 
         unbroken = self.run_query(query=base_query)
-        unbroken_cohort_sizes = [row["values"][0]["count"] for row in unbroken]
-
         broken_down = self.run_query(
             query={
                 **base_query,
@@ -2935,10 +2933,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         for row in broken_down:
             per_date_totals[row["date"]] = per_date_totals.get(row["date"], 0) + row["values"][0]["count"]
 
-        for unbroken_row, total in zip(unbroken, unbroken_cohort_sizes):
+        for unbroken_row in unbroken:
             self.assertEqual(
                 per_date_totals.get(unbroken_row["date"], 0),
-                total,
+                unbroken_row["values"][0]["count"],
                 f"breakdown bucket sum should equal unbroken total on {unbroken_row['date']}",
             )
 
