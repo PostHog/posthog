@@ -2635,7 +2635,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         assert Counter([p1.uuid, p2.uuid]) == Counter([row[0]["id"] for row in results])
         matched_recordings = [list(row[3]) for row in results]
 
-        assert Counter(
+        assert sorted(
             [
                 {
                     "session_id": "s3",
@@ -2657,8 +2657,9 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-            ]
-        ) == Counter(matched_recordings[0])
+            ],
+            key=lambda r: r["session_id"],
+        ) == sorted(matched_recordings[0], key=lambda r: r["session_id"])
         assert [] == matched_recordings[1]
 
     @snapshot_clickhouse_queries
