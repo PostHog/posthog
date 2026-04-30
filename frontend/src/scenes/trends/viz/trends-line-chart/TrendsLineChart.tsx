@@ -104,8 +104,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                     dashedFromIndex,
                     excluded,
                 } = buildMainTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(r, index, {
-                    display,
-                    showMultipleYAxes,
+                    display: display ?? undefined,
+                    showMultipleYAxes: showMultipleYAxes ?? undefined,
                     incompletenessOffsetFromEnd,
                     isStickiness,
                     getColor: (rr) => getTrendsColor(rr),
