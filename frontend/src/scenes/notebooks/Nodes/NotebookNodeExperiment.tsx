@@ -7,7 +7,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { getExperimentStatus, isExperimentPaused } from 'scenes/experiments/experimentsLogic'
+import { getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
 import { Info } from 'scenes/experiments/ExperimentView/Info'
 import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
@@ -60,10 +60,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag
-                                status={getExperimentStatus(experiment)}
-                                isPaused={isExperimentPaused(experiment)}
-                            />
+                            <StatusTag status={getExperimentStatus(experiment)} />
                             <ResultsTag />
                         </>
                     )}

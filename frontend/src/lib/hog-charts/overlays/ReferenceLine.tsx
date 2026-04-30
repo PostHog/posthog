@@ -254,9 +254,10 @@ function ReferenceLineView({
                     style={{ ...fillRect, backgroundColor: fillColor, opacity: fillOpacity }}
                 />
             )}
-            <div className="absolute pointer-events-none" style={lineStyle} />
+            <div data-attr="hog-chart-reference-line" className="absolute pointer-events-none" style={lineStyle} />
             {label && (
                 <div
+                    data-attr="hog-chart-reference-line-label"
                     className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px]"
                     style={labelStyle}
                 >

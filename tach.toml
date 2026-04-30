@@ -220,6 +220,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.event_definitions",
+    "products.product_tours",
+    "products.surveys",
 ]
 layer = "modules"
 
@@ -479,6 +481,17 @@ expose = [
 ]
 from = [
     "products\\.(experiments|mcp_store|notifications|visual_review|tracing|metrics|mcp_analytics|platform_features)",
+]
+
+# TODO: Experiments-specific temporary interface
+# Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.experiments.*",
+    "backend\\.presentation\\.saved_metrics.*",
+]
+from = [
+    "products.experiments",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.
