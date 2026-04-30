@@ -170,14 +170,12 @@ describe('trendsChartTransforms', () => {
                     yAxisId: DEFAULT_Y_AXIS_ID,
                     meta,
                 })
-                // upper bounds in `data`, lower bounds in `fill.lowerData`.
                 expect(series[1].data?.length).toBe(5)
                 expect(series[1].fill).toMatchObject({ opacity: 0.2 })
                 expect((series[1].fill as { lowerData: number[] }).lowerData.length).toBe(5)
             })
 
             it('passes confidenceLevel through to ciRanges as a fraction', () => {
-                // Two adjacent confidence levels should produce different bounds — proves the level is honored.
                 const [s95] = buildTrendsSeries([makeResult()], { ...ciOpts, confidenceLevel: 95 }).slice(1)
                 const [s50] = buildTrendsSeries([makeResult()], { ...ciOpts, confidenceLevel: 50 }).slice(1)
 
@@ -198,7 +196,6 @@ describe('trendsChartTransforms', () => {
             })
 
             it('defaults confidenceLevel to 95 when undefined', () => {
-                // Build with explicit 95 vs missing — they should match exactly.
                 const explicit = buildTrendsSeries([makeResult()], { ...ciOpts, confidenceLevel: 95 })[1]
                 const defaulted = buildTrendsSeries([makeResult()], {
                     getColor: () => RED,
@@ -317,20 +314,17 @@ describe('trendsChartTransforms', () => {
 
             it('emits an MA trend-line subseries when both MA and trendlines are enabled', () => {
                 const series = buildTrendsSeries([makeResult({ id: 2 })], maTlOpts)
-                // main + ma + ma-trendline + raw-trendline = 4
                 expect(series).toHaveLength(4)
                 expect(series.map((s) => s.key)).toEqual(['2', '2-ma', '2-ma__trendline', '2__trendline'])
             })
 
             it('skips the MA trend-line when the main series is excluded (but still keeps the MA itself)', () => {
                 const series = buildTrendsSeries([makeResult({ id: 2 })], { ...maTlOpts, getHidden: () => true })
-                // main + ma — the raw and MA trend-lines are excluded along with the main.
                 expect(series.map((s) => s.key)).toEqual(['2', '2-ma'])
             })
 
             it('skips the MA trend-line when MA is gated out by short data', () => {
                 const series = buildTrendsSeries([makeResult({ data: [1, 2] })], maTlOpts)
-                // No MA → no MA-trendline. Raw trendline still emits.
                 expect(series.map((s) => s.key)).toEqual(['0', '0__trendline'])
             })
         })
