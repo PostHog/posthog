@@ -6926,10 +6926,10 @@ export namespace Schemas {
       readonly state: unknown | null;
       /** @nullable */
       readonly created_by: BatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message: string | null;
-      import_config: unknown;
+      readonly import_config: unknown;
     }
 
     export type BehavioralFilterType = typeof BehavioralFilterType[keyof typeof BehavioralFilterType];
@@ -9113,6 +9113,20 @@ export namespace Schemas {
       run_id: string;
       uploads: UploadTarget[];
     }
+
+    /**
+     * * `web` - web
+    * `api` - api
+    * `mcp` - mcp
+     */
+    export type CreatedViaEnum = typeof CreatedViaEnum[keyof typeof CreatedViaEnum];
+
+
+    export const CreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
 
     /**
      * * `default` - Default
@@ -13128,6 +13142,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export interface DataWarehouseSavedQueryDraft {
@@ -13149,6 +13168,9 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface DataWarehouseSavedQueryFolder {
       readonly id: string;
       /**
@@ -13159,6 +13181,11 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly view_count: number;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export type DataWarehouseSavedQueryMinimalColumnsItem = { [key: string]: unknown };
@@ -13209,6 +13236,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export type HedgehogActorAccessoryOption = typeof HedgehogActorAccessoryOption[keyof typeof HedgehogActorAccessoryOption];
@@ -16348,6 +16380,8 @@ export namespace Schemas {
       ExitOnlyAtEnd: 'exit_only_at_end',
     } as const;
 
+    export type ExperimentFeatureFlag = { [key: string]: unknown };
+
     export interface ExperimentHoldout {
       readonly id: number;
       /** @maxLength 400 */
@@ -16565,7 +16599,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key: string;
-      readonly feature_flag: MinimalFeatureFlag;
+      readonly feature_flag: ExperimentFeatureFlag;
       readonly holdout: ExperimentHoldout;
       /**
        * ID of a holdout group to exclude from the experiment.
@@ -17196,6 +17230,12 @@ export namespace Schemas {
     * `warehouse` - warehouse
     * `direct` - direct */
       access_method?: AccessMethodEnum;
+      /** Where the request came from
+
+    * `web` - web
+    * `api` - api
+    * `mcp` - mcp */
+      created_via?: CreatedViaEnum;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -17213,6 +17253,12 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly created_by: string | null;
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+    * `web` - web
+    * `api` - api
+    * `mcp` - mcp */
+      created_via?: CreatedViaEnum;
       readonly status: string;
       client_secret: string;
       account_id: string;
@@ -21490,6 +21536,80 @@ export namespace Schemas {
       threshold_operator: string;
     }
 
+    export type LogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    /**
+     * * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit
+     */
+    export type RuleTypeEnum = typeof RuleTypeEnum[keyof typeof RuleTypeEnum];
+
+
+    export const RuleTypeEnum = {
+      SeveritySampling: 'severity_sampling',
+      PathDrop: 'path_drop',
+      RateLimit: 'rate_limit',
+    } as const;
+
+    export interface LogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface LogsSamplingRuleReorder {
+      /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+      ordered_ids: string[];
+    }
+
+    export interface LogsSamplingRuleSimulateResponse {
+      /** Rough percent of log volume this rule would drop (0–100). Stub until ClickHouse-backed estimate ships. */
+      estimated_reduction_pct: number;
+      /** Human-readable caveats for the estimate. */
+      notes: string;
+    }
+
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
@@ -23292,6 +23412,15 @@ export namespace Schemas {
       results: LogsAlertEvent[];
     }
 
+    export interface PaginatedLogsSamplingRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsSamplingRule[];
+    }
+
     export interface PaginatedLogsViewList {
       count: number;
       /** @nullable */
@@ -24938,6 +25067,9 @@ export namespace Schemas {
 
     export type TableOptions = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface Table {
       readonly id: string;
       /** @nullable */
@@ -24955,6 +25087,11 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema: TableExternalSchema;
       options?: TableOptions;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedTableList {
@@ -26187,10 +26324,10 @@ export namespace Schemas {
       readonly state?: unknown | null;
       /** @nullable */
       readonly created_by?: PatchedBatchImportCreatedBy;
-      status?: BatchImportStatusEnum;
+      readonly status?: BatchImportStatusEnum;
       /** @nullable */
       readonly display_status_message?: string | null;
-      import_config?: unknown;
+      readonly import_config?: unknown;
     }
 
     export interface PatchedClusteringJob {
@@ -26614,6 +26751,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at?: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedDataWarehouseSavedQueryDraft {
@@ -26635,6 +26777,9 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedDataWarehouseSavedQueryFolder {
       readonly id?: string;
       /**
@@ -26645,6 +26790,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly view_count?: number;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedDataset {
@@ -27252,6 +27402,8 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export type PatchedExperimentFeatureFlag = { [key: string]: unknown };
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -27274,7 +27426,7 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
-      readonly feature_flag?: MinimalFeatureFlag;
+      readonly feature_flag?: PatchedExperimentFeatureFlag;
       readonly holdout?: ExperimentHoldout;
       /**
        * ID of a holdout group to exclude from the experiment.
@@ -27475,6 +27627,12 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: string | null;
+      /** How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+    * `web` - web
+    * `api` - api
+    * `mcp` - mcp */
+      created_via?: CreatedViaEnum;
       readonly status?: string;
       client_secret?: string;
       account_id?: string;
@@ -28190,6 +28348,54 @@ export namespace Schemas {
        * When the alert was last modified.
        * @nullable
        */
+      readonly updated_at?: string | null;
+    }
+
+    export type PatchedLogsSamplingRuleScopeAttributeFiltersItem = { [key: string]: unknown };
+
+    export interface PatchedLogsSamplingRule {
+      /** Unique identifier for this sampling rule. */
+      readonly id?: string;
+      /**
+       * User-visible label for this rule.
+       * @maxLength 255
+       */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+       * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+       * @minimum 0
+       * @nullable
+       */
+      priority?: number | null;
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+    * `severity_sampling` - Severity-based reduction
+    * `path_drop` - Path exclusion
+    * `rate_limit` - Rate limit */
+      rule_type?: RuleTypeEnum;
+      /**
+       * If set, the rule applies only to this service name; null means all services.
+       * @maxLength 512
+       * @nullable
+       */
+      scope_service?: string | null;
+      /**
+       * Optional regex matched against a path-like log attribute when present.
+       * @maxLength 1024
+       * @nullable
+       */
+      scope_path_pattern?: string | null;
+      /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+      scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
+      config?: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
       readonly updated_at?: string | null;
     }
 
@@ -30461,6 +30667,9 @@ export namespace Schemas {
 
     export type PatchedTableOptions = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedTable {
       readonly id?: string;
       /** @nullable */
@@ -30478,6 +30687,11 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
       options?: PatchedTableOptions;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedTagger {
@@ -37527,6 +37741,19 @@ export namespace Schemas {
       maxExportableLogs: number;
     }
 
+    export interface _LogsServiceActiveRule {
+      rule_id: string;
+      rule_name: string;
+      summary_string: string;
+    }
+
+    export interface _LogsServiceSeverityBreakdown {
+      debug: number;
+      info: number;
+      warn: number;
+      error: number;
+    }
+
     export interface _LogsServiceAggregate {
       /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
       service_name: string;
@@ -37536,6 +37763,12 @@ export namespace Schemas {
       error_count: number;
       /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
       error_rate: number;
+      /** Share of total log volume in the window for this service (0–100). */
+      volume_share_pct?: number;
+      /** Counts by coarse severity bucket (debug, info, warn, error+fatal). */
+      severity_breakdown?: _LogsServiceSeverityBreakdown;
+      /** Enabled sampling rules whose scope includes this service. */
+      active_rules?: _LogsServiceActiveRule[];
     }
 
     export interface _LogsServicesBody {
@@ -37563,11 +37796,20 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogsServicesSummary {
+      /** Number of top services included in the volume_share aggregate (up to 5). */
+      top_services_count: number;
+      /** Combined volume share (percent) of the top services by log_count. */
+      top_services_volume_share_pct: number;
+    }
+
     export interface _LogsServicesResponse {
       /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
       services: _LogsServiceAggregate[];
       /** Time-bucketed counts broken down by service, for plotting volume over time. */
       sparkline: _LogsServicesSparklineBucket[];
+      /** Roll-up stats for the Services tab header. */
+      summary?: _LogsServicesSummary;
     }
 
     export interface _LogsSparklineBody {
@@ -37780,7 +38022,15 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsRetrieveFormat;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsRetrieveFormat = typeof EnvironmentsDashboardsRetrieveFormat[keyof typeof EnvironmentsDashboardsRetrieveFormat];
@@ -37876,6 +38126,10 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsRunInsightsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsRunInsightsRetrieveFormat;
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -37885,6 +38139,10 @@ export namespace Schemas {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: EnvironmentsDashboardsRunInsightsRetrieveRefresh;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsRunInsightsRetrieveFormat = typeof EnvironmentsDashboardsRunInsightsRetrieveFormat[keyof typeof EnvironmentsDashboardsRunInsightsRetrieveFormat];
@@ -37925,7 +38183,19 @@ export namespace Schemas {
     } as const;
 
     export type EnvironmentsDashboardsStreamTilesRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     */
+    filters_override?: string;
     format?: EnvironmentsDashboardsStreamTilesRetrieveFormat;
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
+     */
+    layoutSize?: EnvironmentsDashboardsStreamTilesRetrieveLayoutSize;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     */
+    variables_override?: string;
     };
 
     export type EnvironmentsDashboardsStreamTilesRetrieveFormat = typeof EnvironmentsDashboardsStreamTilesRetrieveFormat[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveFormat];
@@ -37934,6 +38204,14 @@ export namespace Schemas {
     export const EnvironmentsDashboardsStreamTilesRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize[keyof typeof EnvironmentsDashboardsStreamTilesRetrieveLayoutSize];
+
+
+    export const EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = {
+      Sm: 'sm',
+      Xs: 'xs',
     } as const;
 
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
@@ -39288,6 +39566,28 @@ export namespace Schemas {
     export type EnvironmentsLogsExportCreate201 = { [key: string]: unknown };
 
     export type EnvironmentsLogsHasLogsRetrieve200 = { [key: string]: unknown };
+
+    export type EnvironmentsLogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EnvironmentsLogsValuesRetrieveParams = {
     /**
@@ -41261,6 +41561,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      * @minLength 1
@@ -41335,6 +41636,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -41395,6 +41697,7 @@ export namespace Schemas {
     * `CustomerProfileConfig` - CustomerProfileConfig
     * `Log` - Log
     * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `LogsExclusionRule` - LogsExclusionRule
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
      */
@@ -41457,6 +41760,7 @@ export namespace Schemas {
       CustomerProfileConfig: 'CustomerProfileConfig',
       Log: 'Log',
       LogsAlertConfiguration: 'LogsAlertConfiguration',
+      LogsExclusionRule: 'LogsExclusionRule',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
     } as const;
@@ -41849,7 +42153,15 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsRetrieveFormat;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsRetrieveFormat = typeof DashboardsRetrieveFormat[keyof typeof DashboardsRetrieveFormat];
@@ -41945,6 +42257,10 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRunInsightsRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsRunInsightsRetrieveFormat;
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -41954,6 +42270,10 @@ export namespace Schemas {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsRunInsightsRetrieveFormat = typeof DashboardsRunInsightsRetrieveFormat[keyof typeof DashboardsRunInsightsRetrieveFormat];
@@ -41994,7 +42314,19 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsStreamTilesRetrieveParams = {
+    /**
+     * JSON object to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a dashboard sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsStreamTilesRetrieveFormat;
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
+     */
+    layoutSize?: DashboardsStreamTilesRetrieveLayoutSize;
+    /**
+     * JSON object to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token.
+     */
+    variables_override?: string;
     };
 
     export type DashboardsStreamTilesRetrieveFormat = typeof DashboardsStreamTilesRetrieveFormat[keyof typeof DashboardsStreamTilesRetrieveFormat];
@@ -42003,6 +42335,14 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsStreamTilesRetrieveLayoutSize = typeof DashboardsStreamTilesRetrieveLayoutSize[keyof typeof DashboardsStreamTilesRetrieveLayoutSize];
+
+
+    export const DashboardsStreamTilesRetrieveLayoutSize = {
+      Sm: 'sm',
+      Xs: 'xs',
     } as const;
 
     export type DashboardsBulkUpdateTagsCreateParams = {
@@ -43712,6 +44052,28 @@ export namespace Schemas {
 
     export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
 
+    export type LogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type LogsValuesRetrieveParams = {
     /**
      * Type of attribute: "log" or "resource". Defaults to "log".
@@ -44791,6 +45153,48 @@ export namespace Schemas {
     };
 
     export type VisualReviewReposSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisualReviewRunsListParams = {
+    /**
+     * Filter by branch name
+     */
+    branch?: string;
+    /**
+     * Filter by full commit SHA
+     */
+    commit_sha?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by GitHub PR number
+     */
+    pr_number?: number;
+    /**
+     * Filter by review state
+     */
+    review_state?: string;
+    };
+
+    export type VisualReviewRunsSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
     /**
      * Number of results to return per page.
      */

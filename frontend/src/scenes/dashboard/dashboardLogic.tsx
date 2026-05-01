@@ -102,6 +102,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -2171,6 +2172,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.setRefreshAnalysisCacheKey(null)
                     }
                 }
+            }
+
+            if (
+                isInitialLoad &&
+                !forceRefresh &&
+                tilesErroredCount === 0 &&
+                tilesAbortedCount === 0 &&
+                values.placement === DashboardPlacement.Public
+            ) {
+                scheduleSharedDashboardStaleAutoForceIfEligible({
+                    effectiveLastRefresh: values.effectiveLastRefresh,
+                    triggerDashboardRefresh: () => {
+                        void actions.triggerDashboardRefresh()
+                    },
+                })
             }
         },
         saveEditModeChanges: () => {
