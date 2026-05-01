@@ -41,6 +41,7 @@ pub trait GroupStorage: Send + Sync {
         created_at: chrono::DateTime<chrono::Utc>,
     ) -> StorageResult<Group>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn update_group(
         &self,
         team_id: i64,
@@ -94,6 +95,7 @@ pub trait GroupStorage: Send + Sync {
 
     // Group type mapping writes
 
+    #[allow(clippy::too_many_arguments)]
     async fn update_group_type_mapping(
         &self,
         project_id: i64,
