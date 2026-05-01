@@ -6156,6 +6156,35 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `BASE TABLE` - BASE TABLE
+    * `VIEW` - VIEW
+     */
+    export type TableTypeEnum = typeof TableTypeEnum[keyof typeof TableTypeEnum];
+
+
+    export const TableTypeEnum = {
+      BaseTable: 'BASE TABLE',
+      View: 'VIEW',
+    } as const;
+
+    /**
+     * A table in the customer's DuckLake catalog that could be promoted.
+     */
+    export interface AvailableSourceTable {
+      /** Schema name in the customer's DuckLake catalog. */
+      schema: string;
+      /** Table or view name in the customer's DuckLake catalog. */
+      name: string;
+      /** Whether this is a base table or a view.
+
+    * `BASE TABLE` - BASE TABLE
+    * `VIEW` - VIEW */
+      table_type: TableTypeEnum;
+      /** True if this schema/name pair already has an active promotion for this team. */
+      already_promoted: boolean;
+    }
+
+    /**
      * * `AED` - AED
     * `AFN` - AFN
     * `ALL` - ALL
@@ -16916,10 +16945,10 @@ export namespace Schemas {
     * `7day` - 7day
     * `30day` - 30day
      */
-    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+    export type ExternalDataSchemaSyncFrequencyEnum = typeof ExternalDataSchemaSyncFrequencyEnum[keyof typeof ExternalDataSchemaSyncFrequencyEnum];
 
 
-    export const SyncFrequencyEnum = {
+    export const ExternalDataSchemaSyncFrequencyEnum = {
       Never: 'never',
       '1min': '1min',
       '5min': '5min',
@@ -16986,7 +17015,7 @@ export namespace Schemas {
     * `24hour` - 24hour
     * `7day` - 7day
     * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | NullEnum | null;
       /**
        * UTC time of day to run the sync (HH:MM:SS).
        * @nullable
@@ -21910,6 +21939,99 @@ export namespace Schemas {
       category?: MCPServerTemplateCategoryEnum;
     }
 
+    /**
+     * * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour
+     */
+    export type ManagedWarehousePromotedTableSyncFrequencyEnum = typeof ManagedWarehousePromotedTableSyncFrequencyEnum[keyof typeof ManagedWarehousePromotedTableSyncFrequencyEnum];
+
+
+    export const ManagedWarehousePromotedTableSyncFrequencyEnum = {
+      '5min': '5min',
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+    * `running` - Running
+    * `completed` - Completed
+    * `failed` - Failed
+     */
+    export type ManagedWarehousePromotedTableStatusEnum = typeof ManagedWarehousePromotedTableStatusEnum[keyof typeof ManagedWarehousePromotedTableStatusEnum];
+
+
+    export const ManagedWarehousePromotedTableStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface ManagedWarehousePromotedTable {
+      readonly id: string;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /**
+       * Schema name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_schema_name: string;
+      /**
+       * Table name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_table_name: string;
+      /** Refresh interval. One of: 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour.
+
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour */
+      sync_frequency?: ManagedWarehousePromotedTableSyncFrequencyEnum;
+      /** Refresh interval, returned as a frequency label (e.g. '1hour'). */
+      readonly sync_frequency_interval: string;
+      /** Status of the most recent run: pending, running, completed, or failed.
+
+    * `pending` - Pending
+    * `running` - Running
+    * `completed` - Completed
+    * `failed` - Failed */
+      readonly status: ManagedWarehousePromotedTableStatusEnum;
+      /** @nullable */
+      readonly last_error: string | null;
+      /** @nullable */
+      readonly last_run_started_at: string | null;
+      /** @nullable */
+      readonly last_synced_at: string | null;
+      /** @nullable */
+      readonly row_count: number | null;
+      /** @nullable */
+      readonly size_in_s3_mib: number | null;
+      /**
+       * ID of the DataWarehouseTable that exposes the promoted parquet snapshot.
+       * @nullable
+       */
+      readonly data_warehouse_table_id: string | null;
+    }
+
     export interface MarkToleratedInput {
       snapshot_id: string;
     }
@@ -22742,6 +22864,15 @@ export namespace Schemas {
       results?: AsyncDeletionStatus[];
     }
 
+    export interface PaginatedAvailableSourceTableList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AvailableSourceTable[];
+    }
+
     export interface PaginatedBatchExportBackfillList {
       /** @nullable */
       next?: string | null;
@@ -23470,6 +23601,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPServerTemplate[];
+    }
+
+    export interface PaginatedManagedWarehousePromotedTableList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ManagedWarehousePromotedTable[];
     }
 
     export interface PaginatedMaterializedColumnSlotList {
@@ -27604,7 +27744,7 @@ export namespace Schemas {
     * `24hour` - 24hour
     * `7day` - 7day
     * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | NullEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | NullEnum | null;
       /**
        * UTC time of day to run the sync (HH:MM:SS).
        * @nullable
@@ -28440,6 +28580,61 @@ export namespace Schemas {
       display_name?: string;
       description?: string;
       is_enabled?: boolean;
+    }
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface PatchedManagedWarehousePromotedTable {
+      readonly id?: string;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      /**
+       * Schema name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_schema_name?: string;
+      /**
+       * Table name of the source table in the customer's DuckLake catalog.
+       * @maxLength 255
+       */
+      source_table_name?: string;
+      /** Refresh interval. One of: 5min, 15min, 30min, 1hour, 6hour, 12hour, 24hour.
+
+    * `5min` - 5min
+    * `15min` - 15min
+    * `30min` - 30min
+    * `1hour` - 1hour
+    * `6hour` - 6hour
+    * `12hour` - 12hour
+    * `24hour` - 24hour */
+      sync_frequency?: ManagedWarehousePromotedTableSyncFrequencyEnum;
+      /** Refresh interval, returned as a frequency label (e.g. '1hour'). */
+      readonly sync_frequency_interval?: string;
+      /** Status of the most recent run: pending, running, completed, or failed.
+
+    * `pending` - Pending
+    * `running` - Running
+    * `completed` - Completed
+    * `failed` - Failed */
+      readonly status?: ManagedWarehousePromotedTableStatusEnum;
+      /** @nullable */
+      readonly last_error?: string | null;
+      /** @nullable */
+      readonly last_run_started_at?: string | null;
+      /** @nullable */
+      readonly last_synced_at?: string | null;
+      /** @nullable */
+      readonly row_count?: number | null;
+      /** @nullable */
+      readonly size_in_s3_mib?: number | null;
+      /**
+       * ID of the DataWarehouseTable that exposes the promoted parquet snapshot.
+       * @nullable
+       */
+      readonly data_warehouse_table_id?: string | null;
     }
 
     export interface PatchedMaterializedColumnSlot {
@@ -39653,6 +39848,17 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
+    export type EnvironmentsManagedWarehousePromotedTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsPersistedFolderListParams = {
     /**
      * Number of results to return per page.
@@ -44173,6 +44379,17 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type ManagedWarehousePromotedTablesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type NotebooksListParams = {
     /**
