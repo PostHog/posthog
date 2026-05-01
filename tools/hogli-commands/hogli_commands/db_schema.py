@@ -25,7 +25,6 @@ BACKUP_DIR = REPO_ROOT / ".postgres-backups"
 SCHEMA_PATH = BACKUP_DIR / "schema-latest.sql.gz"
 SCHEMA_METADATA_PATH = BACKUP_DIR / "schema-latest.json"
 MIN_SCHEMA_ARTIFACT_SIZE_BYTES = 10_000
-CODER_GITHUB_EXTERNAL_AUTH_ID = "primary-github"
 
 
 @dataclass(frozen=True)
@@ -38,7 +37,7 @@ class SchemaArtifact:
 
 
 def _normalize_mode(raw_mode: str | None) -> str:
-    mode = (raw_mode or os.environ.get("POSTHOG_SCHEMA_RESTORE") or "auto").strip().lower()
+    mode = (raw_mode or os.environ.get("POSTHOG_SCHEMA_RESTORE") or "off").strip().lower()
     if mode in {"auto", ""}:
         return "auto"
     if mode in {"1", "true", "yes", "on"}:
@@ -48,18 +47,8 @@ def _normalize_mode(raw_mode: str | None) -> str:
     raise click.ClickException("POSTHOG_SCHEMA_RESTORE must be auto, on, or off")
 
 
-def _is_coder_devbox() -> bool:
-    workspace_id = os.environ.get("CODER_WORKSPACE_ID")
-    workspace_name = os.environ.get("CODER_WORKSPACE_NAME", "")
-    return bool(workspace_id and workspace_name.startswith("devbox-"))
-
-
 def _should_attempt_restore(mode: str) -> bool:
-    if mode == "off":
-        return False
-    if mode == "on":
-        return True
-    return _is_coder_devbox()
+    return mode in {"auto", "on"}
 
 
 def _run_capture(
@@ -134,9 +123,6 @@ def _github_token() -> str | None:
 
     if token := _token_from_command(["gh", "auth", "token"]):
         return token
-
-    if _is_coder_devbox():
-        return _token_from_command(["coder", "external-auth", "access-token", CODER_GITHUB_EXTERNAL_AUTH_ID])
 
     return None
 
@@ -316,7 +302,7 @@ def restore_schema_if_fresh(mode: str) -> bool:
 
 
 @cli.command(name="db:restore-schema-if-fresh", help="Restore migrated Postgres schema when the local DB is fresh")
-@click.option("--mode", default=None, help="auto, on, or off. Defaults to POSTHOG_SCHEMA_RESTORE or auto.")
+@click.option("--mode", default=None, help="auto, on, or off. Defaults to POSTHOG_SCHEMA_RESTORE or off.")
 def restore_schema_if_fresh_command(mode: str | None) -> None:
     """Restore the CI migrated schema only when the local Postgres DB is fresh."""
     normalized_mode = _normalize_mode(mode)

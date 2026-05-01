@@ -16,6 +16,25 @@ run_scope() {
     return 1
 }
 
+schema_restore_mode() {
+    if [ -n "${POSTHOG_SCHEMA_RESTORE+x}" ]; then
+        echo "$POSTHOG_SCHEMA_RESTORE"
+    elif [ -n "${CODER_WORKSPACE_ID:-}" ]; then
+        echo "auto"
+    else
+        echo "off"
+    fi
+}
+
+prepare_schema_restore_github_token() {
+    if [ -z "${CODER_WORKSPACE_ID:-}" ] || [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ] || ! command -v coder >/dev/null 2>&1; then
+        return
+    fi
+
+    GITHUB_TOKEN=$(coder external-auth access-token primary-github 2>/dev/null || true)
+    export GITHUB_TOKEN
+}
+
 # timestamp function with nanosecond precision if supported, otherwise fallback to seconds with .000000000 suffix for uniform formatting
 if [ "$(date +%N)" != "N" ]; then
     timestamp() { date +%s.%N; }
@@ -84,7 +103,11 @@ fi
 
 if [ "$RUN_POSTGRES" = "1" ]; then
     if [ "${DEBUG:-0}" = "1" ]; then
-        "$SCRIPT_DIR/hogli" db:restore-schema-if-fresh
+        SCHEMA_RESTORE_MODE=$(schema_restore_mode)
+        if [ "$SCHEMA_RESTORE_MODE" != "off" ]; then
+            prepare_schema_restore_github_token
+            "$SCRIPT_DIR/hogli" db:restore-schema-if-fresh --mode="$SCHEMA_RESTORE_MODE"
+        fi
     fi
 
     # Run postgres migrations with retry logic
