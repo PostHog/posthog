@@ -167,13 +167,11 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
-    # read_only=True is required here even though Meta.read_only_fields lists this field —
-    # DRF's Meta.read_only_fields is silently ignored for explicitly declared serializer fields.
-    # Without it, a caller could PATCH /api/users/@me/ {"onboarding_skipped_reason": "delegated"}
-    # and bypass the dedicated onboarding_skip endpoint's reason validation and atomicity.
-    onboarding_skipped_reason = serializers.ChoiceField(
-        choices=User.ONBOARDING_SKIPPED_REASONS, allow_null=True, required=False, read_only=True
-    )
+    # Intentionally NOT declared explicitly — Meta.read_only_fields below is silently ignored
+    # for explicitly declared fields (a well-known DRF gotcha that drf-spectacular replicates
+    # in its generated OpenAPI), so any explicit declaration here would re-open the writable
+    # PATCH bypass on /api/users/@me/. Letting DRF auto-generate the field from the model
+    # picks up the choices on User.onboarding_skipped_reason and Meta.read_only_fields wins.
     onboarding_delegated_to_organization_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
