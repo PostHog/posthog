@@ -85,7 +85,7 @@ class WebhookSourceManager:
             or (skip_initial_sync_complete_check is not True and not schema.initial_sync_complete)
             or self._inputs.reset_pipeline
         ):
-            self._logger.debug(
+            await self._logger.adebug(
                 f"webhook_enabled=False. schema.is_webhook={schema.is_webhook}. schema.initial_sync_complete={schema.initial_sync_complete}. self._inputs.reset_pipeline={self._inputs.reset_pipeline}"
             )
             return False
