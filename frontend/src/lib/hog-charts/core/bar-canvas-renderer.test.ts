@@ -59,8 +59,6 @@ describe('hog-charts canvas-renderer (bars)', () => {
         })
 
         it('clamps the radius to half the smaller dimension without throwing', () => {
-            // With width 4 and a requested radius of 20, each rounded corner consumes radius 2
-            // — we just verify it doesn't throw and still emits the curves.
             const ctx = mockCanvasContext()
             traceRoundedBarPath(ctx, 0, 0, 4, 50, 20, {
                 topLeft: true,
@@ -69,6 +67,25 @@ describe('hog-charts canvas-renderer (bars)', () => {
                 bottomRight: true,
             })
             expect(ctx.quadraticCurveTo).toHaveBeenCalledTimes(4)
+        })
+
+        it('walks corners clockwise from top-left, with each curve anchored at the right corner', () => {
+            const ctx = mockCanvasContext()
+            traceRoundedBarPath(ctx, 0, 0, 100, 100, 10, {
+                topLeft: true,
+                topRight: true,
+                bottomLeft: true,
+                bottomRight: true,
+            })
+            expect(ctx.moveTo).toHaveBeenCalledWith(10, 0)
+            expect(ctx.lineTo).toHaveBeenNthCalledWith(1, 90, 0)
+            expect(ctx.quadraticCurveTo).toHaveBeenNthCalledWith(1, 100, 0, 100, 10)
+            expect(ctx.lineTo).toHaveBeenNthCalledWith(2, 100, 90)
+            expect(ctx.quadraticCurveTo).toHaveBeenNthCalledWith(2, 100, 100, 90, 100)
+            expect(ctx.lineTo).toHaveBeenNthCalledWith(3, 10, 100)
+            expect(ctx.quadraticCurveTo).toHaveBeenNthCalledWith(3, 0, 100, 0, 90)
+            expect(ctx.lineTo).toHaveBeenNthCalledWith(4, 0, 10)
+            expect(ctx.quadraticCurveTo).toHaveBeenNthCalledWith(4, 0, 0, 10, 0)
         })
     })
 
