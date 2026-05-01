@@ -487,3 +487,53 @@ class TestVirtualFieldDetection(APIBaseTest):
 
         result = _is_virtual_field_requiring_join(mock_node)  # type: ignore
         self.assertFalse(result, "Malformed AST should return False without exception")
+
+
+class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.alice = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["alice_a", "alice_b"],
+            properties={"name": "alice"},
+        )
+        self.bob = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["bob_a"],
+            properties={"name": "bob"},
+        )
+        flush_persons_and_events()
+
+    def test_pdi_subquery_filtered_when_outer_filters_persons_id(self):
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT id, arraySort(groupArray(pdi.distinct_id)) AS distinct_ids "
+                "FROM persons WHERE id IN ({alice_id}) GROUP BY id"
+            ),
+            self.team,
+            placeholders={"alice_id": ast.Constant(value=self.alice.uuid)},
+        )
+        assert response.clickhouse is not None
+        assert "in(distinct_id, (SELECT" in response.clickhouse
+        assert len(response.results) == 1
+        assert response.results[0][1] == ["alice_a", "alice_b"]
+
+    def test_pdi_subquery_filtered_when_outer_filters_persons_property(self):
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT pdi.distinct_id, properties.name AS name FROM persons WHERE properties.name = 'alice'"
+            ),
+            self.team,
+        )
+        assert response.clickhouse is not None
+        assert "in(distinct_id, (SELECT" in response.clickhouse
+        distinct_ids = sorted(row[0] for row in response.results)
+        assert distinct_ids == ["alice_a", "alice_b"]
+
+    def test_pdi_subquery_unfiltered_when_no_pushdown_target(self):
+        response = execute_hogql_query(
+            parse_select("SELECT id FROM persons"),
+            self.team,
+        )
+        assert response.clickhouse is not None
+        assert "in(distinct_id, (SELECT" not in response.clickhouse

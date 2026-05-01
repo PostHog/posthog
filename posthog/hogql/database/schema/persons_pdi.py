@@ -1,5 +1,8 @@
+from typing import Optional
+
 import posthoganalytics
 
+from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -12,6 +15,10 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     StringDatabaseField,
 )
+from posthog.hogql.database.schema.util.pdi_person_id_pushdown import (
+    build_distinct_id_pushdown,
+    derive_person_id_filter,
+)
 from posthog.hogql.errors import ResolutionError
 
 from posthog.models.organization import Organization
@@ -19,7 +26,11 @@ from posthog.models.organization import Organization
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
-def persons_pdi_select(requested_fields: dict[str, list[str | int]]):
+def persons_pdi_select(
+    requested_fields: dict[str, list[str | int]],
+    *,
+    person_id_filter: Optional[ast.Expr] = None,
+):
     # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
     if "person_id" not in requested_fields:
         requested_fields = {**requested_fields, "person_id": ["person_id"]}
@@ -31,6 +42,8 @@ def persons_pdi_select(requested_fields: dict[str, list[str | int]]):
         deleted_field="is_deleted",
     )
     select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
+    if person_id_filter is not None:
+        select.where = build_distinct_id_pushdown(person_id_filter)
     return select
 
 
@@ -41,11 +54,14 @@ def persons_pdi_join(
     context: HogQLContext,
     node: SelectQuery,
 ):
-    from posthog.hogql import ast
-
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from person_distinct_ids")
-    join_expr = ast.JoinExpr(table=persons_pdi_select(join_to_add.fields_accessed))
+    # This join function pairs <from_table>.id (i.e. persons.id) with pdi.person_id
+    # (see the constraint below), so any outer-query persons-side predicate (id IN,
+    # email = ..., properties.* IN, etc.) can be promoted into the pdi subquery via
+    # a person_id IN (SELECT id FROM raw_persons WHERE <filter>) wrapper.
+    person_id_filter = derive_person_id_filter(node, join_to_add, context=context, from_field_maps_to_person_id=True)
+    join_expr = ast.JoinExpr(table=persons_pdi_select(join_to_add.fields_accessed, person_id_filter=person_id_filter))
     organization: Organization | None = context.team.organization if context.team else None
     if not organization:
         raise ResolutionError("Organization not found in context")
