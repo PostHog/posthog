@@ -125,8 +125,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -668,8 +668,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -800,8 +800,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -1339,8 +1339,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -1471,8 +1471,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -2006,8 +2006,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -2138,8 +2138,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -2673,8 +2673,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -2805,8 +2805,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -3344,8 +3344,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -3476,8 +3476,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -4015,8 +4015,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -4147,8 +4147,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -4686,8 +4686,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -5204,8 +5204,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -5261,8 +5261,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -5896,8 +5896,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -5953,8 +5953,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -6649,8 +6649,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -6706,8 +6706,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -7460,8 +7460,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -7517,8 +7517,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -8239,8 +8239,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -8296,6 +8296,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
@@ -8760,6 +8761,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
@@ -8816,8 +8818,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -9460,8 +9462,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -9517,8 +9519,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -10209,8 +10211,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -10266,8 +10268,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -10993,6 +10995,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
@@ -11049,6 +11052,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
@@ -11177,6 +11181,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
@@ -11690,6 +11695,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
@@ -11746,8 +11752,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
@@ -11802,8 +11808,8 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
