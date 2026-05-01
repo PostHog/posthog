@@ -4,11 +4,9 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import {
-    AlertOverlay,
     AnnotationsLayer,
     buildTrendsChartConfig,
     buildTrendsSeries,
-    buildTrendsYTickFormatter,
     createXAxisTickCallback,
     DEFAULT_Y_AXIS_ID,
     goalLinesToReferenceLines,
@@ -32,6 +30,8 @@ import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
+import { TrendsAlertOverlays } from './TrendsAlertOverlays'
+import { buildTrendsYTickFormatter } from './trendsAxisFormat'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
@@ -281,7 +281,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         >
             <ReferenceLines lines={referenceLines} />
             {insight.id ? (
-                <AlertOverlay
+                <TrendsAlertOverlays
                     insightId={insight.id}
                     insightProps={insightProps}
                     indexedResults={indexedResults}

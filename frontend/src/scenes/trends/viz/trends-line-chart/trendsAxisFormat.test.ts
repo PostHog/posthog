@@ -1,6 +1,6 @@
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 
-import { buildTrendsYTickFormatter } from './y-formatters'
+import { buildTrendsYTickFormatter } from './trendsAxisFormat'
 
 const NBSP = ' '
 

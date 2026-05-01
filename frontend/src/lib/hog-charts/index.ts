@@ -56,7 +56,6 @@ export type { ValueLabelsProps } from './overlays/ValueLabels'
 export { computeVisibleXLabels } from './overlays/AxisLabels'
 
 // Timeseries overlays
-export { AlertOverlay } from './timeseries/overlays/AlertOverlay'
 export { AnnotationsLayer } from './timeseries/overlays/AnnotationsLayer'
 export { AnomalyPointsLayer } from './timeseries/overlays/AnomalyPointsLayer'
 
@@ -67,7 +66,6 @@ export {
     computeSeriesNonZeroMax,
     goalLinesToReferenceLines,
 } from './timeseries/utils/goalLinesAdapter'
-export { buildTrendsYTickFormatter } from './timeseries/utils/y-formatters'
 
 // Timeseries derived series
 export { buildMainTrendsSeries, buildTrendsChartConfig, buildTrendsSeries } from './timeseries/derived-series'

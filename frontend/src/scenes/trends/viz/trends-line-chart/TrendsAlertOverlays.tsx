@@ -2,19 +2,14 @@ import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-// TODO(hog-charts): transitional reach-back into scenes/trends. The IndexedTrendResult
-// type and the buildAnomalyMarkers adapter need to move into hog-charts (or be replaced
-// by a generic shape) before this overlay is reusable from non-trends call sites.
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { buildAnomalyMarkers } from 'scenes/trends/viz/trends-line-chart/anomalyPointsAdapter'
+import { alertThresholdsToReferenceLines, AnomalyPointsLayer, ReferenceLines } from 'lib/hog-charts'
 
 import type { InsightLogicProps } from '~/types'
 
-import { ReferenceLines } from '../../overlays/ReferenceLine'
-import { alertThresholdsToReferenceLines } from '../utils/goalLinesAdapter'
-import { AnomalyPointsLayer } from './AnomalyPointsLayer'
+import type { IndexedTrendResult } from '../../types'
+import { buildAnomalyMarkers } from './anomalyPointsAdapter'
 
-interface AlertOverlayProps {
+interface TrendsAlertOverlaysProps {
     insightId: number
     insightProps: InsightLogicProps
     indexedResults: IndexedTrendResult[] | undefined
@@ -29,14 +24,14 @@ interface AlertOverlayProps {
  *  insightAlertsLogic only mounts for saved insights — mounting it with `insightId: undefined`
  *  causes a spurious unfiltered alerts API call. The parent renders this only when
  *  `insight.id` is truthy. */
-export function AlertOverlay({
+export function TrendsAlertOverlays({
     insightId,
     insightProps,
     indexedResults,
     getColor,
     isHidden,
     getYAxisId,
-}: AlertOverlayProps): React.ReactElement | null {
+}: TrendsAlertOverlaysProps): React.ReactElement | null {
     const { alertThresholdLines, alertAnomalyPoints } = useValues(
         insightAlertsLogic({ insightId, insightLogicProps: insightProps })
     )
