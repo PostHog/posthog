@@ -12,7 +12,7 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
             content: (
                 <>
                     <Markdown>
-                        PostHog logs uses the standard OpenTelemetry SDK — no PostHog-specific packages required.
+                        PostHog logs uses the standard OpenTelemetry SDK. No PostHog-specific packages required.
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -123,9 +123,9 @@ export const getGoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =
 
                                         var record otellog.Record
                                         record.SetSeverity(otellog.SeverityInfo)
-                                        record.SetBody(otellog.StringValue("User signed up"))
+                                        record.SetBody(otellog.StringValue("Application started"))
                                         record.AddAttributes(
-                                            otellog.String(string(semconv.UserIDKey), "user_123"),
+                                            otellog.Int64("server.port", 8080),
                                         )
                                         logger.Emit(ctx, record)
                                     }

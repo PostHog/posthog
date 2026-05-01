@@ -12,8 +12,8 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        PostHog logs uses the standard OpenTelemetry SDK — no PostHog-specific packages required.
-                        Install the OTel SDK and the logs signal package:
+                        PostHog logs uses the standard OpenTelemetry SDK. No PostHog-specific packages required. Install
+                        the OTel SDK and the logs signal package:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -38,6 +38,13 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     pnpm add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                `,
+                            },
                         ]}
                     />
                 </>
@@ -58,7 +65,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         blocks={[
                             {
                                 language: 'typescript',
-                                file: 'instrumentation.ts',
+                                file: 'logger.ts',
                                 code: dedent`
                                     import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
                                     import { resourceFromAttributes } from '@opentelemetry/resources'
@@ -100,15 +107,15 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 file: 'app.ts',
                                 code: dedent`
                                     import { SeverityNumber } from '@opentelemetry/api-logs'
-                                    import { logger } from './instrumentation'
+                                    import { logger } from './logger'
 
                                     logger.emit({
                                       severityNumber: SeverityNumber.INFO,
                                       severityText: 'INFO',
-                                      body: 'User signed up',
+                                      body: 'Server started',
                                       attributes: {
-                                        'user.id': 'user_123',
-                                        'user.plan': 'pro',
+                                        'server.port': 3000,
+                                        'server.env': 'production',
                                       },
                                     })
                                 `,

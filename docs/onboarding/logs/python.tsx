@@ -12,7 +12,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        PostHog logs uses the standard OpenTelemetry SDK — no PostHog-specific packages required.
+                        PostHog logs uses the standard OpenTelemetry SDK. No PostHog-specific packages required.
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -75,7 +75,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Once configured, use the standard Python `logging` module — logs are forwarded automatically:
+                        Once configured, use the standard Python `logging` module. Logs are forwarded automatically:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -84,13 +84,13 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 file: 'app.py',
                                 code: dedent`
                                     import logging
-                                    from instrumentation import *  # noqa: F401 — sets up the handler
+                                    from instrumentation import *  # noqa: F401 – sets up the handler
 
                                     logger = logging.getLogger(__name__)
 
-                                    logger.info("User signed up", extra={"user_id": "user_123", "plan": "pro"})
+                                    logger.info("Request processed", extra={"request_id": "req_abc", "duration_ms": 42})
                                     logger.warning("High memory usage", extra={"usage_mb": 1024})
-                                    logger.error("Payment failed", extra={"order_id": "order_456"})
+                                    logger.error("Database connection failed", extra={"host": "db.example.com"})
                                 `,
                             },
                         ]}

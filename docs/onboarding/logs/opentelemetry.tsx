@@ -63,7 +63,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                     <Markdown>
                         {dedent`
                             The endpoint accepts OTLP over HTTP in both \`application/x-protobuf\` and \`application/json\`
-                            formats. gRPC is not supported — use the HTTP transport.
+                            formats. gRPC is not supported, use the HTTP transport protocol instead.
 
                             Logs appear in PostHog within a few seconds. Use the [Logs page](/logs) to search and filter
                             by service name, severity, or any attribute you attach.
