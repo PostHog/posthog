@@ -127,4 +127,93 @@ describe('ApiClient', () => {
 
         vi.unstubAllGlobals()
     })
+
+    describe('insights().get() — overrides forwarding', () => {
+        const variablesOverride =
+            '{"019d4838-1da4-0000-33c7-2561bf01f1c9":{"code_name":"eventname","variableId":"019d4838-1da4-0000-33c7-2561bf01f1c9","value":"signed_up"}}'
+        const filtersOverride = '{"date_from":"-7d"}'
+
+        function setupClient(): { client: ApiClient; mockFetch: ReturnType<typeof vi.fn> } {
+            const mockFetch = vi.fn()
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+            return { client, mockFetch }
+        }
+
+        it('hits the retrieve endpoint with no query string when called by numeric id and no overrides', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 })
+            )
+
+            await client.insights({ projectId: '1' }).get({ insightId: '42' })
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const [url] = mockFetch.mock.calls[0]!
+            expect(url).toBe('https://example.com/api/projects/1/insights/42/')
+
+            vi.unstubAllGlobals()
+        })
+
+        it('hits the retrieve endpoint with the override query string when called by numeric id with overrides', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 })
+            )
+
+            await client.insights({ projectId: '1' }).get({
+                insightId: '42',
+                variables_override: variablesOverride,
+                filters_override: filtersOverride,
+            })
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const [url] = mockFetch.mock.calls[0]!
+            expect(url).toContain('https://example.com/api/projects/1/insights/42/?')
+            expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
+            expect(url).toContain(`filters_override=${encodeURIComponent(filtersOverride)}`)
+
+            vi.unstubAllGlobals()
+        })
+
+        it('resolves short_id via the list endpoint in one hop when no overrides are provided', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify({ results: [{ id: 42, short_id: 'abc12345' }] }), { status: 200 })
+            )
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: 'abc12345' })
+
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const [url] = mockFetch.mock.calls[0]!
+            expect(url).toContain('/api/projects/1/insights/?short_id=abc12345')
+            expect(result.success).toBe(true)
+
+            vi.unstubAllGlobals()
+        })
+
+        it('resolves short_id then re-fetches with overrides when overrides are provided', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ results: [{ id: 42, short_id: 'abc12345' }] }), { status: 200 })
+                )
+                .mockResolvedValueOnce(new Response(JSON.stringify({ id: 42, short_id: 'abc12345' }), { status: 200 }))
+
+            await client.insights({ projectId: '1' }).get({
+                insightId: 'abc12345',
+                variables_override: variablesOverride,
+            })
+
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            const [firstUrl] = mockFetch.mock.calls[0]!
+            expect(firstUrl).toContain('/api/projects/1/insights/?short_id=abc12345')
+            const [secondUrl] = mockFetch.mock.calls[1]!
+            expect(secondUrl).toContain('https://example.com/api/projects/1/insights/42/?')
+            expect(secondUrl).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
+            expect(secondUrl).not.toContain('filters_override')
+
+            vi.unstubAllGlobals()
+        })
+    })
 })
