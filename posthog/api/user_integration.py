@@ -39,6 +39,7 @@ from posthog.api.integration import (
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
     github_oauth_redirect_uri,
+    validate_github_repository_name,
 )
 from posthog.auth import (
     OAuthAccessTokenAuthentication,
@@ -84,6 +85,11 @@ def _github_app_install_url(state: str) -> str:
     if not app_slug:
         raise exceptions.ValidationError("GitHub App is not configured on this instance (missing GITHUB_APP_SLUG).")
     return f"https://github.com/apps/{app_slug}/installations/new?{urlencode({'state': state})}"
+
+
+def _github_state_token(state_raw: str) -> str:
+    state_params = parse_qs(state_raw)
+    return state_params["token"][0] if "token" in state_params else state_raw
 
 
 def _github_user_installation_ids(user_access_token: str) -> list[str]:
@@ -334,15 +340,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         limit: int = params.validated_data["limit"]
         offset: int = params.validated_data["offset"]
 
-        parts = repo.split("/")
-        if (
-            len(parts) != 2
-            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[0])
-            or not re.fullmatch(r"[A-Za-z0-9_.\-]+", parts[1])
-            or parts[0] in (".", "..")
-            or parts[1] in (".", "..")
-        ):
-            raise exceptions.ValidationError("repo must be in owner/repo format")
+        validate_github_repository_name(repo)
 
         integration = UserIntegration.objects.filter(
             user=self._get_user(), kind="github", integration_id=installation_id
@@ -440,11 +438,7 @@ def _posthog_code_flow_from_state_query(request: HttpRequest) -> bool:
     state_raw = request.GET.get("state")
     if not state_raw:
         return False
-    state_params = parse_qs(state_raw)
-    if "token" in state_params:
-        token = state_params["token"][0]
-    else:
-        token = state_raw
+    token = _github_state_token(state_raw)
     cache_key = f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}"
     state_payload = cache.get(cache_key)
     return bool(
@@ -500,11 +494,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     # The frontend extracts the raw token from the URL-encoded state before forwarding
     # here, so state_raw is normally the 48-char random token.  Handle both forms so
     # direct backend calls (e.g. in tests) and any future flow changes work correctly.
-    state_params = parse_qs(state_raw)
-    if "token" in state_params:
-        token = state_params["token"][0]
-    else:
-        token = state_raw
+    token = _github_state_token(state_raw)
 
     # Validate state
     cache_key = f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}"

@@ -80,6 +80,9 @@ class Task(DeletedMetaFields, models.Model):
         limit_choices_to={"kind": "github"},
         help_text="GitHub integration for this task",
     )
+    # Keep the selected personal installation as a preference for deterministic
+    # authorship when a user has multiple GitHub installations. SET_NULL on
+    # disconnect lets future runs fall back to resolving the user's current link.
     github_user_integration = models.ForeignKey(
         "posthog.UserIntegration",
         on_delete=models.SET_NULL,
