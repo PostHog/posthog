@@ -76,11 +76,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
 
 export function getProductIcon(
     iconKey?: string | null,
-    {
-        iconColor,
-        className,
-        productType,
-    }: { iconColor?: string; className?: string; productType?: string | null } = {}
+    { iconColor, className, productType }: { iconColor?: string; className?: string; productType?: string | null } = {}
 ): JSX.Element {
     // Prefer the centralized productType → icon mapping so surfaces like billing match the icons
     // used in onboarding even when the API response doesn't include an icon_key.
