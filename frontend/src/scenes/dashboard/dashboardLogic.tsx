@@ -2242,7 +2242,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelEditMode: () => {
             const discard = (): void =>
                 actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-            if (!values.hasUnsavedLayoutChanges) {
+            const promptEnabled = !!values.featureFlags[FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT]
+            if (!promptEnabled || !values.hasUnsavedLayoutChanges) {
                 discard()
                 return
             }

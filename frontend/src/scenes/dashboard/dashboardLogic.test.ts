@@ -5,7 +5,9 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
@@ -551,7 +553,13 @@ describe('dashboardLogic', () => {
                 logic.actions.updateLayouts(modifiedLayouts)
             }
 
+            const setDiscardPromptFlag = (enabled: boolean): void => {
+                const flagKey = FEATURE_FLAGS.DASHBOARD_LAYOUT_DISCARD_PROMPT
+                featureFlagLogic.actions.setFeatureFlags(enabled ? [flagKey] : [], { [flagKey]: enabled })
+            }
+
             it('exits edit mode immediately when no tile has been moved', async () => {
+                setDiscardPromptFlag(true)
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, () => {
@@ -561,7 +569,8 @@ describe('dashboardLogic', () => {
                 ])
             })
 
-            it('does not exit edit mode when a tile has been moved', async () => {
+            it('does not exit edit mode when a tile has been moved and the prompt flag is on', async () => {
+                setDiscardPromptFlag(true)
                 await expectLogic(logic).toFinishAllListeners()
 
                 await expectLogic(logic, moveFirstTile).toFinishAllListeners()
@@ -569,6 +578,19 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.cancelEditMode()
                 }).toNotHaveDispatchedActions([
+                    logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
+                ])
+            })
+
+            it('exits edit mode immediately when the prompt flag is off, even with unsaved layout changes', async () => {
+                setDiscardPromptFlag(false)
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, moveFirstTile).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelEditMode()
+                }).toDispatchActions([
                     logic.actionCreators.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
             })
