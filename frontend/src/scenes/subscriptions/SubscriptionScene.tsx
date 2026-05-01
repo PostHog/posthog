@@ -60,7 +60,7 @@ function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId
                 loading={subscriptionLoading}
                 data-attr="subscription-toggle-enabled"
             >
-                {enabled ? 'Pause subscription' : 'Resume subscription'}
+                {enabled ? 'Disable subscription' : 'Enable subscription'}
             </LemonButton>
             {editHref ? (
                 <LemonButton type="secondary" onClick={() => push(editHref)}>

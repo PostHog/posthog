@@ -53,7 +53,7 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                       ]
                     : []),
                 {
-                    label: enabled ? 'Pause subscription' : 'Resume subscription',
+                    label: enabled ? 'Disable subscription' : 'Enable subscription',
                     'data-attr': 'subscription-list-item-toggle-enabled',
                     disabledReason: isToggling ? 'Updating…' : null,
                     onClick: () => setSubscriptionEnabled(sub.id, !enabled),

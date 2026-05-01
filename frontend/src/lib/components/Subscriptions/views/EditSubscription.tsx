@@ -137,14 +137,27 @@ export function EditSubscription({
                     )
                 ) : (
                     <>
-                        {subscription?.created_by ? (
-                            <UserActivityIndicator
-                                at={subscription.created_at}
-                                by={subscription.created_by}
-                                prefix="Created"
-                                className="mb-4"
-                            />
-                        ) : null}
+                        <div className="flex gap-4 items-center justify-between mb-4">
+                            {subscription?.created_by ? (
+                                <UserActivityIndicator
+                                    at={subscription.created_at}
+                                    by={subscription.created_by}
+                                    prefix="Created"
+                                />
+                            ) : (
+                                <div />
+                            )}
+                            <LemonField name="enabled">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={value !== false}
+                                        onChange={onChange}
+                                        data-attr="subscription-enabled"
+                                        label="Enabled"
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
 
                         {siteUrlMisconfigured && (
                             <LemonBanner type="warning">
@@ -172,22 +185,9 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <div className="flex gap-4 items-center">
-                            <LemonField className="flex-auto" name="title" label="Name">
-                                <LemonInput placeholder="e.g. Weekly team report" />
-                            </LemonField>
-                            <LemonField name="enabled">
-                                {({ value, onChange }) => (
-                                    <LemonCheckbox
-                                        checked={value !== false}
-                                        onChange={onChange}
-                                        data-attr="subscription-enabled"
-                                        fullWidth
-                                        label="Enabled"
-                                    />
-                                )}
-                            </LemonField>
-                        </div>
+                        <LemonField name="title" label="Name">
+                            <LemonInput placeholder="e.g. Weekly team report" />
+                        </LemonField>
 
                         {dashboard?.tiles && selectionReady && (
                             <LemonField name="dashboard_export_insights" label="Insights to include">

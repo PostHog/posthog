@@ -210,7 +210,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             if (!subscription) {
                 return
             }
-            lemonToast.success(subscription.enabled ? 'Subscription resumed' : 'Subscription paused')
+            lemonToast.success(subscription.enabled ? 'Subscription enabled' : 'Subscription disabled')
         },
         setEnabledFailure: ({ errorObject }) => {
             // Surface the serializer's actionable message (e.g. re-enabling a Slack

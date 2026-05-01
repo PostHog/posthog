@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -32,6 +33,7 @@ export function SubscriptionListItem({
     isDelivering,
 }: SubscriptionListItemProps): JSX.Element {
     const selectedInsightsCount = subscription.dashboard_export_insights?.length
+    const enabled = subscription.enabled !== false
 
     return (
         <LemonButton
@@ -72,14 +74,18 @@ export function SubscriptionListItem({
         >
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
-                    <div className="text-link font-medium">{subscription.title}</div>
+                    <div className={`font-medium ${enabled ? 'text-link' : 'text-muted'}`}>{subscription.title}</div>
                     <div className="text-sm text-text-3000">
                         {capitalizeFirstLetter(subscription.summary)}
                         {selectedInsightsCount
                             ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
                             : null}
                     </div>
-                    {subscription.next_delivery_date ? (
+                    {!enabled ? (
+                        <LemonTag type="danger" size="small" className="mt-1">
+                            Disabled
+                        </LemonTag>
+                    ) : subscription.next_delivery_date ? (
                         <div className="text-xs text-secondary">
                             Next delivery: {dayjs(subscription.next_delivery_date).format('ddd, MMM D [at] HH:mm')}
                         </div>
@@ -132,8 +138,7 @@ export function ManageSubscriptions({
                 ) : subscriptions.length ? (
                     <div className="deprecated-space-y-2">
                         <div>
-                            <strong>{subscriptions?.length}</strong>
-                            {' active '}
+                            <strong>{subscriptions?.length}</strong>{' '}
                             {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
                         </div>
 

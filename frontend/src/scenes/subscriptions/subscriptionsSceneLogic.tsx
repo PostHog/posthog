@@ -396,7 +396,7 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             }
         },
         setSubscriptionEnabledSuccess: ({ enabled }) => {
-            lemonToast.success(enabled ? 'Subscription resumed' : 'Subscription paused')
+            lemonToast.success(enabled ? 'Subscription enabled' : 'Subscription disabled')
             actions.loadSubscriptions()
         },
         setSubscriptionEnabledFailure: ({ detail }) => {
