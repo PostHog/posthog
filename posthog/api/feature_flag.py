@@ -793,9 +793,13 @@ class FeatureFlagSerializer(
 
         team = get_team()
         if not team or not team.require_evaluation_contexts:
+            # MOVED VALIDATION HERE - before early return
+            self._validate_device_bucketing_with_persist_auth(attrs)
             return attrs
 
         if not self._is_evaluation_contexts_feature_enabled():
+            # MOVED VALIDATION HERE - before early return
+            self._validate_device_bucketing_with_persist_auth(attrs)
             return attrs
 
         # Note: for creation_context, we use initial_data since it's metadata not part of the model
@@ -824,7 +828,13 @@ class FeatureFlagSerializer(
                         "because this flag already has evaluation contexts and the team requires them."
                     )
 
-        # Validate that persist across auth is not enabled with device ID bucketing
+        # Always validate device bucketing with persist across auth, regardless of evaluation contexts
+        self._validate_device_bucketing_with_persist_auth(attrs)
+
+        return attrs
+
+    def _validate_device_bucketing_with_persist_auth(self, attrs):
+        """Validate that persist across auth is not enabled with device ID bucketing"""
         bucketing_identifier = attrs.get("bucketing_identifier")
         ensure_experience_continuity = attrs.get("ensure_experience_continuity")
 
@@ -849,8 +859,6 @@ class FeatureFlagSerializer(
                     "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
                     "These features are incompatible."
                 )
-
-        return attrs
 
     def validate_key(self, value):
         exclude_kwargs = {}

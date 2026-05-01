@@ -5599,6 +5599,58 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Should succeed since it's an update, not creation
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_validation_device_bucketing_with_persist_across_auth(self):
+        """Test that creating a flag with device bucketing + persist across auth is prevented"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Device bucketing with persist",
+                "key": "device-persist-flag",
+                "bucketing_identifier": "device_id",
+                "ensure_experience_continuity": True,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot enable 'persist across authentication steps'", response.json()["detail"])
+
+    def test_validation_device_bucketing_without_persist_allowed(self):
+        """Test that creating a flag with device bucketing but without persist across auth is allowed"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Device bucketing without persist",
+                "key": "device-no-persist-flag",
+                "bucketing_identifier": "device_id",
+                "ensure_experience_continuity": False,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_validation_grandfathered_device_persist_combination(self):
+        """Test that existing flags with device bucketing + persist across auth can still be saved"""
+        # First create a flag with the combination directly in the database (bypassing validation)
+        flag = FeatureFlag.objects.create(
+            name="Grandfathered flag",
+            key="grandfathered-flag",
+            team=self.team,
+            created_by=self.user,
+            bucketing_identifier="device_id",
+            ensure_experience_continuity=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Now try to update it (should be allowed since it's grandfathered)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"name": "Updated grandfathered flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def _create_flag_with_properties(
         self,
         name: str,

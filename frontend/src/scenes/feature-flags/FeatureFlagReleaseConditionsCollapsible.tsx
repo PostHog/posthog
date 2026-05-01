@@ -785,15 +785,10 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
     const isMixedTargetingEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
-    // Access flag details for auto-disable persist across auth
-    const flagLogicProps = flagId ? { id: flagId } : { id: 'dummy' }
-    const flagLogic = featureFlagLogic(flagLogicProps)
+    // Access the main feature flag logic to update both bucketing and persist across auth
+    const flagLogic = featureFlagLogic({ id: flagId })
     const { featureFlag } = useValues(flagLogic)
     const { setFeatureFlag } = useActions(flagLogic)
-
-    // Only use the values if we have a valid flagId
-    const validFeatureFlag = flagId ? featureFlag : null
-    const validSetFeatureFlag = flagId ? setFeatureFlag : null
 
     // Ref map for focus management
     const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -927,16 +922,19 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 setIsMixedTargeting(false)
                 setAggregationGroupTypeIndex(null)
                 onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                // No auto-disable for User bucketing - persist across auth is allowed
             } else if (targetValue === 'device') {
                 setIsMixedTargeting(false)
                 setAggregationGroupTypeIndex(null)
-                onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
                 // Auto-disable persist across auth when switching to device ID
-                if (validFeatureFlag?.ensure_experience_continuity && validSetFeatureFlag) {
-                    validSetFeatureFlag({
-                        ...validFeatureFlag,
+                if (featureFlag && setFeatureFlag) {
+                    setFeatureFlag({
+                        ...featureFlag,
+                        bucketing_identifier: FeatureFlagBucketingIdentifier.DEVICE_ID,
                         ensure_experience_continuity: false,
                     })
+                } else {
+                    onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
                 }
             } else if (targetValue === 'group') {
                 setIsMixedTargeting(false)
@@ -944,29 +942,34 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 if (firstGroupType) {
                     setAggregationGroupTypeIndex(firstGroupType.group_type_index)
                 }
-                onBucketingIdentifierChange?.(null)
                 // Auto-disable persist across auth when switching to group (not User)
-                if (validFeatureFlag?.ensure_experience_continuity && validSetFeatureFlag) {
-                    validSetFeatureFlag({
-                        ...validFeatureFlag,
+                if (featureFlag && setFeatureFlag) {
+                    setFeatureFlag({
+                        ...featureFlag,
+                        bucketing_identifier: null,
                         ensure_experience_continuity: false,
                     })
+                } else {
+                    onBucketingIdentifierChange?.(null)
                 }
             } else if (targetValue === 'mixed') {
                 switchToMixedTargeting()
-                onBucketingIdentifierChange?.(null)
                 // Auto-disable persist across auth when switching to mixed (not User)
-                if (validFeatureFlag?.ensure_experience_continuity && validSetFeatureFlag) {
-                    validSetFeatureFlag({
-                        ...validFeatureFlag,
+                if (featureFlag && setFeatureFlag) {
+                    setFeatureFlag({
+                        ...featureFlag,
+                        bucketing_identifier: null,
                         ensure_experience_continuity: false,
                     })
+                } else {
+                    onBucketingIdentifierChange?.(null)
                 }
             }
         }
 
         // Only show confirmation for existing flags that are changing bucketing
-        const isExistingFlag = validFeatureFlag?.id != null
+        // If flagId !== 'new', it's an existing flag
+        const isExistingFlag = flagId !== 'new'
         const isChangingValue = value !== currentSelected
 
         if (isExistingFlag && isChangingValue) {
