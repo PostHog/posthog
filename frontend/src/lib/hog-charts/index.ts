@@ -3,8 +3,11 @@ export { BarChart } from './charts/BarChart'
 export type { BarChartProps } from './charts/BarChart'
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
-export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart'
-export type { TimeSeriesLineChartConfig, TimeSeriesLineChartProps } from './charts/TimeSeriesLineChart'
+export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
+export type {
+    TimeSeriesLineChartConfig,
+    TimeSeriesLineChartProps,
+} from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
