@@ -121,7 +121,7 @@ class TestSkillLoader(BaseTest):
 
 
 class TestPromptBuilder(BaseTest):
-    def test_renders_skill_body_and_file_manifest(self) -> None:
+    def test_renders_identity_bootstrap_and_universal_sections(self) -> None:
         skill = LLMSkill.objects.create(
             team=self.team,
             name="signals-agent-errors",
@@ -137,11 +137,19 @@ class TestPromptBuilder(BaseTest):
             team_id=self.team.id,
             started_at=started_at,
         )
+        # Identity carries the skill name + version so bootstrap can reference it.
         assert "signals-agent-errors" in prompt
-        assert "watch for spikes" in prompt
-        assert "refs/playbook.md" in prompt
+        assert "(v1)" in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
+        # Bootstrap section directs the agent to read the skill via MCP, not
+        # from the prompt. Skill body + file manifest are deliberately NOT
+        # inlined — they're discovered at run time.
+        assert "First: read your skill" in prompt
+        assert 'skill-get(skill_name="signals-agent-errors")' in prompt
+        assert "skill-file-get" in prompt
+        assert "watch for spikes" not in prompt
+        assert "refs/playbook.md" not in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
         assert "signals-agent-harness-runs-findings-create" in prompt
         assert "signals-agent-harness-memory-list" in prompt
