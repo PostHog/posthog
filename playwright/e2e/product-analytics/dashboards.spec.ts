@@ -233,7 +233,7 @@ test.describe('Dashboards', () => {
         await test.step('verify navigation to dashboards list (not "Not found")', async () => {
             await expect(page).toHaveURL(/\/dashboard(#panel=[a-z]+)?$/)
             await expect(page.getByText('Not found')).not.toBeVisible()
-            await expect(page.getByText(dashboardName)).not.toBeVisible()
+            await expect(page.locator('[data-attr="dashboards-table"]').getByText(dashboardName)).toHaveCount(0)
         })
     })
 
