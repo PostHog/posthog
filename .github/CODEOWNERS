@@ -43,3 +43,7 @@ rust/persons_migrations/** @PostHog/team-ingestion
 posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
 ee/api/scim/auth.py @PostHog/team-security
+
+# MCP tools - owned by @PostHog/team-posthog-ai
+services/mcp/src/tools/ @PostHog/team-posthog-ai
+services/mcp/src/tools/generated/

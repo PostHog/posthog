@@ -25,9 +25,9 @@ def test_create_table_query_replicated_and_storage(query, snapshot, settings):
 
 
 @pytest.mark.parametrize("query", CREATE_KAFKA_TABLE_QUERIES, ids=get_table_name)
-def test_create_kafka_table_with_different_kafka_host(query, snapshot, settings):
-    settings.KAFKA_HOSTS_FOR_CLICKHOUSE = ["test.kafka.broker:9092"]
-
+def test_create_kafka_table_with_different_kafka_host(query, snapshot):
+    # Historical name; the override that used to drive `KAFKA_HOSTS_FOR_CLICKHOUSE`
+    # was removed because every Kafka table now renders via a named collection.
     assert build_query(query) == snapshot
 
 

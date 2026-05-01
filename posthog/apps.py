@@ -23,17 +23,17 @@ class PostHogConfig(AppConfig):
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
 
         self._setup_lazy_admin()
-        posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
+        posthoganalytics.api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]
         # Fall back to DEV_API_KEY in debug so feature flags work locally without manual env setup.
         # DEV_API_KEY lives in ee/settings.py — getattr returns None in OSS mode.
         posthoganalytics.personal_api_key = os.environ.get(
             "POSTHOG_PERSONAL_API_KEY",
             getattr(settings, "DEV_API_KEY", None) if settings.DEBUG else None,
         )
-        posthoganalytics.poll_interval = 90
-        posthoganalytics.enable_exception_autocapture = True
-        posthoganalytics.log_captured_exceptions = True
-        posthoganalytics.super_properties = {
+        posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
+        posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
             "service": settings.OTEL_SERVICE_NAME,
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
@@ -42,19 +42,19 @@ class PostHogConfig(AppConfig):
         if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
             posthoganalytics.capture_exception_code_variables = False
         else:
-            posthoganalytics.capture_exception_code_variables = True
+            posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
 
         if settings.E2E_TESTING:
-            posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+            posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]
             posthoganalytics.personal_api_key = None
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False):
-            posthoganalytics.disabled = True
+            posthoganalytics.disabled = True  # ty: ignore[invalid-assignment]
         elif settings.DEBUG:
             # In dev, analytics is by default turned to self-capture, i.e. data going into this very instance of PostHog
             # Due to ASGI's workings, we can't query for the right project token in this `ready()` method
             # Instead, we configure self-capture with `self_capture_wrapper()` in posthog/asgi.py - see that file
             # Self-capture for WSGI is initialized here
-            posthoganalytics.disabled = True
+            posthoganalytics.disabled = True  # ty: ignore[invalid-assignment]
             logger.info(
                 "posthog_config_ready",
                 settings_debug=settings.DEBUG,
@@ -83,7 +83,7 @@ class PostHogConfig(AppConfig):
         if not posthoganalytics.disabled:
             from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
 
-            posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(
+            posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
                 team_id=int(os.environ.get("POSTHOG_SELF_TEAM_ID", "2"))
             )
 

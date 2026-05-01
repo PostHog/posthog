@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.hogql.query import execute_hogql_query
@@ -341,3 +342,62 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
+
+    @parameterized.expand([("approved", True), ("not_approved", False)])
+    def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, ai_data_processing_approved=approved)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["ai_data_processing_approved"] is approved
+
+    def test_sync_execute_omits_ai_data_processing_approved_when_not_tagged(self):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert "ai_data_processing_approved" not in comment
+
+    def test_sync_execute_falls_back_to_mcp_product_when_source_is_mcp(self):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, source="mcp", feature="query")
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["product"] == Product.MCP.value
+
+    def test_sync_execute_does_not_override_existing_product_when_source_is_mcp(self):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(
+            kind="request",
+            id="test",
+            team_id=self.team.pk,
+            source="mcp",
+            product=Product.LOGS,
+            feature="query",
+        )
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["product"] == Product.LOGS.value
+
+    @parameterized.expand([("api", "api"), ("web", "web"), ("posthog_code", "posthog_code")])
+    def test_sync_execute_does_not_set_mcp_product_when_source_is_not_mcp(self, _name, source):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, source=source, feature="query")
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+
+        assert comment.get("product") != Product.MCP.value

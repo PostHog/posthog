@@ -13,6 +13,10 @@
             "description": "Maximum number of check results to return (default 5, max 500). Applied after date filtering.",
             "type": "number"
         },
+        "checks_offset": {
+            "description": "Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.",
+            "type": "number"
+        },
         "id": {
             "description": "A UUID string identifying this alert configuration.",
             "type": "string"

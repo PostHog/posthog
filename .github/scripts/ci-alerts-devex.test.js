@@ -52,27 +52,12 @@ function commitsWithRuns(perCommitConclusions) {
     return { commits, runsByWorkflow }
 }
 
-function createGithubMock(workflowRuns, { rateLimitRemaining = 4500, commits = [] } = {}) {
+function createGithubMock(workflowRuns, { commits = [] } = {}) {
     return {
         rest: {
             actions: {
                 listWorkflowRuns: jest.fn(({ workflow_id }) =>
                     Promise.resolve({ data: { workflow_runs: workflowRuns[workflow_id] || [] } })
-                ),
-            },
-            rateLimit: {
-                get: jest.fn(() =>
-                    Promise.resolve({
-                        data: {
-                            resources: {
-                                core: {
-                                    remaining: rateLimitRemaining,
-                                    limit: 5000,
-                                    reset: Math.floor(T_BASE.getTime() / 1000) + 3600,
-                                },
-                            },
-                        },
-                    })
                 ),
             },
             repos: {
@@ -94,7 +79,6 @@ function run(github, { state = null, now = minutes(0) } = {}) {
     process.env.WATCHED_WORKFLOWS = 'ci-backend.yml,ci-frontend.yml'
     process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD = '5'
     process.env.COMMIT_FAILURE_STREAK_THRESHOLD = '10'
-    process.env.RATE_LIMIT_THRESHOLD_PERCENT = '10'
     process.env.CRITICAL_WORKFLOWS = 'ci-backend.yml'
 
     return ciAlertsDevex({ github, context: { repo: { owner: 'PostHog', repo: 'posthog' } }, core }, { fs: mockFs, now }).then(() => ({
@@ -109,7 +93,6 @@ afterEach(() => {
     delete process.env.WATCHED_WORKFLOWS
     delete process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD
     delete process.env.COMMIT_FAILURE_STREAK_THRESHOLD
-    delete process.env.RATE_LIMIT_THRESHOLD_PERCENT
     delete process.env.CRITICAL_WORKFLOWS
 })
 
@@ -184,45 +167,6 @@ describe('ci-alerts-devex', () => {
         const { outputs } = await run(github)
         expect(outputs.failing_detail).toMatch(/^\*Blocking:\*.*Backend CI/)
         expect(outputs.failing_detail).toMatch(/\*Non-blocking:\*.*Frontend CI/)
-    })
-
-    describe('rate limit', () => {
-        it('alerts when critical, resolves when healthy', async () => {
-            // Fire alert
-            let github = createGithubMock(allPassing(), { rateLimitRemaining: 50 })
-            let { outputs, writtenState } = await run(github)
-            expect(outputs.rate_limit_action).toBe('create')
-            expect(writtenState.rate_limit_alerted).toBe(true)
-
-            // Recover
-            github = createGithubMock(allPassing(), { rateLimitRemaining: 4500 })
-            ;({ outputs, writtenState } = await run(github, {
-                state: { failing: {}, rate_limit_alerted: true, rate_limit_slack_ts: '1', rate_limit_slack_channel: 'C' },
-            }))
-            expect(outputs.rate_limit_action).toBe('resolve')
-            expect(writtenState.rate_limit_alerted).toBe(false)
-        })
-
-        it('degrades gracefully when rate limit API fails', async () => {
-            const github = createGithubMock(allPassing())
-            github.rest.rateLimit.get = jest.fn(() => Promise.reject(new Error('API error')))
-            const { outputs } = await run(github)
-            expect(outputs.rate_limit_action).toBe('none')
-            expect(outputs.action).toBe('none')
-        })
-
-        it('fires workflow and rate-limit signals independently in the same tick', async () => {
-            const github = createGithubMock(
-                {
-                    'ci-backend.yml': runs('Backend CI', Array(5).fill('failure')),
-                    'ci-frontend.yml': runs('Frontend CI', ['success']),
-                },
-                { rateLimitRemaining: 50 }
-            )
-            const { outputs } = await run(github)
-            expect(outputs.action).toBe('create')
-            expect(outputs.rate_limit_action).toBe('create')
-        })
     })
 
     describe('red commit streak', () => {

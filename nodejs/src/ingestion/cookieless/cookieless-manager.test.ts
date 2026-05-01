@@ -7,7 +7,7 @@ import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
-import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../types'
+import { CookielessServerHashMode, EventHeaders, Hub, PipelineEvent, Team } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
@@ -334,13 +334,7 @@ describe('CookielessManager', () => {
 
         async function processEvent(
             event: PipelineEvent,
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            } = createTestEventHeaders()
+            headers: EventHeaders = createTestEventHeaders()
         ): Promise<PipelineEvent | undefined> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
@@ -350,22 +344,10 @@ describe('CookielessManager', () => {
 
         async function processEventWithHeaders(
             event: PipelineEvent,
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            }
+            headers: EventHeaders
         ): Promise<{
             event: PipelineEvent | undefined
-            headers: {
-                token?: string
-                distinct_id?: string
-                timestamp?: string
-                force_disable_person_processing: boolean
-                historical_migration: boolean
-            }
+            headers: EventHeaders
         }> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBe(1)
@@ -518,13 +500,11 @@ describe('CookielessManager', () => {
             })
 
             it('should preserve headers through cookieless processing', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(event, testHeaders)
 
@@ -533,13 +513,11 @@ describe('CookielessManager', () => {
             })
 
             it('should preserve headers for non-cookieless events', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
 
@@ -548,13 +526,11 @@ describe('CookielessManager', () => {
             })
 
             it('should not return dropped events but should not throw', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 // Test with alias event which should be dropped
                 const result = await processEventWithHeaders(aliasEvent, testHeaders)
@@ -902,13 +878,11 @@ describe('CookielessManager', () => {
                 expect(actual1).toBe(nonCookielessEvent)
             })
             it('should not return dropped cookieless events but should not throw', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(event, testHeaders)
 
@@ -917,13 +891,11 @@ describe('CookielessManager', () => {
                 expect(result.headers).toEqual(createTestEventHeaders())
             })
             it('should preserve headers when passing through non-cookieless events', async () => {
-                const testHeaders = {
+                const testHeaders = createTestEventHeaders({
                     token: 'test-token',
                     distinct_id: 'test-distinct-id',
                     timestamp: '1234567890',
-                    force_disable_person_processing: false,
-                    historical_migration: false,
-                }
+                })
 
                 const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
 

@@ -4,31 +4,9 @@ config:
     team: '2'
     repo: 3d760a0a-0763-477d-89ee-f1e4e92cdd78
 snapshots:
-    channels-tab-chromium-linux:
-        hash: v1.k794b7964.54d52ced876af66f397dc95fcc8acb9df994d7c43724e794325170c1185c22cd.2_X1eKfjVhi1QqW40zkyEzk3MRp10rtzLspyfpiPo0g
-    library-tab-chromium-linux:
-        hash: v1.k794b7964.b5050866aabe45c70308acd15923cefa1e1d9ca35209a599d55a3f4eae43a5b3._nouQshj7MzNvjZWQdc0SgDSgmP2SXPRMZ1AdTmTv3Y
-    new-workflow-chromium-linux:
-        hash: v1.k794b7964.4a02df6c9e5931e6ac76d126ca7df77813f0f07354efac1fe491df49cc3765bd.1Fc24p2R7W7evzd8Z_HGGVpf9CGU3bsRy2tlk3j6JOw
-    new-workflow-modal-chromium-linux:
-        hash: v1.k794b7964.1e3f0162034a2e45d8aa0be8182aeca2a9391bd34729a5f235dbc8f83cc44304.svY_qrwmHdyY9L5NFiw1xh4Vjzb_A5NK2kEPTT_wMT4
-    opt-outs-tab-chromium-linux:
-        hash: v1.k794b7964.d27248d323c87fc089739f78a753a9e49b4b7ab25317a0b803bc98dbb5699074.6yqqdl6afKuUiDYhBbWSQiT-M3MGsGf3OCZQIOBVAzY
-    pageview-trends-insight:
-        hash: v1.k794b7964.56c03505c32bc167982aef4a25d7ef3cbebc7282307c7f1706e8adec2a83f148.3rpbcrKc9qYRdcf58nb8EwM0hbQl65WlsHF-WAI_E-I
-    pageview-trends-insight-chromium-linux:
-        hash: v1.k794b7964.dd9ca1af7e182f8a73cc7c694e64be66aba6cc48942cf4d695e424624fce3397.3iqI7YSBwQMR3PnjSt7IW4v30zrHTXOdbfDg-Bqw4Fs
     tabs-after-close-frozen-chromium-linux:
         hash: v1.k794b7964.2fca90256612fb00cd9acfae8212369d7d5c55c79934d67bf585fcde88544dba.ACLl0M4x2-BDmhIal2C0rYq943n8Iw0K2RurdONJC3U
     tabs-after-mouse-leave-chromium-linux:
         hash: v1.k794b7964.2d65fc8d2ae1d11dbe893408f84286d6b055981a98c2cf8fae6730615c5db543.OrtKPeft24KO45UT-N9tVWWSBpeW8_aV3tcb_zK6SgM
     tabs-before-close-chromium-linux:
         hash: v1.k794b7964.584060413355ddfa5dc857ec9a4c91c8cb3c60996ca79c122791f73221d2c8b0.VEMozasRJQn9nJ1-VQ81_P_pmkTAVLDd-Q4J-YvkPRc
-    workflow-view-editor-chromium-linux:
-        hash: v1.k794b7964.26947ec4ef7ff342c9b1dad8bcd0eff4177dddacf237a78ca322a7f2b3014f42.24r2Gc9GvkMcTO3D5FNq7sb0nIlcOfCm5uCvtX0RFKs
-    workflow-view-history-chromium-linux:
-        hash: v1.k794b7964.ae8ec36fb6ff8cba565f75fe230892d21d3f78f231be3dbce7d9ef03e04e62bf.L3qpYnn5xkiuSrx3YfIAZ9TK_Z-2d0djCSMBabu7IMI
-    workflow-view-logs-chromium-linux:
-        hash: v1.k794b7964.9557058a67165e448ae37aae898d678a2a3b706c9595d6d208cdb55a4133d2b3.M0s8Tu4dUXQxEqojDHwjXo6gEcNxI7hbACMJNhh8JvI
-    workflows-list-chromium-linux:
-        hash: v1.k794b7964.7254b41c160533db0981c592efe9a48c17d5dd221fb780ac24b439f2bab8133c.Wvv4iHGt4G63i8NTmi1WTqF_9fRdl-LbOGxDYMJ5uWg

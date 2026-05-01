@@ -50,7 +50,7 @@ use tokio::time::timeout;
 use tracing::debug;
 
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
-const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
+pub const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 
 /// Metric name for tracking Redis failure reasons (timeout, get_error, pickle_error, json_error)
 const HYPERCACHE_REDIS_MISS_REASON_COUNTER_NAME: &str = "posthog_hypercache_redis_miss_reason";
@@ -63,6 +63,11 @@ const TOMBSTONE_COUNTER_NAME: &str = "posthog_tombstone_total";
 /// Sentinel value used in Redis to indicate that a cache key exists but has no data.
 /// This value is written by Django's HyperCache when a team has no flags.
 pub const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
+
+/// Suffix appended to a hypercache key to address its companion ETag entry. Mirrors
+/// Django's `HyperCache.get_etag_key` (`{cache_key}:etag`). Shared with
+/// `HyperCacheWriter` so the read and write paths can never disagree on the layout.
+pub(crate) const ETAG_KEY_SUFFIX: &str = ":etag";
 
 /// Cache key type matching Django's KeyType = Team | str | int
 #[derive(Debug)]
@@ -183,6 +188,10 @@ pub struct HyperCacheConfig {
     pub token_based: bool,
     pub enable_etag: bool,
     pub django_cache_version: String,
+    /// When set, `HyperCacheWriter::set` records each successful write into this Redis
+    /// sorted set with an expiry-timestamp score, mirroring Python's
+    /// `HyperCache._track_expiry`. `None` disables expiry tracking.
+    pub expiry_sorted_set_key: Option<String>,
 }
 
 impl HyperCacheConfig {
@@ -204,6 +213,7 @@ impl HyperCacheConfig {
             token_based: false,
             enable_etag: false,
             django_cache_version: "1".to_string(),
+            expiry_sorted_set_key: None,
         }
     }
 
@@ -226,6 +236,7 @@ impl HyperCacheConfig {
             token_based: false,
             enable_etag: false,
             django_cache_version,
+            expiry_sorted_set_key: None,
         }
     }
 
@@ -240,9 +251,11 @@ impl HyperCacheConfig {
         self.get_base_cache_key(key)
     }
 
-    /// Generate base cache key (used by both Redis and S3, but Redis adds prefix)
-    fn get_base_cache_key(&self, key: &KeyType) -> String {
-        let key_str = if self.token_based {
+    /// Mirror Python's `HyperCache.get_cache_identifier`: api_token for token-based
+    /// caches, team_id as string otherwise. Used for both key generation and
+    /// expiry-tracking sorted-set membership.
+    pub fn get_cache_identifier(&self, key: &KeyType) -> String {
+        if self.token_based {
             match key {
                 KeyType::Team(team) => team.api_token().to_string(),
                 KeyType::String(s) => s.clone(),
@@ -254,19 +267,21 @@ impl HyperCacheConfig {
                 KeyType::String(s) => s.clone(),
                 KeyType::Int(i) => i.to_string(),
             }
-        };
-
-        if self.token_based {
-            format!(
-                "cache/team_tokens/{}/{}/{}",
-                key_str, self.namespace, self.object_name
-            )
-        } else {
-            format!(
-                "cache/teams/{}/{}/{}",
-                key_str, self.namespace, self.object_name
-            )
         }
+    }
+
+    /// Generate base cache key (used by both Redis and S3, but Redis adds prefix)
+    fn get_base_cache_key(&self, key: &KeyType) -> String {
+        let key_str = self.get_cache_identifier(key);
+        let scope = if self.token_based {
+            "team_tokens"
+        } else {
+            "teams"
+        };
+        format!(
+            "cache/{}/{}/{}/{}",
+            scope, key_str, self.namespace, self.object_name
+        )
     }
 }
 
@@ -455,6 +470,9 @@ impl HyperCacheReader {
     ) -> Result<(Option<T>, CacheSource), HyperCacheError> {
         let redis_cache_key = self.config.get_redis_cache_key(key);
 
+        // S3 NotFound is the only authoritative miss signal; infra errors are
+        // tracked separately so callers don't tombstone keys whose backing store
+        // may recover.
         let mut s3_confirmed_miss = false;
         let mut infra_error: Option<HyperCacheError> = None;
 
@@ -584,6 +602,32 @@ impl HyperCacheReader {
             }
         }
 
+        // Parse errors (Json/Pickle) are persistent, not transient: surface them
+        // before checking s3_confirmed_miss so callers can tombstone the corruption
+        // even when the other tier reports NotFound.
+        let infra_error = match infra_error {
+            Some(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
+                debug!(
+                    redis_key = %redis_cache_key,
+                    s3_key = %s3_cache_key,
+                    namespace = %self.config.namespace,
+                    error = %e,
+                    "HyperCache parse error observed; surfacing over any S3 miss"
+                );
+                inc(
+                    HYPERCACHE_COUNTER_NAME,
+                    &[
+                        ("result".to_string(), "infra_error".to_string()),
+                        ("namespace".to_string(), self.config.namespace.clone()),
+                        ("value".to_string(), self.config.object_name.clone()),
+                    ],
+                    1,
+                );
+                return Err(e);
+            }
+            other => other,
+        };
+
         if s3_confirmed_miss {
             debug!(
                 redis_key = %redis_cache_key,
@@ -649,6 +693,32 @@ impl HyperCacheReader {
     ) -> Result<Option<T>, HyperCacheError> {
         let (data, _source) = self.get_typed_with_source::<T>(key).await?;
         Ok(data)
+    }
+
+    /// Read the companion ETag string for `key` from Redis, if present.
+    ///
+    /// The ETag is written atomically alongside the payload by `HyperCacheWriter::set_with_etag`
+    /// and Django's `HyperCache._set_cache_value_redis` (when `enable_etag=True`). It serves as a
+    /// cheap version tag for downstream in-memory caches that want to skip the payload fetch +
+    /// deserialization on a hit.
+    ///
+    /// Returns `Ok(None)` when the ETag key is genuinely absent — the team uses the
+    /// `__missing__` sentinel, the hypercache entry was created before `enable_etag` was on, or
+    /// payload/etag TTLs drifted apart. Returns `Err` for infrastructure errors so callers can
+    /// distinguish "no version available" from "couldn't reach Redis".
+    pub async fn get_etag(&self, key: &KeyType) -> Result<Option<String>, HyperCacheError> {
+        let etag_key = format!(
+            "{}{}",
+            self.config.get_redis_cache_key(key),
+            ETAG_KEY_SUFFIX
+        );
+        match timeout(self.config.redis_timeout, self.redis_client.get(etag_key)).await {
+            Ok(Ok(s)) if !s.is_empty() => Ok(Some(s)),
+            Ok(Ok(_)) => Ok(None),
+            Ok(Err(common_redis::CustomRedisError::NotFound)) => Ok(None),
+            Ok(Err(e)) => Err(HyperCacheError::Redis(e)),
+            Err(_) => Err(HyperCacheError::Timeout("etag redis timeout".to_string())),
+        }
     }
 
     // ── Internal helpers ──
@@ -1574,9 +1644,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_typed_with_source_json_parse_error_falls_to_s3() {
-        // When Redis returns invalid JSON, the reader falls through to S3.
-        // With dummy S3 (always NotFound), this results in a confirmed CacheMiss.
+    async fn test_get_typed_with_source_redis_json_error_surfaces_over_s3_miss() {
         let invalid_json = "not valid json {{{";
         let pickled = serde_pickle::to_vec(&invalid_json, Default::default()).unwrap();
 
@@ -1589,11 +1657,93 @@ mod tests {
             .get_typed_with_source::<TestFlags>(&KeyType::int(42))
             .await;
 
-        assert!(result.is_err());
-        // S3 confirms miss → CacheMiss takes priority over the Redis JSON error
         assert!(
-            matches!(result.unwrap_err(), HyperCacheError::CacheMiss),
-            "should be CacheMiss when S3 confirms NotFound"
+            matches!(result.unwrap_err(), HyperCacheError::Json(_)),
+            "parse error must surface over S3 NotFound"
+        );
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[tokio::test]
+    async fn test_get_typed_with_source_redis_json_error_falls_through_to_s3_hit() {
+        let expected = make_test_flags();
+        let json_string = serde_json::to_string(&expected).unwrap();
+
+        let invalid_json = "not valid json {{{";
+        let pickled = serde_pickle::to_vec(&invalid_json, Default::default()).unwrap();
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(pickled));
+        let redis_handle = mock_redis.clone();
+
+        let mut mock_s3 = MockS3Client::new();
+        let s3_key = create_test_config().get_s3_cache_key(&KeyType::int(42));
+        let json_clone = json_string.clone();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket".to_string()),
+                predicate::eq(s3_key),
+            )
+            .returning(move |_, _| {
+                let val = json_clone.clone();
+                Box::pin(async move { Ok(val) })
+            });
+
+        let reader = create_test_reader_with_mocks(mock_redis, Arc::new(mock_s3));
+        let (data, source) = reader
+            .get_typed_with_source::<TestFlags>(&KeyType::int(42))
+            .await
+            .unwrap();
+
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(data, Some(expected));
+        assert!(
+            redis_handle.get_calls().iter().any(|c| c.key == cache_key),
+            "Redis must be consulted before S3"
+        );
+    }
+
+    #[cfg(feature = "mock-client")]
+    #[tokio::test]
+    async fn test_get_typed_with_source_redis_pickle_error_falls_through_to_s3_hit() {
+        let expected = make_test_flags();
+        let json_string = serde_json::to_string(&expected).unwrap();
+
+        // Raw non-pickle bytes make serde_pickle::from_slice::<String> fail.
+        let non_pickle_bytes = b"this is not pickle data".to_vec();
+
+        let mut mock_redis = MockRedisClient::new();
+        let cache_key = create_test_config().get_redis_cache_key(&KeyType::int(42));
+        mock_redis.get_raw_bytes_ret(&cache_key, Ok(non_pickle_bytes));
+        let redis_handle = mock_redis.clone();
+
+        let mut mock_s3 = MockS3Client::new();
+        let s3_key = create_test_config().get_s3_cache_key(&KeyType::int(42));
+        let json_clone = json_string.clone();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket".to_string()),
+                predicate::eq(s3_key),
+            )
+            .returning(move |_, _| {
+                let val = json_clone.clone();
+                Box::pin(async move { Ok(val) })
+            });
+
+        let reader = create_test_reader_with_mocks(mock_redis, Arc::new(mock_s3));
+        let (data, source) = reader
+            .get_typed_with_source::<TestFlags>(&KeyType::int(42))
+            .await
+            .unwrap();
+
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(data, Some(expected));
+        assert!(
+            redis_handle.get_calls().iter().any(|c| c.key == cache_key),
+            "Redis must be consulted before S3"
         );
     }
 
@@ -1698,5 +1848,58 @@ mod tests {
             .unwrap();
 
         assert_eq!(data, Some(expected));
+    }
+
+    /// Verifies the ETag round-trips through `get_etag` against the same suffix
+    /// `HyperCacheWriter::set_with_etag` writes to. Pinning the suffix here
+    /// guards against a future split between the writer and reader: if either
+    /// side drifts off `:etag`, `FlagDefinitionsCache` would silently turn into
+    /// a perma-miss cache, which is the failure mode this test exists to catch.
+    #[tokio::test]
+    async fn test_get_etag_returns_value_when_present() {
+        let mut mock_redis = MockRedisClient::new();
+        let etag_key = format!(
+            "{}{}",
+            create_test_config().get_redis_cache_key(&KeyType::int(42)),
+            ETAG_KEY_SUFFIX
+        );
+        mock_redis.get_ret(&etag_key, Ok("0123456789abcdef".to_string()));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let etag = reader.get_etag(&KeyType::int(42)).await.unwrap();
+
+        assert_eq!(etag.as_deref(), Some("0123456789abcdef"));
+    }
+
+    /// `__missing__` writes call `delete_etag`, so the etag key is absent for
+    /// teams with no flags. Returning `Ok(None)` lets `FlagDefinitionsCache`
+    /// take the no-cache path without surfacing this as an error.
+    #[tokio::test]
+    async fn test_get_etag_returns_none_when_key_absent() {
+        let mock_redis = MockRedisClient::new();
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+
+        let etag = reader.get_etag(&KeyType::int(42)).await.unwrap();
+        assert!(etag.is_none());
+    }
+
+    /// Infrastructure errors (timeout, connection refused) must propagate so the
+    /// caller can decide whether to fall through to the payload path or surface
+    /// the error. Returning `Ok(None)` here would silently degrade the version-
+    /// key fast path without any signal in metrics.
+    #[tokio::test]
+    async fn test_get_etag_propagates_redis_error() {
+        let mut mock_redis = MockRedisClient::new();
+        let etag_key = format!(
+            "{}{}",
+            create_test_config().get_redis_cache_key(&KeyType::int(42)),
+            ETAG_KEY_SUFFIX
+        );
+        mock_redis.get_ret(&etag_key, Err(common_redis::CustomRedisError::Timeout));
+
+        let reader = create_test_reader_with_mocks(mock_redis, create_dummy_s3_client());
+        let result = reader.get_etag(&KeyType::int(42)).await;
+
+        assert!(matches!(result, Err(HyperCacheError::Redis(_))));
     }
 }

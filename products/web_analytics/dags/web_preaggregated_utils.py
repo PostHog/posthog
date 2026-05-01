@@ -32,8 +32,8 @@ web_analytics_retry_policy_def = RetryPolicy(
 # Shared ClickHouse settings for web analytics pre-aggregation
 WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS = {
     "max_execution_time": WEB_PRE_AGGREGATED_CLICKHOUSE_TIMEOUT,
-    "max_bytes_before_external_group_by": "51474836480",
-    "max_memory_usage": "107374182400",
+    "max_bytes_before_external_group_by": "75161927680",
+    "max_memory_usage": "150323855360",
     "distributed_aggregation_memory_efficient": "1",
     "s3_truncate_on_insert": "1",
 }
@@ -189,6 +189,8 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
 def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> Optional[SkipReason]:
     # Get the schedule name from the context
     schedule_name = context._schedule_name
+    if schedule_name is None:
+        return SkipReason("Schedule name is unavailable")
 
     # Get the schedule definition from the repository to find the associated job
     schedule_def = context.repository_def.get_schedule_def(schedule_name)

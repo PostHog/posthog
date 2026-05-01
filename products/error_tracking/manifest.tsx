@@ -13,7 +13,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
             projectBased: true,
             name: 'Error tracking',
-            defaultDocsPath: '/docs/error-tracking',
             iconType: 'error_tracking',
             description: 'Track and analyze your error tracking data to understand and fix issues.',
         },

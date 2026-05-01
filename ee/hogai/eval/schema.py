@@ -92,7 +92,9 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
 
     @classmethod
     def serialize_for_team(cls, *, team_id: int):
-        for mapping in GroupTypeMapping.objects.filter(team_id=team_id).iterator(500):
+        for mapping in GroupTypeMapping.objects.filter(team_id=team_id).iterator(  # nosemgrep: no-direct-persons-db-orm
+            500
+        ):  # nosemgrep: no-direct-persons-db-orm
             yield GroupTypeMappingSnapshot(
                 group_type=mapping.group_type,
                 group_type_index=mapping.group_type_index,

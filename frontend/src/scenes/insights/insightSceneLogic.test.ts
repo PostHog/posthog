@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 
@@ -64,6 +64,46 @@ describe('insightSceneLogic', () => {
         expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
             'FunnelsQuery'
         )
+    })
+
+    it('tags new default insights with product_analytics productKey', async () => {
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('tags new typed insights with product_analytics productKey', async () => {
+        router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('does not overwrite existing productKey tags on queries from URL', async () => {
+        router.actions.push(
+            urls.insightNew({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...examples.InsightTrendsQuery,
+                        tags: { productKey: ProductKey.WEB_ANALYTICS },
+                    },
+                } as InsightVizNode,
+            })
+        )
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.WEB_ANALYTICS)
     })
 
     it('redirects maintaining url params when opening /insight/new with query in the url', async () => {

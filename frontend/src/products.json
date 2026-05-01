@@ -127,6 +127,13 @@
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
         },
+        {
+            "path": "Skills",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_skills",
+            "intents": ["llm_prompts"]
+        },
         { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",

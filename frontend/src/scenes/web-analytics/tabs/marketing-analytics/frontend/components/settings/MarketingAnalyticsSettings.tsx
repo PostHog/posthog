@@ -25,10 +25,10 @@ export function MarketingAnalyticsSettings({
         <SceneContent>
             {!hideTitle && (
                 <SceneTitleSection
-                    name={sceneConfigurations[Scene.WebAnalyticsMarketing].name}
-                    description={sceneConfigurations[Scene.WebAnalyticsMarketing].description}
+                    name={sceneConfigurations[Scene.MarketingAnalyticsSettings].name}
+                    description={sceneConfigurations[Scene.MarketingAnalyticsSettings].description}
                     resourceType={{
-                        type: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
+                        type: sceneConfigurations[Scene.MarketingAnalyticsSettings].iconType || 'default_icon_type',
                     }}
                 />
             )}

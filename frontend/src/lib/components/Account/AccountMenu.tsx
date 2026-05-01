@@ -53,12 +53,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getTreeItemsGames } from '~/products'
-import { SidePanelTab, UserTheme } from '~/types'
+import { UserTheme } from '~/types'
 
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
@@ -148,8 +146,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
-    const { mobileLayout } = useValues(navigationLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
 
@@ -350,12 +346,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             to="https://posthog.com/changelog"
                             buttonProps={{
                                 menuItem: true,
-                            }}
-                            onClick={(e) => {
-                                if (!mobileLayout) {
-                                    e.preventDefault()
-                                    openSidePanel(SidePanelTab.Docs, '/changelog')
-                                }
                             }}
                             data-attr="whats-new-button"
                             target="_blank"

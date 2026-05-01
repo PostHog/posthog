@@ -121,7 +121,9 @@ async fn setup_recordings_router_with_restriction(
         None, // no blob storage for recordings
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,  // body_read_chunk_size_kb
+        None, // overflow_limiter
+        None, // replay_overflow_limiter
     );
 
     (router, sink_clone)
@@ -483,7 +485,9 @@ async fn setup_recordings_router_with_redirect_to_topic(
         None, // no blob storage for recordings
         Some(10),
         None,
-        256, // body_read_chunk_size_kb
+        256,  // body_read_chunk_size_kb
+        None, // overflow_limiter
+        None, // replay_overflow_limiter
     );
 
     (router, sink_clone)

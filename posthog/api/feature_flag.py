@@ -664,7 +664,7 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
@@ -757,7 +757,7 @@ class FeatureFlagSerializer(
         """Check if this feature flag is used in any team's session recording linked flag setting."""
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
-            return feature_flag.is_used_in_replay_settings_annotation
+            return bool(feature_flag.is_used_in_replay_settings_annotation)
         # Return False if team is not available
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
@@ -870,11 +870,12 @@ class FeatureFlagSerializer(
             assert isinstance(self.instance, FeatureFlag)
             return self.instance.filters
 
+        filters.setdefault("groups", [])
+
         # Only validate empty groups for new flag creation (POST), not updates (PUT/PATCH)
         # Existing flags may legitimately have empty groups temporarily during scheduled changes
         if self.context["request"].method == "POST":
-            groups = filters.get("groups", [])
-            if not groups:
+            if not filters["groups"]:
                 raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         flag_level_aggregation = filters.get("aggregation_group_type_index", None)
@@ -1552,6 +1553,23 @@ class FeatureFlagSerializer(
             validated_data["version"] = locked_version + 1
             old_key = instance.key
 
+            # If the key is changing, free it up by hard-deleting any soft-deleted
+            # flag that still holds the target key — the DB unique constraint on
+            # (team, key) spans soft-deleted rows, so without this the update
+            # would fail with an IntegrityError. Mirrors the behavior in create().
+            new_key = validated_data.get("key")
+            if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
+                try:
+                    FeatureFlag.objects_including_soft_deleted.filter(
+                        key=new_key,
+                        team__project_id=self.context["project_id"],
+                        deleted=True,
+                    ).exclude(pk=instance.pk).delete()
+                except deletion.RestrictedError:
+                    raise exceptions.ValidationError(
+                        "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before renaming the flag."
+                    )
+
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)
 
@@ -1740,7 +1758,7 @@ class FeatureFlagSerializer(
 
                 if group_keys:
                     group_names: dict[str, str] = {}
-                    for group in Group.objects.filter(
+                    for group in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                         team_id=instance.team_id,
                         group_type_index__in=group_type_indices,
                         group_key__in=group_keys,
@@ -2043,6 +2061,12 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
+# ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
+# all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
+# that already tag their queries. If you add a new ClickHouse query reachable from an
+# action on this viewset, wrap it with tag_queries(product=Product.FEATURE_FLAGS,
+# feature=Feature.QUERY, team_id=self.team_id) so query_log attribution stays correct.
+# See posthog/models/feature_flag/user_blast_radius.py for the pattern.
 @extend_schema(tags=[ProductKey.FEATURE_FLAGS])
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
@@ -2957,8 +2981,8 @@ class FeatureFlagViewSet(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
             200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
-            402: OpenApiResponse(response=serializers.DictField()),
-            500: OpenApiResponse(response=serializers.DictField()),
+            402: OpenApiResponse(description="Payment required"),
+            500: OpenApiResponse(description="Internal server error"),
         },
     )
     @action(
@@ -3257,6 +3281,7 @@ class FeatureFlagViewSet(
         cohort_serializer.save()
         return Response({"cohort": cohort_serializer.data}, status=201)
 
+    @extend_schema(operation_id="feature_flags_all_activity_retrieve")
     @validated_request(
         query_serializer=ActivityQuerySerializer,
         responses={

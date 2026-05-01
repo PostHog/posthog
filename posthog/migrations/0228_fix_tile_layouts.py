@@ -42,15 +42,18 @@ def migrate_dashboard_insight_relations(apps, _) -> None:
     logger.info("finished_0228_fix_tile_layouts", conversion_count=conversion_count)
 
 
+def reverse_migrate_dashboard_insight_relations(apps, _) -> None:
+    pass
+    # no-op, it's already wrong... it can't get wronger
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0227_add_dashboard_tiles"),
     ]
 
-    def reverse(apps, _) -> None:
-        pass
-        # no-op, it's already wrong... it can't get wronger
-
     operations = [
-        migrations.RunPython(migrate_dashboard_insight_relations, reverse, elidable=True),
+        migrations.RunPython(
+            migrate_dashboard_insight_relations, reverse_migrate_dashboard_insight_relations, elidable=True
+        ),
     ]

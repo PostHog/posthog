@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
@@ -29,13 +30,20 @@ interface SyncsTabProps {
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
 export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
+    const logic = sourceSettingsLogic({ id, availableSources: {} })
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(
-        sourceSettingsLogic({ id, availableSources: {} })
-    )
-    const { loadMoreJobs, setSelectedSchemas } = useActions(sourceSettingsLogic({ id, availableSources: {} }))
+    const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(logic)
+    const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
+
+    useEffect(() => {
+        if (!source || source.access_method === 'direct') {
+            return
+        }
+
+        void loadJobs()
+    }, [loadJobs, source])
 
     const schemaOptions = [...(source?.schemas ?? [])]
         .sort((a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name))

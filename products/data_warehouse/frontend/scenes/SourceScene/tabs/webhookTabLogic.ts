@@ -15,6 +15,7 @@ import type { webhookTabLogicType } from './webhookTabLogicType'
 
 export interface WebhookTabLogicProps {
     id: string
+    tabId?: string
 }
 
 export const webhookTabLogic = kea<webhookTabLogicType>([

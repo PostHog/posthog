@@ -1,13 +1,15 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
@@ -20,26 +22,152 @@ import {
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import {
-    SSH_FIELD,
-    buildKeaFormDefaultFromSourceDetails,
-    getErrorsForFields,
-} from '../../NewSourceScene/sourceWizardLogic'
+import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
 import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
 export interface SourceSettingsLogicProps {
     id: string
-    availableSources: Record<string, SourceConfig>
+    tabId?: string
+    availableSources?: Record<string, SourceConfig>
 }
 
 const REFRESH_INTERVAL = 5000
+const SCHEMA_UPDATE_DEBOUNCE_MS = 500
+const JOBS_POLL_MAX_BACKOFF_MS = 60000
+const JOBS_POLL_TRANSIENT_STATUSES = new Set([408, 502, 503, 504])
 
-const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
-    return field.type === 'password' || field.name === 'private_key'
+function isTransientGatewayError(error: unknown): boolean {
+    const status = (error as { status?: number } | null | undefined)?.status
+    return typeof status === 'number' && JOBS_POLL_TRANSIENT_STATUSES.has(status)
 }
 
-const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
+function nextJobsPollDelay(softFailureCount: number): number {
+    if (softFailureCount <= 0) {
+        return REFRESH_INTERVAL
+    }
+    const exponential = Math.min(REFRESH_INTERVAL * 2 ** softFailureCount, JOBS_POLL_MAX_BACKOFF_MS)
+    // Equal-jitter: spread retries over [0.5x, 1.0x] to avoid synchronized polling after a gateway blip
+    return exponential * (0.5 + Math.random() * 0.5)
+}
+
+interface PendingSchemaUpdate {
+    revision: number
+    schema: ExternalDataSourceSchema
+}
+
+interface SchemaUpdateCache {
+    pendingSchemaUpdates?: Record<string, PendingSchemaUpdate>
+    inFlightSchemaUpdates?: Record<string, PendingSchemaUpdate>
+    schemaUpdateRevisions?: Record<string, number>
+    schemaUpdateFlushTimer?: ReturnType<typeof setTimeout> | null
+    reapplyingOptimisticSource?: boolean
+}
+
+function applySchemaToSource(
+    source: ExternalDataSource | null,
+    schema: ExternalDataSourceSchema
+): ExternalDataSource | null {
+    if (!source) {
+        return source
+    }
+
+    const clonedSource = JSON.parse(JSON.stringify(source)) as ExternalDataSource
+    const schemaIndex = clonedSource.schemas.findIndex((item) => item.id === schema.id)
+
+    if (schemaIndex === -1) {
+        return source
+    }
+
+    clonedSource.schemas[schemaIndex] = schema
+    return clonedSource
+}
+
+function applyPendingSchemaUpdatesToSource(
+    source: ExternalDataSource | null,
+    pendingSchemaUpdates: Record<string, PendingSchemaUpdate>
+): ExternalDataSource | null {
+    if (!source) {
+        return source
+    }
+
+    return Object.values(pendingSchemaUpdates).reduce<ExternalDataSource | null>(
+        (currentSource, pendingUpdate) => applySchemaToSource(currentSource, pendingUpdate.schema),
+        source
+    )
+}
+
+function applySchemasToSource(
+    source: ExternalDataSource | null,
+    schemas: ExternalDataSourceSchema[]
+): ExternalDataSource | null {
+    return schemas.reduce<ExternalDataSource | null>(
+        (currentSource, schema) => applySchemaToSource(currentSource, schema),
+        source
+    )
+}
+
+function buildSchemaUpdatePayload(
+    schema: ExternalDataSourceSchema
+): Pick<
+    ExternalDataSourceSchema,
+    | 'id'
+    | 'should_sync'
+    | 'sync_type'
+    | 'incremental_field'
+    | 'incremental_field_type'
+    | 'sync_frequency'
+    | 'sync_time_of_day'
+    | 'cdc_table_mode'
+> {
+    return {
+        id: schema.id,
+        should_sync: schema.should_sync,
+        sync_type: schema.sync_type,
+        incremental_field: schema.incremental_field,
+        incremental_field_type: schema.incremental_field_type,
+        sync_frequency: schema.sync_frequency,
+        sync_time_of_day: schema.sync_time_of_day,
+        cdc_table_mode: schema.cdc_table_mode,
+    }
+}
+
+function getSchemaUpdateCache(cache: SchemaUpdateCache): Required<SchemaUpdateCache> {
+    cache.pendingSchemaUpdates ??= {}
+    cache.inFlightSchemaUpdates ??= {}
+    cache.schemaUpdateRevisions ??= {}
+    cache.schemaUpdateFlushTimer ??= null
+    cache.reapplyingOptimisticSource ??= false
+
+    return cache as Required<SchemaUpdateCache>
+}
+
+function getOptimisticSchemaUpdates(cache: Required<SchemaUpdateCache>): Record<string, PendingSchemaUpdate> {
+    return {
+        ...cache.inFlightSchemaUpdates,
+        ...cache.pendingSchemaUpdates,
+    }
+}
+
+function hasOptimisticSchemaChanges(
+    source: ExternalDataSource | null,
+    optimisticSchemaUpdates: Record<string, PendingSchemaUpdate>
+): boolean {
+    if (!source) {
+        return false
+    }
+
+    return Object.values(optimisticSchemaUpdates).some(({ schema }) => {
+        const currentSchema = source.schemas.find((item) => item.id === schema.id)
+        return !!currentSchema && !objectsEqual(currentSchema, schema)
+    })
+}
+
+export const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
+    return ('secret' in field && !!field.secret) || field.type === 'password'
+}
+
+export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
     for (const field of fields) {
         if (field.type === 'switch-group') {
             const groupValue = valueObj[field.name]
@@ -80,7 +208,7 @@ const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Recor
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
     props({} as SourceSettingsLogicProps),
-    key(({ id }) => id),
+    key(({ id, tabId }) => (tabId ? `${id}-${tabId}` : id)),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources']],
         actions: [sourcesDataLogic, ['updateSource']],
@@ -100,31 +228,29 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
         setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
+        updateSchema: (schema: ExternalDataSourceSchema) => schema,
+        updateSchemaSuccess: (source: ExternalDataSource | null, payload?: ExternalDataSourceSchema) => ({
+            source,
+            payload,
+        }),
+        updateSchemaFailure: (error: string, errorObject?: any) => ({ error, errorObject }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         source: [
             null as ExternalDataSource | null,
             {
                 loadSource: async () => {
-                    return await api.externalDataSources.get(values.sourceId)
-                },
-                updateSchema: async (schema: ExternalDataSourceSchema) => {
-                    // Optimistic UI updates before sending updates to the backend
-                    const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
-                    const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-                    clonedSource.schemas[schemaIndex] = schema
-                    actions.loadSourceSuccess(clonedSource)
-
-                    const updatedSchema = await api.externalDataSchemas.update(schema.id, {
-                        ...schema,
-                    })
-
-                    const source = values.source
-                    if (schemaIndex !== undefined) {
-                        source!.schemas[schemaIndex] = updatedSchema
+                    try {
+                        return await api.externalDataSources.get(values.sourceId)
+                    } catch (error: any) {
+                        // Source soft-deleted. Bounce to the list and swallow
+                        // the failure so kea-loaders doesn't toast "Not found".
+                        if (error?.status === 404) {
+                            router.actions.replace(urls.sources())
+                            return null
+                        }
+                        throw error
                     }
-
-                    return source
                 },
             },
         ],
@@ -134,25 +260,39 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 loadJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
 
-                    if (values.jobs.length === 0) {
-                        return await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                    try {
+                        let result: ExternalDataJob[]
+                        if (values.jobs.length === 0) {
+                            result = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                        } else {
+                            // Re-fetch recent jobs without an `after` filter to get updated statuses.
+                            // The API returns up to 50 jobs sorted by created_at desc, so this
+                            // will refresh the status of recent jobs (e.g. Running -> Completed).
+                            const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+
+                            // Merge fresh jobs with existing jobs, preferring the fresh data
+                            const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
+                            for (const job of freshJobs) {
+                                jobsById.set(job.id, job)
+                            }
+
+                            // Sort by created_at descending (newest first)
+                            result = Array.from(jobsById.values()).sort(
+                                (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                            )
+                        }
+                        cache.jobsPollSoftFailureCount = 0
+                        return result
+                    } catch (error) {
+                        // Gateway timeouts / transient upstream errors are expected when the jobs
+                        // query is slow. Swallow them here so the 5s poll doesn't become a source
+                        // of error-tracking noise; loadJobsSuccess reschedules with backoff.
+                        if (isTransientGatewayError(error)) {
+                            cache.jobsPollSoftFailureCount = (cache.jobsPollSoftFailureCount ?? 0) + 1
+                            return values.jobs
+                        }
+                        throw error
                     }
-
-                    // Re-fetch recent jobs without an `after` filter to get updated statuses.
-                    // The API returns up to 50 jobs sorted by created_at desc, so this
-                    // will refresh the status of recent jobs (e.g. Running -> Completed).
-                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
-
-                    // Merge fresh jobs with existing jobs, preferring the fresh data
-                    const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
-                    for (const job of freshJobs) {
-                        jobsById.set(job.id, job)
-                    }
-
-                    // Sort by created_at descending (newest first)
-                    return Array.from(jobsById.values()).sort(
-                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )
                 },
                 loadMoreJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
@@ -270,9 +410,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions }) => ({
         sourceConfig: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
+            // Real defaults are pushed into the form at runtime by `ConfigurationTab` via
+            // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
+            // The cast widens the inferred form value type so reads of `access_method`, payload
+            // sub-fields, etc. type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,
@@ -331,188 +475,297 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         },
     })),
-    listeners(({ values, actions, props, cache }) => ({
-        loadSourceSuccess: () => {
-            const isDirectQueryEnabled = !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
-            cache.disposables.add(() => {
-                const timerId = setTimeout(() => {
-                    actions.loadSource()
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timerId)
-            }, 'sourceRefreshTimeout')
+    listeners(({ values, actions, props, cache }) => {
+        const schemaUpdateCache = getSchemaUpdateCache(cache)
 
-            sourceSceneLogic
-                .findMounted({
-                    id: `managed-${props.id}`,
-                })
-                ?.actions.setBreadcrumbName(
-                    isDirectQueryEnabled && values.source?.access_method === 'direct'
+        const scheduleSchemaUpdateFlush = (): void => {
+            if (schemaUpdateCache.schemaUpdateFlushTimer) {
+                clearTimeout(schemaUpdateCache.schemaUpdateFlushTimer)
+            }
+
+            schemaUpdateCache.schemaUpdateFlushTimer = setTimeout(() => {
+                schemaUpdateCache.schemaUpdateFlushTimer = null
+
+                const pendingSchemaUpdates = { ...schemaUpdateCache.pendingSchemaUpdates }
+                if (Object.keys(pendingSchemaUpdates).length === 0) {
+                    return
+                }
+
+                if (Object.keys(schemaUpdateCache.inFlightSchemaUpdates).length > 0) {
+                    return
+                }
+
+                schemaUpdateCache.pendingSchemaUpdates = {}
+                schemaUpdateCache.inFlightSchemaUpdates = pendingSchemaUpdates
+
+                void (async () => {
+                    const batchSchemaUpdates = Object.values(pendingSchemaUpdates)
+
+                    try {
+                        const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(
+                            values.sourceId,
+                            batchSchemaUpdates.map(({ schema }) => buildSchemaUpdatePayload(schema))
+                        )
+
+                        for (const pendingUpdate of batchSchemaUpdates) {
+                            delete schemaUpdateCache.inFlightSchemaUpdates[pendingUpdate.schema.id]
+                        }
+
+                        actions.updateSchemaSuccess(values.source, updatedSchemas[0])
+
+                        const schemasToApply = updatedSchemas.filter((updatedSchema) => {
+                            const latestPendingUpdate = schemaUpdateCache.pendingSchemaUpdates[updatedSchema.id]
+                            const inFlightUpdate = pendingSchemaUpdates[updatedSchema.id]
+
+                            return !latestPendingUpdate || latestPendingUpdate.revision <= inFlightUpdate.revision
+                        })
+
+                        if (schemasToApply.length > 0) {
+                            const nextSource = applySchemasToSource(values.source, schemasToApply)
+                            if (nextSource) {
+                                actions.loadSourceSuccess(nextSource)
+                            }
+                        }
+
+                        if (Object.keys(schemaUpdateCache.pendingSchemaUpdates).length > 0) {
+                            scheduleSchemaUpdateFlush()
+                        }
+                    } catch (error: any) {
+                        for (const pendingUpdate of batchSchemaUpdates) {
+                            delete schemaUpdateCache.inFlightSchemaUpdates[pendingUpdate.schema.id]
+                        }
+
+                        if (Object.keys(schemaUpdateCache.pendingSchemaUpdates).length > 0) {
+                            scheduleSchemaUpdateFlush()
+                        } else {
+                            actions.loadSource()
+                        }
+
+                        actions.updateSchemaFailure(error?.message || "Can't update schemas at this time", error)
+                        lemonToast.error(error?.message || "Can't update schemas at this time")
+                    }
+                })()
+            }, SCHEMA_UPDATE_DEBOUNCE_MS)
+        }
+
+        return {
+            updateSchema: (schema) => {
+                const nextRevision = (schemaUpdateCache.schemaUpdateRevisions[schema.id] ?? 0) + 1
+
+                schemaUpdateCache.schemaUpdateRevisions[schema.id] = nextRevision
+                schemaUpdateCache.pendingSchemaUpdates[schema.id] = { schema, revision: nextRevision }
+
+                const optimisticSource = applyPendingSchemaUpdatesToSource(
+                    values.source,
+                    getOptimisticSchemaUpdates(schemaUpdateCache)
+                )
+                if (optimisticSource) {
+                    schemaUpdateCache.reapplyingOptimisticSource = true
+                    actions.loadSourceSuccess(optimisticSource)
+                }
+
+                scheduleSchemaUpdateFlush()
+            },
+            loadSourceSuccess: () => {
+                const optimisticSchemaUpdates = getOptimisticSchemaUpdates(schemaUpdateCache)
+
+                if (schemaUpdateCache.reapplyingOptimisticSource) {
+                    schemaUpdateCache.reapplyingOptimisticSource = false
+                } else if (hasOptimisticSchemaChanges(values.source, optimisticSchemaUpdates)) {
+                    const optimisticSource = applyPendingSchemaUpdatesToSource(values.source, optimisticSchemaUpdates)
+                    if (optimisticSource) {
+                        schemaUpdateCache.reapplyingOptimisticSource = true
+                        actions.loadSourceSuccess(optimisticSource)
+                        return
+                    }
+                }
+
+                const breadcrumbName =
+                    values.source?.access_method === 'direct'
                         ? values.source?.prefix || values.source?.source_type || 'Source'
                         : values.source?.source_type || 'Source'
-                )
-        },
-        loadSourceFailure: () => {
-            cache.disposables.add(() => {
-                const timerId = setTimeout(() => {
+
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSource()
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'sourceRefreshTimeout')
+
+                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
+                const sceneLogicInstance =
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
+                    sourceSceneLogic.findMounted({ id: props.id, tabId })
+
+                sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+            },
+            loadSourceFailure: () => {
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSource()
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'sourceRefreshTimeout')
+            },
+            refreshSchemas: async () => {
+                try {
+                    const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timerId)
-            }, 'sourceRefreshTimeout')
-        },
-        refreshSchemas: async () => {
-            try {
-                const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
-                actions.loadSource()
-                posthog.capture('schemas refreshed', {
-                    sourceType: values.source?.source_type,
-                    added,
-                    deleted,
-                })
-                const parts = ['Schemas refreshed']
-                if (added > 0 || deleted > 0) {
-                    parts.push(
-                        [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
-                            .filter(Boolean)
-                            .join(' / ')
-                    )
+                    posthog.capture('schemas refreshed', {
+                        sourceType: values.source?.source_type,
+                        added,
+                        deleted,
+                    })
+                    const parts = ['Schemas refreshed']
+                    if (added > 0 || deleted > 0) {
+                        parts.push(
+                            [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                                .filter(Boolean)
+                                .join(' / ')
+                        )
+                    }
+                    lemonToast.success(parts.join(', '))
+                } catch (e: any) {
+                    if (e.message) {
+                        lemonToast.error(e.message)
+                    } else {
+                        lemonToast.error("Can't refresh schemas at this time")
+                    }
+                } finally {
+                    actions.setRefreshingSchemas(false)
                 }
-                lemonToast.success(parts.join(', '))
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error("Can't refresh schemas at this time")
-                }
-            } finally {
-                actions.setRefreshingSchemas(false)
-            }
-        },
-        setSelectedSchemas: () => {
-            // Reset jobs so loadJobs fetches fresh data for the new filter
-            // instead of merging with stale results from a different selection
-            actions.loadJobsSuccess([])
-            actions.setCanLoadMoreJobs(true)
-            actions.loadJobs()
-        },
-        loadJobsSuccess: () => {
-            cache.disposables.add(() => {
-                const timerId = setTimeout(() => {
-                    actions.loadJobs()
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timerId)
-            }, 'jobsRefreshTimeout')
-        },
-        loadJobsFailure: () => {
-            cache.disposables.add(() => {
-                const timerId = setTimeout(() => {
-                    actions.loadJobs()
-                }, REFRESH_INTERVAL)
-                return () => clearTimeout(timerId)
-            }, 'jobsRefreshTimeout')
-        },
-        syncNow: async () => {
-            try {
-                await api.externalDataSources.reload(values.sourceId)
-                actions.loadSource()
+            },
+            setSelectedSchemas: () => {
+                // Reset jobs so loadJobs fetches fresh data for the new filter
+                // instead of merging with stale results from a different selection
+                actions.loadJobsSuccess([])
+                actions.setCanLoadMoreJobs(true)
                 actions.loadJobs()
-                lemonToast.success('Sync started')
-                posthog.capture('sync now triggered', { sourceType: values.source?.source_type })
-            } catch (e: any) {
-                lemonToast.error(e.message || "Can't start sync at this time")
-            } finally {
-                actions.setSyncingNow(false)
-            }
-        },
-        reloadSchema: async ({ schema }) => {
-            // Optimistic UI updates before sending updates to the backend
-            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
-            const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = ExternalDataJobStatus.Running
-            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
-
-            actions.loadSourceSuccess(clonedSource)
-
-            try {
-                await api.externalDataSchemas.reload(schema.id)
-
-                posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error('Cant reload schema at this time')
+            },
+            loadJobsSuccess: () => {
+                const delay = nextJobsPollDelay(cache.jobsPollSoftFailureCount ?? 0)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadJobs()
+                    }, delay)
+                    return () => clearTimeout(timerId)
+                }, 'jobsRefreshTimeout')
+            },
+            loadJobsFailure: () => {
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadJobs()
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'jobsRefreshTimeout')
+            },
+            syncNow: async () => {
+                try {
+                    await api.externalDataSources.reload(values.sourceId)
+                    actions.loadSource()
+                    actions.loadJobs()
+                    lemonToast.success('Sync started')
+                    posthog.capture('sync now triggered', { sourceType: values.source?.source_type })
+                } catch (e: any) {
+                    lemonToast.error(e.message || "Can't start sync at this time")
+                } finally {
+                    actions.setSyncingNow(false)
                 }
-            }
-        },
-        resyncSchema: async ({ schema }) => {
-            // Optimistic UI updates before sending updates to the backend
-            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
-            const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            clonedSource.status = ExternalDataJobStatus.Running
-            clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
+            },
+            reloadSchema: async ({ schema }) => {
+                // Optimistic UI updates before sending updates to the backend
+                const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+                const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+                clonedSource.status = ExternalDataJobStatus.Running
+                clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
-            actions.loadSourceSuccess(clonedSource)
+                actions.loadSourceSuccess(clonedSource)
 
-            try {
-                await api.externalDataSchemas.resync(schema.id)
+                try {
+                    await api.externalDataSchemas.reload(schema.id)
 
-                posthog.capture('schema resynced', { sourceType: clonedSource.source_type })
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error('Cant refresh schema at this time')
+                    posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
+                } catch (e: any) {
+                    if (e.message) {
+                        lemonToast.error(e.message)
+                    } else {
+                        lemonToast.error('Cant reload schema at this time')
+                    }
                 }
-            }
-        },
-        cancelSchema: async ({ schema }) => {
-            try {
-                await api.externalDataSchemas.cancel(schema.id)
+            },
+            resyncSchema: async ({ schema }) => {
+                // Optimistic UI updates before sending updates to the backend
+                const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+                const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+                clonedSource.status = ExternalDataJobStatus.Running
+                clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
-                actions.loadSource()
-                posthog.capture('schema sync cancelled', { sourceType: values.source?.source_type })
-                lemonToast.success('Sync cancelled')
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error("Can't cancel sync at this time")
+                actions.loadSourceSuccess(clonedSource)
+
+                try {
+                    await api.externalDataSchemas.resync(schema.id)
+
+                    posthog.capture('schema resynced', { sourceType: clonedSource.source_type })
+                } catch (e: any) {
+                    if (e.message) {
+                        lemonToast.error(e.message)
+                    } else {
+                        lemonToast.error('Cant refresh schema at this time')
+                    }
                 }
-            }
-        },
-        deleteTable: async ({ schema }) => {
-            // Optimistic UI updates before sending updates to the backend
-            const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
-            const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-            if (schemaIndex === -1) {
-                lemonToast.error('Schema not found')
-                return
-            }
-            clonedSource.schemas[schemaIndex].table = undefined
-            clonedSource.schemas[schemaIndex].status = undefined
-            clonedSource.schemas[schemaIndex].last_synced_at = undefined
-            actions.loadSourceSuccess(clonedSource)
+            },
+            cancelSchema: async ({ schema }) => {
+                try {
+                    await api.externalDataSchemas.cancel(schema.id)
 
-            try {
-                await api.externalDataSchemas.delete_data(schema.id)
-
-                posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
-                lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error("Can't delete data at this time")
+                    actions.loadSource()
+                    posthog.capture('schema sync cancelled', { sourceType: values.source?.source_type })
+                    lemonToast.success('Sync cancelled')
+                } catch (e: any) {
+                    if (e.message) {
+                        lemonToast.error(e.message)
+                    } else {
+                        lemonToast.error("Can't cancel sync at this time")
+                    }
                 }
-            }
-        },
-    })),
+            },
+            deleteTable: async ({ schema }) => {
+                // Optimistic UI updates before sending updates to the backend
+                const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+                const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+                if (schemaIndex === -1) {
+                    lemonToast.error('Schema not found')
+                    return
+                }
+                clonedSource.schemas[schemaIndex].table = undefined
+                clonedSource.schemas[schemaIndex].status = undefined
+                clonedSource.schemas[schemaIndex].last_synced_at = undefined
+                actions.loadSourceSuccess(clonedSource)
+
+                try {
+                    await api.externalDataSchemas.delete_data(schema.id)
+
+                    posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
+                    lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
+                } catch (e: any) {
+                    if (e.message) {
+                        lemonToast.error(e.message)
+                    } else {
+                        lemonToast.error("Can't delete data at this time")
+                    }
+                }
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadSource()
-        actions.loadJobs()
     }),
 
-    beforeUnmount(() => {
-        // Disposables handle cleanup automatically
+    beforeUnmount(({ cache }) => {
+        const schemaUpdateCache = getSchemaUpdateCache(cache)
+
+        if (schemaUpdateCache.schemaUpdateFlushTimer) {
+            clearTimeout(schemaUpdateCache.schemaUpdateFlushTimer)
+        }
     }),
 ])

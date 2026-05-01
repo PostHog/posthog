@@ -24,7 +24,11 @@ type ErrorTrackingFingerprintListResult = {
 
 describe('Error Tracking', { concurrent: false }, () => {
     let context: Context
+    let currentUserId: number
     const queryTool = GENERATED_TOOLS['query-error-tracking-issues']!()
+    const createdAssignmentRuleIds: string[] = []
+    const createdGroupingRuleIds: string[] = []
+    const createdSuppressionRuleIds: string[] = []
     const createdResources: CreatedResources = {
         featureFlags: [],
         insights: [],
@@ -39,9 +43,47 @@ describe('Error Tracking', { concurrent: false }, () => {
         const client = createTestClient()
         context = createTestContext(client)
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
+        const user = await context.api.request<{ id: number }>({
+            method: 'GET',
+            path: '/api/users/@me/',
+        })
+        currentUserId = user.id
     })
 
     afterEach(async () => {
+        for (const id of createdAssignmentRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/assignment_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdAssignmentRuleIds.length = 0
+        for (const id of createdGroupingRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/grouping_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdGroupingRuleIds.length = 0
+        for (const id of createdSuppressionRuleIds) {
+            try {
+                await context.api.request({
+                    method: 'DELETE',
+                    path: `/api/environments/${TEST_PROJECT_ID}/error_tracking/suppression_rules/${id}/`,
+                })
+            } catch {
+                // best effort — rule may already be deleted
+            }
+        }
+        createdSuppressionRuleIds.length = 0
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
@@ -166,6 +208,140 @@ describe('Error Tracking', { concurrent: false }, () => {
             expect(result).toBeTruthy()
             expect(typeof result.count).toBe('number')
             expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('assignment-rules create tool', () => {
+        const assignmentRulesCreateTool = GENERATED_TOOLS['error-tracking-assignment-rules-create']!()
+
+        it('should create an assignment rule', async () => {
+            const result = (await assignmentRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                assignee: { type: 'user', id: currentUserId },
+            })) as { id: string; filters: unknown; assignee: { type: string; id: number | string } | null }
+
+            createdAssignmentRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.assignee).toEqual({ type: 'user', id: currentUserId })
+        })
+    })
+
+    describe('grouping-rules list tool', () => {
+        const groupingRulesListTool = GENERATED_TOOLS['error-tracking-grouping-rules-list']!()
+
+        it('should list grouping rules', async () => {
+            const result = (await groupingRulesListTool.handler(context, {})) as {
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('grouping-rules create tool', () => {
+        const groupingRulesCreateTool = GENERATED_TOOLS['error-tracking-grouping-rules-create']!()
+
+        it('should create a grouping rule', async () => {
+            const result = (await groupingRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                assignee: { type: 'user', id: currentUserId },
+                description: 'Group TypeErrors from MCP integration test',
+            })) as {
+                id: string
+                filters: unknown
+                assignee: { type: string; id: number | string } | null
+                description?: string | null
+            }
+
+            createdGroupingRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.assignee).toEqual({ type: 'user', id: currentUserId })
+            expect(result.description).toBe('Group TypeErrors from MCP integration test')
+        })
+    })
+
+    describe('suppression-rules list tool', () => {
+        const suppressionRulesListTool = GENERATED_TOOLS['error-tracking-suppression-rules-list']!()
+
+        it('should list suppression rules', async () => {
+            const result = (await suppressionRulesListTool.handler(context, {})) as {
+                count: number
+                results: unknown[]
+            }
+
+            expect(result).toBeTruthy()
+            expect(typeof result.count).toBe('number')
+            expect(Array.isArray(result.results)).toBe(true)
+        })
+    })
+
+    describe('suppression-rules create tool', () => {
+        const suppressionRulesCreateTool = GENERATED_TOOLS['error-tracking-suppression-rules-create']!()
+
+        it('should create a suppression rule', async () => {
+            const result = (await suppressionRulesCreateTool.handler(context, {
+                filters: {
+                    type: 'AND',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$exception_type',
+                                    type: 'event',
+                                    value: ['TypeError'],
+                                    operator: 'exact',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                sampling_rate: 0.25,
+            })) as { id: string; filters: unknown; sampling_rate?: number }
+
+            createdSuppressionRuleIds.push(result.id)
+
+            expect(result).toBeTruthy()
+            expect(typeof result.id).toBe('string')
+            expect(result.filters).toBeTruthy()
+            expect(result.sampling_rate).toBe(0.25)
         })
     })
 

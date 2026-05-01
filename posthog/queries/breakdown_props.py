@@ -354,14 +354,18 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> tuple[str, dict]:
 
 def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> tuple[str, list, dict]:
     entity = kwargs.pop("entity", None)
+    breakdown = filter.breakdown
+    if not isinstance(breakdown, list):
+        assert breakdown is not None
+
     cohorts = (
-        Cohort.objects.filter(team__project_id=team.project_id, pk__in=[b for b in filter.breakdown if b != "all"])
-        if isinstance(filter.breakdown, list)
-        else Cohort.objects.filter(team__project_id=team.project_id, pk=filter.breakdown)
+        Cohort.objects.filter(team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"])
+        if isinstance(breakdown, list)
+        else Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
     )
     cohort_queries, params = _parse_breakdown_cohorts(list(cohorts), filter.hogql_context)
     ids = [cohort.pk for cohort in cohorts]
-    if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
+    if isinstance(breakdown, list) and "all" in breakdown:
         all_query, all_params = _format_all_query(team, filter, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}
@@ -391,4 +395,5 @@ def get_breakdown_cohort_name(cohort_id: int, team: Team, not_in_cohort_name: st
             return f"Not in {not_in_cohort_name}"
         return "Not in cohort"
     else:
-        return Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
+        cohort_name = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
+        return cohort_name or ""

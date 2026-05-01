@@ -12,7 +12,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/MetricsScene'),
             projectBased: true,
             layout: 'app-container',
-            defaultDocsPath: '/docs/metrics',
             activityScope: 'Metrics',
             description: 'Monitor and analyze application metrics to understand system performance and health.',
             iconType: 'metrics',

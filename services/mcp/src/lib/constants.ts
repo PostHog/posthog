@@ -6,13 +6,20 @@ import packageJson from '../../package.json'
 
 export const USER_AGENT = `posthog/mcp-server; version: ${packageJson.version}`
 
-export function getUserAgent(clientUserAgent?: string): string {
+export interface GetUserAgentOptions {
+    clientUserAgent?: string | undefined
+}
+
+export function getUserAgent(opts: GetUserAgentOptions = {}): string {
+    const { clientUserAgent } = opts
+
     if (clientUserAgent) {
         const match = clientUserAgent.match(/posthog\/([\w.-]+)/)
         if (match) {
             return `${USER_AGENT}; for ${match[0]}`
         }
     }
+
     return USER_AGENT
 }
 
@@ -68,7 +75,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'openid',
     'profile',
     'email',
-    'introspection',
     'alert:read',
     'alert:write',
     'annotation:read',
@@ -91,6 +97,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'event_definition:read',
     'event_definition:write',
     'evaluation:read',
+    'external_data_source:read',
+    'external_data_source:write',
     'evaluation:write',
     'experiment:read',
     'experiment:write',
@@ -102,13 +110,18 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'hog_function:write',
     'insight:read',
     'insight:write',
+    'insight_variable:read',
+    'insight_variable:write',
     'integration:read',
     'integration:write',
     'llm_analytics:read',
     'llm_analytics:write',
     'llm_prompt:read',
     'llm_prompt:write',
+    'llm_skill:read',
+    'llm_skill:write',
     'logs:read',
+    'logs:write',
     'notebook:read',
     'notebook:write',
     'organization:read',
@@ -117,6 +130,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'person:read',
     'person:write',
     'project:read',
+    'project:write',
     'property_definition:read',
     'query:read',
     'session_recording:read',
@@ -127,10 +141,16 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'subscription:write',
     'survey:read',
     'survey:write',
+    'task:read',
     'ticket:read',
     'ticket:write',
+    'usage_metric:read',
+    'usage_metric:write',
     'user:read',
+    'user:write',
+    'visual_review:read',
     'warehouse_table:read',
     'warehouse_view:read',
     'warehouse_view:write',
+    'web_analytics:read',
 ] as const

@@ -17,6 +17,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import (
     BaseModel,
@@ -25,7 +26,7 @@ from pydantic import (
     ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
@@ -60,6 +61,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -101,6 +103,7 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
@@ -120,6 +123,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
@@ -493,6 +497,26 @@ class InsightSerializer(InsightBasicSerializer):
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+
+        new_dashboards = attrs.get("dashboards")
+        if new_dashboards is not None:
+            team = self.context["get_team"]()
+            existing_dashboard_ids: set[int] = set()
+            if self.instance is not None:
+                existing_dashboard_ids = set(
+                    self.instance.dashboard_tiles.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                )
+            for dashboard in new_dashboards:
+                if dashboard.id in existing_dashboard_ids:
+                    continue
+                current_tiles = DashboardTile.objects.filter(dashboard_id=dashboard.id).exclude(deleted=True).count()
+                check_count_limit(
+                    team=team,
+                    key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
+                    current_count=current_tiles,
+                    user=self.context["request"].user,
+                )
+
         return super().validate(attrs)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
@@ -514,6 +538,8 @@ class InsightSerializer(InsightBasicSerializer):
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
+            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
+            # in validate(); see InsightSerializer.validate above.
             # nosemgrep: idor-lookup-without-team
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
@@ -1104,6 +1130,76 @@ Background calculation can be tracked using the `query_status` response field.""
                 type=OpenApiTypes.BOOL,
                 description="Return basic insight metadata only (no results, faster).",
             ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                description="Case-insensitive substring match across name, derived_name, description, and tag names.",
+            ),
+            OpenApiParameter(
+                name="created_by",
+                type=OpenApiTypes.STR,
+                description="JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.",
+            ),
+            OpenApiParameter(
+                name="user",
+                type=OpenApiTypes.BOOL,
+                description="Include this parameter (any value) to restrict results to insights created by the authenticated user.",
+            ),
+            OpenApiParameter(
+                name="favorited",
+                type=OpenApiTypes.BOOL,
+                description="Include this parameter (any value) to restrict results to insights marked as favorited.",
+            ),
+            OpenApiParameter(
+                name="saved",
+                type=OpenApiTypes.BOOL,
+                description="When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.",
+            ),
+            OpenApiParameter(
+                name="insight",
+                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
+                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).",
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.",
+            ),
+            OpenApiParameter(
+                name="created_date_from",
+                type=OpenApiTypes.STR,
+                description="Filter by `created_at > created_date_from`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="created_date_to",
+                type=OpenApiTypes.STR,
+                description="Filter by `created_at < created_date_to`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="last_viewed_date_from",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="last_viewed_date_to",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="dashboards",
+                type=OpenApiTypes.STR,
+                description="JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).",
+            ),
+            OpenApiParameter(
+                name="tags",
+                type=OpenApiTypes.STR,
+                description="JSON-encoded array of tag names. Returns insights with any of the listed tags.",
+            ),
         ]
     ),
     update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
@@ -1152,12 +1248,22 @@ class InsightViewSet(
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
-        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+        return request.headers.get("x-posthog-client") == "mcp"
+
+    def _is_basic_request(self) -> bool:
+        return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
+
+    @tracer.start_as_current_span("insight_api_list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        span = trace.get_current_span()
+        span.set_attribute("posthog.team_id", self.team_id)
+        span.set_attribute("posthog.basic", self._is_basic_request())
+        span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
+        span.set_attribute("posthog.order", request.query_params.get("order", ""))
+        return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0")
-        ):
+        if self._is_basic_request():
             return InsightBasicSerializer
         if self.action in ("create", "partial_update") and self._is_mcp_request(self.request):
             return MCPInsightSerializer
@@ -1196,28 +1302,46 @@ class InsightViewSet(
         if not include_deleted:
             queryset = queryset.exclude(deleted=True)
 
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                # TODO deprecate this field entirely
-                "dashboards",
-                queryset=Dashboard.objects.all().select_related("team__organization"),
-            ),
-            Prefetch(
-                "dashboard_tiles",
-                queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
-            ),
-            Prefetch(
-                "alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
-                to_attr="_prefetched_alerts",
-            ),
-        )
+        # InsightBasicSerializer skips alerts and only needs PKs from dashboards plus
+        # (id, dashboard_id, deleted) from tiles, so the heavy team→organization joins
+        # the full serializer relies on are pure waste on the basic path.
+        is_basic = self._is_basic_request()
+
+        if is_basic:
+            queryset = queryset.prefetch_related(
+                Prefetch("dashboards", queryset=Dashboard.objects.only("id")),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
+                ),
+            )
+        else:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    # TODO deprecate this field entirely
+                    "dashboards",
+                    queryset=Dashboard.objects.all().select_related("team__organization"),
+                ),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
+                ),
+                Prefetch(
+                    "alertconfiguration_set",
+                    queryset=AlertConfiguration.objects.select_related("created_by"),
+                    to_attr="_prefetched_alerts",
+                ),
+            )
 
         # Add access level filtering for list actions if not sharing access token
         if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             queryset = self._filter_queryset_by_access_level(queryset)
 
-        queryset = queryset.select_related("created_by", "last_modified_by", "team")
+        if is_basic:
+            queryset = queryset.select_related("created_by", "team")
+        else:
+            queryset = queryset.select_related("created_by", "last_modified_by", "team")
+
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
@@ -1472,7 +1596,7 @@ class InsightViewSet(
             INSIGHT_ID_PATH_PARAMETER,
             OpenApiParameter(
                 name="refresh",
-                enum=list(ExecutionMode),
+                enum=[*ExecutionMode],
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""
@@ -1624,10 +1748,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         query_data = request.data.get("query")
         if not query_data:
-            return Response(
-                {"error": "Missing 'query' field in request body"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError("Missing 'query' field in request body")
 
         kind = query_data.get("kind")
 
@@ -1643,18 +1764,14 @@ When set, the specified dashboard's filters and date range override will be appl
             else:
                 validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
-            return Response(
-                {"error": "Invalid query format"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError("Invalid query format")
 
         try:
             metadata = generate_insight_metadata(validated_query, self.team)
-        except Exception:
-            return Response(
-                {"error": "Failed to generate insight metadata. Please try again."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception as e:
+            capture_exception(e)
+            raise APIException("Failed to generate insight metadata. Please try again.")
+
         return Response({"name": metadata.name, "description": metadata.description})
 
     def _run_legacy_query(
@@ -1813,6 +1930,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
+    @extend_schema(operation_id="insights_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -1848,7 +1966,7 @@ When set, the specified dashboard's filters and date range override will be appl
     @extend_schema(exclude=True)  # internal endpoint, not for public use
     @action(methods=["POST"], detail=False)
     def timing(self, request: request.Request, **kwargs):
-        from posthog.kafka_client.client import KafkaProducer
+        from posthog.kafka_client.routing import get_producer
         from posthog.models.event.util import format_clickhouse_timestamp
         from posthog.utils import cast_timestamp_or_now
 
@@ -1863,7 +1981,9 @@ When set, the specified dashboard's filters and date range override will be appl
                 payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
             if "max_last_refresh" in payload:
                 payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
-            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
+            get_producer(topic=KAFKA_METRICS_TIME_TO_SEE_DATA).produce(
+                topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

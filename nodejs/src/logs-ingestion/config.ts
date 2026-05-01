@@ -1,4 +1,5 @@
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_LOGS_CLICKHOUSE,
     KAFKA_LOGS_INGESTION,
     KAFKA_LOGS_INGESTION_DLQ,
@@ -9,6 +10,23 @@ import {
     KAFKA_TRACES_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { isProdEnv } from '../utils/env-utils'
+import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
+
+export type LogsIngestionOutputsConfig = {
+    LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
+    LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: LogsProducerName
+    LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: LogsProducerName
+    LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: LogsProducerName
+}
+
+export function getDefaultLogsIngestionOutputsConfig(): LogsIngestionOutputsConfig {
+    return {
+        LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
+        LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
+    }
+}
 
 export type LogsIngestionConsumerConfig = {
     LOGS_INGESTION_CONSUMER_GROUP_ID: string
@@ -27,6 +45,10 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    /** Comma-separated team IDs, or `*` for all teams, or empty to disable sampling evaluation entirely. */
+    LOGS_SAMPLING_ENABLED_TEAMS: string
+    /** When `true`, sampling always keeps every record (metrics path may still run). */
+    LOGS_SAMPLING_KILLSWITCH: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -51,6 +73,8 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        LOGS_SAMPLING_ENABLED_TEAMS: '',
+        LOGS_SAMPLING_KILLSWITCH: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

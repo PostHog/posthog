@@ -17,6 +17,7 @@ APIScopeObject = Literal[
     "approvals",
     "batch_export",
     "batch_import",
+    "clickhouse_test_cluster_perf",
     "cohort",
     "comment",
     "conversation",
@@ -50,12 +51,14 @@ APIScopeObject = Literal[
     "insight",
     "insight_variable",
     "integration",
+    "legal_document",
     "link",
     "live_debugger",
     "llm_analytics",
     "llm_gateway",
     "llm_prompt",
     "llm_provider_key",
+    "llm_skill",
     "logs",
     "notebook",
     "organization",
@@ -75,10 +78,12 @@ APIScopeObject = Literal[
     "streamlit_app",
     "subscription",
     "survey",
+    "tagger",
     "ticket",
     "task",
     "tracing",
     "uploaded_media",
+    "usage_metric",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
     "visual_review",
@@ -101,6 +106,11 @@ APIScopeObjectOrNotSupported = Literal[
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 
+# Scope objects minted programmatically only — never via the OAuth consent flow,
+# the personal-API-key UI, the CLI authorize page, or RBAC. Filtered out of
+# `get_scope_descriptions()` and rejected by every user-facing scope validator.
+INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_test_cluster_perf"})
+
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
 
@@ -108,5 +118,6 @@ def get_scope_descriptions() -> dict[str, str]:
     return {
         f"{obj}:{action}": f"{action.capitalize()} access to {obj}"
         for obj in API_SCOPE_OBJECTS
+        if obj not in INTERNAL_API_SCOPE_OBJECTS
         for action in API_SCOPE_ACTIONS
     }

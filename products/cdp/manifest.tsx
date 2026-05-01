@@ -13,7 +13,6 @@ export const manifest: ProductManifest = {
             description:
                 'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
             activityScope: 'HogFunction',
-            defaultDocsPath: '/docs/cdp/transformations',
             iconType: 'data_pipeline',
         },
     },

@@ -17,7 +17,7 @@ import {
 } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
-import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerLogicProps,
@@ -27,7 +27,6 @@ import {
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
 import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
-import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
@@ -118,7 +117,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
             sessionSummaryProgressLogic,
-            ['loadingBySessionId', 'progressBySessionId', 'summaryBySessionId', 'feedbackBySessionId'],
+            [
+                'loadingBySessionId',
+                'progressBySessionId',
+                'summaryBySessionId',
+                'feedbackBySessionId',
+                'errorBySessionId',
+                'retryStateBySessionId',
+            ],
             playerInspectorLogic(props),
             ['allItemsByMiniFilterKey'],
         ],
@@ -167,6 +173,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (progressBySessionId): SummarizationProgress | null =>
                 progressBySessionId[props.sessionRecordingId] ?? null,
         ],
+        sessionSummaryError: [
+            (s) => [s.errorBySessionId],
+            (errorBySessionId): string | null => errorBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryHasRetried: [
+            (s) => [s.retryStateBySessionId],
+            (retryStateBySessionId): boolean => !!retryStateBySessionId[props.sessionRecordingId]?.hasRetried,
+        ],
         summaryHasHadFeedback: [
             (s) => [s.feedbackBySessionId],
             (feedbackBySessionId): boolean => !!feedbackBySessionId[props.sessionRecordingId],
@@ -174,10 +188,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summaryDisabledReason: [
             (s) => [s.allItemsByMiniFilterKey],
             (allItemsByMiniFilterKey): string | undefined => {
-                const hasAutocapture = !!allItemsByMiniFilterKey['events-autocapture']?.length
-                if (hasAutocapture) {
-                    return undefined
-                }
                 const hasAnyEvents = [
                     'events-posthog',
                     'events-custom',
@@ -185,9 +195,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     'events-autocapture',
                     'events-exceptions',
                 ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
-                return hasAnyEvents
-                    ? 'This session has no autocapture events. Enable autocapture in your project settings to use AI summaries.'
-                    : 'Session events are not available yet. Try again in a few minutes.'
+                return hasAnyEvents ? undefined : 'Session events are not available yet. Try again in a few minutes.'
             },
         ],
         loading: [
@@ -279,14 +287,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     items.push({
                         label: 'Start',
                         icon: <IconClock />,
-                        value: (
-                            <SimpleTimeLabel
-                                muted={false}
-                                size="small"
-                                timestampFormat={TimestampFormat.UTC}
-                                startTime={startTime}
-                            />
-                        ),
+                        value: <Timestamp size="small" noPadding hideIcon fixedTimestamp={startTime} />,
                         type: 'text',
                     })
                 }

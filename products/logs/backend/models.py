@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from products.logs.backend.alert_state_machine import AlertSnapshot
 
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
-# cap on retained OK check rows — the N-of-M evaluator never reads more than this many
+# cap on retained OK event rows — the N-of-M evaluator never reads more than this many
 # non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
 # max_value so the two can't drift.
 MAX_EVALUATION_PERIODS = 10
@@ -69,18 +69,18 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     threshold_count = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     threshold_operator = models.CharField(
         max_length=10,
-        choices=ThresholdOperator.choices,
+        choices=ThresholdOperator,
         default=ThresholdOperator.ABOVE,
     )
 
     # Window & scheduling
     window_minutes = models.PositiveIntegerField(default=5)
-    check_interval_minutes = models.PositiveIntegerField(default=1)
+    check_interval_minutes = models.PositiveIntegerField(default=5)
 
     # State
     state = models.CharField(
         max_length=20,
-        choices=State.choices,
+        choices=State,
         default=State.NOT_FIRING,
     )
 
@@ -118,8 +118,14 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         self.next_check_at = None
         return ["next_check_at"]
 
-    def to_snapshot(self) -> AlertSnapshot:
-        """Capture the fields the state machine reads for a transition decision."""
+    def to_snapshot(self, recent_events_breached: tuple[bool, ...] | None = None) -> AlertSnapshot:
+        """Capture the fields the state machine reads for a transition decision.
+
+        `recent_events_breached` lets the caller pass in the M-of-N window directly
+        (e.g. derived from a single bucketed CH query). When omitted, falls back to
+        reading historical CHECK rows via `get_recent_breaches` — kept for back-compat
+        with code paths that haven't switched to the bucketed eval yet.
+        """
         from products.logs.backend.alert_state_machine import AlertSnapshot, AlertState
 
         return AlertSnapshot(
@@ -130,13 +136,19 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
             last_notified_at=self.last_notified_at,
             snooze_until=self.snooze_until,
             consecutive_failures=self.consecutive_failures,
-            recent_checks_breached=self.get_recent_breaches(),
+            recent_events_breached=recent_events_breached
+            if recent_events_breached is not None
+            else self.get_recent_breaches(),
         )
 
     def get_recent_breaches(self) -> tuple[bool, ...]:
-        """Last M non-errored checks' threshold_breached values, newest first."""
+        """Last M non-errored check events' threshold_breached values, newest first."""
         return tuple(
-            LogsAlertCheck.objects.filter(alert=self, error_message__isnull=True)
+            LogsAlertEvent.objects.filter(
+                alert=self,
+                kind=LogsAlertEvent.Kind.CHECK,
+                error_message__isnull=True,
+            )
             .order_by("-created_at")
             .values_list("threshold_breached", flat=True)[: self.evaluation_periods]
         )
@@ -150,9 +162,12 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
 
 class LogsAlertCheck(UUIDModel):
-    # Events (errored, breached, state-transition rows) retained this long for forensics.
-    # OK rows are capped by count (MAX_EVALUATION_PERIODS per alert) rather than by time.
-    EVENT_RETENTION_DAYS = 90
+    """Defunct — kept in sync with the physical table `logs_logsalertcheck`.
+
+    All production reads and writes go through `LogsAlertEvent` (the new table). This
+    shell class exists solely to match Django's model state with the legacy table
+    created by `0001_initial.py`. PR 4 will drop the table and remove this class.
+    """
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,
@@ -170,12 +185,52 @@ class LogsAlertCheck(UUIDModel):
     class Meta:
         db_table = "logs_logsalertcheck"
 
+
+class LogsAlertEvent(UUIDModel):
+    # Events (errored, breached, state-transition rows) retained this long for forensics.
+    # OK rows are capped by count (MAX_EVALUATION_PERIODS per alert) rather than by time.
+    EVENT_RETENTION_DAYS = 90
+
+    class Kind(models.TextChoices):
+        # Worker-produced row from evaluating the ClickHouse check query. Only CHECK rows
+        # feed the N-of-M evaluator and are eligible for the inline prune. Control-plane
+        # kinds are reserved for user-initiated state transitions; writers are added in a
+        # follow-up PR (see spike 4.7). Every read path must filter by kind=CHECK to keep
+        # control-plane rows out of evaluator and prune windows.
+        CHECK = "check", "Check"
+        RESET = "reset", "Reset"
+        ENABLE = "enable", "Enable"
+        DISABLE = "disable", "Disable"
+        SNOOZE = "snooze", "Snooze"
+        UNSNOOZE = "unsnooze", "Unsnooze"
+        THRESHOLD_CHANGE = "threshold_change", "Threshold change"
+
+    alert = models.ForeignKey(
+        LogsAlertConfiguration,
+        on_delete=models.CASCADE,
+        related_name="events",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
+    created_at = models.DateTimeField(auto_now_add=True)
+    result_count = models.PositiveIntegerField(null=True, blank=True)
+    threshold_breached = models.BooleanField()
+    state_before = models.CharField(max_length=20)
+    state_after = models.CharField(max_length=20)
+    error_message = models.TextField(null=True, blank=True)
+    query_duration_ms = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "logs_logsalertevent"
+        indexes = [
+            models.Index(fields=["alert", "-created_at"], name="logs_alert_event_alert_ts_idx"),
+        ]
+
     def __str__(self) -> str:
-        return f"LogsAlertCheck for {self.alert.name} at {self.created_at}"
+        return f"LogsAlertEvent for {self.alert.name} at {self.created_at}"
 
     @classmethod
-    def clean_up_old_checks(cls) -> int:
-        """Delete every check row older than EVENT_RETENTION_DAYS.
+    def clean_up_old_events(cls) -> int:
+        """Delete every event row older than EVENT_RETENTION_DAYS.
 
         In steady state this only touches errored rows and state-transition rows: the
         Temporal activity caps non-event rows to MAX_EVALUATION_PERIODS per alert
@@ -184,3 +239,35 @@ class LogsAlertCheck(UUIDModel):
         oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
         count, _ = cls.objects.filter(created_at__lt=oldest).delete()
         return count
+
+
+class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules to drop or exclude log lines before storage (evaluated in ingestion when enabled)."""
+
+    class RuleType(models.TextChoices):
+        SEVERITY_SAMPLING = "severity_sampling", "Severity-based reduction"
+        PATH_DROP = "path_drop", "Path exclusion"
+        RATE_LIMIT = "rate_limit", "Rate limit"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    rule_type = models.CharField(max_length=32, choices=RuleType.choices)
+    scope_service = models.CharField(max_length=512, null=True, blank=True)
+    scope_path_pattern = models.CharField(max_length=1024, null=True, blank=True)
+    scope_attribute_filters = models.JSONField(default=list)
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsexclusionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"

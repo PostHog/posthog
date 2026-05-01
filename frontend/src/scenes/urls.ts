@@ -51,7 +51,6 @@ export const urls = {
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
     coreEvents: (): string => '/data-management/core-events',
-    marketingAnalytics: (): string => '/data-management/marketing-analytics',
     marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: ({
@@ -121,6 +120,14 @@ export const urls = {
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
     resourceTransfer: (resourceKind: string, resourceId: string | number): string =>
         `/resource-transfer/${resourceKind}/${resourceId}`,
+    dashboardTemplateCopyToProject: (templateId: string | ':sourceTemplateId', sourceTeamId?: number): string => {
+        const path = `/dashboard/templates/${templateId}/copy-to-project`
+        return sourceTeamId === undefined
+            ? path
+            : combineUrl(path, {
+                  source_team: sourceTeamId,
+              }).url
+    },
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
@@ -138,6 +145,12 @@ export const urls = {
     login2FASetup: (): string => '/login/2fa_setup',
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
+    /**
+     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO) or
+     * `github-integration` (user GitHub App integration); see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
+     */
+    accountConnected: (kind: string = ':kind'): string =>
+        kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -200,6 +213,7 @@ export const urls = {
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
+    stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
         combineUrl(
             `/shared/${token}`,
@@ -258,7 +272,7 @@ export const urls = {
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
-    webAnalyticsBotAnalytics: (): string => '/web/bot-analytics',
+    webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',

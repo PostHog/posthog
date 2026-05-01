@@ -133,6 +133,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             check_duckgres_shadow_enabled_activity,
             inputs.team_id,
             start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=1,
+            ),
         )
 
         duckgres_shadow_handle = None
@@ -147,6 +150,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     parent_workflow_id=parent_workflow_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
+                ),
             )
             # fire-and-forget: start duckgres shadow materialization in parallel
             duckgres_shadow_handle = temporalio.workflow.start_activity(
@@ -176,6 +182,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     parent_workflow_id=parent_workflow_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
+                ),
             )
             try:
                 materialize_result = await temporalio.workflow.execute_activity(

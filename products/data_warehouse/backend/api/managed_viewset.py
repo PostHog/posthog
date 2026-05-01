@@ -3,6 +3,7 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
@@ -17,6 +18,7 @@ class DataWarehouseManagedViewSetSerializer(serializers.Serializer):
 
 class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     lookup_field = "kind"
     lookup_url_kwarg = "kind"
     queryset = DataWarehouseManagedViewSet.objects.all()

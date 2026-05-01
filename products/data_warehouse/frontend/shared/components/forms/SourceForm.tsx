@@ -28,20 +28,64 @@ import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableS
 import { SSH_FIELD, sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
-import { parseConnectionString } from './parseConnectionString'
+import { parseConnectionStringForSource } from './parsers'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
     showDescription?: boolean
+    showAccessMethodSelector?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
-const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
-    Postgres: 5432,
-    Redshift: 5439,
+export function SourceAccessMethodSelector({
+    value,
+    onChange,
+}: {
+    value: 'warehouse' | 'direct'
+    onChange: (value: 'warehouse' | 'direct') => void
+}): JSX.Element {
+    return (
+        <LemonField.Pure label="How should PostHog query this source?">
+            <LemonRadio
+                data-attr="postgres-access-method"
+                value={value}
+                onChange={(newValue) => onChange(newValue as 'warehouse' | 'direct')}
+                options={[
+                    {
+                        value: 'warehouse',
+                        label: (
+                            <div>
+                                <div>Sync to warehouse</div>
+                                <div className="text-xs text-secondary">
+                                    Sync selected tables into PostHog-managed storage for querying.
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 'direct',
+                        label: (
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span>Query directly</span>
+                                    <LemonTag type="warning" size="small">
+                                        BETA
+                                    </LemonTag>
+                                </div>
+                                <div className="text-xs text-secondary">
+                                    Run queries live against this Postgres connection. Data from this source can&apos;t
+                                    be joined with PostHog data.
+                                </div>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+        </LemonField.Pure>
+    )
 }
 
 export const sourceFieldToElement = (
@@ -68,30 +112,18 @@ export const sourceFieldToElement = (
                             type="text"
                             onChange={(updatedConnectionString) => {
                                 onChange(updatedConnectionString)
-                                const { host, port, database, user, password, isValid } =
-                                    parseConnectionString(updatedConnectionString)
+                                const { isValid, fields } = parseConnectionStringForSource(
+                                    sourceConfig.name,
+                                    updatedConnectionString
+                                )
 
                                 if (isValid) {
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'database'],
-                                        database || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'host'],
-                                        host || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'user'],
-                                        user || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'port'],
-                                        port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name]
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'password'],
-                                        password || ''
-                                    )
+                                    for (const { path, value } of fields) {
+                                        sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                            ['payload', ...path],
+                                            value
+                                        )
+                                    }
                                 }
                             }}
                         />
@@ -579,6 +611,7 @@ export function SourceFormComponent({
     sourceConfig,
     showPrefix = true,
     showDescription,
+    showAccessMethodSelector = true,
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
@@ -591,10 +624,7 @@ export function SourceFormComponent({
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery =
-        sourceConfig.name === 'Postgres' &&
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-        selectedAccessMethod === 'direct'
+    const isPostgresDirectQuery = sourceConfig.name === 'Postgres' && selectedAccessMethod === 'direct'
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -618,48 +648,22 @@ export function SourceFormComponent({
 
     return (
         <div className="space-y-4 ph-no-capture">
-            {!isUpdateMode &&
-                sourceConfig.name === 'Postgres' &&
-                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
-                    <LemonField name="access_method" label="How should PostHog query this source?">
+            {!isUpdateMode && sourceConfig.name === 'Postgres' && showAccessMethodSelector && (
+                <>
+                    <LemonField name="access_method">
                         {({ value, onChange }) => (
-                            <LemonRadio
-                                data-attr="postgres-access-method"
+                            <SourceAccessMethodSelector
                                 value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
-                                onChange={(newValue) => {
-                                    const nextValue = newValue as 'warehouse' | 'direct'
+                                onChange={(nextValue) => {
                                     setSelectedAccessMethod(nextValue)
                                     onChange(nextValue)
                                 }}
-                                options={[
-                                    {
-                                        value: 'warehouse',
-                                        label: (
-                                            <div>
-                                                <div>Sync to warehouse</div>
-                                                <div className="text-xs text-secondary">
-                                                    Sync selected tables into PostHog-managed storage for querying.
-                                                </div>
-                                            </div>
-                                        ),
-                                    },
-                                    {
-                                        value: 'direct',
-                                        label: (
-                                            <div>
-                                                <div>Query directly</div>
-                                                <div className="text-xs text-secondary">
-                                                    Run queries live against this Postgres connection. Data from this
-                                                    source can&apos;t be joined with PostHog data.
-                                                </div>
-                                            </div>
-                                        ),
-                                    },
-                                ]}
                             />
                         )}
                     </LemonField>
-                )}
+                    <LemonDivider />
+                </>
+            )}
             {isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"

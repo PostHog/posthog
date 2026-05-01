@@ -1,4 +1,5 @@
 import uuid
+from typing import Literal, cast
 
 from django.conf import settings
 
@@ -13,16 +14,19 @@ from products.data_warehouse.backend.s3 import get_s3_client
 logger = structlog.get_logger(__name__)
 
 PARQUET_SCHEMA = pa.schema(
-    {
-        "team_id": pa.int64(),
-        "schema_id": pa.utf8(),
-        "payload_json": pa.utf8(),
-    }
+    cast(
+        "list[tuple[str, pa.DataType]]",
+        [
+            ("team_id", pa.int64()),
+            ("schema_id", pa.utf8()),
+            ("payload_json", pa.utf8()),
+        ],
+    )
 )
 
 
 class WebhookParquetWriter:
-    def __init__(self, compression: str = "zstd"):
+    def __init__(self, compression: Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"] = "zstd"):
         self._compression = compression
         self._s3 = get_s3_client()
         ensure_bucket()

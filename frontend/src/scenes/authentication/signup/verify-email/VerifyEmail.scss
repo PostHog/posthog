@@ -1,0 +1,36 @@
+@keyframes VerifyEmail__Progress {
+    from {
+        width: 0%;
+    }
+
+    to {
+        width: 100%;
+    }
+}
+
+.VerifyEmail__ProgressBar {
+    // Negative offsets cancel BridgePage__content's 2rem padding so the bar reaches
+    // the card's rounded bottom edge, while the wrapper's own `relative` positioning
+    // keeps the anchor under our control rather than relying on BridgePage internals.
+    position: absolute;
+    inset: auto -2rem -2rem;
+    height: 0.25rem;
+    overflow: hidden;
+    border-bottom-right-radius: var(--radius);
+    border-bottom-left-radius: var(--radius);
+}
+
+.VerifyEmail__ProgressBarTrack {
+    // Duration must match VERIFY_EMAIL_REDIRECT_DELAY_MS in verifyEmailLogic.ts.
+    width: 0%;
+    height: 100%;
+    background-color: var(--color-accent);
+    animation: VerifyEmail__Progress 2000ms linear forwards;
+}
+
+// In Storybook render the bar fully filled and un-animated so visual regression
+// snapshots are deterministic — real users always get the animation.
+.VerifyEmail__ProgressBarTrack--static {
+    width: 100%;
+    animation: none;
+}

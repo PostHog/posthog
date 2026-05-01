@@ -455,6 +455,8 @@ class VercelAuthentication(authentication.BaseAuthentication):
                 type=payload.get("type"),
             )
 
+        raise jwt.InvalidTokenError(f"Unknown auth type: {auth_type}")
+
     def _validate_user_claims(self, payload: dict[str, Any]) -> None:
         self._require_claims(payload, ["account_id", "installation_id", "user_id", "user_role"], "user")
 

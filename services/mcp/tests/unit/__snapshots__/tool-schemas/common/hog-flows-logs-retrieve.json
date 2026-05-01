@@ -1,0 +1,45 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "after": {
+            "description": "Only return entries after this ISO 8601 timestamp.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "before": {
+            "description": "Only return entries before this ISO 8601 timestamp.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        },
+        "instance_id": {
+            "description": "Filter logs to a specific execution instance.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "level": {
+            "description": "Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum number of log entries to return (1-500, default 50).",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "search": {
+            "description": "Case-insensitive substring search across log messages.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

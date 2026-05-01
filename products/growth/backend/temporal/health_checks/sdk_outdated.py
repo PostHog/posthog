@@ -13,11 +13,11 @@ from posthog.temporal.health_checks.query import execute_clickhouse_health_team_
 
 from products.growth.backend.constants import (
     SDK_CACHE_EXPIRY,
+    SDK_TYPES,
     SdkVersionEntry,
     github_sdk_versions_key,
     team_sdk_versions_key,
 )
-from products.growth.dags.github_sdk_versions import SDK_TYPES
 
 logger = structlog.get_logger(__name__)
 
@@ -82,7 +82,7 @@ class SdkOutdatedCheck(HealthCheck):
     name = "sdk_outdated"
     kind = "sdk_outdated"
     owner = JobOwners.TEAM_GROWTH
-    policy = HealthExecutionPolicy(batch_size=25, max_concurrent=1)
+    policy = HealthExecutionPolicy(batch_size=10, max_concurrent=3)
     schedule = "0 8 * * *"
     active_since_days = 30
 

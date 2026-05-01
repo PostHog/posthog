@@ -163,6 +163,49 @@ impl storage::CohortStorage for FailingStorage {
     ) -> storage::StorageResult<Vec<storage::CohortMembership>> {
         Err(self.error.clone())
     }
+
+    async fn count_cohort_members(
+        &self,
+        _cohort_ids: &[i64],
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        _cohort_id: i64,
+        _person_id: i64,
+    ) -> storage::StorageResult<bool> {
+        Err(self.error.clone())
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        _cohort_ids: &[i64],
+        _batch_size: i32,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        _cohort_id: i64,
+        _person_ids: &[i64],
+        _version: Option<i32>,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        _cohort_id: i64,
+        _cursor: i64,
+        _limit: i32,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<(Vec<i64>, Option<i64>)> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -371,6 +414,49 @@ impl storage::CohortStorage for SuccessStorage {
                 is_member: false,
             })
             .collect())
+    }
+
+    async fn count_cohort_members(
+        &self,
+        _cohort_ids: &[i64],
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        _cohort_id: i64,
+        _person_id: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        _cohort_ids: &[i64],
+        _batch_size: i32,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        _cohort_id: i64,
+        person_ids: &[i64],
+        _version: Option<i32>,
+    ) -> storage::StorageResult<i64> {
+        Ok(person_ids.len() as i64)
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        _cohort_id: i64,
+        _cursor: i64,
+        _limit: i32,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<(Vec<i64>, Option<i64>)> {
+        Ok((Vec::new(), None))
     }
 }
 
@@ -603,6 +689,51 @@ impl storage::CohortStorage for ConsistencyTrackingStorage {
                 is_member: false,
             })
             .collect())
+    }
+
+    async fn count_cohort_members(
+        &self,
+        _cohort_ids: &[i64],
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<i64> {
+        self.record(consistency);
+        Ok(0)
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        _cohort_id: i64,
+        _person_id: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        _cohort_ids: &[i64],
+        _batch_size: i32,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        _cohort_id: i64,
+        person_ids: &[i64],
+        _version: Option<i32>,
+    ) -> storage::StorageResult<i64> {
+        Ok(person_ids.len() as i64)
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        _cohort_id: i64,
+        _cursor: i64,
+        _limit: i32,
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<(Vec<i64>, Option<i64>)> {
+        self.record(consistency);
+        Ok((Vec::new(), None))
     }
 }
 

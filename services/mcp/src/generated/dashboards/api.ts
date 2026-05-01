@@ -48,10 +48,10 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -96,8 +96,6 @@ export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
-export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
-
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
@@ -108,10 +106,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -123,7 +121,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
         delete_insights: zod
             .boolean()
-            .default(dashboardsPartialUpdateBodyDeleteInsightsDefault)
+            .optional()
             .describe('When deleting, also delete insights that are only on this dashboard.'),
     })
     .describe('Serializer mixin that handles tags for objects.')

@@ -4,6 +4,7 @@ import re
 import math
 import time
 import collections
+import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
@@ -37,17 +38,25 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
+    PARTITIONED_TABLE_MAX_CHUNK_SIZE,
+    build_partition_query,
+    get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
+    get_partition_settings_for_partitioned_table as _get_partition_settings_for_partitioned_table,
+    get_partition_strategy,
+    is_partitioned_table as _is_partitioned_table,
+    is_supported_incremental_type_for_window,
+    iterate_date_windows,
+    iterate_partitions,
+    list_child_partitions,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
 SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-# Max rows per FETCH when reading a partitioned parent table. A partitioned
-# parent scan dispatches across every child partition; a large chunk size can
-# blow past the source's statement_timeout even when per-row payload is small.
-PARTITIONED_TABLE_MAX_CHUNK_SIZE = 10_000
+SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 
 # Statement timeout applied to the row-streaming connection so a slow FETCH
 # (large partitioned scan, cold cache, etc.) does not get killed by a short
@@ -77,6 +86,21 @@ class SSLRequiredError(Exception):
     """Raised when SSL/TLS is required but the database does not support it."""
 
     pass
+
+
+@dataclasses.dataclass(frozen=True)
+class PostgresDiscoveredSchema:
+    source_catalog: str | None
+    source_schema: str
+    source_table_name: str
+    columns: list[tuple[str, str, bool]]
+
+
+def _is_duckdb_connection(cursor: psycopg.Cursor) -> bool:
+    cursor.execute("SELECT version()")
+    row = cursor.fetchone()
+    version = str(row[0]) if row and row[0] is not None else ""
+    return "duckdb" in version.lower() or "duckgres" in version.lower()
 
 
 def _get_sslmode(require_ssl: bool) -> str:
@@ -182,6 +206,61 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
+def get_leading_index_columns(
+    conn: psycopg.Connection, schema: str, table_names: list[str]
+) -> dict[str, set[str]] | None:
+    """Return the set of columns that are the leading column of any index per table.
+
+    Used to surface a UI warning when a user picks an incremental field that isn't
+    indexed — those would force a full scan on every sync. Includes the primary key
+    (since PKs back an implicit index in Postgres). Excludes:
+
+    - `indkey[0] = 0`: the leading index entry is an expression (e.g. a functional
+      index on `lower(email)`), not a plain column — we can't tell whether it
+      accelerates `WHERE col >= …` so don't claim it does.
+    - `indisvalid = false`: the index isn't usable by the planner (failed
+      `CREATE INDEX CONCURRENTLY`, in-progress build) and won't accelerate any
+      query.
+    - `indpred IS NOT NULL`: partial indexes only accelerate queries whose
+      predicate the planner can prove implies the index predicate. Most partial
+      indexes in practice (`WHERE deleted_at IS NULL` and similar) don't apply
+      to the incremental sync's `WHERE col >= last_max`, so flagging the
+      leading column as indexed would suppress a warning the user genuinely
+      needs.
+
+    Returns None when discovery fails (e.g. permission issues on system catalogs)
+    so the caller can default to no warning rather than blowing away other
+    discovery results.
+    """
+    if not table_names:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.relname AS table_name,
+                       a.attname AS column_name
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = i.indkey[0]
+                WHERE i.indkey[0] <> 0
+                  AND i.indisvalid
+                  AND i.indpred IS NULL
+                  AND n.nspname = %s
+                  AND c.relname = ANY(%s)
+                """,
+                (schema, table_names),
+            )
+            result: dict[str, set[str]] = {}
+            for row in cur:
+                result.setdefault(row[0], set()).add(row[1])
+        return result
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index columns for Postgres schemas", exc_info=e)
+        return None
+
+
 def _normalize_function_names(function_names: list[Any]) -> list[str]:
     return sorted(
         {
@@ -208,16 +287,137 @@ def filter_postgres_incremental_fields(
     return results
 
 
+def _normalize_selected_schema(schema: str | None) -> str | None:
+    if not isinstance(schema, str):
+        return None
+
+    normalized = schema.strip()
+    return normalized or None
+
+
+def _get_display_table_name(schema_name: str, table_name: str, *, qualify_with_schema: bool) -> str:
+    return f"{schema_name}.{table_name}" if qualify_with_schema else table_name
+
+
+def _build_named_value_placeholders(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
+    placeholders: list[str] = []
+    params: dict[str, str] = {}
+
+    for index, value in enumerate(values):
+        key = f"{prefix}_{index}"
+        placeholders.append(f"%({key})s")
+        params[key] = value
+
+    return ", ".join(placeholders), params
+
+
+def _get_discovered_tables(
+    cursor: psycopg.Cursor, schema: str | None, names: list[str] | None = None
+) -> tuple[dict[str, tuple[str | None, str, str]], bool]:
+    selected_schema = _normalize_selected_schema(schema)
+    qualify_with_schema = selected_schema is None
+    is_duckdb = _is_duckdb_connection(cursor)
+
+    if is_duckdb:
+        cursor.execute("SELECT current_database()")
+        row = cursor.fetchone()
+        current_database = str(row[0]) if row and row[0] is not None else None
+
+        if selected_schema is not None:
+            cursor.execute(
+                """
+                SELECT table_catalog, table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_catalog = %(current_database)s
+                  AND table_schema = %(schema)s
+                ORDER BY table_schema, table_name
+                """,
+                {"current_database": current_database, "schema": selected_schema},
+            )
+        else:
+            system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
+                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+            )
+            cursor.execute(
+                f"""
+                SELECT table_catalog, table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_catalog = %(current_database)s
+                  AND table_schema NOT IN ({system_schema_placeholders})
+                ORDER BY table_schema, table_name
+                """,
+                {"current_database": current_database, **system_schema_params},
+            )
+
+        discovered_rows = cursor.fetchall()
+        all_tables = {
+            _get_display_table_name(schema_name, table_name, qualify_with_schema=qualify_with_schema): (
+                table_catalog,
+                schema_name,
+                table_name,
+            )
+            for table_catalog, schema_name, table_name in discovered_rows
+        }
+    else:
+        # pg_class covers all syncable relkinds: r/p (tables), v/m (views), f (foreign).
+        if selected_schema is not None:
+            cursor.execute(
+                """
+                SELECT n.nspname AS schema_name, c.relname AS table_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  AND n.nspname = %(schema)s
+                ORDER BY n.nspname, c.relname
+                """,
+                {"schema": selected_schema},
+            )
+        else:
+            system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
+                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+            )
+            cursor.execute(
+                f"""
+                SELECT n.nspname AS schema_name, c.relname AS table_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  AND n.nspname NOT IN ({system_schema_placeholders})
+                  AND n.nspname NOT LIKE 'pg_temp_%%'
+                  AND n.nspname NOT LIKE 'pg_toast_temp_%%'
+                ORDER BY n.nspname, c.relname
+                """,
+                system_schema_params,
+            )
+
+        discovered_rows = cursor.fetchall()
+        all_tables = {
+            _get_display_table_name(schema_name, table_name, qualify_with_schema=qualify_with_schema): (
+                None,
+                schema_name,
+                table_name,
+            )
+            for schema_name, table_name in discovered_rows
+        }
+
+    if names is None:
+        return all_tables, qualify_with_schema
+
+    return {name: all_tables[name] for name in names if name in all_tables}, qualify_with_schema
+
+
 def get_postgres_row_count(
     host: str,
     port: int,
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     require_ssl: bool = False,
     names: list[str] | None = None,
 ) -> dict[str, int]:
+    if _normalize_selected_schema(schema) is None and not names:
+        return {}
     try:
         with pg_connection(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -228,33 +428,17 @@ def get_postgres_row_count(
                         timeout=sql.Literal(1000 * 30)  # 30 secs
                     )
                 )
-
-                params: dict = {"schema": schema}
-                names_filter_tables = ""
-                names_filter_matviews = ""
-                if names:
-                    params["names"] = names
-                    names_filter_tables = "AND tablename = ANY(%(names)s)"
-                    names_filter_matviews = "AND matviewname = ANY(%(names)s)"
-
-                cursor.execute(
-                    f"""
-                    SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s {names_filter_tables}
-                    UNION ALL
-                    SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s {names_filter_matviews}
-                    """,
-                    params,
-                )
-                tables = cursor.fetchall()
-
-                if not tables:
+                discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+                if not discovered_tables:
                     return {}
 
                 counts = [
                     sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
-                        table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                        table_name=sql.Literal(display_name),
+                        schema=sql.Identifier(schema_name),
+                        table=sql.Identifier(table_name),
                     )
-                    for table in tables
+                    for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
                 ]
 
                 union_counts = sql.SQL(" UNION ALL ").join(counts)
@@ -270,55 +454,81 @@ def get_schemas(
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     port: int,
     require_ssl: bool = False,
     names: list[str] | None = None,
-) -> dict[str, list[tuple[str, str, bool]]]:
+) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
     with pg_connection(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
         with connection.cursor() as cursor:
-            params: dict = {"schema": schema}
-            names_filter = ""
-            names_filter_pg = ""
-            if names:
-                params["names"] = names
-                names_filter = "AND table_name = ANY(%(names)s)"
-                names_filter_pg = "AND c.relname = ANY(%(names)s)"
+            discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            source_schemas = sorted(
+                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+            )
+            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
             cursor.execute(
                 f"""
                 SELECT * FROM (
-                    SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
-                    WHERE table_schema = %(schema)s {names_filter}
+                    SELECT
+                        table_schema,
+                        table_name,
+                        column_name,
+                        data_type,
+                        is_nullable,
+                        ordinal_position
+                    FROM information_schema.columns
+                    WHERE table_schema IN ({schema_placeholders})
                     UNION ALL
                     SELECT
+                        n.nspname AS table_schema,
                         c.relname AS table_name,
                         a.attname AS column_name,
                         pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable
+                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                        a.attnum AS ordinal_position
                     FROM pg_class c
                     JOIN pg_namespace n ON c.relnamespace = n.oid
                     JOIN pg_attribute a ON a.attrelid = c.oid
-                    WHERE c.relkind = 'm'  -- materialized view
-                    AND n.nspname = %(schema)s
-                    AND a.attnum > 0
-                    AND NOT a.attisdropped
-                    {names_filter_pg}
+                    WHERE c.relkind = 'm'
+                      AND n.nspname IN ({schema_placeholders})
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped
                 ) t
-                ORDER BY table_name ASC""",
-                params,
+                ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
+                """,
+                schema_params,
             )
             result = cursor.fetchall()
 
-        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
-        for row in result:
-            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
+            columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
+            discovered_pairs_by_schema_and_table = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            for table_schema, table_name, column_name, data_type, is_nullable, _ordinal_position in result:
+                display_name = discovered_pairs_by_schema_and_table.get((table_schema, table_name))
+                if display_name is None:
+                    continue
 
-    return schema_list
+                columns_by_table[display_name].append((column_name, data_type, is_nullable == "YES"))
+
+            return {
+                display_name: PostgresDiscoveredSchema(
+                    source_catalog=source_catalog,
+                    source_schema=schema_name,
+                    source_table_name=table_name,
+                    columns=columns_by_table.get(display_name, []),
+                )
+                for display_name, (source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
 
 
 def get_primary_keys_for_schemas(
@@ -352,7 +562,7 @@ def get_foreign_keys(
     database: str,
     user: str,
     password: str,
-    schema: str,
+    schema: str | None,
     port: int,
     require_ssl: bool = False,
     names: list[str] | None = None,
@@ -363,41 +573,65 @@ def get_foreign_keys(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
         with connection.cursor() as cursor:
-            params: dict = {"schema": schema}
-            names_filter = ""
-            if names:
-                params["names"] = names
-                names_filter = "AND tc.table_name = ANY(%(names)s)"
+            discovered_tables, qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            source_schemas = sorted(
+                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+            )
+            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
 
             cursor.execute(
                 f"""
                 SELECT
+                    tc.table_schema AS source_schema_name,
                     tc.table_name AS table_name,
                     kcu.column_name AS column_name,
+                    ccu.table_schema AS target_schema_name,
                     ccu.table_name AS target_table_name,
                     ccu.column_name AS target_column_name
                 FROM information_schema.table_constraints AS tc
                 JOIN information_schema.key_column_usage AS kcu
                     ON tc.constraint_name = kcu.constraint_name
+                    AND tc.constraint_schema = kcu.constraint_schema
                     AND tc.table_schema = kcu.table_schema
                 JOIN information_schema.constraint_column_usage AS ccu
                     ON ccu.constraint_name = tc.constraint_name
-                    AND ccu.table_schema = tc.table_schema
+                    AND ccu.constraint_schema = tc.constraint_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema = %(schema)s
-                  AND ccu.table_schema = %(schema)s
-                  {names_filter}
-                ORDER BY tc.table_name, kcu.ordinal_position
+                  AND tc.table_schema IN ({schema_placeholders})
+                ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
                 """,
-                params,
+                schema_params,
             )
             result = cursor.fetchall()
 
-        foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
-        for table_name, column_name, target_table_name, target_column_name in result:
-            foreign_keys_by_table[table_name].append((column_name, target_table_name, target_column_name))
+            foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
+            discovered_pairs_by_schema_and_table = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            for (
+                source_schema_name,
+                table_name,
+                column_name,
+                target_schema_name,
+                target_table_name,
+                target_column_name,
+            ) in result:
+                display_name = discovered_pairs_by_schema_and_table.get((source_schema_name, table_name))
+                if display_name is None:
+                    continue
 
-    return foreign_keys_by_table
+                target_display_name = _get_display_table_name(
+                    target_schema_name,
+                    target_table_name,
+                    qualify_with_schema=qualify_with_schema or target_schema_name != source_schema_name,
+                )
+                foreign_keys_by_table[display_name].append((column_name, target_display_name, target_column_name))
+
+            return foreign_keys_by_table
 
 
 def get_connection_metadata(
@@ -420,6 +654,7 @@ def get_connection_metadata(
 
             function_source = "duckdb_functions" if is_duckdb else "pg_proc"
             available_functions: list[str] = []
+            available_table_functions: list[str] = []
 
             try:
                 if is_duckdb:
@@ -430,12 +665,29 @@ def get_connection_metadata(
             except Exception as error:
                 capture_exception(error)
 
+            try:
+                if is_duckdb:
+                    cursor.execute(
+                        "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
+                    )
+                else:
+                    # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
+                    # which is how Postgres exposes table functions in pg_proc.
+                    cursor.execute(
+                        "SELECT DISTINCT proname FROM pg_proc "
+                        "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
+                    )
+                available_table_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
+            except Exception as error:
+                capture_exception(error)
+
             return {
                 "database": current_database,
                 "version": version,
                 "engine": "duckdb" if is_duckdb else "postgres",
                 "function_source": function_source,
                 "available_functions": available_functions,
+                "available_table_functions": available_table_functions,
             }
 
 
@@ -516,6 +768,8 @@ def _build_query(
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
     add_sampling: Optional[bool] = False,
+    *,
+    upper_bound_inclusive: Optional[Any] = None,
 ) -> sql.Composed:
     if not should_use_incremental_field:
         if add_sampling:
@@ -568,9 +822,16 @@ def _build_query(
     if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
-    else:
-        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+
+    if upper_bound_inclusive is not None:
+        query = sql.SQL("{inner} AND {field} <= {upper}").format(
+            inner=query,
+            field=sql.Identifier(incremental_field),
+            upper=sql.Literal(upper_bound_inclusive),
+        )
+
+    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _build_count_query(
@@ -601,102 +862,6 @@ def _build_count_query(
     )
 
 
-def _is_partitioned_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> bool:
-    """Check if a table is a partitioned (parent) table via pg_partitioned_table."""
-    cursor.execute(
-        """
-        SELECT EXISTS (
-            SELECT 1
-            FROM pg_partitioned_table pt
-            JOIN pg_class c ON c.oid = pt.partrelid
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = %(schema)s AND c.relname = %(table)s
-        )
-        """,
-        {"schema": schema, "table": table_name},
-    )
-    row = cursor.fetchone()
-    return bool(row and row[0])
-
-
-def _get_estimated_row_count_for_partitioned_table(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
-) -> int | None:
-    """Get approximate row count for a partitioned table by summing stats across child partitions.
-
-    Tries two sources in order:
-    1. pg_class.reltuples — accurate after ANALYZE, but 0 if ANALYZE never ran.
-    2. pg_stat_user_tables.n_live_tup — maintained incrementally by the stats
-       collector (tracks inserts/deletes in near-real-time), works even without ANALYZE.
-
-    Returns None if neither source has data (no child partitions found), so the
-    caller can fall back to an exact COUNT(*).
-    """
-    # pg_class.reltuples = -1 means the partition has never been ANALYZEd.
-    # Summing a mix of analyzed (>=0) and unanalyzed (-1) partitions produces
-    # an under-count, so we track unanalyzed partitions separately and only
-    # trust reltuples_sum when every partition has been analyzed.
-    cursor.execute(
-        """
-        SELECT
-            COALESCE(SUM(CASE WHEN c.reltuples >= 0 THEN c.reltuples ELSE 0 END), 0)::bigint,
-            COALESCE(SUM(CASE WHEN c.reltuples < 0 THEN 1 ELSE 0 END), 0)::bigint,
-            COALESCE(SUM(s.n_live_tup), 0)::bigint,
-            COUNT(*)::bigint
-        FROM pg_inherits i
-        JOIN pg_class c ON c.oid = i.inhrelid
-        LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
-        WHERE i.inhparent = (
-            SELECT c2.oid
-            FROM pg_class c2
-            JOIN pg_namespace n ON n.oid = c2.relnamespace
-            WHERE n.nspname = %(schema)s AND c2.relname = %(table)s
-        )
-        """,
-        {"schema": schema, "table": table_name},
-    )
-    row = cursor.fetchone()
-
-    if row is None:
-        logger.debug("_get_estimated_row_count_for_partitioned_table: no result, returning None")
-        return None
-
-    reltuples_sum, unanalyzed_count, n_live_tup_sum, partition_count = (
-        int(row[0]),
-        int(row[1]),
-        int(row[2]),
-        int(row[3]),
-    )
-
-    if partition_count == 0:
-        logger.debug("_get_estimated_row_count_for_partitioned_table: no child partitions, returning None")
-        return None
-
-    # reltuples is most accurate (set by ANALYZE), but only trustworthy when
-    # every partition has been analyzed — otherwise the sum under-counts.
-    if unanalyzed_count == 0 and reltuples_sum > 0:
-        logger.debug(f"_get_estimated_row_count_for_partitioned_table: reltuples estimate = {reltuples_sum}")
-        return reltuples_sum
-
-    # reltuples unreliable (unanalyzed partitions present) — fall back to
-    # stats collector count, which is maintained incrementally.
-    if n_live_tup_sum > 0:
-        logger.debug(
-            f"_get_estimated_row_count_for_partitioned_table: reltuples unreliable "
-            f"(unanalyzed_partitions={unanalyzed_count}/{partition_count}), "
-            f"n_live_tup estimate = {n_live_tup_sum}"
-        )
-        return n_live_tup_sum
-
-    # Both sources unreliable — caller will fall back to exact COUNT(*).
-    logger.debug(
-        f"_get_estimated_row_count_for_partitioned_table: no reliable estimate "
-        f"(reltuples={reltuples_sum}, unanalyzed={unanalyzed_count}/{partition_count}, "
-        f"n_live_tup={n_live_tup_sum}), returning None"
-    )
-    return None
-
-
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
@@ -718,23 +883,25 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
 def _get_primary_keys(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> list[str] | None:
-    info_schema_query = sql.SQL("""
-        SELECT
-            kcu.column_name
-        FROM
-            information_schema.table_constraints tc
-        JOIN
-            information_schema.key_column_usage kcu
-            ON tc.constraint_name = kcu.constraint_name
-            AND tc.table_schema = kcu.table_schema
-        WHERE
-            tc.table_schema = {schema}
-            AND tc.table_name = {table}
-            AND tc.constraint_type = 'PRIMARY KEY'""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    # Uses pg_catalog rather than information_schema because information_schema views
+    # are ACL-filtered — a user with only SELECT grants may not see PK constraint rows
+    # depending on PostgreSQL version, which silently returned no primary key at sync
+    # time even though discovery (which already uses pg_catalog) found one.
+    pg_catalog_query = sql.SQL("""
+        SELECT a.attname AS column_name
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+        WHERE i.indisprimary
+          AND n.nspname = {schema}
+          AND c.relname = {table}
+        ORDER BY array_position(i.indkey, a.attnum)
+    """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
-    _explain_query(cursor, info_schema_query, logger)
-    logger.debug(f"Running query: {info_schema_query.as_string()}")
-    cursor.execute(info_schema_query)
+    _explain_query(cursor, pg_catalog_query, logger)
+    logger.debug(f"Running query: {pg_catalog_query.as_string()}")
+    cursor.execute(pg_catalog_query)
     rows = cursor.fetchall()
     if len(rows) > 0:
         return [row[0] for row in rows]
@@ -801,7 +968,7 @@ def _get_primary_keys(
         return None
 
     logger.warning(
-        f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
+        f"No primary keys found for {table_name}. If the table is not a view, does the table have a primary key set?"
     )
 
     return None
@@ -953,63 +1120,6 @@ def _get_partition_settings(
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
     logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
-    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
-
-
-def _get_partition_settings_for_partitioned_table(
-    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
-) -> PartitionSettings | None:
-    """Compute PartitionSettings for a partitioned table via catalog stats.
-
-    Summing pg_table_size and reltuples across child partitions avoids the
-    full-table scan that COUNT(*) + pg_table_size on the parent would incur.
-    Returns None if catalog stats are unreliable (any partition unanalyzed),
-    letting the caller skip partitioning rather than use bad numbers.
-    """
-    cursor.execute(
-        """
-        SELECT
-            COALESCE(SUM(pg_table_size(c.oid)), 0)::bigint,
-            COALESCE(SUM(CASE WHEN c.reltuples >= 0 THEN c.reltuples ELSE 0 END), 0)::bigint,
-            COALESCE(SUM(CASE WHEN c.reltuples < 0 THEN 1 ELSE 0 END), 0)::bigint,
-            COUNT(*)::bigint
-        FROM pg_inherits i
-        JOIN pg_class c ON c.oid = i.inhrelid
-        WHERE i.inhparent = (
-            SELECT c2.oid
-            FROM pg_class c2
-            JOIN pg_namespace n ON n.oid = c2.relnamespace
-            WHERE n.nspname = %(schema)s AND c2.relname = %(table)s
-        )
-        """,
-        {"schema": schema, "table": table_name},
-    )
-    row = cursor.fetchone()
-    if row is None:
-        return None
-
-    total_size, total_rows, unanalyzed_count, partition_count_children = (
-        int(row[0]),
-        int(row[1]),
-        int(row[2]),
-        int(row[3]),
-    )
-
-    if partition_count_children == 0 or total_size == 0 or total_rows == 0 or unanalyzed_count > 0:
-        logger.debug(
-            f"_get_partition_settings_for_partitioned_table: no reliable estimate "
-            f"(children={partition_count_children}, size={total_size}, rows={total_rows}, "
-            f"unanalyzed={unanalyzed_count}), returning None"
-        )
-        return None
-
-    avg_row_size = total_size / total_rows
-    partition_size = round(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES / avg_row_size)
-    partition_count = max(1, math.floor(total_rows / partition_size))
-    logger.debug(
-        f"_get_partition_settings_for_partitioned_table: partition_count={partition_count}, "
-        f"partition_size={partition_size} (total_rows={total_rows}, total_size={total_size})"
-    )
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
@@ -1369,7 +1479,6 @@ def postgres_source(
                 sslrootcert="/tmp/no.txt",
                 sslcert="/tmp/no.txt",
                 sslkey="/tmp/no.txt",
-                options=f"-c statement_timeout={SYNC_STATEMENT_TIMEOUT_MS}",
             )
         except psycopg.OperationalError as e:
             if require_ssl and "SSL" in str(e):
@@ -1432,8 +1541,11 @@ def postgres_source(
                         logger.debug(f"Found primary keys: {primary_keys}")
                     logger.debug("Checking if table is partitioned...")
                     is_partitioned = False
+                    child_partitions: list = []
                     try:
                         is_partitioned = _is_partitioned_table(cursor, schema, table_name)
+                        if is_partitioned:
+                            child_partitions = list_child_partitions(cursor, schema, table_name)
                     except Exception as e:
                         logger.debug(f"Partition detection failed: {e}")
                     logger.debug("Getting table chunk size...")
@@ -1480,6 +1592,40 @@ def postgres_source(
                         if should_use_incremental_field
                         else None
                     )
+
+                    # Bounded date/numeric window chunking for partitioned parents keeps
+                    # each query small so statement_timeout stays comfortable and partition
+                    # pruning can drop empty partitions server-side. Non-partitioned tables
+                    # continue through the legacy single-cursor path below.
+                    use_window_chunking = (
+                        is_partitioned
+                        and should_use_incremental_field
+                        and is_supported_incremental_type_for_window(incremental_field_type)
+                    )
+                    # When the parent is range-partitioned on the incremental field, we can
+                    # query each child relation directly instead of routing through the parent
+                    # and forcing the planner to Append + sort across all children. One cursor
+                    # per child = no cross-partition merge sort, trivial pruning, and child-sized
+                    # query plans that fit comfortably under statement_timeout.
+                    use_per_partition_chunking = False
+                    if use_window_chunking and child_partitions:
+                        try:
+                            partition_strategy = get_partition_strategy(cursor, schema, table_name)
+                        except Exception as e:
+                            partition_strategy = None
+                            logger.debug(f"Partition strategy detection failed: {e}")
+                        use_per_partition_chunking = (
+                            partition_strategy is not None
+                            and partition_strategy.strategy == "r"
+                            and incremental_field is not None
+                            and incremental_field in partition_strategy.key_columns
+                        )
+                    logger.debug(
+                        f"Postgres read strategy: use_window_chunking={use_window_chunking}, "
+                        f"use_per_partition_chunking={use_per_partition_chunking}, "
+                        f"child_partitions={len(child_partitions)}"
+                    )
+
                     has_duplicate_primary_keys = False
 
                     # Fallback on checking for an `id` field on the table
@@ -1518,7 +1664,6 @@ def postgres_source(
                         sslcert="/tmp/no.txt",
                         sslkey="/tmp/no.txt",
                         cursor_factory=cursor_factory,
-                        options=f"-c statement_timeout={SYNC_STATEMENT_TIMEOUT_MS}",
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):
@@ -1536,13 +1681,19 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
-                # Use psycopg.Cursor directly to bypass cursor_factory (which may be ServerCursor
-                # and requires a `name` arg).
-                with psycopg.Cursor(connection) as check_cursor:
-                    check_cursor.execute("SHOW statement_timeout")
-                    row = check_cursor.fetchone()
-                    timeout_val = str(row[0]) if row else "unknown"  # type: ignore[index]
-                    logger.info(f"Effective statement_timeout on sync connection: {timeout_val}")
+                # Bump statement_timeout for the streaming connection. A server
+                # cursor FETCH inherits the session statement_timeout, and on
+                # wide/partitioned scans the source's default (often 30-60s)
+                # kills the fetch before rows come back.
+                try:
+                    with connection.cursor() as setup_cursor:
+                        setup_cursor.execute(
+                            sql.SQL("SET statement_timeout = {timeout}").format(
+                                timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
+                            )
+                        )
+                except Exception as e:
+                    logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):
@@ -1621,6 +1772,63 @@ def postgres_source(
 
                 if connection.closed is False:
                     connection.__exit__(None, None, None)
+
+            if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
+
+                def _build_per_partition_query(child_schema: str, child_name: str) -> sql.Composed:
+                    return build_partition_query(
+                        child_schema,
+                        child_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+
+                yield from iterate_partitions(
+                    get_connection=get_connection,
+                    build_partition_query=_build_per_partition_query,
+                    schema=schema,
+                    table_name=table_name,
+                    child_partitions=child_partitions,
+                    chunk_size=chunk_size,
+                    arrow_schema=arrow_schema,
+                    logger=logger,
+                    incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                )
+                return
+
+            if use_window_chunking and incremental_field is not None and incremental_field_type is not None:
+
+                def _build_windowed_query(lo: Any, hi: Any) -> sql.Composed:
+                    return _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        table.type,
+                        incremental_field,
+                        incremental_field_type,
+                        lo,
+                        upper_bound_inclusive=hi,
+                    )
+
+                yield from iterate_date_windows(
+                    get_connection=get_connection,
+                    build_windowed_query=_build_windowed_query,
+                    schema=schema,
+                    table_name=table_name,
+                    incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    child_partitions=child_partitions,
+                    chunk_size=chunk_size,
+                    arrow_schema=arrow_schema,
+                    logger=logger,
+                    using_read_replica=using_read_replica,
+                )
+                return
 
             offset = 0
             try:

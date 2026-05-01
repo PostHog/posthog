@@ -1,3 +1,5 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -23,6 +25,7 @@ class JsSnippetVersionSerializer(serializers.Serializer):
 class JsSnippetViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["GET"], detail=False, url_path="resolve")
     def resolve(self, request: Request, *args, **kwargs):
         """Preview what a given pin would resolve to, without saving it."""
@@ -41,6 +44,7 @@ class JsSnippetViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         return Response({"resolved": resolved})
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["GET"], detail=False, url_path="version")
     def get_version(self, request: Request, *args, **kwargs):
         """Return the team's current version pin and resolved version."""
@@ -53,6 +57,7 @@ class JsSnippetViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             }
         )
 
+    @extend_schema(request=JsSnippetVersionSerializer, responses={200: OpenApiTypes.OBJECT})
     @get_version.mapping.patch
     def update_version(self, request: Request, *args, **kwargs):
         """Update the team's version pin."""

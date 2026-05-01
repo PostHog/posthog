@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 from django.conf import settings
@@ -18,6 +19,7 @@ from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
     LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
+    LLMPromptGetByNameQuerySerializer,
     LLMPromptListQuerySerializer,
     LLMPromptListSerializer,
     LLMPromptPublicSerializer,
@@ -52,6 +54,7 @@ from posthog.auth import (
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import LLMPrompt, User
+from posthog.models.llm_prompt import get_prompt_outline
 from posthog.permissions import AccessControlPermission, get_organization_from_view
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -165,10 +168,26 @@ class LLMPromptViewSet(
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
+    def _get_get_by_name_params(self, request: Request) -> dict[str, Any]:
+        serializer = LLMPromptGetByNameQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
     def _get_resolve_query_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMPromptResolveQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
+
+    def _apply_content_mode(self, prompt: dict[str, Any], content_mode: str) -> dict[str, Any]:
+        prompt = dict(prompt)
+        prompt["outline"] = get_prompt_outline(prompt.get("prompt"))
+        if content_mode == "none":
+            prompt.pop("prompt", None)
+        elif content_mode == "preview":
+            original = prompt.pop("prompt", "")
+            display_value = original if isinstance(original, str) else json.dumps(original, ensure_ascii=False)
+            prompt["prompt_preview"] = display_value[:160] + ("..." if len(display_value) > 160 else "")
+        return prompt
 
     def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
         if not settings.TEST:
@@ -208,17 +227,23 @@ class LLMPromptViewSet(
         return serializer.validated_data
 
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMPrompt]:
+        params = self._get_list_params(request)
+
         queryset = get_latest_prompts_queryset(self.team).annotate(
             prompt_size_bytes=Func(
                 Cast("prompt", output_field=TextField()), function="OCTET_LENGTH", output_field=IntegerField()
             ),
         )
 
-        search = request.query_params.get("search", "").strip()
+        search = params.get("search", "").strip()
         if search:
             queryset = queryset.annotate(prompt_text=Cast("prompt", output_field=TextField())).filter(
                 Q(name__icontains=search) | Q(prompt_text__icontains=search)
             )
+
+        created_by_id = params.get("created_by_id")
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
@@ -251,21 +276,22 @@ class LLMPromptViewSet(
         )
 
     @extend_schema(
-        parameters=[LLMPromptFetchQuerySerializer],
+        parameters=[LLMPromptGetByNameQuerySerializer],
         responses={200: LLMPromptPublicSerializer},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<prompt_name>[^/]+)")
     @llma_track_latency("llma_prompts_get_by_name")
     @monitor(feature=None, endpoint="llma_prompts_get_by_name", method="GET")
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        version_params = self._get_requested_version_params(request)
-        version = cast(int | None, version_params.get("version"))
+        query_params = self._get_get_by_name_params(request)
+        version = cast(int | None, query_params.get("version"))
+        content_mode = cast(str, query_params.get("content", "full"))
         prompt = get_prompt_by_name_from_cache(self.team, prompt_name, version)
         if prompt is None:
             return self._prompt_not_found_response(prompt_name)
 
         self._track_prompt_fetch(prompt)
-        return Response(prompt)
+        return Response(self._apply_content_mode(prompt, content_mode))
 
     @extend_schema(request=LLMPromptPublishSerializer, responses={200: LLMPromptSerializer})
     @get_by_name.mapping.patch

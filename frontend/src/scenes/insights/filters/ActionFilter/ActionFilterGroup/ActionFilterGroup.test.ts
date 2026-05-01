@@ -462,6 +462,83 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
         })
     })
 
+    describe('group custom_name handling', () => {
+        it('splitting a group with custom_name does not leak custom_name to children', () => {
+            const groupFilter = {
+                id: null,
+                type: EntityTypes.GROUPS,
+                name: '$pageview, $exception',
+                custom_name: 'My conversion events',
+                order: 0,
+                operator: FilterLogicalOperator.Or,
+                uuid: 'group-uuid',
+                nestedFilters: [
+                    { id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0, uuid: 'uuid-1' },
+                    { id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 1, uuid: 'uuid-2' },
+                ],
+            }
+
+            const split = splitGroupFilterToLocalFilters(groupFilter, 0)
+
+            expect(split).toHaveLength(2)
+            expect(split[0].custom_name).toBeUndefined()
+            expect(split[1].custom_name).toBeUndefined()
+        })
+
+        it('combining a filter into a group does not carry custom_name from the child', () => {
+            const eventFilter = {
+                id: '$pageview',
+                type: EntityTypes.EVENTS,
+                name: '$pageview',
+                custom_name: 'My renamed event',
+                order: 0,
+                uuid: 'uuid-1',
+            }
+
+            const groupFilter = singleFilterToGroupFilter(eventFilter)
+
+            expect(groupFilter.custom_name).toBeUndefined()
+            expect(groupFilter.type).toBe(EntityTypes.GROUPS)
+            // the child retains its custom_name
+            expect(groupFilter.nestedFilters![0].custom_name).toBe('My renamed event')
+        })
+
+        it('preserves custom_name through rename via entityFilterLogic', async () => {
+            let uuidCounter = 0
+            ;(libUtils as any).uuid = jest.fn(() => `uuid-${uuidCounter++}`)
+
+            const logic = entityFilterLogic({
+                setFilters: jest.fn(),
+                filters: {
+                    groups: [
+                        {
+                            id: null,
+                            type: EntityTypes.GROUPS,
+                            name: '$pageview',
+                            order: 0,
+                            operator: FilterLogicalOperator.Or,
+                            nestedFilters: [{ id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 }],
+                        },
+                    ],
+                } as FilterType,
+                typeKey: 'rename_group_test',
+            })
+            logic.mount()
+
+            const groupFilter = logic.values.localFilters[0]
+            logic.actions.selectFilter(groupFilter)
+
+            await expectLogic(logic, () => {
+                logic.actions.renameFilter('Revenue events')
+            }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
+
+            expect(logic.values.localFilters[0].custom_name).toBe('Revenue events')
+            expect(logic.values.localFilters[0].type).toBe(EntityTypes.GROUPS)
+
+            logic.unmount()
+        })
+    })
+
     describe('toLocalFilters with groups', () => {
         it('includes group filters in local filters', () => {
             const filterType = {

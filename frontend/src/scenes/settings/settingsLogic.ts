@@ -92,7 +92,7 @@ export const settingsLogic = kea<settingsLogicType>([
             teamLogic,
             ['currentTeam'],
             organizationLogic,
-            ['currentOrganization'],
+            ['currentOrganization', 'isAdminOrOwner'],
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
@@ -255,6 +255,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.organizationIntegrations,
                 s.preflight,
                 s.canAccessBilling,
+                s.isAdminOrOwner,
             ],
             (
                 doesMatchFlags,
@@ -263,7 +264,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 currentOrganization,
                 organizationIntegrations,
                 preflight,
-                canAccessBilling
+                canAccessBilling,
+                isAdminOrOwner
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -288,7 +290,12 @@ export const settingsLogic = kea<settingsLogicType>([
                     ) {
                         return false
                     }
+
+                    // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
                     if (section.id === 'organization-billing' && !canAccessBilling) {
+                        return false
+                    }
+                    if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
                         return false
                     }
 

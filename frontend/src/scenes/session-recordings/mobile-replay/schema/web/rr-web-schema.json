@@ -492,6 +492,12 @@
                             },
                             "type": "array"
                         },
+                        "displayHeight": {
+                            "type": "number"
+                        },
+                        "displayWidth": {
+                            "type": "number"
+                        },
                         "id": {
                             "type": "number"
                         },
@@ -511,6 +517,12 @@
                         "args": {
                             "items": {},
                             "type": "array"
+                        },
+                        "displayHeight": {
+                            "type": "number"
+                        },
+                        "displayWidth": {
+                            "type": "number"
                         },
                         "id": {
                             "type": "number"

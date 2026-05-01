@@ -204,6 +204,28 @@ describe('traceloop middleware', () => {
             expect(event.properties!['llm.usage.total_tokens']).toBeUndefined()
             expect(event.properties!['llm.response.finish_reason']).toBeUndefined()
             expect(event.properties!['llm.response.stop_reason']).toBeUndefined()
+            // stop_reason takes priority over finish_reason
+            expect(event.properties!['$ai_stop_reason']).toBe('end_turn')
+        })
+
+        it('maps finish_reason to $ai_stop_reason when stop_reason is absent', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.response.finish_reason': 'stop',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['llm.response.finish_reason']).toBeUndefined()
+            expect(event.properties!['$ai_stop_reason']).toBe('stop')
+        })
+
+        it('leaves $ai_stop_reason undefined when neither reason is present', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_stop_reason']).toBeUndefined()
         })
     })
 })

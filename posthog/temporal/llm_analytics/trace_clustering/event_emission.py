@@ -8,7 +8,7 @@ This module contains functions for emitting clustering results to ClickHouse:
 
 import uuid
 import dataclasses
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from django.utils.dateparse import parse_datetime
 
@@ -132,7 +132,7 @@ def emit_cluster_events(
     # Build and emit event
     event_uuid = uuid.uuid4()
 
-    properties = {
+    properties: dict[str, Any] = {
         "$ai_clustering_run_id": clustering_run_id,
         "$ai_clustering_level": analysis_level,
         "$ai_clustering_job_id": job_id,

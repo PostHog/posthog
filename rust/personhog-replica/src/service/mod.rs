@@ -11,6 +11,8 @@ use std::sync::Arc;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
+    CountCohortMembersRequest, CountCohortMembersResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
     DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
     DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
@@ -24,10 +26,11 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingsBatchResponse,
     GroupTypeMappingsByKey, GroupTypeMappingsResponse, GroupWithKey, GroupsResponse,
-    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext, PersonDistinctIds,
-    PersonWithDistinctIds, PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, TeamDistinctId, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    HashKeyOverride, HashKeyOverrideContext as ProtoHashKeyOverrideContext,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, PersonDistinctIds, PersonWithDistinctIds,
+    PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, TeamDistinctId, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -470,6 +473,127 @@ impl PersonHogReplica for PersonHogReplicaService {
                     is_member: m.is_member,
                 })
                 .collect(),
+        }))
+    }
+
+    async fn count_cohort_members(
+        &self,
+        request: Request<CountCohortMembersRequest>,
+    ) -> Result<Response<CountCohortMembersResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.cohort_ids.is_empty() {
+            return Ok(Response::new(CountCohortMembersResponse { count: 0 }));
+        }
+
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let count = self
+            .storage
+            .count_cohort_members(&req.cohort_ids, consistency)
+            .await
+            .map_err(|e| log_and_convert_error(e, "count_cohort_members"))?;
+
+        Ok(Response::new(CountCohortMembersResponse { count }))
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        request: Request<DeleteCohortMemberRequest>,
+    ) -> Result<Response<DeleteCohortMemberResponse>, Status> {
+        let req = request.into_inner();
+
+        let deleted = self
+            .storage
+            .delete_cohort_member(req.cohort_id, req.person_id)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_cohort_member"))?;
+
+        Ok(Response::new(DeleteCohortMemberResponse { deleted }))
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        request: Request<DeleteCohortMembersBulkRequest>,
+    ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.cohort_ids.is_empty() {
+            return Ok(Response::new(DeleteCohortMembersBulkResponse {
+                deleted_count: 0,
+            }));
+        }
+
+        if req.batch_size <= 0 || req.batch_size > 10000 {
+            return Err(Status::invalid_argument(
+                "batch_size must be between 1 and 10000",
+            ));
+        }
+
+        let batch_size = req.batch_size;
+
+        let deleted_count = self
+            .storage
+            .delete_cohort_members_bulk(&req.cohort_ids, batch_size)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_cohort_members_bulk"))?;
+
+        Ok(Response::new(DeleteCohortMembersBulkResponse {
+            deleted_count,
+        }))
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        request: Request<InsertCohortMembersRequest>,
+    ) -> Result<Response<InsertCohortMembersResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_ids.len() > 10000 {
+            return Err(Status::invalid_argument(
+                "Maximum 10000 person IDs per request",
+            ));
+        }
+
+        if req.person_ids.is_empty() {
+            return Ok(Response::new(InsertCohortMembersResponse {
+                inserted_count: 0,
+            }));
+        }
+
+        let inserted_count = self
+            .storage
+            .insert_cohort_members(req.cohort_id, &req.person_ids, req.version)
+            .await
+            .map_err(|e| log_and_convert_error(e, "insert_cohort_members"))?;
+
+        Ok(Response::new(InsertCohortMembersResponse {
+            inserted_count,
+        }))
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        request: Request<ListCohortMemberIdsRequest>,
+    ) -> Result<Response<ListCohortMemberIdsResponse>, Status> {
+        let req = request.into_inner();
+        let consistency = to_storage_consistency(&req.read_options);
+
+        let limit = if req.limit <= 0 || req.limit > 10000 {
+            10000
+        } else {
+            req.limit
+        };
+
+        let (person_ids, next_cursor) = self
+            .storage
+            .list_cohort_member_ids(req.cohort_id, req.cursor, limit, consistency)
+            .await
+            .map_err(|e| log_and_convert_error(e, "list_cohort_member_ids"))?;
+
+        Ok(Response::new(ListCohortMemberIdsResponse {
+            person_ids,
+            next_cursor: next_cursor.unwrap_or(0),
         }))
     }
 

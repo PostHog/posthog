@@ -194,9 +194,10 @@ export interface PaginatedChangeRequestListApi {
     results: ChangeRequestApi[]
 }
 
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
-export const MembershipLevelEnumApi = {
+export const EffectiveMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -245,7 +246,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -319,7 +320,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: MembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -373,10 +374,10 @@ export interface PatchedOrganizationApi {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const OrganizationMembershipLevelApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -385,11 +386,7 @@ export const OrganizationMembershipLevelApi = {
 export interface OrganizationMemberApi {
     readonly id: string
     readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at: string
     readonly updated_at: string
     readonly is_2fa_enabled: boolean
@@ -409,11 +406,7 @@ export interface PaginatedOrganizationMemberListApi {
 export interface PatchedOrganizationMemberApi {
     readonly id?: string
     readonly user?: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     readonly joined_at?: string
     readonly updated_at?: string
     readonly is_2fa_enabled?: boolean
@@ -473,6 +466,72 @@ export interface PaginatedRoleMembershipListApi {
     /** @nullable */
     previous?: string | null
     results: RoleMembershipApi[]
+}
+
+export interface _WelcomeInviterApi {
+    name: string
+    email: string
+}
+
+/**
+ * * `today` - today
+ * `this_week` - this_week
+ * `inactive` - inactive
+ * `never` - never
+ */
+export type LastActiveEnumApi = (typeof LastActiveEnumApi)[keyof typeof LastActiveEnumApi]
+
+export const LastActiveEnumApi = {
+    Today: 'today',
+    ThisWeek: 'this_week',
+    Inactive: 'inactive',
+    Never: 'never',
+} as const
+
+export interface _WelcomeTeamMemberApi {
+    name: string
+    email: string
+    /** @nullable */
+    avatar: string | null
+    role: string
+    last_active: LastActiveEnumApi
+}
+
+export interface _WelcomeRecentActivityApi {
+    /** Scope.activity pair, e.g. 'Insight.created'. */
+    type: string
+    actor_name: string
+    entity_name: string
+    /** @nullable */
+    entity_url: string | null
+    timestamp: string
+}
+
+export interface _WelcomePopularDashboardApi {
+    id: number
+    name: string
+    description: string
+    team_id: number
+    url: string
+}
+
+export interface _WelcomeSuggestedStepApi {
+    label: string
+    href: string
+    reason: string
+    docs_href?: string
+    product_key?: string
+}
+
+export interface WelcomeResponseApi {
+    organization_name: string
+    inviter: _WelcomeInviterApi | null
+    team_members: _WelcomeTeamMemberApi[]
+    recent_activity: _WelcomeRecentActivityApi[]
+    popular_dashboards: _WelcomePopularDashboardApi[]
+    products_in_use: string[]
+    suggested_next_steps: _WelcomeSuggestedStepApi[]
+    is_organization_first_user: boolean
 }
 
 export interface ActivityLogApi {
@@ -600,6 +659,54 @@ export interface PatchedCommentApi {
     source_comment?: string | null
 }
 
+export interface PinnedSceneTabApi {
+    /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
+    id?: string
+    /** URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination. */
+    pathname?: string
+    /** Query string portion of the URL, including the leading `?`. Empty string when there is no query. */
+    search?: string
+    /** Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment. */
+    hash?: string
+    /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
+    title?: string
+    /**
+     * Optional user-provided title that overrides `title` in the navigation UI.
+     * @nullable
+     */
+    customTitle?: string | null
+    /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
+    iconType?: string
+    /**
+     * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+     * @nullable
+     */
+    sceneId?: string | null
+    /**
+     * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+     * @nullable
+     */
+    sceneKey?: string | null
+    /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
+    sceneParams?: unknown
+    /** Whether this entry is pinned. Always coerced to true on save — pass true or omit. */
+    pinned?: boolean
+}
+
+export interface PinnedSceneTabsApi {
+    /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
+    tabs?: PinnedSceneTabApi[]
+    /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
+    homepage?: PinnedSceneTabApi | null
+}
+
+export interface PatchedPinnedSceneTabsApi {
+    /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
+    tabs?: PinnedSceneTabApi[]
+    /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
+    homepage?: PinnedSceneTabApi | null
+}
+
 export type ApprovalPoliciesListParams = {
     /**
      * Number of results to return per page.
@@ -650,6 +757,10 @@ export type MembersListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort order. Defaults to `-joined_at`.
+     */
+    order?: string
 }
 
 export type RolesListParams = {
@@ -722,6 +833,7 @@ export type ActivityLogListParams = {
 * `Project` - Project
 * `ErrorTrackingIssue` - ErrorTrackingIssue
 * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+* `LegalDocument` - LegalDocument
 * `Organization` - Organization
 * `OrganizationDomain` - OrganizationDomain
 * `OrganizationMembership` - OrganizationMembership
@@ -794,6 +906,7 @@ export const ActivityLogListScope = {
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
     OrganizationMembership: 'OrganizationMembership',
@@ -853,6 +966,7 @@ export const ActivityLogListScope = {
  * `Project` - Project
  * `ErrorTrackingIssue` - ErrorTrackingIssue
  * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+ * `LegalDocument` - LegalDocument
  * `Organization` - Organization
  * `OrganizationDomain` - OrganizationDomain
  * `OrganizationMembership` - OrganizationMembership
@@ -913,6 +1027,7 @@ export const ActivityLogListScopesItem = {
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+    LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
     OrganizationMembership: 'OrganizationMembership',

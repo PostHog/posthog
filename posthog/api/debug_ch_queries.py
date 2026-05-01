@@ -1,6 +1,5 @@
 import re
 import json
-import time
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Optional
@@ -14,14 +13,14 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-from posthog.utils import generate_short_id
 
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -287,6 +286,46 @@ class DebugCHQueries(viewsets.ViewSet):
 
         return Response(self._serialize_precomputation_team(team, enabled))
 
+    # Team ID for PostHog's own project, which has data warehouse billing tables
+    _POSTHOG_INTERNAL_TEAM_ID = 2
+
+    def _fetch_org_mrr(self, org_ids: set[str]) -> dict[str, int]:
+        """Fetch current confirmed MRR per organization from data warehouse billing tables.
+
+        Uses HogQL to access data warehouse tables via the PostHog internal team.
+        Returns empty dict if unavailable (e.g. local dev or missing tables).
+        """
+        try:
+            team = Team.objects.get(id=self._POSTHOG_INTERNAL_TEAM_ID)
+        except Team.DoesNotExist:
+            return {}
+
+        org_id_list = ", ".join(f"'{org_id}'" for org_id in org_ids)
+
+        try:
+            # nosemgrep: hogql-fstring-param-audit - org_ids are UUIDs from our own DB
+            response = execute_hogql_query(
+                f"""
+                SELECT
+                    cus.organization_id,
+                    round(sum(iwa.mrr)) AS current_mrr
+                FROM prod_postgres_invoice_with_annual AS iwa
+                JOIN prod_postgres_billing_customer AS cus ON iwa.customer_id = cus.id
+                WHERE
+                    cus.organization_id IN ({org_id_list})
+                    AND iwa.type NOT LIKE '%upcoming%'
+                    AND iwa.mrr > 0
+                    AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now())
+                GROUP BY cus.organization_id
+                """,
+                team=team,
+                query_type="internal_org_mrr",
+            )
+            return {str(row[0]): round(float(row[1])) for row in response.results or []}
+        except Exception:
+            logger.warning("Failed to fetch org MRR from billing tables, skipping", exc_info=True)
+            return {}
+
     @action(detail=False, methods=["GET"], url_path="slowest_queries")
     def slowest_queries(self, request):
         if not request.user.is_staff:
@@ -312,7 +351,8 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(JSONExtractString(log_comment, 'experiment_name'), type) AS experiment_name,
                 argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
                 argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path,
-                argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type
+                argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type,
+                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id
             FROM (
                 SELECT
                     query_id, query, query_start_time, query_duration_ms, exception,
@@ -338,13 +378,20 @@ class DebugCHQueries(viewsets.ViewSet):
 
         # Batch-fetch team and org names from Postgres
         team_ids = {row[6] for row in response if row[6]}
-        teams_by_id = {}
+        teams_by_id: dict = {}
         if team_ids:
             for team in Team.objects.filter(id__in=team_ids).select_related("organization"):
                 teams_by_id[team.id] = {
                     "team_name": team.name,
+                    "organization_id": str(team.organization.id) if team.organization else None,
                     "organization_name": team.organization.name if team.organization else None,
                 }
+
+        # Batch-fetch current MRR per organization from billing tables
+        org_ids = {t["organization_id"] for t in teams_by_id.values() if t.get("organization_id")}
+        mrr_by_org: dict[str, int] = {}
+        if org_ids:
+            mrr_by_org = self._fetch_org_mrr(org_ids)
 
         return Response(
             [
@@ -358,85 +405,14 @@ class DebugCHQueries(viewsets.ViewSet):
                     "team_id": row[6],
                     "team_name": teams_by_id.get(row[6], {}).get("team_name"),
                     "organization_name": teams_by_id.get(row[6], {}).get("organization_name"),
+                    "organization_mrr": mrr_by_org.get(teams_by_id.get(row[6], {}).get("organization_id", ""), None),
                     "query_type": row[7],
                     "experiment_name": row[8],
                     "experiment_metric_name": row[9],
                     "experiment_execution_path": row[10],
                     "experiment_metric_type": row[11],
+                    "experiment_id": row[12] or None,
                 }
                 for row in response
             ]
         )
-
-    @action(detail=False, methods=["POST"])
-    def profile(self, request):
-        if not request.user.is_staff:
-            raise exceptions.PermissionDenied("Only staff users can profile queries.")
-
-        query = request.data.get("query", "").strip()
-        if not query:
-            raise exceptions.ValidationError("No query provided.")
-
-        profile_query_id = f"profile_{generate_short_id()}"
-
-        start_time = time.monotonic()
-        try:
-            with get_client_from_pool(workload=Workload.OFFLINE, readonly=False) as client:
-                client.execute(
-                    query,
-                    settings={
-                        "readonly": 2,
-                        "query_profiler_cpu_time_period_ns": 10_000_000,
-                        "query_profiler_real_time_period_ns": 10_000_000,
-                        "memory_profiler_step": 1_048_576,
-                        "max_execution_time": 30,
-                    },
-                    query_id=profile_query_id,
-                )
-        except Exception:
-            logger.exception("Query profiling failed for query_id %s", profile_query_id)
-            raise exceptions.ValidationError("Query execution failed.")
-        execution_time_ms = round((time.monotonic() - start_time) * 1000)
-
-        return Response(
-            {
-                "profile_query_id": profile_query_id,
-                "execution_time_ms": execution_time_ms,
-            }
-        )
-
-    @action(detail=False, methods=["GET"], url_path="profile_results")
-    def profile_results(self, request):
-        if not request.user.is_staff:
-            raise exceptions.PermissionDenied("Only staff users can profile queries.")
-
-        profile_query_id = request.query_params.get("profile_query_id", "").strip()
-        if not profile_query_id:
-            raise exceptions.ValidationError("No profile_query_id provided.")
-
-        try:
-            trace_results = sync_execute(
-                """
-                SELECT
-                    arrayStringConcat(arrayMap(x -> demangle(addressToSymbol(x)), trace), ';') AS stack,
-                    count() AS samples
-                FROM clusterAllReplicas(%(cluster)s, system, trace_log)
-                WHERE query_id = %(query_id)s AND trace_type = 'CPU'
-                GROUP BY trace
-                HAVING stack != ''
-                SETTINGS allow_introspection_functions=1, skip_unavailable_shards=1
-                """,
-                {"query_id": profile_query_id, "cluster": CLICKHOUSE_CLUSTER},
-            )
-        except Exception:
-            raise exceptions.ValidationError(
-                "Profiling data unavailable. The trace_log table may not be enabled on this ClickHouse instance."
-            )
-
-        if not trace_results:
-            return Response({"status": "pending"}, status=202)
-
-        folded_stacks = [f"{row[0]} {row[1]}" for row in trace_results]
-        sample_count = sum(row[1] for row in trace_results)
-
-        return Response({"status": "complete", "folded_stacks": folded_stacks, "sample_count": sample_count})

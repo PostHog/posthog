@@ -114,7 +114,7 @@ def parse_string_template(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.Call", node)
 
 
 def parse_expr(
@@ -135,7 +135,7 @@ def parse_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.Expr", node)
 
 
 def parse_order_expr(
@@ -153,7 +153,7 @@ def parse_order_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.OrderExpr", node)
 
 
 def parse_select(
@@ -174,7 +174,7 @@ def parse_select(
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
-    return node
+    return cast("ast.SelectQuery | ast.SelectSetQuery", node)
 
 
 def parse_program(

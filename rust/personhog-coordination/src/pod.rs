@@ -301,6 +301,14 @@ impl PodHandle {
     /// coordinator assigns partitions without handoffs (e.g., initial assignment
     /// when the first pod registers).
     async fn watch_assignment_loop(&self, cancel: CancellationToken) -> Result<()> {
+        // Load existing assignments that were created before this pod started.
+        // The watch stream only delivers events after it's established, so
+        // without this initial scan, pre-existing assignments would be missed.
+        let existing = self.store.list_assignments().await?;
+        for assignment in &existing {
+            self.handle_assignment_event(assignment).await?;
+        }
+
         let mut stream = self.store.watch_assignments().await?;
 
         loop {

@@ -3,7 +3,7 @@ import datetime
 import concurrent.futures
 
 import pytest
-from freezegun import config, configure, freeze_time  # type: ignore
+from freezegun import config, configure, freeze_time
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,

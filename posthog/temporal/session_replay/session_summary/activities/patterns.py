@@ -31,7 +31,7 @@ from ee.hogai.session_summaries.constants import (
     FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,
     PATTERNS_ASSIGNMENT_CHUNK_SIZE,
     PATTERNS_EXTRACTION_MAX_TOKENS,
-    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_SUMMARIES_MODEL,
     SINGLE_ENTITY_MAX_TOKENS,
 )
 from ee.hogai.session_summaries.llm.consume import (
@@ -111,7 +111,7 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     )
     # Estimate base template tokens (without session summaries)
     base_template_tokens = estimate_tokens_from_strings(
-        strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_SYNC_MODEL
+        strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_MODEL
     )
     # Get ready session summaries from DB
     # Disable thread-sensitive as the call is heavy (N summaries through pagination)
@@ -130,7 +130,7 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
     for summary in ready_summaries:
         summary_str = json.dumps(remove_excessive_content_from_session_summary_for_llm(summary.summary).data)
         tokens_per_session[summary.session_id] = estimate_tokens_from_strings(
-            strings=[summary_str], model=SESSION_SUMMARIES_SYNC_MODEL
+            strings=[summary_str], model=SESSION_SUMMARIES_MODEL
         )
     # Create chunks ensuring each stays under the token limit
     chunks = []

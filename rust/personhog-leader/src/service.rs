@@ -9,20 +9,25 @@ use personhog_proto::personhog::types::v1::{
     GetPersonResponse, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
+use sqlx::postgres::PgPool;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
+use crate::pg::load_person_from_pg;
 
 pub struct PersonHogLeaderService {
     cache: Arc<PartitionedCache>,
     /// Per-key locks to serialize concurrent updates for the same person.
-    /// Prevents lost updates from concurrent get -> compute -> produce -> put sequences.
-    update_locks: DashMap<PersonCacheKey, Arc<Mutex<()>>>,
+    /// Prevents lost updates from concurrent get -> compute -> produce -> put
+    /// sequences, and thundering herd on PG fallback.
+    locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     producer: FutureProducer<KafkaContext>,
     changelog_topic: String,
+    /// Read-only pool for PG fallback on cache miss.
+    fallback_pool: Option<PgPool>,
 }
 
 impl PersonHogLeaderService {
@@ -30,12 +35,99 @@ impl PersonHogLeaderService {
         cache: Arc<PartitionedCache>,
         producer: FutureProducer<KafkaContext>,
         changelog_topic: String,
+        fallback_pool: Option<PgPool>,
+        locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
     ) -> Self {
         Self {
             cache,
-            update_locks: DashMap::new(),
+            locks,
             producer,
             changelog_topic,
+            fallback_pool,
+        }
+    }
+
+    /// Load a person from PG and populate the cache. Assumes the caller
+    /// holds the per-key lock.
+    async fn load_from_pg(
+        &self,
+        partition: u32,
+        key: &PersonCacheKey,
+    ) -> Result<Arc<CachedPerson>, Status> {
+        let Some(pool) = &self.fallback_pool else {
+            return Err(Status::not_found(format!(
+                "person not found: team_id={}, person_id={}",
+                key.team_id, key.person_id
+            )));
+        };
+
+        match load_person_from_pg(pool, key).await {
+            Ok(Some(person)) => {
+                self.cache.put(partition, key.clone(), person.clone());
+                Ok(Arc::new(person))
+            }
+            Ok(None) => Err(Status::not_found(format!(
+                "person not found: team_id={}, person_id={}",
+                key.team_id, key.person_id
+            ))),
+            Err(e) => {
+                counter!("personhog_leader_pg_fallback_errors_total").increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    error = %e,
+                    "PG fallback query failed"
+                );
+                Err(Status::internal("failed to load person from database"))
+            }
+        }
+    }
+
+    /// Look up a person from cache, falling back to PG on miss.
+    /// Acquires a per-key lock.
+    async fn lookup_or_load(
+        &self,
+        partition: u32,
+        key: &PersonCacheKey,
+    ) -> Result<Arc<CachedPerson>, Status> {
+        // Fast path: cache hit (no lock needed)
+        match self.cache.get(partition, key) {
+            CacheLookup::Found(person) => return Ok(person),
+            CacheLookup::PartitionNotOwned => {
+                return Err(Status::failed_precondition(format!(
+                    "partition {} not owned by this leader",
+                    partition
+                )));
+            }
+            CacheLookup::PersonNotFound => {}
+        }
+
+        // Cache miss -- acquire per-key lock to prevent thundering herd
+        let mutex = self.locks.entry(key.clone()).or_default().value().clone();
+        let _guard = mutex.lock().await;
+
+        // Double-check cache -- another request may have loaded it
+        if let CacheLookup::Found(person) = self.cache.get(partition, key) {
+            return Ok(person);
+        }
+
+        self.load_from_pg(partition, key).await
+    }
+
+    /// Look up a person from cache, falling back to PG on miss.
+    /// The caller must already hold the per-key lock.
+    async fn lookup_or_load_locked(
+        &self,
+        partition: u32,
+        key: &PersonCacheKey,
+    ) -> Result<Arc<CachedPerson>, Status> {
+        match self.cache.get(partition, key) {
+            CacheLookup::Found(person) => Ok(person),
+            CacheLookup::PartitionNotOwned => Err(Status::failed_precondition(format!(
+                "partition {} not owned by this leader",
+                partition
+            ))),
+            CacheLookup::PersonNotFound => self.load_from_pg(partition, key).await,
         }
     }
 }
@@ -57,25 +149,6 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
     }
 }
 
-#[allow(clippy::result_large_err)]
-fn lookup_person(
-    cache: &PartitionedCache,
-    partition: u32,
-    key: &PersonCacheKey,
-) -> Result<Arc<CachedPerson>, Status> {
-    match cache.get(partition, key) {
-        CacheLookup::Found(person) => Ok(person),
-        CacheLookup::PersonNotFound => Err(Status::not_found(format!(
-            "person not found: team_id={}, person_id={}",
-            key.team_id, key.person_id
-        ))),
-        CacheLookup::PartitionNotOwned => Err(Status::failed_precondition(format!(
-            "partition {} not owned by this leader",
-            partition
-        ))),
-    }
-}
-
 #[tonic::async_trait]
 impl PersonHogLeader for PersonHogLeaderService {
     async fn get_person(
@@ -88,7 +161,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             person_id: req.person_id,
         };
 
-        let person = lookup_person(&self.cache, req.partition, &cache_key)?;
+        let person = self.lookup_or_load(req.partition, &cache_key).await?;
 
         Ok(Response::new(GetPersonResponse {
             person: Some(cached_person_to_proto(&person)),
@@ -123,17 +196,18 @@ impl PersonHogLeader for PersonHogLeaderService {
             })?
         };
 
-        // Per-key lock serializes concurrent updates for the same person,
-        // preventing lost updates from concurrent get -> compute -> produce -> put sequences.
+        // Per-key lock serializes concurrent updates for the same person
         let mutex = self
-            .update_locks
+            .locks
             .entry(cache_key.clone())
             .or_default()
             .value()
             .clone();
         let _guard = mutex.lock().await;
 
-        let person = lookup_person(&self.cache, req.partition, &cache_key)?;
+        let person = self
+            .lookup_or_load_locked(req.partition, &cache_key)
+            .await?;
 
         // Compute property updates
         let updates = compute_event_property_updates(
@@ -200,5 +274,66 @@ impl PersonHogLeader for PersonHogLeaderService {
             person: Some(proto),
             updated: true,
         }))
+    }
+}
+
+/// Remove lock entries that no one is currently waiting on. Entries
+/// with `Arc::strong_count == 1` are only held by the map itself, so
+/// no request is actively using them. Returns the number removed.
+pub fn sweep_idle_locks(locks: &DashMap<PersonCacheKey, Arc<Mutex<()>>>) -> usize {
+    let before = locks.len();
+    locks.retain(|_, v| Arc::strong_count(v) > 1);
+    let removed = before - locks.len();
+    if removed > 0 {
+        tracing::debug!(removed, remaining = locks.len(), "swept idle locks");
+    }
+    removed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
+        PersonCacheKey { team_id, person_id }
+    }
+
+    #[test]
+    fn sweep_removes_idle_entries() {
+        let locks = DashMap::new();
+        locks.insert(make_key(1, 1), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 2), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 3), Arc::new(Mutex::new(())));
+
+        let removed = sweep_idle_locks(&locks);
+
+        assert_eq!(removed, 3);
+        assert_eq!(locks.len(), 0);
+    }
+
+    #[test]
+    fn sweep_preserves_held_entries() {
+        let locks = DashMap::new();
+        locks.insert(make_key(1, 1), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 2), Arc::new(Mutex::new(())));
+        locks.insert(make_key(1, 3), Arc::new(Mutex::new(())));
+
+        // Simulate an active holder cloning the Arc (as lookup_or_load does)
+        let _held = locks.get(&make_key(1, 2)).unwrap().clone();
+
+        let removed = sweep_idle_locks(&locks);
+
+        assert_eq!(removed, 2);
+        assert_eq!(locks.len(), 1);
+        assert!(locks.contains_key(&make_key(1, 2)));
+    }
+
+    #[test]
+    fn sweep_is_noop_when_empty() {
+        let locks: DashMap<PersonCacheKey, Arc<Mutex<()>>> = DashMap::new();
+
+        let removed = sweep_idle_locks(&locks);
+
+        assert_eq!(removed, 0);
     }
 }

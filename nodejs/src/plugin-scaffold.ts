@@ -20,7 +20,7 @@ export class RetryError extends Error {
             : this.name
     }
 
-    toString(): string {
+    override toString(): string {
         return this.message ? `${this.nameWithAttempts}: ${this.message}` : this.nameWithAttempts
     }
 }
@@ -116,7 +116,7 @@ interface BasePluginMeta {
     attachments: Record<string, PluginAttachment | undefined>
 }
 
-// eslint-disable-next-line @typescript-eslint/ban-types
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface Meta<Input extends PluginInput = {}> extends BasePluginMeta {
     attachments: Input['attachments'] extends Record<string, PluginAttachment | undefined>
         ? Input['attachments']

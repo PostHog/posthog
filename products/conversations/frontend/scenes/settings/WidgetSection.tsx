@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -17,7 +16,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { AuthorizedDomains } from './AuthorizedDomains'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function WidgetSection(): JSX.Element {
@@ -25,7 +23,6 @@ export function WidgetSection(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const {
         generateNewToken,
-        setIsAddingDomain,
         setWidgetEnabledLoading,
         setGreetingInputValue,
         saveGreetingText,
@@ -37,8 +34,6 @@ export function WidgetSection(): JSX.Element {
         savePlaceholderText,
     } = useActions(supportSettingsLogic)
     const {
-        isAddingDomain,
-        editingDomainIndex,
         widgetEnabledLoading,
         greetingInputValue,
         identificationFormTitleValue,
@@ -55,6 +50,15 @@ export function WidgetSection(): JSX.Element {
                     <Link to="https://posthog.com/docs/support/widget" target="_blank">
                         Docs
                     </Link>
+                    . For logged-in users, use{' '}
+                    <Link
+                        to="https://posthog.com/docs/support/javascript-api#user-identification"
+                        target="_blank"
+                        targetBlankIcon
+                    >
+                        identity verification
+                    </Link>{' '}
+                    so tickets persist across browsers and devices.
                 </>
             }
         >
@@ -84,28 +88,10 @@ export function WidgetSection(): JSX.Element {
                 {currentTeam?.conversations_settings?.widget_enabled && (
                     <>
                         <LemonDivider />
-                        <div>
-                            <div className="flex justify-between items-center gap-4">
-                                <div>
-                                    <label className="w-40 shrink-0 font-medium">Allowed domains</label>
-                                    <p className="text-xs text-muted-alt">
-                                        Specify which domains can show the conversations widget. Leave empty to show on
-                                        all domains. Wildcards supported (e.g. https://*.example.com).
-                                    </p>
-                                </div>
-                                {!isAddingDomain && editingDomainIndex === null && (
-                                    <LemonButton
-                                        onClick={() => setIsAddingDomain(true)}
-                                        type="secondary"
-                                        icon={<IconPlus />}
-                                        size="small"
-                                    >
-                                        Add domain
-                                    </LemonButton>
-                                )}
-                            </div>
-                            <AuthorizedDomains />
-                        </div>
+                        <LemonBanner type="info" className="my-2">
+                            Allowed domains for the widget are managed under the <strong>Conversations API</strong>{' '}
+                            section — they apply to both the widget and direct API calls.
+                        </LemonBanner>
                         <SceneSection title="Visual settings" className="mt-8" titleSize="sm">
                             <LemonCard hoverEffect={false} className="px-4 py-3">
                                 <div className="flex items-center gap-4 py-2 justify-between">

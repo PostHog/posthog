@@ -1,5 +1,5 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import isEqual from 'lodash.isequal'
 
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -194,7 +194,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             {
                 setFilters: (_, { filters }) => filters,
                 setLocalFilters: (currentFilters, { filters }) => {
-                    if (isEqual(toFilters(currentFilters), filters)) {
+                    if (equal(toFilters(currentFilters), filters)) {
                         return currentFilters
                     }
                     const newFilters = toLocalFilters(filters)

@@ -1,0 +1,32 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: SDK Doctor
+feature: sdk_doctor
+url_prefix: /health/sdk-doctor
+ui_apps: {}
+tools:
+    sdk-doctor-get:
+        operation: sdk_doctor_report_retrieve
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get SDK health report
+        description: >
+            Returns a pre-digested health report for the PostHog SDKs this project is using. Covers which SDKs are
+            current vs outdated (smart-semver rules with grace periods and traffic-percentage thresholds), per-version
+            breakdowns, and a human-readable reason for each assessment. Use when the user asks about PostHog SDK
+            versions, outdated SDKs, SDK health, version upgrade recommendations, or why events may not be captured due
+            to SDK issues.
+        param_overrides:
+            force_refresh:
+                description: >
+                    Set to true to bypass the Redis cache and re-query ClickHouse for SDK usage. Use sparingly — data is
+                    refreshed every 12 hours by a background job, so the cached answer is usually fine.

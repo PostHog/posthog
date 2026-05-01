@@ -129,7 +129,7 @@ class TestGetOrCreateWebhookHogFunction:
         assert mapping["invoice"] == str(schemas[1].id)
         assert result.hog_function.inputs["source_id"]["value"] == "source-123"
 
-    def test_skips_schemas_not_in_resource_map(self):
+    def test_falls_back_to_schema_name_when_not_in_resource_map(self):
         _, team = _create_org_and_team()
         _create_hog_function_template()
         source = _make_webhook_source(resource_map={"Customers": "customer"})
@@ -143,7 +143,8 @@ class TestGetOrCreateWebhookHogFunction:
 
         mapping = result.hog_function.inputs["schema_mapping"]["value"]
         assert "customer" in mapping
-        assert len(mapping) == 1
+        assert "UnknownTable" in mapping
+        assert len(mapping) == 2
 
     def test_includes_extra_inputs(self):
         _, team = _create_org_and_team()

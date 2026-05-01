@@ -20,7 +20,6 @@ export const manifest: ProductManifest = {
             name: 'Actions',
             import: () => import('./frontend/pages/Actions'),
             projectBased: true,
-            defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
             description:
                 'Combine several related events into one, which you can then analyze in insights and dashboards as if it were a single event.',
@@ -30,7 +29,6 @@ export const manifest: ProductManifest = {
             name: 'Action',
             import: () => import('./frontend/pages/Action'),
             projectBased: true,
-            defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
             iconType: 'action',
         },
@@ -38,7 +36,6 @@ export const manifest: ProductManifest = {
             name: 'New Action',
             import: () => import('./frontend/pages/Action'),
             projectBased: true,
-            defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
             iconType: 'action',
         },

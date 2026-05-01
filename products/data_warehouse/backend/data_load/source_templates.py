@@ -49,7 +49,7 @@ def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
         .first()
     )
 
-    source: ExternalDataSourceType = job.pipeline.source_type
+    source = ExternalDataSourceType(job.pipeline.source_type)
 
     # Quick exit if this isn't the first sync, or a stripe source
     if source != ExternalDataSourceType.STRIPE or last_successful_job is not None:

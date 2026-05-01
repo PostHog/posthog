@@ -101,11 +101,10 @@ export const BlockStart: Story = {
           <InputGroupTextarea
             id="block-start-textarea"
             placeholder="console.log('Hello, world!');"
-            className="font-mono text-sm"
           />
           <InputGroupAddon align="block-start">
             <FileCodeIcon className="text-muted-foreground" />
-            <InputGroupText className="font-mono">script.js</InputGroupText>
+            <InputGroupText>script.js</InputGroupText>
             <InputGroupButton size="icon-xs" className="ml-auto">
               <CopyIcon />
               <span className="sr-only">Copy</span>
@@ -384,7 +383,7 @@ export const Textarea: Story = {
                         className="min-h-[100px]"
                     />
                     <InputGroupAddon align="block-end" className="border-t border-input/30">
-                        <InputGroupText>Line 1, Column 1</InputGroupText>
+                        <InputGroupText className="font-mono text-sm">Line 1, Column 1</InputGroupText>
                         <InputGroupButton size="sm" className="ml-auto" variant="primary">
                             Run <LucideArrowUpRight />
                         </InputGroupButton>

@@ -49,8 +49,8 @@ class Conversation(UUIDTModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
-    type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
+    status = models.CharField(max_length=20, choices=Status, default=Status.IDLE)
+    type = models.CharField(max_length=20, choices=Type, default=Type.ASSISTANT)
     title = models.CharField(
         null=True,
         blank=True,
@@ -186,7 +186,7 @@ class CoreMemory(UUIDTModel):
         help_text="Dumped core memory where facts are separated by newlines.",
     )
     initial_text = models.TextField(default="", help_text="Scraped memory about the business.")
-    scraping_status = models.CharField(max_length=20, choices=ScrapingStatus.choices, blank=True, null=True)
+    scraping_status = models.CharField(max_length=20, choices=ScrapingStatus, blank=True, null=True)
     scraping_started_at = models.DateTimeField(null=True)
 
     async def achange_status_to_pending(self):
@@ -274,7 +274,7 @@ class AgentArtifact(UUIDModel, CreatedMetaFields, UpdatedMetaFields, DeletedMeta
 
     short_id = models.CharField(max_length=4, default=generate_short_id)
     name = models.CharField(max_length=400)
-    type = models.CharField(max_length=50, choices=Type.choices)
+    type = models.CharField(max_length=50, choices=Type)
     data = models.JSONField(help_text="Artifact content. Structure depends on artifact type.")
     conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="artifacts")
     team = models.ForeignKey(Team, on_delete=models.CASCADE)

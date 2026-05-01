@@ -9,7 +9,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons import join_with_persons_table
 
-COHORT_PEOPLE_FIELDS = {
+COHORT_PEOPLE_FIELDS: dict[str, FieldOrTable] = {
     "person_id": StringDatabaseField(name="person_id", nullable=False),
     "cohort_id": IntegerDatabaseField(name="cohort_id", nullable=False),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),

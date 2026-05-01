@@ -1,8 +1,6 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 
 import { performQuery } from '~/queries/query'
@@ -38,17 +36,11 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
         {} as Record<string, T>
     )
 
-const isDirectQueryEnabled = (): boolean =>
-    !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
-
 let inFlightDatabaseLoadKey: string | null = null
 let inFlightDatabaseLoadPromise: Promise<Required<DatabaseSchemaQueryResponse> | null> | null = null
 
 export const databaseTableListLogic = kea<databaseTableListLogicType>([
     path(['scenes', 'data-management', 'database', 'databaseTableListLogic']),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setConnection: (connectionId: string | null) => ({ connectionId }),
@@ -58,7 +50,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> => {
-                    const requestConnectionId = isDirectQueryEnabled() ? (values.connectionId ?? undefined) : undefined
+                    const requestConnectionId = values.connectionId ?? undefined
                     const requestKey = requestConnectionId ?? '__posthog__'
 
                     if (inFlightDatabaseLoadKey === requestKey && inFlightDatabaseLoadPromise) {
@@ -76,7 +68,14 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     inFlightDatabaseLoadPromise = request
 
                     try {
-                        return await request
+                        const database = await request
+                        const currentConnectionId = values.connectionId ?? undefined
+
+                        if (currentConnectionId !== requestConnectionId) {
+                            return values.database
+                        }
+
+                        return database
                     } finally {
                         if (inFlightDatabaseLoadKey === requestKey) {
                             inFlightDatabaseLoadKey = null

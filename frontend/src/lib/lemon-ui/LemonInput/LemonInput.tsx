@@ -25,6 +25,7 @@ interface LemonInputPropsBase extends Pick<
     | 'onKeyDown'
     | 'onKeyUp'
     | 'onKeyPress'
+    | 'onPaste'
     | 'autoComplete'
     | 'autoCorrect'
     | 'autoCapitalize'

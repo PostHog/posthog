@@ -31,6 +31,11 @@ service PersonHogReplica {
 
   // Cohort membership
   rpc CheckCohortMembership(personhog.types.v1.CheckCohortMembershipRequest) returns (personhog.types.v1.CohortMembershipResponse);
+  rpc CountCohortMembers(personhog.types.v1.CountCohortMembersRequest) returns (personhog.types.v1.CountCohortMembersResponse);
+  rpc DeleteCohortMember(personhog.types.v1.DeleteCohortMemberRequest) returns (personhog.types.v1.DeleteCohortMemberResponse);
+  rpc DeleteCohortMembersBulk(personhog.types.v1.DeleteCohortMembersBulkRequest) returns (personhog.types.v1.DeleteCohortMembersBulkResponse);
+  rpc InsertCohortMembers(personhog.types.v1.InsertCohortMembersRequest) returns (personhog.types.v1.InsertCohortMembersResponse);
+  rpc ListCohortMemberIds(personhog.types.v1.ListCohortMemberIdsRequest) returns (personhog.types.v1.ListCohortMemberIdsResponse);
 
   // Groups
   rpc GetGroup(personhog.types.v1.GetGroupRequest) returns (personhog.types.v1.GetGroupResponse);

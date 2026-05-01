@@ -8,7 +8,6 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -39,6 +38,11 @@ import {
     manualLinkSources,
 } from '~/types'
 
+import {
+    getDefaultExpandedDirectQuerySchemaKeys,
+    groupDirectQueryTablesBySchema,
+    splitDirectQueryTableName,
+} from '../../shared/components/forms/directQuerySchemaUtils'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
@@ -56,6 +60,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
             type: 'text',
             required: true,
             placeholder: 'localhost',
+            secret: false,
         },
         {
             name: 'port',
@@ -63,6 +68,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
             type: 'number',
             required: true,
             placeholder: '22',
+            secret: false,
         },
         {
             type: 'select',
@@ -81,6 +87,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'text',
                             required: true,
                             placeholder: 'User1',
+                            secret: false,
                         },
                         {
                             name: 'password',
@@ -88,6 +95,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'password',
                             required: true,
                             placeholder: '',
+                            secret: true,
                         },
                     ],
                 },
@@ -101,6 +109,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'text',
                             required: false,
                             placeholder: 'User1',
+                            secret: false,
                         },
                         {
                             name: 'private_key',
@@ -108,6 +117,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'textarea',
                             required: true,
                             placeholder: '',
+                            secret: true,
                         },
                         {
                             name: 'passphrase',
@@ -115,6 +125,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'password',
                             required: false,
                             placeholder: '',
+                            secret: true,
                         },
                     ],
                 },
@@ -181,6 +192,23 @@ export const buildKeaFormDefaultFromSourceDetails = (
     )
 }
 
+// Merge priority for the source connection form when a connector is (re)selected:
+//   1. connector-schema defaults (lowest)
+//   2. URL/UI access_method (e.g. `?access_method=direct`)
+//   3. OAuth-restored values (highest — saved access_method wins over a stale URL one because
+//      the OAuth callback URL doesn't carry it forward)
+export function mergeRestoredSourceFormValues(
+    defaults: Record<string, unknown>,
+    savedValues: Record<string, unknown> | null | undefined,
+    currentAccessMethod: unknown
+): Record<string, unknown> {
+    return {
+        ...defaults,
+        ...(currentAccessMethod !== undefined ? { access_method: currentAccessMethod } : {}),
+        ...savedValues,
+    }
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -228,6 +256,22 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     return undefined
 }
 
+function syncExpandedDirectQuerySchemaKeys(
+    actions: sourceWizardLogicType['actions'],
+    values: sourceWizardLogicType['values']
+): void {
+    if (!values.isDirectQueryMode) {
+        return
+    }
+
+    const fingerprint = values.groupedDirectQuerySchemaKeys.join('|')
+    if (values.groupedDirectQuerySchemaKeysFingerprint === fingerprint) {
+        return
+    }
+
+    actions.syncExpandedDirectQuerySchemaKeys(values.groupedDirectQuerySchemaKeys, fingerprint)
+}
+
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
@@ -239,7 +283,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
     actions({
-        selectConnector: (connector: SourceConfig | null) => ({ connector }),
+        selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
+            connector,
+            accessMethod,
+        }),
         setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
@@ -252,6 +299,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onBack: true,
         onNext: true,
         onSubmit: true,
+        resetSourceForm: (accessMethod?: 'warehouse' | 'direct') => ({ accessMethod }),
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
             schemas,
         }),
@@ -288,6 +336,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean) => ({ selectAll }),
+        toggleDirectQuerySchemaGroup: (schemaName: string, shouldSync: boolean) => ({ schemaName, shouldSync }),
+        setExpandedDirectQuerySchemaKeys: (expandedSchemaKeys: string[]) => ({ expandedSchemaKeys }),
+        syncExpandedDirectQuerySchemaKeys: (groupedSchemaKeys: string[], fingerprint: string) => ({
+            groupedSchemaKeys,
+            fingerprint,
+        }),
         saveFormStateBeforeRedirect: true,
         createWebhook: true,
         setWebhookResult: (result: { success: boolean; webhook_url: string; error?: string } | null) => ({
@@ -366,6 +420,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
+                toggleAllTables: (state, { selectAll }) => {
+                    return state.map((schema) => ({
+                        ...schema,
+                        should_sync: selectAll,
+                    }))
+                },
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
                     return state.map((s) => ({
                         ...s,
@@ -388,6 +448,26 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : {}),
                     }))
                 },
+            },
+        ],
+        expandedDirectQuerySchemaKeys: [
+            [] as string[],
+            {
+                setExpandedDirectQuerySchemaKeys: (_, { expandedSchemaKeys }) => expandedSchemaKeys,
+                syncExpandedDirectQuerySchemaKeys: (state, { groupedSchemaKeys }) => {
+                    const nextKeys = state.filter((key) => groupedSchemaKeys.includes(key))
+                    return nextKeys.length > 0 ? nextKeys : groupedSchemaKeys
+                },
+                onClear: () => [],
+                clearSource: () => [],
+            },
+        ],
+        groupedDirectQuerySchemaKeysFingerprint: [
+            '',
+            {
+                syncExpandedDirectQuerySchemaKeys: (_, { fingerprint }) => fingerprint,
+                onClear: () => '',
+                clearSource: () => '',
             },
         ],
         source: [
@@ -555,6 +635,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
         requiredTables: [() => [(_, p) => p.requiredTables], (requiredTables) => requiredTables ?? null],
+        // Form defaults derived from the selected connector's field schema. Returning a fresh
+        // object on every connector change is cheap and keeps the form layer side-effect-free —
+        // the `resetSourceForm` listener writes these into form state.
+        defaultSourceConnectionDetails: [
+            (s) => [s.selectedConnector],
+            (selectedConnector: SourceConfig | null): Record<string, unknown> => {
+                if (!selectedConnector) {
+                    return { prefix: '', description: '', payload: {} }
+                }
+                return buildKeaFormDefaultFromSourceDetails({
+                    [selectedConnector.name]: selectedConnector,
+                })
+            },
+        ],
         suggestedTablesMap: [
             (s) => [s.selectedConnector],
             (selectedConnector: SourceConfig | null): Record<string, string | null> => {
@@ -616,11 +710,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         isDirectQueryMode: [
-            (s) => [s.source, s.selectedConnector, s.featureFlags],
-            (source, selectedConnector, featureFlags): boolean =>
-                source.access_method === 'direct' &&
-                selectedConnector?.name === 'Postgres' &&
-                !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
+            (s) => [s.source, s.selectedConnector],
+            (source, selectedConnector): boolean =>
+                source.access_method === 'direct' && selectedConnector?.name === 'Postgres',
         ],
         canGoBack: [
             (s) => [s.currentStep],
@@ -759,6 +851,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return enabledCount === totalCount ? true : enabledCount > 0 ? 'indeterminate' : false
             },
         ],
+        directQueryDefaultSchema: [
+            (s) => [s.source],
+            (source): string | null => (typeof source.payload.schema === 'string' ? source.payload.schema : null),
+        ],
+        groupedDirectQueryDatabaseSchema: [
+            (s) => [s.databaseSchema, s.directQueryDefaultSchema],
+            (databaseSchema, directQueryDefaultSchema) =>
+                groupDirectQueryTablesBySchema(databaseSchema, directQueryDefaultSchema),
+        ],
+        groupedDirectQuerySchemaKeys: [
+            (s) => [s.groupedDirectQueryDatabaseSchema],
+            (groupedDirectQueryDatabaseSchema) =>
+                getDefaultExpandedDirectQuerySchemaKeys(groupedDirectQueryDatabaseSchema),
+        ],
         modalTitle: [
             (s) => [s.currentStep, s.isDirectQueryMode],
             (currentStep, isDirectQueryMode) => {
@@ -818,6 +924,44 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
             walk(values.selectedConnector?.fields ?? [], '')
             actions.touchSourceConnectionDetailsField('prefix')
+        },
+        setInitialConnector: () => {
+            syncExpandedDirectQuerySchemaKeys(actions, values)
+            actions.resetSourceForm()
+        },
+        resetSourceForm: ({ accessMethod }) => {
+            const defaults = values.defaultSourceConnectionDetails
+            const sourceConnectionDetails = values.sourceConnectionDetails as Record<string, unknown>
+            const sourceKind = values.selectedConnector?.name?.toLowerCase()
+            const savedValues = sourceKind ? restoreSourceFormState(sourceKind) : null
+            const currentAccessMethod = accessMethod ?? sourceConnectionDetails?.access_method
+
+            actions.resetSourceConnectionDetails(
+                mergeRestoredSourceFormValues(defaults, savedValues, currentAccessMethod)
+            )
+        },
+        setDatabaseSchemas: () => {
+            syncExpandedDirectQuerySchemaKeys(actions, values)
+        },
+        updateSource: () => {
+            syncExpandedDirectQuerySchemaKeys(actions, values)
+        },
+        toggleDirectQuerySchemaGroup: ({ schemaName, shouldSync }) => {
+            actions.setDatabaseSchemas(
+                values.databaseSchema.map((schema) => ({
+                    ...schema,
+                    should_sync:
+                        splitDirectQueryTableName(schema.table, values.directQueryDefaultSchema).schemaName ===
+                        schemaName
+                            ? shouldSync
+                            : schema.should_sync,
+                }))
+            )
+            actions.setExpandedDirectQuerySchemaKeys(
+                shouldSync
+                    ? Array.from(new Set([...values.expandedDirectQuerySchemaKeys, schemaName]))
+                    : values.expandedDirectQuerySchemaKeys.filter((key) => key !== schemaName)
+            )
         },
         saveFormStateBeforeRedirect: () => {
             const sourceKind = values.selectedConnector?.name?.toLowerCase()
@@ -1131,7 +1275,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             try {
                 const schemas = await api.externalDataSources.database_schema(
                     values.selectedConnector.name,
-                    values.source.payload ?? {}
+                    getDatabaseSchemaPayload(values.source)
                 )
 
                 let showToast = false
@@ -1235,7 +1379,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
         },
-        selectConnector: ({ connector }) => {
+        selectConnector: ({ connector, accessMethod }) => {
+            syncExpandedDirectQuerySchemaKeys(actions, values)
+            actions.resetSourceForm(accessMethod)
+
             actions.addProductIntent({
                 product_type: ProductKey.DATA_WAREHOUSE,
                 intent_context: ProductIntentContext.SELECTED_CONNECTOR,
@@ -1272,9 +1419,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
+            const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'
             const returnUrl = searchParams.returnUrl
             const returnLabel = searchParams.returnLabel
-            const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'
 
             if (returnUrl && returnLabel) {
                 actions.setReturnConfig(returnUrl, returnLabel)
@@ -1292,16 +1439,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (source) {
-                actions.selectConnector(source)
+                // selectConnector forwards accessMethod to `resetSourceForm`, which seeds the
+                // connector's defaults and restores any OAuth-saved form state — saved
+                // access_method wins over the URL one (the OAuth callback URL doesn't carry it).
+                actions.selectConnector(source, accessMethod)
                 actions.updateSource({ access_method: accessMethod })
-                actions.setSourceConnectionDetailsValue('access_method', accessMethod)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
-                // Restore form values saved before an OAuth redirect
-                const savedValues = restoreSourceFormState(source.name.toLowerCase())
-                if (savedValues) {
-                    actions.setSourceConnectionDetailsValues(savedValues)
-                }
                 return
             }
 
@@ -1316,9 +1460,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }
     }),
 
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values }) => ({
         sourceConnectionDetails: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
+            // Real defaults come from the `defaultSourceConnectionDetails` selector and are
+            // pushed into the form by the `resetSourceForm` listener. The cast widens the form's
+            // inferred value type so call sites that read fields like `access_method`,
+            // `payload.host`, `cdc_management_mode`, etc. still type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 const selectedAccessMethod =
                     (sourceValues as Record<string, any>)?.access_method === 'direct' ? 'direct' : 'warehouse'
@@ -1339,9 +1487,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
                     const isDirectQueryMode =
-                        !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                        values.selectedConnector.name === 'Postgres' &&
-                        sourceValues.access_method === 'direct'
+                        values.selectedConnector.name === 'Postgres' && sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',
@@ -1439,6 +1585,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     })),
 ])
 
+export const getDatabaseSchemaPayload = (
+    source: Pick<ExternalDataSourceCreatePayload, 'access_method' | 'payload'>
+): Record<string, any> => ({
+    ...source.payload,
+    access_method: source.access_method ?? 'warehouse',
+})
+
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
     values:
@@ -1500,14 +1653,9 @@ export const getErrorsForFields = (
         // All other types - check if required property exists on this field type
         if (
             options?.allowBlankSensitiveFields &&
-            'type' in field &&
-            field.type === 'password' &&
+            (('secret' in field && field.secret) || ('type' in field && field.type === 'password')) &&
             !valueObj[field.name]
         ) {
-            return
-        }
-
-        if (options?.allowBlankSensitiveFields && field.name === 'private_key' && !valueObj[field.name]) {
             return
         }
 

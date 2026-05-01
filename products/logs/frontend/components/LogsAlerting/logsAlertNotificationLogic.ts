@@ -116,6 +116,11 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        addPendingNotification: () => {
+            if (props.alertId) {
+                actions.createPendingHogFunctions(props.alertId)
+            }
+        },
         loadIntegrationsSuccess: () => {
             if (!values.firstSlackIntegration) {
                 actions.setSelectedType(LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK)

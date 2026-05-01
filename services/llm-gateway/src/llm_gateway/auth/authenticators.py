@@ -127,7 +127,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 return None
 
             scopes = row["scope"].split() if row["scope"] else []
-            if not has_required_scope(scopes):
+            if not has_required_scope(scopes, allow_wildcard=True):
                 return None
 
             return AuthenticatedUser(

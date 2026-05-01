@@ -12,7 +12,7 @@ jobs:
         name: Resolve outdated bot review comments
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
 
         steps:
             - name: Get app token

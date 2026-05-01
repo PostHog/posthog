@@ -26,6 +26,7 @@ from posthog.event_usage import (
     report_organization_deletion_initiated,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import validate_display_name
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
@@ -155,6 +156,9 @@ class OrganizationSerializer(
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
         }
+
+    def validate_name(self, value: str) -> str:
+        return validate_display_name(value)
 
     def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
         if value is None:

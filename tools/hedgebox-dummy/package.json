@@ -11,7 +11,7 @@
     },
     "dependencies": {
         "next": "14.2.35",
-        "posthog-js": "^1.352.0",
+        "posthog-js": "^1.369.3",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "uuid": "^9.0.0"
@@ -24,11 +24,19 @@
         "autoprefixer": "^10.0.1",
         "daisyui": "^4.4.0",
         "eslint": "^8",
-        "eslint-config-next": "14.0.0",
+        "eslint-config-next": "14.2.35",
         "pg": "^8.16.3",
         "playwright": "^1.40.0",
         "postcss": "^8",
         "tailwindcss": "^3.3.0",
         "typescript": "^5"
+    },
+    "pnpm": {
+        "overrides": {
+            "protobufjs": ">=7.5.5",
+            "flatted": ">=3.4.2",
+            "glob@>=10.0.0": ">=10.5.0",
+            "minimatch@<3.1.4": ">=3.1.4"
+        }
     }
 }

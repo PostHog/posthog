@@ -55,7 +55,7 @@ def _make_analysis(
             sentiment_signals=sentiment_signals or [],
         )
     else:
-        resolved_sentiment = sentiment  # type: ignore[assignment]
+        resolved_sentiment = sentiment  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     return ConsolidatedVideoAnalysis(
         segments=segments,

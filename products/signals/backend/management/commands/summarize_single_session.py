@@ -68,7 +68,7 @@ class Command(BaseCommand):
         self.stdout.write("")
 
         self.stdout.write(
-            self.style.WARNING("Starting SummarizeSingleSessionWorkflow with video_validation_enabled='full'...")
+            self.style.WARNING("Starting SummarizeSingleSessionWorkflow with video-based summarization...")
         )
         self.stdout.write("")
 
@@ -78,7 +78,7 @@ class Command(BaseCommand):
                     session_id=session_id,
                     user=user,
                     team=team,
-                    video_validation_enabled="full",
+                    video_based=True,
                 )
             )
 

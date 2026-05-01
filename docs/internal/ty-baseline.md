@@ -35,12 +35,9 @@ This trial helps us evaluate whether ty should become a blocking check in the fu
 
 ## Baseline Management
 
-### Two Separate Baselines
-
-- **`mypy-baseline.txt`** - Maintained by mypy (~1287 errors)
-- **`ty-baseline.txt`** - Maintained by ty (567 diagnostics)
-
-ty maintains its own baseline because it reports different errors than mypy. The baseline contains pre-existing errors that won't trigger warnings in CI.
+ty maintains its own baseline in `ty-baseline.txt` because it reports
+different diagnostics than mypy. The baseline contains pre-existing ty errors
+that won't trigger warnings in CI.
 
 ### Baseline Contents
 

@@ -1,6 +1,5 @@
 import { IconTrending } from '@posthog/icons'
 
-import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 
 import { UsageMetric } from '~/queries/schema/schema-general'
@@ -17,7 +16,7 @@ describe('getTrendFromPercentageChange', () => {
         const result = getTrendFromPercentageChange(0)
         expect(result).toEqual({
             icon: IconTrendingFlat,
-            color: getColorVar('muted'),
+            colorClass: 'text-muted',
             tooltip: 'unchanged',
         })
     })
@@ -26,7 +25,7 @@ describe('getTrendFromPercentageChange', () => {
         const result = getTrendFromPercentageChange(0.25)
         expect(result).toEqual({
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: 'increased by 0.25%',
         })
     })
@@ -35,7 +34,7 @@ describe('getTrendFromPercentageChange', () => {
         const result = getTrendFromPercentageChange(0.05)
         expect(result).toEqual({
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: 'increased by 0.05%',
         })
     })
@@ -44,7 +43,7 @@ describe('getTrendFromPercentageChange', () => {
         const result = getTrendFromPercentageChange(-0.15)
         expect(result).toEqual({
             icon: IconTrendingDown,
-            color: getColorVar('danger'),
+            colorClass: 'text-danger',
             tooltip: 'decreased by 0.15%',
         })
     })
@@ -53,7 +52,7 @@ describe('getTrendFromPercentageChange', () => {
         const result = getTrendFromPercentageChange(-0.85)
         expect(result).toEqual({
             icon: IconTrendingDown,
-            color: getColorVar('danger'),
+            colorClass: 'text-danger',
             tooltip: 'decreased by 0.85%',
         })
     })
@@ -62,7 +61,7 @@ describe('getTrendFromPercentageChange', () => {
         const result = getTrendFromPercentageChange(0.001)
         expect(result).toEqual({
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: 'increased by 0.001%',
         })
     })
@@ -71,7 +70,7 @@ describe('getTrendFromPercentageChange', () => {
         const result = getTrendFromPercentageChange(-0.001)
         expect(result).toEqual({
             icon: IconTrendingDown,
-            color: getColorVar('danger'),
+            colorClass: 'text-danger',
             tooltip: 'decreased by 0.001%',
         })
     })
@@ -97,7 +96,7 @@ describe('getMetricTooltip', () => {
     it('returns basic tooltip when trend has no tooltip', () => {
         const trend = {
             icon: IconTrendingFlat,
-            color: getColorVar('muted'),
+            colorClass: 'text-muted',
             tooltip: null,
         }
         const result = getMetricTooltip(baseMetric as UsageMetric, trend)
@@ -107,7 +106,7 @@ describe('getMetricTooltip', () => {
     it('returns full tooltip when trend has tooltip for increase', () => {
         const trend = {
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: 'increased by 0.25%',
         }
         const result = getMetricTooltip(baseMetric as UsageMetric, trend)
@@ -123,7 +122,7 @@ describe('getMetricTooltip', () => {
         }
         const trend = {
             icon: IconTrendingDown,
-            color: getColorVar('danger'),
+            colorClass: 'text-danger',
             tooltip: 'decreased by 0.125%',
         }
         const result = getMetricTooltip(metric, trend)
@@ -139,7 +138,7 @@ describe('getMetricTooltip', () => {
         }
         const trend = {
             icon: IconTrendingFlat,
-            color: getColorVar('muted'),
+            colorClass: 'text-muted',
             tooltip: 'unchanged',
         }
         const result = getMetricTooltip(metric, trend)
@@ -153,7 +152,7 @@ describe('getMetricTooltip', () => {
         }
         const trend = {
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: 'increased by 0.25%',
         }
         const result = getMetricTooltip(metric, trend)
@@ -168,7 +167,7 @@ describe('getMetricTooltip', () => {
         }
         const trend = {
             icon: IconTrending,
-            color: getColorVar('success'),
+            colorClass: 'text-success',
             tooltip: 'increased by 0.2345%',
         }
         const result = getMetricTooltip(metric, trend)

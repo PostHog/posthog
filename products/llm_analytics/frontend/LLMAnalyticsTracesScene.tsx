@@ -11,7 +11,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -21,7 +20,7 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { buildApplyUrlStatePayload, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -39,9 +38,8 @@ export function LLMAnalyticsTraces(): JSX.Element {
     useMountedLogic(traceReviewsLazyLoaderLogic)
     useMountedLogic(traceMessagesLazyLoaderLogic)
 
-    const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
-        useActions(llmAnalyticsSharedLogic)
-    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState, setShouldFilterSupportTraces } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
 
     const baseContext = useTracesQueryContext()
@@ -62,14 +60,23 @@ export function LLMAnalyticsTraces(): JSX.Element {
                     if (!isTracesQuery(query.source)) {
                         throw new Error('Invalid query')
                     }
-                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                    // filterSupportTraces has no actionToUrl mapping, so keep it
+                    // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    const newPropertyFilters = query.source.properties || []
-                    if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                        setPropertyFilters(newPropertyFilters)
-                    }
+                    // Batch the remaining three URL-synced fields into a single
+                    // applyUrlState dispatch so the DataTable's setQuery emits
+                    // one URL change instead of three.
+                    applyUrlState(
+                        buildApplyUrlStatePayload({
+                            dateFrom: query.source.dateRange?.date_from || null,
+                            dateTo: query.source.dateRange?.date_to || null,
+                            shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                            propertyFilters: query.source.properties || [],
+                            currentDateFilter: dateFilter,
+                            currentPropertyFilters,
+                        })
+                    )
                 }}
                 context={context}
                 uniqueKey="llm-analytics-traces"

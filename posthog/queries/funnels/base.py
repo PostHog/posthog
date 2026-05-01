@@ -125,7 +125,7 @@ class ClickhouseFunnelBase(ABC):
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = step.get_action(self._team.pk).name
         else:
-            name = step.id
+            name = str(step.id) if step.id is not None else None
 
         return {
             "action_id": step.id,
@@ -461,6 +461,8 @@ class ClickhouseFunnelBase(ABC):
             all_step_cols.extend(step_cols)
 
         for exclusion_id, entity in enumerate(self._filter.exclusions):
+            if entity.funnel_from_step is None:
+                continue
             step_cols = self._get_step_col(
                 entity,
                 entity.funnel_from_step,

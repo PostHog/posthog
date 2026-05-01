@@ -584,6 +584,7 @@ FROM (
         raw_sessions
     WHERE
         team_id = %(team_id)s AND
+        fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) >= now() - INTERVAL 30 DAY AND
         {property_expr} IS NOT NULL AND
         {property_expr} != ''
     ORDER BY session_id_v7 DESC
@@ -605,6 +606,7 @@ FROM (
         raw_sessions
     WHERE
         team_id = %(team_id)s AND
+        fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) >= now() - INTERVAL 30 DAY AND
         {property_expr} ILIKE %(value)s
     ORDER BY session_id_v7 DESC
     LIMIT 100000

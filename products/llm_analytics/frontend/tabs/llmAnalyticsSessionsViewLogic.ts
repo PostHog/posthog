@@ -7,6 +7,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TracesQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsSessionsViewLogicType } from './llmAnalyticsSessionsViewLogicType'
 
@@ -304,67 +305,53 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                 propertyFilters,
                 sessionsSort: { column: string; direction: 'ASC' | 'DESC' },
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
-            ): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                SELECT
-                    properties.$ai_session_id as session_id,
-                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id)) as traces,
-                    countIf(event = '$ai_span') as spans,
-                    countIf(event = '$ai_generation') as generations,
-                    countIf(event = '$ai_embedding') as embeddings,
-                    countIf(properties.$ai_is_error = 'true') as errors,
-                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
-                    round(sum(toFloat(properties.$ai_latency)), 2) as total_latency,
-                    min(timestamp) as first_seen,
-                    max(timestamp) as last_seen
-                FROM events
-                WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
-                    AND isNotNull(properties.$ai_session_id)
-                    AND properties.$ai_session_id != ''
-                    AND {filters}
-                GROUP BY properties.$ai_session_id
-                ORDER BY ${sessionsSort.column} ${sessionsSort.direction}
-                LIMIT 50
-                    `,
-                    filters: {
-                        dateRange: {
-                            date_from: dateFilter.dateFrom || null,
-                            date_to: dateFilter.dateTo || null,
+            ): DataTableNode => {
+                const query = sessionsQueryTemplate
+                    .replace('__ORDER_BY__', sessionsSort.column)
+                    .replace('__ORDER_DIRECTION__', sessionsSort.direction)
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query,
+                        filters: {
+                            dateRange: {
+                                date_from: dateFilter.dateFrom || null,
+                                date_to: dateFilter.dateTo || null,
+                            },
+                            filterTestAccounts: shouldFilterTestAccounts,
+                            properties: propertyFilters,
                         },
-                        filterTestAccounts: shouldFilterTestAccounts,
-                        properties: propertyFilters,
                     },
-                },
-                columns: [
-                    'session_id',
-                    'traces',
-                    'spans',
-                    'generations',
-                    'embeddings',
-                    'errors',
-                    'total_cost',
-                    'total_latency',
-                    'first_seen',
-                    'last_seen',
-                ],
-                showDateRange: true,
-                showReload: true,
-                showSearch: true,
-                showPropertyFilter: [
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                ],
-                showTestAccountFilters: true,
-                showExport: true,
-                showColumnConfigurator: true,
-                allowSorting: true,
-            }),
+                    columns: [
+                        'session_id',
+                        'traces',
+                        'spans',
+                        'generations',
+                        'embeddings',
+                        'errors',
+                        'total_cost',
+                        'total_latency',
+                        'first_seen',
+                        'last_seen',
+                    ],
+                    showDateRange: true,
+                    showReload: true,
+                    showSearch: true,
+                    showPropertyFilter: [
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        ...groupsTaxonomicTypes,
+                        TaxonomicFilterGroupType.Cohorts,
+                        TaxonomicFilterGroupType.HogQLExpression,
+                    ],
+                    showTestAccountFilters: true,
+                    showExport: true,
+                    showColumnConfigurator: true,
+                    allowSorting: true,
+                }
+            },
         ],
     }),
 ])
