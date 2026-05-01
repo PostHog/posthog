@@ -153,7 +153,8 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * * `apns` - Apple Push
+ * * `anthropic` - Anthropic
+ * `apns` - Apple Push
  * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
@@ -191,6 +192,7 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    Anthropic: 'anthropic',
     Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',

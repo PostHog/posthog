@@ -36,6 +36,7 @@ from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     SLACK_INTEGRATION_KINDS,
+    AnthropicIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -388,6 +389,26 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
             instance = GitLabIntegration.create_integration(
                 hostname, project_id, project_access_token, team_id, request.user
+            )
+            return instance
+
+        elif validated_data["kind"] == "anthropic":
+            config = validated_data.get("config", {})
+            api_key = config.get("api_key")
+            workspace_label = config.get("workspace_label")
+
+            if not api_key:
+                raise ValidationError("An Anthropic API key must be provided")
+            if not isinstance(api_key, str):
+                raise ValidationError("Anthropic API key must be a string")
+            if workspace_label is not None and not isinstance(workspace_label, str):
+                raise ValidationError("Workspace label must be a string")
+
+            instance = AnthropicIntegration.integration_from_key(
+                api_key=api_key,
+                team_id=team_id,
+                created_by=request.user,
+                workspace_label=workspace_label,
             )
             return instance
 
@@ -880,6 +901,39 @@ class IntegrationViewSet(
         _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
+
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")
+    def anthropic_managed_agents(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        anthropic = AnthropicIntegration(instance)
+        agents = [
+            {
+                "id": agent["id"],
+                "name": agent.get("name", agent["id"]),
+                "version": agent.get("version"),
+            }
+            for agent in anthropic.list_managed_agents()
+        ]
+        return Response({"agents": agents})
+
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_environments")
+    def anthropic_managed_agent_environments(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        anthropic = AnthropicIntegration(instance)
+        environments = [
+            {"id": env["id"], "name": env.get("name", env["id"])} for env in anthropic.list_managed_agent_environments()
+        ]
+        return Response({"environments": environments})
+
+    @action(methods=["GET"], detail=True, url_path="anthropic_managed_agent_vaults")
+    def anthropic_managed_agent_vaults(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        anthropic = AnthropicIntegration(instance)
+        vaults = [
+            {"id": vault["id"], "display_name": vault.get("display_name", vault["id"])}
+            for vault in anthropic.list_managed_agent_vaults()
+        ]
+        return Response({"vaults": vaults})
 
     @extend_schema(
         parameters=[GitHubReposQuerySerializer],
