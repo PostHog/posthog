@@ -59,7 +59,7 @@ async def _get_temporary_credentials_for_multipart_upload(
         prefix,
         role_arn=role_arn,
         session_name="batch-exports-file-download-multipart-upload",
-        actions=["s3:PutObject", "s3:AbortMultiPartUpload"],
+        actions=["s3:PutObject", "s3:AbortMultipartUpload"],
         duration=duration,
     )
     return creds
