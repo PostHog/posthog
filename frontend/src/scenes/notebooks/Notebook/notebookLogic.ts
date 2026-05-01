@@ -116,7 +116,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['comments', 'itemContext'],
+            ['comments', 'itemContext', 'selectedCommentId'],
             notebookKernelInfoLogic({ shortId: props.shortId }),
             ['kernelInfo'],
             notebookSettingsLogic,
@@ -133,7 +133,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['setItemContext', 'maybeLoadComments'],
+            ['setItemContext', 'maybeLoadComments', 'setSelectedComment'],
             notebookCollabLogic({ shortId: props.shortId }),
             ['ackLocalSteps', 'applyRemoteSteps'],
         ],
@@ -708,6 +708,17 @@ export const notebookLogic = kea<notebookLogicType>([
                     ?.value as string
             },
         ],
+
+        activeCommentMarkId: [
+            (s) => [s.selectedCommentId, s.comments],
+            (selectedCommentId, comments): string | null => {
+                if (!selectedCommentId) {
+                    return null
+                }
+                const comment = comments?.find((c) => c.id === selectedCommentId)
+                return comment?.item_context?.type === 'mark' ? (comment.item_context.id ?? null) : null
+            },
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         insertAfterLastNode: async ({ content }) => {
@@ -892,16 +903,28 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         onEditorSelectionUpdate: () => {
-            if (values.editor) {
-                // Throttle this too to avoid excessive calls
-                if (cache.throttledOnUpdateEditorTimeout) {
-                    clearTimeout(cache.throttledOnUpdateEditorTimeout)
-                }
-                cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
-                    actions.onUpdateEditor()
-                    cache.throttledOnUpdateEditorTimeout = null
-                }, 16) // ~60fps throttling
+            if (!values.editor) {
+                return
             }
+            // Sync the active comment to the editor cursor: when the caret enters a comment mark
+            // we highlight the corresponding side-panel comment; when it leaves we clear it.
+            const markId = values.editor.getAttributes('comment').id ?? null
+            const targetSelectedId = markId
+                ? (values.comments?.find((c) => c.item_context?.type === 'mark' && c.item_context?.id === markId)?.id ??
+                  null)
+                : null
+            if (values.selectedCommentId !== targetSelectedId) {
+                actions.setSelectedComment(targetSelectedId)
+            }
+
+            // Throttle this too to avoid excessive calls
+            if (cache.throttledOnUpdateEditorTimeout) {
+                clearTimeout(cache.throttledOnUpdateEditorTimeout)
+            }
+            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                actions.onUpdateEditor()
+                cache.throttledOnUpdateEditorTimeout = null
+            }, 16) // ~60fps throttling
         },
         scrollToSelection: () => {
             if (values.editor) {
@@ -991,6 +1014,15 @@ export const notebookLogic = kea<notebookLogicType>([
                         editor.removeComment(mark.pos)
                     }
                 })
+            }
+        },
+        activeCommentMarkId: (markId: string | null) => {
+            if (!markId || !values.editor) {
+                return
+            }
+            const pos = values.editor.findCommentPosition(markId)
+            if (pos !== null) {
+                values.editor.scrollToPosition(pos)
             }
         },
     })),
