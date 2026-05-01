@@ -1964,6 +1964,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         }
         hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
+        source.webhook_inputs_updated(
+            source.parse_config(instance.job_inputs), get_webhook_url(hog_function.id), self.team.pk, inputs
+        )
+
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
     @extend_schema(

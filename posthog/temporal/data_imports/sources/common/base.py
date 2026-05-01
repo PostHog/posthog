@@ -175,6 +175,12 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def webhook_inputs_updated(
+        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
+    ) -> None:
+        """Called when webhook inputs have been set on the underlying hog function"""
+        pass
+
     @property
     @abstractmethod
     def webhook_resource_map(self) -> dict[str, str]:

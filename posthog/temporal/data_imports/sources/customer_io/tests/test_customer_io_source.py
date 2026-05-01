@@ -104,6 +104,48 @@ class TestCustomerIOSourceCreateWebhook:
         assert set(kwargs["resource_names"]) == set(RESOURCE_TO_CIO_OBJECT_TYPE.keys())
 
 
+class TestCustomerIOSourceWebhookInputsUpdated:
+    @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook")
+    def test_enables_webhook_when_signing_secret_is_provided(self, mock_enable):
+        mock_enable.return_value = (True, None)
+        source = CustomerIOSource()
+
+        source.webhook_inputs_updated(
+            _config(app_api_key="key", region="eu"),
+            "https://example.com/h",
+            team_id=1,
+            inputs={"signing_secret": "shh"},
+        )
+
+        mock_enable.assert_called_once_with("key", "eu", "https://example.com/h")
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook")
+    def test_skips_enable_when_signing_secret_is_missing(self, mock_enable):
+        source = CustomerIOSource()
+
+        source.webhook_inputs_updated(
+            _config(app_api_key="key", region="us"),
+            "https://example.com/h",
+            team_id=1,
+            inputs={},
+        )
+
+        mock_enable.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.enable_webhook")
+    def test_skips_enable_when_signing_secret_is_empty(self, mock_enable):
+        source = CustomerIOSource()
+
+        source.webhook_inputs_updated(
+            _config(app_api_key="key", region="us"),
+            "https://example.com/h",
+            team_id=1,
+            inputs={"signing_secret": ""},
+        )
+
+        mock_enable.assert_not_called()
+
+
 class TestCustomerIOSourceDeleteWebhook:
     @patch("posthog.temporal.data_imports.sources.customer_io.source.api_client.delete_webhook")
     def test_delegates_to_api_client(self, mock_delete):
