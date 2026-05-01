@@ -8,7 +8,6 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -711,11 +710,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         isDirectQueryMode: [
-            (s) => [s.source, s.selectedConnector, s.featureFlags],
-            (source, selectedConnector, featureFlags): boolean =>
-                source.access_method === 'direct' &&
-                selectedConnector?.name === 'Postgres' &&
-                !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY],
+            (s) => [s.source, s.selectedConnector],
+            (source, selectedConnector): boolean =>
+                source.access_method === 'direct' && selectedConnector?.name === 'Postgres',
         ],
         canGoBack: [
             (s) => [s.currentStep],
@@ -1490,9 +1487,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
                     const isDirectQueryMode =
-                        !!values.featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-                        values.selectedConnector.name === 'Postgres' &&
-                        sourceValues.access_method === 'direct'
+                        values.selectedConnector.name === 'Postgres' && sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',

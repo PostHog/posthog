@@ -236,6 +236,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI evaluation (LLM)",
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
         },
+        "$ai_tag": {
+            "label": "AI tag (LLM)",
+            "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
+        },
         "$ai_metric": {
             "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
@@ -2092,6 +2096,46 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Evaluation Runtime (LLM)",
             "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
             "examples": ["llm_judge", "hog"],
+        },
+        "$ai_tagger_id": {
+            "label": "AI Tagger ID (LLM)",
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_tagger_name": {
+            "label": "AI Tagger Name (LLM)",
+            "description": "The name of the tagger configuration used.",
+            "examples": ["Product feature tagger", "Intent classifier"],
+        },
+        "$ai_tags": {
+            "label": "AI Tags (LLM)",
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": ["billing", "feature-flags", "onboarding"],
+        },
+        "$ai_tag_count": {
+            "label": "AI Tag Count (LLM)",
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [1, 3],
+        },
+        "$ai_tag_reasoning": {
+            "label": "AI Tag Reasoning (LLM)",
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": ["The generation discussed billing and feature flag configuration"],
+        },
+        "$ai_tagger_start_time": {
+            "label": "AI Tagger Start Time (LLM)",
+            "description": "The timestamp when the tagger started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+        },
+        "$ai_tagger_key_type": {
+            "label": "AI Tagger Key Type (LLM)",
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_tagger_key_id": {
+            "label": "AI Tagger Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
         },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",

@@ -138,7 +138,7 @@ class TestChargebeeSourceResumeBehavior:
             return next(response_iter)
 
         with patch(
-            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}

@@ -8,7 +8,8 @@ rules:
           These route through the personhog gRPC service with ORM fallback.
           When adding new access patterns, follow the `_personhog_routed()`
           pattern in `posthog/models/person/util.py`.
-          See `posthog/personhog_client/README.md` for client details.
+          See `posthog/personhog_client/README.md` for client details
+          or reach out to #team-ingestion for more information.
       severity: WARNING
       languages: [python]
       patterns:

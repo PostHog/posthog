@@ -59,59 +59,9 @@ PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
 ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
 
 
-def _github_oauth_redirect_uri() -> str:
-    """Callback URL registered on the GitHub App; must match the authorize request."""
+def github_oauth_redirect_uri() -> str:
+    """GitHub OAuth redirect for personal link; reads SITE_URL at call time so tests can override."""
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
-
-
-def _connect_from_github_start(request: Request) -> str | None:
-    """Optional ``connect_from`` from JSON body (e.g. PostHog Code)."""
-    data: Any = request.data
-    if not isinstance(data, dict):
-        return None
-    raw = data.get("connect_from")
-    if raw == "posthog_code":
-        return "posthog_code"
-    return None
-
-
-def _team_for_github_start(user: User, request: Request):
-    """Resolve which team to use for team-level GitHub install discovery.
-
-    PostHog Code passes ``team_id`` (project/team) in the JSON body because the
-    session's ``user.current_team`` may not match the app UI. The web app omits
-    it and uses ``current_team``.
-    """
-    data: Any = request.data
-    if not isinstance(data, dict):
-        data = {}
-    raw_id = data.get("team_id")
-    if raw_id is not None and raw_id != "":
-        try:
-            tid = int(raw_id)
-        except (TypeError, ValueError):
-            raise exceptions.ValidationError("team_id must be an integer")
-        team = user.teams.filter(id=tid).first()
-        if team is None:
-            raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
-        return team
-    return user.current_team
-
-
-def _serialize_github_integration(
-    integration: UserIntegration,
-    *,
-    team_integration_installation_ids: set[str],
-) -> dict[str, Any]:
-    """Build the response payload for a single GitHub UserIntegration."""
-    return {
-        "kind": "github",
-        "installation_id": integration.integration_id,
-        "repository_selection": integration.config.get("repository_selection"),
-        "account": integration.config.get("account"),
-        "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
-        "created_at": integration.created_at,
-    }
 
 
 class UserGitHubAccountSerializer(serializers.Serializer):
@@ -300,11 +250,16 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         ``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
         under projects).
 
-        - If the current project has **no** team-level GitHub ``Integration``, returns
-          ``install_url`` pointing at ``/installations/new`` (configure org + repos).
-        - If the team **already** has a GitHub installation, returns ``install_url``
-          pointing at ``/login/oauth/authorize`` so the user only authorizes as
-          themselves for that installation (no repo scoping UI on GitHub).
+        Usually returns ``install_url`` pointing at ``/installations/new`` so the
+        user can pick any GitHub org (new or already connected).  GitHub's install
+        page handles both cases: orgs where the app is installed show "Configure"
+        (no admin needed), orgs where it isn't show "Install" (needs admin).
+
+        **PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
+        the current project already has a team-level GitHub installation, and the
+        user has no ``UserIntegration`` for that installation yet, we skip the org
+        picker and redirect straight to ``/login/oauth/authorize`` so the user
+        only authorizes themselves and returns to PostHog Code immediately.
 
         In both cases the response key is ``install_url`` for compatibility with callers.
         """
@@ -313,47 +268,23 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         token = get_random_string(48)
         state = urlencode({"token": token, "source": "user_integration"})
         user = self._get_user()
-        team = _team_for_github_start(user, self.request)
-        connect_from = _connect_from_github_start(self.request)
+        team = _resolve_team_for_github_start(user, self.request)
+        connect_from = request.data.get("connect_from")
 
-        has_team_github = False
-        team_installation_id: str | None = None
-        if team is not None:
-            team_row = (
-                Integration.objects.filter(team=team, kind="github")
-                .exclude(integration_id__isnull=True)
-                .exclude(integration_id="")
-                .order_by("id")
-                .first()
-            )
-            if team_row is not None and team_row.integration_id:
-                has_team_github = True
-                team_installation_id = str(team_row.integration_id)
+        if connect_from == "posthog_code":
+            if fast_path_response := _attempt_posthog_code_oauth_fast_path(user, team, token, state):
+                return fast_path_response
 
-        if has_team_github and team_installation_id:
-            client_id = settings.GITHUB_APP_CLIENT_ID
-            if not client_id:
-                raise exceptions.ValidationError(
-                    "GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing)."
-                )
-            oauth_state_payload: dict[str, Any] = {
-                "user_id": user.id,
-                "installation_id": team_installation_id,
-                "flow": "oauth_authorize",
-            }
-            if connect_from:
-                oauth_state_payload["connect_from"] = connect_from
-            cache.set(
-                f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-                oauth_state_payload,
-                timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        # If the user already has linked integrations, check whether there are
+        # any GitHub App installations they haven't linked yet. If everything
+        # accessible is already linked, there's nothing to add.
+        has_unlinked = _has_unlinked_github_installations(user)
+        if has_unlinked is False:
+            raise exceptions.ValidationError(
+                "All GitHub App installations accessible to your account are already linked."
             )
-            redirect_uri = _github_oauth_redirect_uri()
-            install_url = "https://github.com/login/oauth/authorize?" + urlencode(
-                {"client_id": client_id, "redirect_uri": redirect_uri, "state": state}
-            )
-            return Response({"install_url": install_url, "connect_flow": "oauth_authorize"})
 
+        # Default: full install flow — user picks an org on GitHub's install page.
         instance_settings = get_instance_settings(["GITHUB_APP_SLUG"])
         app_slug = instance_settings.get("GITHUB_APP_SLUG")
         if not app_slug:
@@ -481,7 +412,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
 
     # Exchange code for user-to-server tokens
     if oauth_flow:
-        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=_github_oauth_redirect_uri())
+        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
     else:
         authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
@@ -541,3 +472,129 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     if posthog_code_flow:
         return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{urlencode({'provider': 'github'})}")
     return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")
+
+
+def _resolve_team_for_github_start(user: User, request: Request):
+    """Resolve which team to use for team-level GitHub install discovery.
+
+    PostHog Code passes ``team_id`` (project/team) in the JSON body because the
+    session's ``user.current_team`` may not match the app UI. The web app omits
+    it and uses ``current_team``.
+    """
+    data: Any = request.data
+    if not isinstance(data, dict):
+        data = {}
+    raw_id = data.get("team_id")
+    if raw_id is not None and raw_id != "":
+        try:
+            tid = int(raw_id)
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError("team_id must be an integer")
+        team = user.teams.filter(id=tid).first()
+        if team is None:
+            raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
+        return team
+    return user.current_team
+
+
+def _has_unlinked_github_installations(user: User) -> bool | None:
+    """Check whether the user has GitHub App installations they haven't linked yet.
+
+    Uses the user's existing OAuth token to call ``GET /user/installations``
+    and compares against their ``UserIntegration`` rows.
+
+    Returns ``True`` if unlinked installations exist, ``False`` if all are
+    linked, or ``None`` if the check couldn't be performed (no existing
+    integration, token refresh failed, network error).
+    """
+    any_integration = UserIntegration.objects.filter(user=user, kind="github").exclude(sensitive_config={}).first()
+    if any_integration is None:
+        return None
+
+    github = UserGitHubIntegration(any_integration)
+    try:
+        token = github.get_usable_user_access_token()
+    except Exception:
+        return None
+
+    try:
+        response = requests.get(
+            "https://api.github.com/user/installations",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            params={"per_page": 100},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return None
+
+    if response.status_code != 200:
+        return None
+
+    try:
+        installations = response.json().get("installations", [])
+    except Exception:
+        return None
+
+    github_installation_ids = {str(inst["id"]) for inst in installations if isinstance(inst, dict) and "id" in inst}
+    linked_ids = set(UserIntegration.objects.filter(user=user, kind="github").values_list("integration_id", flat=True))
+    return bool(github_installation_ids - linked_ids)
+
+
+def _attempt_posthog_code_oauth_fast_path(user: User, team: Any, token: str, state: str) -> Response | None:
+    """If the team has a GitHub installation the user hasn't linked yet, return
+    an OAuth-only ``/login/oauth/authorize`` redirect so PostHog Code users
+    authorize and return immediately — no org picker needed.
+
+    Returns ``None`` when the fast path doesn't apply (no team integration,
+    user already linked, or missing config).
+    """
+    if team is None:
+        return None
+    team_row = (
+        Integration.objects.filter(team=team, kind="github")
+        .exclude(integration_id__isnull=True)
+        .exclude(integration_id="")
+        .order_by("id")
+        .first()
+    )
+    if team_row is None or not team_row.integration_id:
+        return None
+    team_installation_id = str(team_row.integration_id)
+    if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
+        return None
+    if not settings.GITHUB_APP_CLIENT_ID:
+        raise exceptions.ValidationError("GitHub App client ID is not configured (GITHUB_APP_CLIENT_ID missing).")
+    cache.set(
+        f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
+        {
+            "user_id": user.id,
+            "installation_id": team_installation_id,
+            "flow": "oauth_authorize",
+            "connect_from": "posthog_code",
+        },
+        timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+    )
+    install_url = "https://github.com/login/oauth/authorize?" + urlencode(
+        {"client_id": settings.GITHUB_APP_CLIENT_ID, "redirect_uri": github_oauth_redirect_uri(), "state": state}
+    )
+    return Response({"install_url": install_url, "connect_flow": "oauth_authorize"})
+
+
+def _serialize_github_integration(
+    integration: UserIntegration,
+    *,
+    team_integration_installation_ids: set[str],
+) -> dict[str, Any]:
+    """Build the response payload for a single GitHub UserIntegration."""
+    return {
+        "kind": "github",
+        "installation_id": integration.integration_id,
+        "repository_selection": integration.config.get("repository_selection"),
+        "account": integration.config.get("account"),
+        "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
+        "created_at": integration.created_at,
+    }

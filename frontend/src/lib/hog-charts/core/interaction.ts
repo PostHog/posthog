@@ -1,6 +1,13 @@
 import { bisector } from 'd3'
 
-import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext, YAxisScale } from './types'
+import type {
+    ChartDimensions,
+    PointClickData,
+    ResolvedSeries,
+    ResolveValueFn,
+    TooltipContext,
+    YAxisScale,
+} from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 export interface LabelPosition {
@@ -54,7 +61,7 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
 
 export function buildTooltipContext<Meta = unknown>(
     dataIndex: number,
-    series: Series<Meta>[],
+    series: ResolvedSeries<Meta>[],
     labels: string[],
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
@@ -103,7 +110,7 @@ export function buildTooltipContext<Meta = unknown>(
 
 export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
-    series: Series<Meta>[],
+    series: ResolvedSeries<Meta>[],
     labels: string[],
     resolveValue: ResolveValueFn
 ): PointClickData<Meta> | null {

@@ -41,35 +41,42 @@ TRACE_FIELDS_MAPPING: dict[str, str] = {
 }
 
 
-class TraceQueryDateRange(QueryDateRange):
-    """
-    Extends the QueryDateRange to include a capture range of 10 minutes before and after the date range.
-    It's a naive assumption that a trace finishes generating within 10 minutes of the first event so we can apply the date filters.
-    """
-
-    CAPTURE_RANGE_MINUTES = 10
-
-    def date_from_for_filtering(self) -> datetime:
-        return super().date_from()
-
-    def date_to_for_filtering(self) -> datetime:
-        return super().date_to()
-
-    def date_from(self) -> datetime:
-        return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
-
-    def date_to(self) -> datetime:
-        return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
-
-
 class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
+    """
+    Returns a single trace and its events.
+
+    Runs in two stages so the trace detail view shows the same spans the user
+    sees by expanding the trace from the sessions view. A single-stage time
+    filter, no matter how wide, will eventually miss long-running traces or
+    late-arriving spans; the resulting span-count mismatch reads as cache
+    staleness and has been a recurring source of confusion. Stage one finds
+    the trace's actual timestamp bounds; stage two fetches all events using
+    those exact bounds.
+    """
+
+    BOUNDS_BACKWARD_BUFFER_MINUTES = 10
+    EVENTS_BUFFER_MINUTES = 1
+
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        self._trace_bounds: tuple[datetime, datetime] | None = None
 
     def _calculate(self):
+        bounds = self._discover_trace_bounds()
+        if bounds is None:
+            return TraceQueryResponse(
+                columns=[],
+                results=[],
+                timings=self.timings.to_list(),
+                hogql="",
+                modifiers=self.modifiers,
+            )
+
+        self._trace_bounds = bounds
+
         query_result = execute_with_ai_events_fallback(
             query=self._build_query(),
             placeholders={"filter_conditions": self._get_where_clause()},
@@ -90,6 +97,37 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             hogql=query_result.hogql,
             modifiers=self.modifiers,
         )
+
+    def _discover_trace_bounds(self) -> tuple[datetime, datetime] | None:
+        bounds_query = parse_select(
+            """
+            SELECT
+                min(timestamp) AS min_ts,
+                max(timestamp) AS max_ts
+            FROM posthog.ai_events AS ai_events
+            WHERE event IN (
+                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+            )
+              AND {filter_conditions}
+            """,
+        )
+
+        result = execute_with_ai_events_fallback(
+            query=cast(ast.SelectQuery, bounds_query),
+            placeholders={"filter_conditions": self._get_bounds_where_clause()},
+            team=self.team,
+            query_type=f"{NodeKind.TRACE_QUERY}_bounds",
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+
+        if not result.results:
+            return None
+        min_ts, max_ts = result.results[0]
+        if min_ts is None or max_ts is None:
+            return None
+        return cast(datetime, min_ts), cast(datetime, max_ts)
 
     def to_query(self):
         return self._build_query()
@@ -184,13 +222,12 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 5,
+            "schema_version": 6,
         }
 
     @cached_property
     def _date_range(self):
-        # Minute-level precision for 10m capture range
-        return TraceQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
+        return QueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
@@ -198,27 +235,58 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
         return last_refresh + timedelta(minutes=1)
 
-    def _get_where_clause(self) -> ast.Expr:
+    def _get_bounds_where_clause(self) -> ast.Expr:
+        # The user-provided date range is just a hint to narrow ClickHouse
+        # partition scans during bounds discovery; we extend forward to "now"
+        # so the trace detail page still finds late-arriving spans even when
+        # the URL timestamp window only covers the first few minutes of a
+        # long-running trace.
+        date_from = self._date_range.date_from() - timedelta(minutes=self.BOUNDS_BACKWARD_BUFFER_MINUTES)
+        date_to = max(self._date_range.date_to(), self._date_range.now_with_timezone)
+
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["ai_events", "timestamp"]),
-                right=self._date_range.date_from_as_hogql(),
+                right=ast.Constant(value=date_from),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Field(chain=["ai_events", "timestamp"]),
-                right=self._date_range.date_to_as_hogql(),
+                right=ast.Constant(value=date_to),
             ),
-        ]
-
-        where_exprs.append(
             ast.CompareOperation(
                 left=ast.Field(chain=["trace_id"]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=self.query.traceId),
             ),
-        )
+        ]
+
+        return ast.And(exprs=where_exprs)
+
+    def _get_where_clause(self) -> ast.Expr:
+        # Stage two scopes the timestamp filter to the exact bounds discovered
+        # by stage one, plus a one-minute buffer to absorb any precision drift.
+        assert self._trace_bounds is not None, "Stage one must populate trace bounds before stage two runs"
+        min_ts, max_ts = self._trace_bounds
+
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["ai_events", "timestamp"]),
+                right=ast.Constant(value=min_ts - timedelta(minutes=self.EVENTS_BUFFER_MINUTES)),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["ai_events", "timestamp"]),
+                right=ast.Constant(value=max_ts + timedelta(minutes=self.EVENTS_BUFFER_MINUTES)),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["trace_id"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.traceId),
+            ),
+        ]
 
         if self.query.properties:
             with self.timings.measure("property_filters"):
@@ -263,19 +331,4 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
     def _map_results(self, columns: list[str], query_results: list) -> list[LLMTrace]:
         mapped_results = [dict(zip(columns, value)) for value in query_results]
-        traces = []
-
-        date_from = self._date_range.date_from_for_filtering()
-        date_to = self._date_range.date_to_for_filtering()
-
-        for result in mapped_results:
-            # Overlap semantics: match sessions list behavior where a trace
-            # is counted if ANY of its events fall in the date window.
-            first_timestamp = cast(datetime, result["first_timestamp"])
-            last_timestamp = cast(datetime, result["last_timestamp"])
-            if first_timestamp > date_to or last_timestamp < date_from:
-                continue
-
-            traces.append(self._map_trace(result, first_timestamp))
-
-        return traces
+        return [self._map_trace(result, cast(datetime, result["first_timestamp"])) for result in mapped_results]

@@ -837,11 +837,14 @@ def social_create_user(
         # on the organization domain or if JIT provisioning is enabled, we'll provision them.
         logger.info(f"social_create_user_is_not_new")
 
-        if not user.is_email_verified and user.password is not None:
-            logger.info(f"social_create_user_is_not_new_unverified_has_password")
+        if not user.is_email_verified:
+            # Email isn't verified yet — anyone could have set these local credentials.
+            # Wipe them before linking the SSO identity.
+            logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
             user.set_unusable_password()
-            user.is_email_verified = True
             WebauthnCredential.objects.filter(user=user).delete()
+            user.passkeys_enabled_for_2fa = False
+            user.is_email_verified = True
             user.save()
 
         if invite_id:

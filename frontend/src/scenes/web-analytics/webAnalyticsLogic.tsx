@@ -61,7 +61,6 @@ import {
     AvailableFeature,
     BaseMathType,
     Breadcrumb,
-    BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
     InsightLogicProps,
@@ -78,9 +77,9 @@ import {
     WebAnalyticsFiltersConfig,
 } from '~/types'
 
+import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
     ActiveHoursTab,
-    BOT_ANALYTICS_EVENTS,
     BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
@@ -213,8 +212,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setBotTrafficFilter: (botTrafficFilter: BotTrafficFilter) => ({ botTrafficFilter }),
-        setBotTrendsTab: (tab: string) => ({ tab }),
-        setBotDetailName: (botDetailName: string | null) => ({ botDetailName }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -436,20 +433,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 {
                     setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
                     clearFilters: () => 'regular' as BotTrafficFilter,
-                },
-            ],
-            _botTrendsTab: [
-                null as string | null,
-                persistConfig,
-                {
-                    setBotTrendsTab: (_, { tab }) => tab,
-                },
-            ],
-            botDetailName: [
-                null as string | null,
-                {
-                    setBotDetailName: (_, { botDetailName }) => botDetailName,
-                    setProductTab: () => null,
                 },
             ],
             shouldStripQueryParams: [
@@ -744,7 +727,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return filters
             },
         ],
-        botTrendsTab: [(s) => [s._botTrendsTab], (botTrendsTab: string | null) => botTrendsTab || 'crawler'],
         tabs: [
             (s) => [
                 s.graphsTab,
@@ -944,7 +926,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
                 s.hiddenTiles,
-                s.botTrendsTab,
             ],
             (
                 productTab,
@@ -964,8 +945,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd,
                 tileVisualizations,
                 preAggregatedEnabled,
-                hiddenTiles,
-                botTrendsTab
+                hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -2282,153 +2262,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         : null,
                 ]
 
-                // Bot analytics tab — dedicated tiles for bot traffic analysis
+                // Bot analytics tiles live in `botAnalyticsLogic` so the bot tab keeps its own
+                // filter state. `MainContent` reads them directly when productTab === BOT_ANALYTICS.
                 if (productTab === ProductTab.BOT_ANALYTICS) {
-                    // Force bot traffic filter regardless of the global toggle
-                    const botFilters: WebAnalyticsPropertyFilters = [
-                        ...webAnalyticsFilters.filter((f) => 'key' in f && f.key !== '$virt_is_bot'),
-                        {
-                            key: '$virt_is_bot',
-                            value: ['true'],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Event,
-                        },
-                        {
-                            key: '$virt_bot_name',
-                            value: [''],
-                            operator: PropertyOperator.IsNot,
-                            type: PropertyFilterType.Event,
-                        },
-                    ]
-
-                    const botTiles: (WebAnalyticsTile | null)[] = [
-                        (() => {
-                            const botTrendsSeries = BOT_ANALYTICS_EVENTS.map((event) => ({
-                                event,
-                                kind: NodeKind.EventsNode as const,
-                                math: BaseMathType.TotalCount,
-                                name: event,
-                                custom_name: 'Requests',
-                            }))
-                            const createBotTrendsTab = (
-                                id: string,
-                                title: string,
-                                breakdown: string,
-                                breakdownType: BreakdownType
-                            ): TabsTileTab => ({
-                                id,
-                                title,
-                                linkText: title,
-                                query: {
-                                    kind: NodeKind.InsightVizNode,
-                                    source: {
-                                        kind: NodeKind.TrendsQuery,
-                                        dateRange,
-                                        interval: interval ?? 'hour',
-                                        series: botTrendsSeries,
-                                        trendsFilter: {
-                                            display: ChartDisplayType.ActionsLineGraph,
-                                        },
-                                        breakdownFilter: {
-                                            breakdown,
-                                            breakdown_type: breakdownType,
-                                        },
-                                        properties: botFilters,
-                                        filterTestAccounts,
-                                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                    },
-                                    hidePersonsModal: true,
-                                    embedded: true,
-                                },
-                                insightProps: createInsightProps(TileId.BOT_TRENDS, id),
-                                canOpenInsight: true,
-                                showIntervalSelect: true,
-                            })
-                            return {
-                                kind: 'tabs' as const,
-                                tileId: TileId.BOT_TRENDS,
-                                layout: {
-                                    colSpanClassName: 'md:col-span-full' as const,
-                                },
-                                activeTabId: botTrendsTab,
-                                setTabId: actions.setBotTrendsTab,
-                                tabs: [
-                                    createBotTrendsTab('crawler', 'Crawler', '$virt_bot_name', 'event'),
-                                    createBotTrendsTab('category', 'Category', '$virt_traffic_category', 'event'),
-                                    createBotTrendsTab('host', 'Host', '$host', 'event'),
-                                ],
-                            }
-                        })(),
-                        {
-                            kind: 'query',
-                            tileId: TileId.BOT_CRAWLERS,
-                            title: 'Crawlers',
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                            },
-                            query: {
-                                full: true,
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.HogQLQuery,
-                                    query: `SELECT
-    \`$virt_bot_name\` AS "Crawler",
-    \`$virt_traffic_category\` AS "Category",
-    count() AS "Requests",
-    max(timestamp) AS "Last seen"
-FROM events
-WHERE \`$virt_is_bot\` = true
-    AND \`$virt_bot_name\` != ''
-    AND event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})
-    AND {filters}
-GROUP BY "Crawler", "Category"
-ORDER BY "Requests" DESC
-LIMIT 50`,
-                                    filters: {
-                                        dateRange,
-                                        properties: botFilters,
-                                        filterTestAccounts,
-                                    },
-                                },
-                                showActions: false,
-                                embedded: true,
-                            },
-                            insightProps: createInsightProps(TileId.BOT_CRAWLERS, 'table'),
-                            canOpenModal: false,
-                            canOpenInsight: false,
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.BOT_PATHS,
-                            title: 'Most crawled paths',
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                            },
-                            query: {
-                                full: true,
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.WebStatsTableQuery,
-                                    breakdownBy: WebStatsBreakdown.Page,
-                                    properties: botFilters,
-                                    dateRange,
-                                    sampling,
-                                    limit: 10,
-                                    orderBy: tablesOrderBy ?? undefined,
-                                    filterTestAccounts,
-                                    doPathCleaning: isPathCleaningEnabled,
-                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                },
-                                columns: ['breakdown_value', 'visitors', 'views'],
-                                embedded: true,
-                                showActions: false,
-                            },
-                            insightProps: createInsightProps(TileId.BOT_PATHS, 'table'),
-                            canOpenModal: true,
-                            canOpenInsight: true,
-                        },
-                    ]
-                    return botTiles.filter(isNotNil)
+                    return []
                 }
 
                 return allTiles
@@ -2477,8 +2314,12 @@ LIMIT 50`,
             } else if (productTab === ProductTab.LIVE) {
                 return '/web/live'
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
-                if (rawWebAnalyticsFilters.length > 0) {
-                    urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+                // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
+                // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
+                // regular Analytics tab). Date/interval are shared across tabs.
+                const rawBotAnalyticsFilters = botAnalyticsLogic.findMounted()?.values.rawBotAnalyticsFilters ?? []
+                if (rawBotAnalyticsFilters.length > 0) {
+                    urlParams.set('filters', JSON.stringify(rawBotAnalyticsFilters))
                 }
                 if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
                     urlParams.set('date_from', dateFrom ?? '')
@@ -2639,8 +2480,15 @@ LIMIT 50`,
             }
 
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
-            if (parsedFilters && !objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
-                actions.setWebAnalyticsFilters(parsedFilters)
+            if (parsedFilters) {
+                if (productTab === ProductTab.BOT_ANALYTICS) {
+                    const botLogic = botAnalyticsLogic.findMounted()
+                    if (botLogic && !objectsEqual(parsedFilters, botLogic.values.rawBotAnalyticsFilters)) {
+                        botLogic.actions.setBotAnalyticsFilters(parsedFilters)
+                    }
+                } else if (!objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
+                    actions.setWebAnalyticsFilters(parsedFilters)
+                }
             }
             if (
                 conversionGoalActionId &&
@@ -2722,13 +2570,6 @@ LIMIT 50`,
             '/web/page-reports': toAction,
             '/web/bots': (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
-                actions.setBotDetailName(null)
-            },
-            '/web/bots/:botName': (params, searchParams) => {
-                toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
-                if (params.botName) {
-                    actions.setBotDetailName(decodeURIComponent(params.botName))
-                }
             },
             '/web/:productTab': toAction,
         }

@@ -31,11 +31,12 @@ from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
-from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.event_usage import get_event_source, get_mcp_properties
+from posthog.event_usage import EventSource, get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import (
@@ -381,6 +382,11 @@ class CHQueries:
             if request_id := structlog.get_context(self.logger).get("request_id"):
                 tag_queries(http_request_id=uuid.UUID(request_id))
 
+        source = get_event_source(request)
+        # MCP-originated requests can't tag queries themselves (no `tags.scene` or
+        # per-tool product/feature plumbing yet), so default both here. View-level
+        # `@monitor` decorators still override `feature` per endpoint.
+        mcp_defaults: dict = {"product": Product.MCP, "feature": Feature.QUERY} if source == EventSource.MCP else {}
         tag_queries(
             user_id=user.pk,
             kind="request",
@@ -391,7 +397,8 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
-            source=get_event_source(request),
+            source=source,
+            **mcp_defaults,
             **get_mcp_properties(request),
         )
 
@@ -446,14 +453,26 @@ class QueryTimeCountingMiddleware:
             response: HttpResponse = self.get_response(request)
 
         response.headers["Server-Timing"] = self._construct_header(
-            django=time.perf_counter() - start_time,
-            pg=pg_query_counter.query_time_ms,
-            ch=ch_query_counter.query_time_ms,
+            durations={
+                "django": time.perf_counter() - start_time,
+                "pg": pg_query_counter.query_time_ms,
+                "pg_max": pg_query_counter.max_query_time_ms,
+                "ch": ch_query_counter.query_time_ms,
+                "ch_max": ch_query_counter.max_query_time_ms,
+            },
+            counts={
+                "pg_count": pg_query_counter.count,
+                "pg_slow": pg_query_counter.slow_count,
+                "ch_count": ch_query_counter.count,
+                "ch_slow": ch_query_counter.slow_count,
+            },
         )
         return response
 
-    def _construct_header(self, **kwargs):
-        return ", ".join(f"{key};dur={round(duration)}" for key, duration in kwargs.items())
+    def _construct_header(self, durations: dict[str, float], counts: dict[str, int]) -> str:
+        parts = [f"{key};dur={round(value)}" for key, value in durations.items()]
+        parts += [f'{key};desc="{value}"' for key, value in counts.items()]
+        return ", ".join(parts)
 
 
 def shortcircuitmiddleware(f):
@@ -686,6 +705,47 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
 
     return min(idle_expiry_time, total_expiry_time)
+
+
+class AdminImpersonationMiddleware:
+    """
+    During impersonation, allow the original (staff) user to keep using the admin panel.
+
+    Without this, an impersonated session swaps `request.user` to the customer being
+    impersonated — who is not staff — locking the admin out of the admin panel and
+    every staff-only command. This middleware swaps `request.user` back to the
+    original staff user for `/admin/` routes so admin views, model permissions, and
+    `staff_member_required` decorators all see the real operator. The impersonation
+    session itself is left intact (the loginas session flag stays set), so
+    `is_impersonated_session` keeps returning True and `get_impersonated_user` still
+    returns the customer (looked up from the session).
+    """
+
+    # Endpoints that need to see the impersonated user as `request.user`.
+    EXEMPT_PATHS: tuple[str, ...] = (
+        # impersonated_session_logout reads request.user.pk to redirect back to the
+        # impersonated user's admin change page after restoring the original login.
+        "/admin/logout/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if self._should_swap_user(request):
+            original_user = get_original_user_from_session(request)
+            if original_user and original_user.is_active and original_user.is_staff:
+                request.user = original_user
+                # Keep the lazy auth-middleware cache in sync with the swapped user.
+                request._cached_user = original_user  # type: ignore[attr-defined]
+        return self.get_response(request)
+
+    def _should_swap_user(self, request: HttpRequest) -> bool:
+        if not request.path.startswith("/admin/"):
+            return False
+        if request.path in self.EXEMPT_PATHS:
+            return False
+        return is_impersonated_session(request)
 
 
 class AutoLogoutImpersonateMiddleware:
@@ -1042,6 +1102,11 @@ class ImpersonationReadOnlyMiddleware:
 
     def __call__(self, request: HttpRequest):
         if not is_read_only_impersonation(request):
+            return self.get_response(request)
+
+        # Admin paths run as the original staff user (see AdminImpersonationMiddleware),
+        # so impersonation read-only restrictions don't apply there.
+        if request.path.startswith("/admin/"):
             return self.get_response(request)
 
         if request.method in IMPERSONATION_SAFE_METHODS:

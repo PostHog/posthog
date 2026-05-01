@@ -1063,6 +1063,103 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(existing_user.organization_memberships.count(), 1)
             self.assertEqual(existing_user.organization, new_org)
 
+    def _setup_jit_domain_for_email(self, email: str) -> Organization:
+        org = Organization.objects.create(name="Test org")
+        OrganizationDomain.objects.create(
+            domain=email.split("@")[1],
+            verified_at=timezone.now(),
+            jit_provisioning_enabled=True,
+            organization=org,
+        )
+        Team.objects.create(organization=org, name="Test Project")
+        return org
+
+    def _complete_sso_for_email(self, mock_request, mock_sso_providers, email: str):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": email, "sub": "123"}
+        return self.client.get(url, follow=True)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_merge_into_unverified_passkey_account_clears_passkey(self, mock_sso_providers, mock_request):
+        # An attacker pre-registered the email with a passkey-only signup. SSO must wipe
+        # the dangling passkey before merging the SSO identity into the existing row.
+        with self.is_cloud(True):
+            email = "victim@posthog.net"
+            squatter = User.objects.create(email=email, distinct_id=str(uuid.uuid4()))
+            squatter.set_unusable_password()
+            squatter.is_email_verified = False
+            squatter.passkeys_enabled_for_2fa = True
+            squatter.save()
+            WebauthnCredential.objects.create(
+                user=squatter,
+                credential_id=b"squatter-credential",
+                label="Squatter passkey",
+                public_key=b"squatter-public-key",
+                algorithm=-7,
+                verified=True,
+            )
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            squatter.refresh_from_db()
+            self.assertTrue(squatter.is_email_verified)
+            self.assertFalse(squatter.passkeys_enabled_for_2fa)
+            self.assertFalse(WebauthnCredential.objects.filter(user=squatter).exists())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_merge_into_unverified_password_account_clears_password(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "victim@posthog.net"
+            squatter = User.objects.create(email=email, distinct_id=str(uuid.uuid4()))
+            squatter.set_password(VALID_TEST_PASSWORD)
+            squatter.is_email_verified = False
+            squatter.save()
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            squatter.refresh_from_db()
+            self.assertTrue(squatter.is_email_verified)
+            self.assertFalse(squatter.has_usable_password())
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_sso_merge_into_verified_account_preserves_credentials(self, mock_sso_providers, mock_request):
+        with self.is_cloud(True):
+            email = "legit@posthog.net"
+            existing = User.objects.create(email=email, distinct_id=str(uuid.uuid4()))
+            existing.set_password(VALID_TEST_PASSWORD)
+            existing.is_email_verified = True
+            existing.save()
+            WebauthnCredential.objects.create(
+                user=existing,
+                credential_id=b"legit-credential",
+                label="Legit passkey",
+                public_key=b"legit-public-key",
+                algorithm=-7,
+                verified=True,
+            )
+            self._setup_jit_domain_for_email(email)
+
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, email)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            existing.refresh_from_db()
+            self.assertTrue(existing.has_usable_password())
+            self.assertTrue(WebauthnCredential.objects.filter(user=existing).exists())
+
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee

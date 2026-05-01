@@ -17,6 +17,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import (
     BaseModel,
@@ -102,6 +103,7 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
+from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
@@ -121,6 +123,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
@@ -494,6 +497,26 @@ class InsightSerializer(InsightBasicSerializer):
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Creating or updating insights with legacy filters is not available for this user.")
+
+        new_dashboards = attrs.get("dashboards")
+        if new_dashboards is not None:
+            team = self.context["get_team"]()
+            existing_dashboard_ids: set[int] = set()
+            if self.instance is not None:
+                existing_dashboard_ids = set(
+                    self.instance.dashboard_tiles.exclude(deleted=True).values_list("dashboard_id", flat=True)
+                )
+            for dashboard in new_dashboards:
+                if dashboard.id in existing_dashboard_ids:
+                    continue
+                current_tiles = DashboardTile.objects.filter(dashboard_id=dashboard.id).exclude(deleted=True).count()
+                check_count_limit(
+                    team=team,
+                    key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
+                    current_count=current_tiles,
+                    user=self.context["request"].user,
+                )
+
         return super().validate(attrs)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
@@ -515,6 +538,8 @@ class InsightSerializer(InsightBasicSerializer):
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
         if dashboards is not None:
+            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
+            # in validate(); see InsightSerializer.validate above.
             # nosemgrep: idor-lookup-without-team
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
                 if dashboard.team != insight.team:
@@ -1225,10 +1250,20 @@ class InsightViewSet(
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
 
+    def _is_basic_request(self) -> bool:
+        return self.action in ("list", "retrieve") and str_to_bool(self.request.query_params.get("basic", "0"))
+
+    @tracer.start_as_current_span("insight_api_list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        span = trace.get_current_span()
+        span.set_attribute("posthog.team_id", self.team_id)
+        span.set_attribute("posthog.basic", self._is_basic_request())
+        span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
+        span.set_attribute("posthog.order", request.query_params.get("order", ""))
+        return super().list(request, *args, **kwargs)
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if (self.action == "list" or self.action == "retrieve") and str_to_bool(
-            self.request.query_params.get("basic", "0")
-        ):
+        if self._is_basic_request():
             return InsightBasicSerializer
         if self.action in ("create", "partial_update") and self._is_mcp_request(self.request):
             return MCPInsightSerializer
@@ -1267,28 +1302,46 @@ class InsightViewSet(
         if not include_deleted:
             queryset = queryset.exclude(deleted=True)
 
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                # TODO deprecate this field entirely
-                "dashboards",
-                queryset=Dashboard.objects.all().select_related("team__organization"),
-            ),
-            Prefetch(
-                "dashboard_tiles",
-                queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
-            ),
-            Prefetch(
-                "alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
-                to_attr="_prefetched_alerts",
-            ),
-        )
+        # InsightBasicSerializer skips alerts and only needs PKs from dashboards plus
+        # (id, dashboard_id, deleted) from tiles, so the heavy team→organization joins
+        # the full serializer relies on are pure waste on the basic path.
+        is_basic = self._is_basic_request()
+
+        if is_basic:
+            queryset = queryset.prefetch_related(
+                Prefetch("dashboards", queryset=Dashboard.objects.only("id")),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
+                ),
+            )
+        else:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    # TODO deprecate this field entirely
+                    "dashboards",
+                    queryset=Dashboard.objects.all().select_related("team__organization"),
+                ),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
+                ),
+                Prefetch(
+                    "alertconfiguration_set",
+                    queryset=AlertConfiguration.objects.select_related("created_by"),
+                    to_attr="_prefetched_alerts",
+                ),
+            )
 
         # Add access level filtering for list actions if not sharing access token
         if not isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             queryset = self._filter_queryset_by_access_level(queryset)
 
-        queryset = queryset.select_related("created_by", "last_modified_by", "team")
+        if is_basic:
+            queryset = queryset.select_related("created_by", "team")
+        else:
+            queryset = queryset.select_related("created_by", "last_modified_by", "team")
+
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = queryset.annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
@@ -1543,7 +1596,7 @@ class InsightViewSet(
             INSIGHT_ID_PATH_PARAMETER,
             OpenApiParameter(
                 name="refresh",
-                enum=list(ExecutionMode),
+                enum=[*ExecutionMode],
                 default=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 # Sync the `refresh` description here with the other one in this file, and with frontend/src/queries/schema.ts
                 description="""

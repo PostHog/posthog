@@ -1,4 +1,4 @@
-import { EventDefinition, PropertyDefinition, PropertyType } from '~/types'
+import { AnnotationScope, EventDefinition, PropertyDefinition, PropertyType, RawAnnotationType } from '~/types'
 
 const friday = '2024-06-14T16:00:00.000Z'
 const setupWeek = '2024-06-03T10:00:00.000Z'
@@ -231,6 +231,20 @@ export interface ActorsLookupQuery {
     event?: string
     breakdown?: string | number | null
     day?: string | number | null
+}
+
+/** Build a RawAnnotationType for use in setupInsightMocks({ annotations }).
+ *  Generates a random id so identifiers don't carry deterministic state across tests. */
+export function buildAnnotation(overrides: Partial<RawAnnotationType> = {}): RawAnnotationType {
+    return {
+        id: Math.floor(Math.random() * 1_000_000),
+        scope: AnnotationScope.Project,
+        content: 'Hedgehog spotted',
+        date_marker: '2024-06-12T12:00:00Z',
+        created_at: '2024-06-10T00:00:00Z',
+        updated_at: '2024-06-10T00:00:00Z',
+        ...overrides,
+    }
 }
 
 export function lookupActors({ event, breakdown, day }: ActorsLookupQuery): ActorFixture[] {
