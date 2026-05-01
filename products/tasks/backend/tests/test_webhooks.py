@@ -516,10 +516,8 @@ class TestGitHubCommentWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         mock_signal.assert_called_once()
-        signal_run, signal_message = mock_signal.call_args[0]
+        (signal_run,) = mock_signal.call_args[0]
         self.assertEqual(signal_run.id, task_run.id)
-        self.assertIn("[GitHub PR Comment from @reviewer]", signal_message)
-        self.assertIn("Fix this bug", signal_message)
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks._create_resume_run")
