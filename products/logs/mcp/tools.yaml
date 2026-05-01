@@ -289,6 +289,30 @@ tools:
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false
+    logs-sampling-rules-create:
+        operation: logs_sampling_rules_create
+        enabled: false
+    logs-sampling-rules-destroy:
+        operation: logs_sampling_rules_destroy
+        enabled: false
+    logs-sampling-rules-list:
+        operation: logs_sampling_rules_list
+        enabled: false
+    logs-sampling-rules-partial-update:
+        operation: logs_sampling_rules_partial_update
+        enabled: false
+    logs-sampling-rules-reorder-create:
+        operation: logs_sampling_rules_reorder_create
+        enabled: false
+    logs-sampling-rules-retrieve:
+        operation: logs_sampling_rules_retrieve
+        enabled: false
+    logs-sampling-rules-simulate-create:
+        operation: logs_sampling_rules_simulate_create
+        enabled: false
+    logs-sampling-rules-update:
+        operation: logs_sampling_rules_update
+        enabled: false
     logs-services-create:
         operation: logs_services_create
         enabled: false

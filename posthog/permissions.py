@@ -488,7 +488,7 @@ class APIScopePermission(ScopeBasePermission):
         required_scopes = self._get_required_scopes(request, view)
 
         if not required_scopes:
-            self.message = f"This action does not support Personal API Key access"
+            self.message = "This action does not support personal API key access"
             return False
 
         self.check_team_and_org_permissions(request, view)

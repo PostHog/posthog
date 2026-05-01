@@ -3840,6 +3840,66 @@
             },
             "type": "object"
         },
+        "AssistantTrendsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a series that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here. Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties` apply only to that node, so each event can carry its own filter.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType",
+                    "description": "Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes."
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "Custom HogQL aggregation. When set, `math` must be `hogql`.",
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined series.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantTrendsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantTrendsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -3893,7 +3953,7 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events or actions to include. Prioritize the more popular and fresh events and actions.",
+                    "description": "Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating \"Pageview OR Pageleave\" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.",
                     "items": {
                         "anyOf": [
                             {
@@ -3901,6 +3961,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsGroupNode"
                             }
                         ]
                     },

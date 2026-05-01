@@ -153,7 +153,8 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * * `azure-blob` - Azure Blob
+ * * `apns` - Apple Push
+ * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
  * `customerio-app` - Customerio App
@@ -190,6 +191,7 @@ export interface RoleLookupResponseApi {
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
 export const IntegrationKindEnumApi = {
+    Apns: 'apns',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',

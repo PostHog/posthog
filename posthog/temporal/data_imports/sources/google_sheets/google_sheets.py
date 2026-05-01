@@ -6,12 +6,13 @@ from django.conf import settings
 
 import gspread
 from cachetools import Cache, TTLCache, cached
+from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import make_tracked_adapter
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
@@ -27,7 +28,14 @@ def google_sheets_client() -> gspread.Client:
         },
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
     )
-    return gspread.authorize(credentials, session=make_tracked_session())
+    # gspread skips wrapping any session you pass in with `AuthorizedSession`, so a plain
+    # `requests.Session` would send unauthenticated requests and Google returns 403. Build the
+    # `AuthorizedSession` ourselves and mount the tracked adapter to keep request metering.
+    session = AuthorizedSession(credentials)
+    adapter = make_tracked_adapter()
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return gspread.authorize(credentials, session=session)
 
 
 cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds

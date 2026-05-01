@@ -74,6 +74,7 @@ MCP_WRITE_SCOPES: list[str] = [
     "insight:write",
     "insight_variable:write",
     "llm_prompt:write",
+    "notebook:write",
     "survey:write",
 ]
 

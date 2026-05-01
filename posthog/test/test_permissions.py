@@ -605,7 +605,7 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_forbids_wildcard_scope_for_internal_viewset(self):
         """`*` does not satisfy INTERNAL viewsets — explicit scope required."""
