@@ -19,7 +19,7 @@ import hashlib
 import threading
 import urllib.parse as urlparse
 from collections.abc import Callable
-from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
+from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 
 import structlog
@@ -168,7 +168,7 @@ def fetch_many(
             pool.submit(_fetch_one, url, etag=(etag_for(url) if etag_for else None), registry=registry): url
             for url in urls
         }
-        done, not_done = wait(futures, timeout=CRAWL_TOTAL_TIMEOUT_SECONDS, return_when=FIRST_EXCEPTION)
+        done, not_done = wait(futures, timeout=CRAWL_TOTAL_TIMEOUT_SECONDS, return_when=ALL_COMPLETED)
         for future in done:
             try:
                 outcome = future.result()

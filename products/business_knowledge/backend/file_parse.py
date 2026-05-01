@@ -135,7 +135,8 @@ def _check_zip_bomb(data: bytes) -> None:
 
 def sanitize_filename(filename: str) -> str:
     """Strip path components, null bytes; cap length."""
-    name = os.path.basename(filename)
+    name = filename.replace("\\", "/")
+    name = os.path.basename(name)
     name = name.replace("\x00", "")
     return name[:255] if name else "unnamed"
 

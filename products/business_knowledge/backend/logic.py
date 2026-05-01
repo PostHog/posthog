@@ -172,14 +172,10 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
 
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
-        return (
-            KnowledgeSource.objects.filter(team_id=team_id)
-            .annotate(
-                _document_count=Count("documents", distinct=True),
-                _chunk_count=Count("chunks", distinct=True),
-            )
-            .get(id=source_id)
-        )
+        return KnowledgeSource.objects.annotate(
+            _document_count=Count("documents", distinct=True),
+            _chunk_count=Count("chunks", distinct=True),
+        ).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
 
@@ -1109,9 +1105,17 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         return existing.etag if existing and existing.etag else None
 
     outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
-    # `discovered_set` must use normalized URLs so the comparison against
-    # `existing_by_url` keys (which are normalized stable_ids) is correct.
-    discovered_set = set(safe_urls)
+    # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
+    # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
+    # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
+    # URLs that transiently fail SSRF re-validation even though the sitemap still
+    # lists them.
+    discovered_set: set[str] = set()
+    for u in discovered:
+        try:
+            discovered_set.add(url_fetch.normalize_url(u))
+        except url_fetch.UrlFetchError:
+            pass
 
     with transaction.atomic():
         fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)

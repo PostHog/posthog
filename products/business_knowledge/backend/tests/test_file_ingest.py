@@ -3,11 +3,12 @@ import zipfile
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status as http_status
 
-from products.business_knowledge.backend.facade.enums import MAX_FILE_DECOMPRESSED_BYTES, MAX_FILE_SIZE_BYTES
+from products.business_knowledge.backend.facade.enums import MAX_FILE_SIZE_BYTES
 from products.business_knowledge.backend.file_parse import (
     EncryptedPDFError,
     FileParseError,
@@ -52,54 +53,6 @@ def _make_minimal_docx(text: str = "Hello World") -> bytes:
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
-
-
-def _make_zip_bomb_docx() -> bytes:
-    """
-    Build a ZIP with a declared uncompressed size exceeding the cap.
-
-    We write a small payload but then patch the local-file-header's
-    uncompressed-size field so ``_check_zip_bomb`` sees a giant declared
-    size without allocating hundreds of MB of RAM during the test.
-    """
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
-        zf.writestr(
-            "[Content_Types].xml",
-            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            '<Default Extension="xml" ContentType='
-            '"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
-            "</Types>",
-        )
-        zf.writestr("word/document.xml", "tiny")
-
-    data = bytearray(buf.getvalue())
-
-    # Patch the central-directory entry for word/document.xml so
-    # its uncompressed size exceeds the decompression cap.
-    fake_size = MAX_FILE_DECOMPRESSED_BYTES + 1
-    fake_bytes = fake_size.to_bytes(4, "little")
-
-    # Find "word/document.xml" in the raw bytes and patch the 4-byte
-    # uncompressed-size field that precedes the filename in the central
-    # directory entry (offset -4 relative to the filename start).
-    # Central directory signature: b'PK\x01\x02'
-    idx = 0
-    target = b"word/document.xml"
-    while True:
-        pos = data.find(b"PK\x01\x02", idx)
-        if pos == -1:
-            break
-        # In the central directory header, the filename starts at offset 46
-        # from the signature start.  Uncompressed size is at offset 24.
-        fname_len = int.from_bytes(data[pos + 28 : pos + 30], "little")
-        fname = data[pos + 46 : pos + 46 + fname_len]
-        if fname == target:
-            data[pos + 24 : pos + 28] = fake_bytes
-            break
-        idx = pos + 4
-
-    return bytes(data)
 
 
 # ---------------------------------------------------------------------------
@@ -224,9 +177,13 @@ class TestParseFileSecurity:
             parse_file(data, "secret.pdf")
 
     def test_zip_bomb_docx_rejected(self) -> None:
-        data = _make_zip_bomb_docx()
-        with pytest.raises(ZipBombError):
-            parse_file(data, "bomb.docx")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+            zf.writestr("word/document.xml", "A" * 200)
+        data = buf.getvalue()
+        with patch("products.business_knowledge.backend.file_parse.MAX_FILE_DECOMPRESSED_BYTES", 50):
+            with pytest.raises(ZipBombError):
+                parse_file(data, "bomb.docx")
 
     def test_unsupported_binary_rejected(self) -> None:
         with pytest.raises(UnsupportedFileTypeError):
@@ -336,8 +293,6 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         # parse_file size guard is tested separately in TestParseFileSecurity.
         # Here we verify the parse_file guard fires at the API layer by
         # monkey-patching the cap to a tiny value.
-        from unittest.mock import patch
-
         with patch("products.business_knowledge.backend.file_parse.MAX_FILE_SIZE_BYTES", 10):
             uploaded = io.BytesIO(b"x" * 100)
             uploaded.name = "big.txt"

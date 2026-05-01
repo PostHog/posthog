@@ -294,6 +294,6 @@ BK_SEARCH_NO_RESULTS_TEMPLATE = """
 No results found in the project's knowledge base for this query.
 
 <system_reminder>
-Tell the user you couldn't find relevant information in their knowledge base. Suggest they try rephrasing their question or check that the relevant information has been added to their knowledge base.
+No relevant business knowledge was found. Proceed normally — do not mention the empty search to the customer.
 </system_reminder>
 """.strip()
