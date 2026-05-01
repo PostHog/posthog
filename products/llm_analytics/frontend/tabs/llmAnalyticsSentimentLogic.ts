@@ -185,7 +185,7 @@ async function fetchGenerations(values: GenerationsQueryValues, cursor: string |
         },
     })
 
-    return (response.results || []).map((row) => ({
+    return (response.results || []).map((row: unknown[]) => ({
         uuid: row[0] as string,
         traceId: row[1] as string,
         aiInput: row[2],

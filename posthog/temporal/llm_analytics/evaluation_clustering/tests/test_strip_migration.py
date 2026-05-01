@@ -20,10 +20,8 @@ from posthog.hogql import ast
 from posthog.temporal.llm_analytics.evaluation_clustering.data import fetch_generation_contents
 
 _RESOLVE_PATH = "posthog.temporal.llm_analytics.evaluation_clustering.data.resolve_trace_ids_for_generation_uuids"
-_WINDOW = {
-    "window_start": datetime(2026, 4, 27, 7, 0, 0, tzinfo=UTC),
-    "window_end": datetime(2026, 4, 27, 8, 0, 0, tzinfo=UTC),
-}
+_WINDOW_START = datetime(2026, 4, 27, 7, 0, 0, tzinfo=UTC)
+_WINDOW_END = datetime(2026, 4, 27, 8, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -52,7 +50,9 @@ class TestFetchGenerationContents:
             ) as mock_resolver,
             patch(_RESOLVE_PATH) as mock_resolve,
         ):
-            result = fetch_generation_contents(team, generation_ids=[], **_WINDOW)
+            result = fetch_generation_contents(
+                team, generation_ids=[], window_start=_WINDOW_START, window_end=_WINDOW_END
+            )
             assert result == {}
             assert mock_resolver.call_count == 0
             assert mock_resolve.call_count == 0
@@ -69,7 +69,9 @@ class TestFetchGenerationContents:
                     ["gid-2", "gpt-4o", '[{"role":"user","content":"yo"}]', '[{"role":"assistant","content":"sup"}]'],
                 ]
             )
-            result = fetch_generation_contents(team, generation_ids=["gid-1", "gid-2"], **_WINDOW)
+            result = fetch_generation_contents(
+                team, generation_ids=["gid-1", "gid-2"], window_start=_WINDOW_START, window_end=_WINDOW_END
+            )
             assert set(result.keys()) == {"gid-1", "gid-2"}
             assert result["gid-1"]["model"] == "gpt-4o"
             assert "hi" in result["gid-1"]["input"]
@@ -87,7 +89,8 @@ class TestFetchGenerationContents:
                 generation_ids=["gid-1"],
                 max_input_chars=100,
                 max_output_chars=200,
-                **_WINDOW,
+                window_start=_WINDOW_START,
+                window_end=_WINDOW_END,
             )
             # `_truncate` returns `s[:limit] + "… [N more chars]"` so the prefix
             # length is `limit` and the total length is `limit + suffix_len`.
@@ -105,7 +108,9 @@ class TestFetchGenerationContents:
             "posthog.temporal.llm_analytics.evaluation_clustering.data.execute_with_ai_events_fallback"
         ) as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
-            fetch_generation_contents(team, generation_ids=["gid-1"], **_WINDOW)
+            fetch_generation_contents(
+                team, generation_ids=["gid-1"], window_start=_WINDOW_START, window_end=_WINDOW_END
+            )
 
             kwargs = mock_resolver.call_args.kwargs
             select = cast(ast.SelectQuery, kwargs["query"])
@@ -130,7 +135,9 @@ class TestFetchGenerationContents:
             "posthog.temporal.llm_analytics.evaluation_clustering.data.execute_with_ai_events_fallback"
         ) as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
-            fetch_generation_contents(team, generation_ids=["gid-1", "gid-2"], **_WINDOW)
+            fetch_generation_contents(
+                team, generation_ids=["gid-1", "gid-2"], window_start=_WINDOW_START, window_end=_WINDOW_END
+            )
 
             placeholders = mock_resolver.call_args.kwargs["placeholders"]
             assert "trace_ids" in placeholders
@@ -144,6 +151,8 @@ class TestFetchGenerationContents:
         with patch(
             "posthog.temporal.llm_analytics.evaluation_clustering.data.execute_with_ai_events_fallback"
         ) as mock_resolver:
-            result = fetch_generation_contents(team, generation_ids=["gid-1"], **_WINDOW)
+            result = fetch_generation_contents(
+                team, generation_ids=["gid-1"], window_start=_WINDOW_START, window_end=_WINDOW_END
+            )
             assert result == {}
             assert mock_resolver.call_count == 0

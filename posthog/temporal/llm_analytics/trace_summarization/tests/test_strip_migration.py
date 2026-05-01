@@ -105,11 +105,16 @@ class TestFetchAndFormatGenerationStripMigration:
             assert from_chain == ["posthog", "ai_events"]
             # Heavy columns referenced as bare native names, not via properties.$ai_*.
             select_aliases = [alias.alias for alias in select.select if isinstance(alias, ast.Alias)]
+
             # Heavy input/output should be projected as native columns aliased to
             # `input` / `output` (the `as` lines in the SQL preserve the field names).
-            assert "model" in select_aliases or any(
-                isinstance(s, ast.Field) and "model" in (s.chain[-1] if s.chain else "") for s in select.select
-            )
+            def _field_chain_tail_is_model(s: ast.Expr) -> bool:
+                if not isinstance(s, ast.Field) or not s.chain:
+                    return False
+                tail = s.chain[-1]
+                return isinstance(tail, str) and "model" in tail
+
+            assert "model" in select_aliases or any(_field_chain_tail_is_model(s) for s in select.select)
             # query_type is set so observability dashboards can group by it.
             assert kwargs["query_type"] == "GenerationForSummarization"
             # trace_id flows into the WHERE so the lookup hits the

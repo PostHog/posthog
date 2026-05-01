@@ -79,7 +79,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         true_constants: list[ast.Constant] = []
 
         class _BoolCounter(TraversingVisitor):
-            def visit_constant(self, node: ast.Constant) -> None:  # type: ignore[override]
+            def visit_constant(self, node: ast.Constant) -> None:
                 if isinstance(node.value, bool) and node.value is True:
                     true_constants.append(node)
                 super().visit_constant(node)
@@ -111,7 +111,7 @@ class TestOfflineEvaluationItemsEndpoint(APIBaseTest):
         string_constants: list[str] = []
 
         class _StringCollector(TraversingVisitor):
-            def visit_constant(self, node: ast.Constant) -> None:  # type: ignore[override]
+            def visit_constant(self, node: ast.Constant) -> None:
                 if isinstance(node.value, str):
                     string_constants.append(node.value)
                 super().visit_constant(node)

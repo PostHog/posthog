@@ -1213,6 +1213,28 @@ export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
 }
 
+// Hand-written types for sentiment-generations and offline-evaluations endpoints.
+// Codegen drops them from api.schemas.ts even though the OpenAPI spec includes
+// the $ref'd schemas — yet api.ts (in the same regen pass) still emits typed
+// references to them. Worth a separate cleanup PR on the orval config.
+export interface SentimentGenerationsRequestApi {
+    filters?: { [key: string]: unknown }
+}
+
+export interface SentimentGenerationsResponseApi {
+    results: unknown[][]
+}
+
+export interface OfflineExperimentItemsRequestApi {
+    experiment_id: string
+    date_from?: string | null
+    date_to?: string | null
+}
+
+export interface OfflineExperimentItemsResponseApi {
+    results: unknown[][]
+}
+
 /**
  * * `trace` - trace
  * `event` - event
