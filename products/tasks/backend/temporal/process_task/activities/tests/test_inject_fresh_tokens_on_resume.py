@@ -8,10 +8,13 @@ from posthog.models import OrganizationMembership, User
 from products.tasks.backend.models import SandboxEnvironment
 from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.services.sandbox import ExecutionResult
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     InjectFreshTokensOnResumeInput,
+    PrepareSandboxForRepositoryInput,
     _build_environment_variables,
     inject_fresh_tokens_on_resume,
+    prepare_sandbox_for_repository,
 )
 
 
@@ -65,10 +68,6 @@ class TestInjectFreshTokensOnResumeActivity:
         assert "POSTHOG_PERSONAL_API_KEY=oauth_new" in decoded
 
     def test_skips_git_remote_when_github_integration_missing(self, activity_environment, test_task, sandbox):
-        from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
-            TaskProcessingContext,
-        )
-
         context = TaskProcessingContext(
             task_id=str(test_task.id),
             run_id="run-id",
@@ -134,7 +133,56 @@ class TestInjectFreshTokensOnResumeActivity:
                 ),
             )
 
+        assert sandbox.execute.call_count == 1
         assert sandbox.write_file.call_count == 1
+
+    def test_prepare_sandbox_injects_user_github_token_without_repository(self, activity_environment, team, user):
+        from products.tasks.backend.models import Task
+
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Repo-less Slack task",
+            description="Clone later from chat",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"})
+        context = TaskProcessingContext(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=task.team_id,
+            team_uuid=str(task.team.uuid),
+            organization_id=str(task.team.organization_id),
+            github_integration_id=None,
+            github_user_integration_id="user-integration-id",
+            repository=None,
+            distinct_id=user.distinct_id or "test-distinct-id",
+            task_created_by_id=user.id,
+            state=task_run.state,
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
+                return_value="gho_user",
+            ) as get_sandbox_github_token_mock,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token",
+                return_value="oauth_new",
+            ),
+        ):
+            prepared = async_to_sync(activity_environment.run)(
+                prepare_sandbox_for_repository,
+                PrepareSandboxForRepositoryInput(context=context),
+            )
+
+        get_sandbox_github_token_mock.assert_called_once()
+        assert get_sandbox_github_token_mock.call_args.kwargs["repository"] is None
+        assert prepared.repository is None
+        assert prepared.github_token == "gho_user"
+        assert prepared.environment_variables["GITHUB_TOKEN"] == "gho_user"
+        assert prepared.environment_variables["GH_TOKEN"] == "gho_user"
+        assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
 
     def test_build_environment_variables_ignores_other_users_private_sandbox_environment(
         self, task_context, test_task, test_task_run
