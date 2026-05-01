@@ -1,6 +1,7 @@
-import type { ReferenceLineProps, Series } from 'lib/hog-charts'
-
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
+
+import type { Series } from '../../core/types'
+import type { ReferenceLineProps } from '../../overlays/ReferenceLine'
 
 /** Compute the max non-zero, non-NaN value across all series. Used for the
  *  `displayIfCrossed` filter below. Matches the Chart.js LineGraph behavior. */

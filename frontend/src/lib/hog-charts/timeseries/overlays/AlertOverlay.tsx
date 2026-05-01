@@ -2,16 +2,16 @@ import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import { ReferenceLines } from 'lib/hog-charts'
+import type { IndexedTrendResult } from 'scenes/trends/types'
+import { buildAnomalyMarkers } from 'scenes/trends/viz/trends-line-chart/anomalyPointsAdapter'
 
 import type { InsightLogicProps } from '~/types'
 
-import type { IndexedTrendResult } from '../../types'
-import { buildAnomalyMarkers } from './anomalyPointsAdapter'
+import { ReferenceLines } from '../../overlays/ReferenceLine'
+import { alertThresholdsToReferenceLines } from '../utils/goalLinesAdapter'
 import { AnomalyPointsLayer } from './AnomalyPointsLayer'
-import { alertThresholdsToReferenceLines } from './goalLinesAdapter'
 
-interface TrendsAlertOverlaysProps {
+interface AlertOverlayProps {
     insightId: number
     insightProps: InsightLogicProps
     indexedResults: IndexedTrendResult[] | undefined
@@ -26,14 +26,14 @@ interface TrendsAlertOverlaysProps {
  *  insightAlertsLogic only mounts for saved insights — mounting it with `insightId: undefined`
  *  causes a spurious unfiltered alerts API call. The parent renders this only when
  *  `insight.id` is truthy. */
-export function TrendsAlertOverlays({
+export function AlertOverlay({
     insightId,
     insightProps,
     indexedResults,
     getColor,
     isHidden,
     getYAxisId,
-}: TrendsAlertOverlaysProps): React.ReactElement | null {
+}: AlertOverlayProps): React.ReactElement | null {
     const { alertThresholdLines, alertAnomalyPoints } = useValues(
         insightAlertsLogic({ insightId, insightLogicProps: insightProps })
     )

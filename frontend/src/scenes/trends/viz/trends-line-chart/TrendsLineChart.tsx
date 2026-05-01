@@ -2,9 +2,20 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
-import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { buildTheme } from 'lib/charts/utils/theme'
-import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
+import {
+    AlertOverlay,
+    AnnotationsLayer,
+    buildTrendsChartConfig,
+    buildTrendsSeries,
+    buildTrendsYTickFormatter,
+    createXAxisTickCallback,
+    DEFAULT_Y_AXIS_ID,
+    goalLinesToReferenceLines,
+    LineChart,
+    ReferenceLines,
+    ValueLabels,
+} from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,12 +31,7 @@ import { InsightEmptyState } from '../../../insights/EmptyStates'
 import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
-import { AnnotationsLayer } from './AnnotationsLayer'
-import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
-import { TrendsAlertOverlays } from './TrendsAlertOverlays'
-import { buildTrendsYTickFormatter } from './trendsAxisFormat'
-import { buildTrendsChartConfig, buildTrendsSeries } from './trendsChartTransforms'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
@@ -275,7 +281,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         >
             <ReferenceLines lines={referenceLines} />
             {insight.id ? (
-                <TrendsAlertOverlays
+                <AlertOverlay
                     insightId={insight.id}
                     insightProps={insightProps}
                     indexedResults={indexedResults}

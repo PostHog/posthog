@@ -1,9 +1,9 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React from 'react'
 
-import { useChartLayout } from 'lib/hog-charts'
+import type { AnomalyMarker } from 'scenes/trends/viz/trends-line-chart/anomalyPointsAdapter'
 
-import type { AnomalyMarker } from './anomalyPointsAdapter'
+import { useChartLayout } from '../../core/chart-context'
 
 interface AnomalyPointsLayerProps {
     markers: AnomalyMarker[]

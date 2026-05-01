@@ -1,9 +1,10 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { LineChartConfig, Series } from 'lib/hog-charts'
 import { ciRanges, movingAverage, trendLine } from 'lib/statistics'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
+
+import { DEFAULT_Y_AXIS_ID } from '../core/types'
+import type { LineChartConfig, Series } from '../core/types'
 
 const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
 const TRENDLINE_DIM_OPACITY = 0.5
