@@ -1241,6 +1241,49 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dashboard, s.urlVariables],
             (dashboard, urlVariables) => ({ ...dashboard?.persisted_variables, ...urlVariables }),
         ],
+        hasUnsavedEditChanges: [
+            (s) => [
+                s.dashboard,
+                s.dashboardLayouts,
+                s.effectiveEditBarFilters,
+                s.effectiveDashboardVariableOverrides,
+                s.temporaryBreakdownColors,
+                s.dataColorThemeId,
+            ],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>,
+                effectiveEditBarFilters: DashboardFilter,
+                effectiveDashboardVariableOverrides: Record<string, HogQLVariable>,
+                temporaryBreakdownColors: BreakdownColorConfig[],
+                dataColorThemeId: number | null
+            ): boolean => {
+                if (!dashboard) {
+                    return false
+                }
+                const layoutsChanged = (dashboard.tiles || []).some((tile: DashboardTile<QueryBasedInsightModel>) => {
+                    const originalSm = dashboardLayouts?.[tile.id]?.sm
+                    const currentSm = tile.layouts?.sm
+                    return !equal(originalSm || {}, currentSm || {})
+                })
+                if (layoutsChanged) {
+                    return true
+                }
+                if (!equal(dashboard.persisted_filters || {}, effectiveEditBarFilters || {})) {
+                    return true
+                }
+                if (!equal(dashboard.persisted_variables || {}, effectiveDashboardVariableOverrides || {})) {
+                    return true
+                }
+                if (!equal(dashboard.breakdown_colors || [], temporaryBreakdownColors || [])) {
+                    return true
+                }
+                if ((dataColorThemeId ?? null) !== (dashboard.data_color_theme_id ?? null)) {
+                    return true
+                }
+                return false
+            },
+        ],
         effectiveVariablesAndAssociatedInsights: [
             (s) => [s.dashboard, s.variables, s.urlVariables],
             (

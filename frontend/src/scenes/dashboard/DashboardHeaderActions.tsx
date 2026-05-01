@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -20,8 +21,33 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export function EditModeActions(): JSX.Element {
-    const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboardLoading, canEditDashboard, hasUnsavedEditChanges } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
+
+    const discardEditModeChanges = (): void => {
+        setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+    }
+
+    const handleCancelClick = (): void => {
+        if (!hasUnsavedEditChanges) {
+            discardEditModeChanges()
+            return
+        }
+        LemonDialog.open({
+            title: 'Discard unsaved changes?',
+            description:
+                'You have unsaved changes to this dashboard. If you discard them now, your edits will be lost.',
+            primaryButton: {
+                children: 'Discard changes',
+                status: 'danger',
+                onClick: discardEditModeChanges,
+                'data-attr': 'dashboard-edit-mode-discard-confirm',
+            },
+            secondaryButton: {
+                children: 'Keep editing',
+            },
+        })
+    }
 
     return (
         <>
@@ -35,7 +61,7 @@ export function EditModeActions(): JSX.Element {
                 <LemonButton
                     data-attr="dashboard-edit-mode-discard"
                     type="secondary"
-                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                    onClick={handleCancelClick}
                     size="small"
                     tooltip="Discard changes and exit edit mode"
                 >
