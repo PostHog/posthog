@@ -1,14 +1,5 @@
 # Lens: error tracking
 
-> **Upstream skill on disk**: none yet — there isn't a dedicated
-> `posthog:exploring-error-tracking` skill. Closest neighbour is
-> `posthog:investigate-metric` for generic anomaly investigation; not a
-> drop-in. This file is the scout-flavoured lens until upstream catches up.
->
-> _Patterns here that prove broadly useful (across user-driven and
-> scout-driven exploration) should be promoted upstream into a dedicated
-> `posthog:exploring-error-tracking` PHS skill._
-
 The project profile's `top_events` will surface `$exception` if it's loud — and
 the per-event `count`, `distinct_users`, `recent_24h_count`, `recent_24h_users`
 fields tell you the **shape** of the volume. The relationship between count and
