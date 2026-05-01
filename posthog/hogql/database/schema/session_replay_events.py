@@ -82,7 +82,9 @@ def join_replay_table_to_sessions_table_v3(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from replay")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context))
+    join_expr = ast.JoinExpr(
+        table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context, join_to_add)
+    )
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(

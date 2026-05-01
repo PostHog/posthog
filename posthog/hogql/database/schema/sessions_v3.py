@@ -22,7 +22,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SessionMinTimestampWhereClauseExtractorV3,
+    SessionPropertyHavingExtractor,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -176,7 +179,10 @@ class RawSessionsTableV3(Table):
 
 
 def select_from_sessions_table_v3(
-    requested_fields: dict[str, list[str | int]], node: ast.SelectQuery, context: HogQLContext
+    requested_fields: dict[str, list[str | int]],
+    node: ast.SelectQuery,
+    context: HogQLContext,
+    join_or_table_to_add: Optional[LazyJoinToAdd | LazyTableToAdd] = None,
 ):
     from posthog.hogql import ast
 
@@ -392,11 +398,21 @@ def select_from_sessions_table_v3(
 
     where = SessionMinTimestampWhereClauseExtractorV3(context).get_inner_where(node)
 
+    # Push outer-WHERE predicates that reference session properties down as HAVING on
+    # this aggregation subquery, so unmatched groups are dropped before the JOIN
+    # materializes them. See SessionPropertyHavingExtractor for context.
+    having: Optional[ast.Expr] = None
+    if join_or_table_to_add is not None:
+        having_extractor = SessionPropertyHavingExtractor(context)
+        having_extractor.add_local_tables(join_or_table_to_add)
+        having = having_extractor.get_inner_where(node)
+
     return ast.SelectQuery(
         select=select_fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=group_by_fields,
         where=where,
+        having=having,
     )
 
 
@@ -409,7 +425,7 @@ class SessionsTableV3(LazyTable):
         context,
         node: ast.SelectQuery,
     ):
-        return select_from_sessions_table_v3(table_to_add.fields_accessed, node, context)
+        return select_from_sessions_table_v3(table_to_add.fields_accessed, node, context, table_to_add)
 
     def to_printed_clickhouse(self, context):
         return "sessions"
@@ -449,7 +465,9 @@ def join_events_table_to_sessions_table_v3(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context))
+    join_expr = ast.JoinExpr(
+        table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context, join_to_add)
+    )
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(

@@ -27,7 +27,11 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import TrendsQuery
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion, TrendsQuery
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS_LINEAR, TRENDS_TABLE
 from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
@@ -1142,32 +1146,31 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             r"workflows|revenue-analytics|cdp)\/?$"
         )
 
+        filter_data = {
+            "display": "ActionsBar",
+            "interval": "day",
+            "events": [
+                {
+                    "id": "$pageview",
+                    "math": "unique_session",
+                    "properties": [
+                        {
+                            "key": "$entry_current_url",
+                            "type": "session",
+                            "value": product_url_regex,
+                            "operator": "regex",
+                        }
+                    ],
+                }
+            ],
+            "breakdowns": [{"type": "session", "property": "$channel_type"}],
+            "insight": "TRENDS",
+            "date_from": "-3d",
+        }
+
         with freeze_time("2020-01-04T13:00:01Z"):
             response = self._run(
-                Filter(
-                    team=self.team,
-                    data={
-                        "display": "ActionsBar",
-                        "interval": "day",
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "math": "unique_session",
-                                "properties": [
-                                    {
-                                        "key": "$entry_current_url",
-                                        "type": "session",
-                                        "value": product_url_regex,
-                                        "operator": "regex",
-                                    }
-                                ],
-                            }
-                        ],
-                        "breakdowns": [{"type": "session", "property": "$channel_type"}],
-                        "insight": "TRENDS",
-                        "date_from": "-3d",
-                    },
-                ),
+                Filter(team=self.team, data=filter_data),
                 self.team,
             )
 
@@ -1184,6 +1187,30 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             # Multi-breakdown emits the breakdown value as a single-element array.
             assert isinstance(item["breakdown_value"], list)
             assert len(item["breakdown_value"]) == 1
+
+        # Verify the HAVING pushdown is wired up under sessionTableVersion=V3:
+        # the URL regex predicate must appear at least twice in the printed
+        # ClickHouse SQL — once in the outer WHERE on the lazy join, and once
+        # as HAVING on the inner aggregation subquery so the per-session
+        # ``$channel_type`` materialization isn't paid for every unfiltered
+        # session in the date range. Without the fix it appears exactly once.
+        with freeze_time("2020-01-04T13:00:01Z"):
+            trend_query = cast(TrendsQuery, filter_to_query(filter_data))
+            trend_query.modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
+            runner = TrendsQueryRunner(team=self.team, query=trend_query)
+            context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=create_default_modifiers_for_team(self.team, runner.modifiers),
+            )
+            printed_sql, _ = prepare_and_print_ast(runner.to_query(), context, dialect="clickhouse")
+            # A distinctive fragment of the regex literal that won't collide with
+            # anything else in the printed SQL.
+            distinctive_fragment = "feature-flags|error-tracking"
+            assert printed_sql.count(distinctive_fragment) >= 2, (
+                f"expected URL regex fragment in both outer WHERE and inner HAVING; "
+                f"found {printed_sql.count(distinctive_fragment)} occurrence(s) in:\n{printed_sql}"
+            )
 
     @also_test_with_person_on_events_v2
     @also_test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
