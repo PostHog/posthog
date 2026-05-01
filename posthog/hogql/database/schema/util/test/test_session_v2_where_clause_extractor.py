@@ -763,44 +763,34 @@ GROUP BY chan
         )
         assert has_pre_agg == modifier_on, f"Expected pre-agg={modifier_on}; got:\n{actual}"
 
-    def test_no_pre_agg_when_filter_and_breakdown_use_same_column(self):
-        # If the filter references the same column the SELECT already needs, the pre-aggregation
-        # is the same cost as the main aggregation — no shrink, just doubled work. Skip.
-        query = """
+    @parameterized.expand(
+        [
+            (
+                "filter_and_breakdown_share_column",
+                # filter cols ⊆ outer cols isn't strict — same-cost pre-agg, skip.
+                """
 SELECT events.session.$entry_current_url AS url
 FROM events
 WHERE events.event = '$pageview'
   AND events.timestamp >= '2026-03-01 00:00:00'
   AND match(events.session.$entry_current_url, 'http')
-"""
-        actual = self.print_query(query, modifier_on=True)
-        normalized = " ".join(actual.split())
-        assert "in(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
-        assert "globalIn(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
-
-    def test_no_pre_agg_when_no_session_filter(self):
-        # Without a session-typed predicate to lift, there's nothing to push down.
-        query = """
+""",
+            ),
+            (
+                "no_session_filter",
+                # nothing to lift.
+                """
 SELECT count(), events.session.$channel_type AS chan
 FROM events
 WHERE events.event = '$pageview'
   AND events.timestamp >= '2026-03-01 00:00:00'
 GROUP BY chan
-"""
+""",
+            ),
+        ]
+    )
+    def test_no_pre_agg(self, _name: str, query: str):
         actual = self.print_query(query, modifier_on=True)
         normalized = " ".join(actual.split())
         assert "in(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
         assert "globalIn(raw_sessions.session_id_v7" not in normalized, f"Expected no pre-agg; got:\n{actual}"
-
-    def test_modifier_off_unchanged(self):
-        query = """
-SELECT count(), events.session.$channel_type AS chan
-FROM events
-WHERE events.event = '$pageview'
-  AND events.timestamp >= '2026-03-01 00:00:00'
-  AND match(events.session.$entry_current_url, 'http')
-GROUP BY chan
-"""
-        with_modifier = self.print_query(query, modifier_on=False)
-        normalized = " ".join(with_modifier.split())
-        assert "globalIn(raw_sessions.session_id_v7" not in normalized
