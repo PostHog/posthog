@@ -35,28 +35,20 @@ describe('hog-charts bar scales', () => {
             expect(value(100)).toBeLessThan(value(0))
         })
 
-        // Both signs must extend the value domain to include zero so the bar baselines align
-        // with the plot edge rather than floating mid-plot.
+        // Both signs must extend the value domain to include zero so bar baselines align with
+        // the plot edge. expectedSign tracks whether the extreme pixel sits above (-1) or below
+        // (+1) the zero pixel.
         it.each([
-            { sign: 'positive', data: [40, 60, 80], extreme: 80 },
-            { sign: 'negative', data: [-40, -60, -80], extreme: -80 },
-        ])(
-            'extends the value domain to include zero when all data is $sign (zero at the baseline)',
-            ({ data, extreme }) => {
-                const series = [makeSeries({ key: 's1', data })]
-                const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions)
-                const yAtZero = value(0)
-                const yAtExtreme = value(extreme)
-                // zero must sit within the plot area, with the extreme value on the far side
-                expect(yAtZero).toBeGreaterThanOrEqual(dimensions.plotTop - 1)
-                expect(yAtZero).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
-                if (extreme > 0) {
-                    expect(yAtExtreme).toBeLessThan(yAtZero)
-                } else {
-                    expect(yAtExtreme).toBeGreaterThan(yAtZero)
-                }
-            }
-        )
+            { sign: 'positive', data: [40, 60, 80], extreme: 80, expectedSign: -1 },
+            { sign: 'negative', data: [-40, -60, -80], extreme: -80, expectedSign: 1 },
+        ])('extends the value domain to include zero ($sign data)', ({ data, extreme, expectedSign }) => {
+            const series = [makeSeries({ key: 's1', data })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions)
+            const yAtZero = value(0)
+            expect(yAtZero).toBeGreaterThanOrEqual(dimensions.plotTop - 1)
+            expect(yAtZero).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
+            expect(Math.sign(value(extreme) - yAtZero)).toBe(expectedSign)
+        })
 
         it('returns a group scale only for grouped layout', () => {
             const series = [makeSeries({ key: 's1', data: [1, 2] }), makeSeries({ key: 's2', data: [3, 4] })]
@@ -80,16 +72,12 @@ describe('hog-charts bar scales', () => {
 
     describe('createBarScales — pixel positioning', () => {
         it.each([
-            { orientation: 'vertical' as const, expected: 'less' as const },
-            { orientation: 'horizontal' as const, expected: 'greater' as const },
-        ])('places a positive value $expected than value(0) in $orientation mode', ({ orientation, expected }) => {
+            { orientation: 'vertical' as const, expectedSign: -1 },
+            { orientation: 'horizontal' as const, expectedSign: 1 },
+        ])('places value(50) on the right side of value(0) for $orientation', ({ orientation, expectedSign }) => {
             const series = [makeSeries({ key: 's1', data: [0, 50] })]
             const { value } = createBarScales(series, ['a', 'b'], dimensions, { axisOrientation: orientation })
-            if (expected === 'less') {
-                expect(value(50)).toBeLessThan(value(0))
-            } else {
-                expect(value(50)).toBeGreaterThan(value(0))
-            }
+            expect(Math.sign(value(50) - value(0))).toBe(expectedSign)
         })
 
         it('makes consecutive band starts equally spaced', () => {
