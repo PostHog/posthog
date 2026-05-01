@@ -3728,12 +3728,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["types"])
 
-    def test_insight_variables_overrides(self):
-        dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="dashboard 1",
-            created_by=self.user,
-        )
+    @parameterized.expand(
+        [
+            ("standalone", False),
+            ("with_dashboard_context", True),
+        ]
+    )
+    def test_insight_variables_overrides(self, _name: str, attach_to_dashboard: bool) -> None:
         variable = InsightVariable.objects.create(
             team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
         )
@@ -3756,22 +3757,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
             team=self.team,
         )
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        request_data: dict[str, str] = {
+            "variables_override": json.dumps(
+                {
+                    str(variable.id): {
+                        "code_name": variable.code_name,
+                        "variableId": str(variable.id),
+                        "value": "override value!",
+                    }
+                }
+            ),
+        }
+
+        if attach_to_dashboard:
+            dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            request_data["from_dashboard"] = str(dashboard.pk)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
-            data={
-                "from_dashboard": str(dashboard.pk),
-                "variables_override": json.dumps(
-                    {
-                        str(variable.id): {
-                            "code_name": variable.code_name,
-                            "variableId": str(variable.id),
-                            "value": "override value!",
-                        }
-                    }
-                ),
-            },
+            data=request_data,
         ).json()
 
         assert isinstance(response["query"], dict)
