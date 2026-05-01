@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContext } from '../../core/types'
 import { LineChart } from '../LineChart'
@@ -14,8 +14,6 @@ export interface TimeSeriesLineChartConfig {
         timezone?: string
         /** Bucket size of the X axis. Combined with `timezone`, enables auto-formatting. */
         interval?: TimeInterval
-        /** Resolved date range of the chart. Reserved for future date-axis behavior. */
-        dateRange?: { start: string; end: string }
         /** The raw date strings underlying each label, used to compute boundary-aware ticks.
          * If omitted, falls back to `labels`. */
         allDays?: string[]
@@ -53,15 +51,23 @@ export function TimeSeriesLineChart<Meta = unknown>({
     className,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
     const { xAxis, yAxis } = config ?? {}
-    const xTickFormatter =
-        xAxis?.tickFormatter ??
-        (xAxis?.timezone && xAxis?.interval
-            ? createXAxisTickCallback({
-                  timezone: xAxis.timezone,
-                  interval: xAxis.interval,
-                  allDays: xAxis.allDays ?? labels,
-              })
-            : undefined)
+    const xAxisTickFormatter = xAxis?.tickFormatter
+    const xAxisTimezone = xAxis?.timezone
+    const xAxisInterval = xAxis?.interval
+    const xAxisAllDays = xAxis?.allDays
+    const xTickFormatter = useMemo(() => {
+        if (xAxisTickFormatter) {
+            return xAxisTickFormatter
+        }
+        if (!xAxisTimezone || !xAxisInterval) {
+            return undefined
+        }
+        return createXAxisTickCallback({
+            timezone: xAxisTimezone,
+            interval: xAxisInterval,
+            allDays: xAxisAllDays ?? labels,
+        })
+    }, [xAxisTickFormatter, xAxisTimezone, xAxisInterval, xAxisAllDays, labels])
     const lineChartConfig: LineChartConfig = {
         yScaleType: yAxis?.scale,
         xTickFormatter,
