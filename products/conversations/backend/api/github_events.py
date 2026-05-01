@@ -1,5 +1,6 @@
 """GitHub webhook endpoint for Conversations GitHub Issues channel."""
 
+import hmac
 import json
 import hashlib
 from typing import Any, cast
@@ -9,15 +10,27 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
 
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 from products.conversations.backend.tasks import process_github_event
-from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_HANDLED_EVENTS = {"issues", "issue_comment"}
+
+
+def _get_github_webhook_secret() -> str | None:
+    secret = get_instance_setting("GITHUB_WEBHOOK_SECRET")
+    return secret if secret else None
+
+
+def _verify_github_signature(payload: bytes, signature: str | None, secret: str) -> bool:
+    if not signature or not signature.startswith("sha256="):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
 
 
 def _team_for_github_installation(installation_id: str) -> tuple[int | None, bool]:
@@ -60,13 +73,13 @@ def github_issues_webhook(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         return HttpResponse(status=405)
 
-    secret = get_github_webhook_secret()
+    secret = _get_github_webhook_secret()
     if not secret:
         logger.warning("github_issues_webhook_no_secret")
         return HttpResponse(status=503)
 
     signature = request.headers.get("X-Hub-Signature-256")
-    if not verify_github_signature(request.body, signature, secret):
+    if not _verify_github_signature(request.body, signature, secret):
         logger.warning("github_issues_webhook_invalid_signature")
         return HttpResponse("Invalid signature", status=403)
 
