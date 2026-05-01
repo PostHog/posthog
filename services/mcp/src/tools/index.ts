@@ -7,6 +7,8 @@ import searchDocs from './documentation/searchDocs'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
+// Feedback
+import feedback from './feedback/feedback'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -82,6 +84,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+
+    // Feedback
+    feedback: feedback,
 
     // PostHog AI tools
     'execute-sql': executeSql,

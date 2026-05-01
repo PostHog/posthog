@@ -458,6 +458,40 @@ export const DebugMcpUiAppsSchema = z.object({
     message: z.string().optional().describe('Optional message to include in the debug data'),
 })
 
+// Feedback
+export const FeedbackSchema = z.object({
+    feedback: z
+        .string()
+        .min(1)
+        .describe(
+            'The feedback message. Describe the problem, struggle, idea, or suggestion in detail — the more specific, the more useful. Quote any tool names, error messages, or skill names that are relevant.'
+        ),
+    category: z
+        .enum(['bug', 'usability', 'missing_feature', 'documentation', 'performance', 'skill', 'other'])
+        .optional()
+        .describe(
+            'Category of the feedback. Use "bug" for incorrect behavior, "usability" for confusing or hard-to-use tools, "missing_feature" for capabilities you wish existed, "documentation" for unclear descriptions or missing examples, "performance" for slow responses, "skill" for issues with PostHog skills, or "other" when nothing else fits.'
+        ),
+    severity: z
+        .enum(['low', 'medium', 'high'])
+        .optional()
+        .describe(
+            'How disruptive the issue is. "high" = blocks the task completely, "medium" = workaround exists but painful, "low" = minor friction or polish.'
+        ),
+    tool_name: z
+        .string()
+        .optional()
+        .describe(
+            'The name of the specific MCP tool the feedback is about (e.g. "query-run", "insight-create"). Omit if the feedback is general or applies to multiple tools.'
+        ),
+    skill_name: z
+        .string()
+        .optional()
+        .describe(
+            'The name of the specific PostHog skill the feedback is about (e.g. "querying-posthog-data"). Omit if the feedback is not about a skill.'
+        ),
+})
+
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),

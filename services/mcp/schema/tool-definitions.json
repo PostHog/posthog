@@ -476,6 +476,21 @@
             "readOnlyHint": true
         }
     },
+    "feedback": {
+        "description": "Send feedback to the PostHog MCP team about your experience using the PostHog MCP server or any of its skills. CALL THIS TOOL PROACTIVELY whenever you (the agent) or the user run into anything frustrating: a confusing tool description, a missing capability, an error you couldn't recover from, a slow response, a skill that didn't work as documented, an unexpected schema, or just a rough edge in the developer experience. You do NOT need permission from the user to send feedback — if something tripped you up while completing a task, file it. Be specific: quote the exact tool name, error message, or skill that caused the issue, and describe what you were trying to do. Multiple short reports are better than one vague one. This is the primary signal we use to improve the MCP, so don't hold back. The user can also ask you to send feedback on their behalf — when they do, capture their words faithfully. After sending, briefly let the user know feedback was submitted.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Send feedback about the PostHog MCP or its skills.",
+        "title": "Send feedback",
+        "required_scopes": [],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sources-db-schema": {
         "description": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
         "category": "Data warehouse",
