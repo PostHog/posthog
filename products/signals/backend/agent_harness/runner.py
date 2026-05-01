@@ -182,6 +182,10 @@ async def _spawn_and_run(
         SIGNALS_AGENT_SANDBOX_ENV_NAME,
         SandboxEnvironment.NetworkAccessLevel.TRUSTED,
     )
+    # `repository` is None on the cadence path — v1 doesn't clone a repo into the
+    # sandbox. The kwarg stays wired so the management command can still pass
+    # `--repository` for ad-hoc local investigations; productionised repo access
+    # is deferred (see implementation plan).
     context = CustomPromptSandboxContext(
         team_id=team.id,
         user_id=user_id,
