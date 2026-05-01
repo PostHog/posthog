@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { Sorting } from '@posthog/lemon-ui'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -14,7 +15,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { subscriptionsList, subscriptionsTestDeliveryCreate } from '~/generated/core/api'
+import { subscriptionsList, subscriptionsPartialUpdate, subscriptionsTestDeliveryCreate } from '~/generated/core/api'
 import {
     SubscriptionsListResourceType,
     TargetTypeEnumApi,
@@ -209,6 +210,9 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
+        setSubscriptionEnabled: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledSuccess: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledFailure: (detail: string | null) => ({ detail }),
     }),
     reducers({
         search: [
@@ -278,6 +282,16 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                 deliverSubscription: (_, { id }) => id,
                 deliverSubscriptionSuccess: () => null,
                 deliverSubscriptionFailure: () => null,
+            },
+        ],
+        // Tracks the subscription whose Pause/Resume PATCH is in flight so the row's
+        // menu item can show a busy state and prevent double-clicks.
+        togglingEnabledId: [
+            null as number | null,
+            {
+                setSubscriptionEnabled: (_, { id }) => id,
+                setSubscriptionEnabledSuccess: () => null,
+                setSubscriptionEnabledFailure: () => null,
             },
         ],
     }),
@@ -371,6 +385,24 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             } else {
                 actions.deliverSubscriptionFailure()
             }
+        },
+        setSubscriptionEnabled: async ({ id, enabled }) => {
+            try {
+                await subscriptionsPartialUpdate(String(getCurrentTeamId()), id, { enabled })
+                actions.setSubscriptionEnabledSuccess(id, enabled)
+            } catch (e: any) {
+                const detail = typeof e?.detail === 'string' ? e.detail : null
+                actions.setSubscriptionEnabledFailure(detail)
+            }
+        },
+        setSubscriptionEnabledSuccess: ({ enabled }) => {
+            lemonToast.success(enabled ? 'Subscription resumed' : 'Subscription paused')
+            actions.loadSubscriptions()
+        },
+        setSubscriptionEnabledFailure: ({ detail }) => {
+            // Surface the serializer's actionable message (e.g. re-enabling a Slack
+            // sub with no integration).
+            lemonToast.error(detail ?? 'Could not update subscription')
         },
     })),
     tabAwareActionToUrl(({ values }) => {

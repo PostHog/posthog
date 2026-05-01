@@ -23,15 +23,23 @@ import { AvailableFeature } from '~/types'
 
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
 import { SubscriptionsLoadingSkeleton } from './components/SubscriptionsLoadingSkeleton'
-import { SubscriptionsTable, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
+import {
+    SubscriptionsTable,
+    isSubscriptionEnabled,
+    subscriptionEditHref,
+    subscriptionName,
+} from './components/SubscriptionsTable'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { deleteSubscriptionSuccess, deliverSubscription } = useActions(subscriptionsSceneLogic)
-    const { deliveringSubscriptionId } = useValues(subscriptionsSceneLogic)
+    const { deleteSubscriptionSuccess, deliverSubscription, setSubscriptionEnabled } =
+        useActions(subscriptionsSceneLogic)
+    const { deliveringSubscriptionId, togglingEnabledId } = useValues(subscriptionsSceneLogic)
     const href = subscriptionEditHref(sub)
     const isDelivering = deliveringSubscriptionId === sub.id
+    const isToggling = togglingEnabledId === sub.id
+    const enabled = isSubscriptionEnabled(sub)
 
     return (
         <LemonMenu
@@ -44,6 +52,12 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
                           },
                       ]
                     : []),
+                {
+                    label: enabled ? 'Pause subscription' : 'Resume subscription',
+                    'data-attr': 'subscription-list-item-toggle-enabled',
+                    disabledReason: isToggling ? 'Updating…' : null,
+                    onClick: () => setSubscriptionEnabled(sub.id, !enabled),
+                },
                 {
                     label: 'Test delivery',
                     'data-attr': 'subscription-list-item-manual-deliver',
@@ -66,10 +80,10 @@ function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element
             ]}
         >
             <LemonButton
-                icon={isDelivering ? <Spinner /> : <IconEllipsis />}
+                icon={isDelivering || isToggling ? <Spinner /> : <IconEllipsis />}
                 size="small"
                 aria-label="Subscription actions"
-                disabled={isDelivering}
+                disabled={isDelivering || isToggling}
             />
         </LemonMenu>
     )
