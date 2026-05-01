@@ -17,7 +17,7 @@ from django.db import (
     models as db_models,
     transaction,
 )
-from django.db.models import Count, F, Q
+from django.db.models import Avg, Count, F, Q
 from django.utils import timezone
 
 import structlog
@@ -1891,23 +1891,20 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     capture against right now".
 
     Performance shape:
-      - O(run_types) queries to find the universe runs (≤ a handful in practice)
+      - 1 query for the universe runs (one row per run_type, indexed)
       - 1 query for the universe rows (with thumbnail + artifact prefetch)
-      - 3 grouped queries for tolerate counts + active quarantines + sparkline
+      - 2 grouped queries for tolerate counts (30d + 90d)
+      - 1 grouped query for active quarantines
+      - 1 grouped query for lifetime baseline-flip count
+      - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
       - 3 cheap aggregate queries for totals
     """
-    from collections import Counter, defaultdict
+    from collections import Counter
     from datetime import timedelta
 
-    from .facade.contracts import BASELINE_OVERVIEW_MAX_ENTRIES, BASELINE_SPARKLINE_DAYS
+    from .facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
 
     now = timezone.now()
-    # The sparkline shows DAYS dates inclusive of today (see
-    # `_build_sparkline_day_keys`). `now - DAYS days` would pull rows from a
-    # 31st earlier date that has no day_key — they'd vanish into a bucket
-    # that's never read, but their `diff_percentage` would still skew
-    # `recent_diff_avg`. `DAYS - 1` aligns with the day-key window.
-    sparkline_cutoff = now - timedelta(days=BASELINE_SPARKLINE_DAYS - 1)
 
     # 1. Find the latest *completed* run on the default branch per (repo,
     # branch, run_type). Filtering on `superseded_by IS NULL` looks tempting
@@ -1932,8 +1929,8 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             tolerate_30d_by_id={},
             tolerate_90d_by_id={},
             quarantined_ids=set(),
-            sparkline_by_key={},
-            drift_avg_by_key={},
+            change_count_by_key={},
+            recent_drift_by_key={},
             totals_all=0,
             totals_recent=0,
             totals_frequent=0,
@@ -2017,51 +2014,65 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .values_list("run_type", "identifier")
         }
 
-    # 3c. Sparkline — last 30 days of run results bucketed by classification.
-    # One grouped query, then bucket in Python so we keep this portable across
-    # SQLite (tests) and Postgres without resorting to TruncDate or SQL CASE.
-    # Same loop also accumulates the running drift average so we get
-    # `recent_diff_avg` for free in this single pass. Keyed by
-    # `(run_type, identifier)` because the universe is one row per pair —
-    # same identifier in storybook + playwright are *different* baselines and
-    # their sparklines must not bleed into each other.
-    sparkline_by_key: dict[tuple[str, str], dict[str, SparkBuckets]] = defaultdict(lambda: defaultdict(SparkBuckets))
-    drift_sum_by_key: dict[tuple[str, str], float] = defaultdict(float)
-    drift_count_by_key: dict[tuple[str, str], int] = defaultdict(int)
+    # 3c. Per-baseline stability signals: a lifetime baseline-flip count and a
+    # smoothed recent-drift average. Replaces a daily-bucket sparkline that
+    # had to scan millions of RunSnapshot rows on every request (~7s, OOMed on
+    # the web pod for repos with thousands of identifiers — see git history).
+    # Both queries here are scoped tightly enough to finish in tens of ms:
+    #
+    #   change_count_by_key: COUNT(*) WHERE result IN ('changed','removed')
+    #     across all completed master/main runs ever. Real baseline flips on
+    #     master leave a CHANGED/REMOVED row in the run that introduced them
+    #     (subsequent runs see UNCHANGED against the new YAML baseline), so
+    #     this count IS the number of times the YAML moved. Postgres uses
+    #     the `snapshot_run_result` index on (run_id, result) to bitmap-scan
+    #     straight to the rare event rows (~1k of millions). No window
+    #     function, no per-row LAG comparison.
+    #
+    #   recent_drift_by_key: AVG(diff_percentage) over the last 10 master/
+    #     main completed runs per (run_type). Bounded by run count, not by
+    #     time window — caps the scanned set regardless of CI cadence. We
+    #     resolve the run IDs first (sub-ms) and aggregate via PK-indexed
+    #     run_id__in, otherwise the planner inlines a CTE that produces a
+    #     ROW_NUMBER plan over the full RunSnapshot table.
+    change_count_by_key: dict[tuple[str, str], int] = {}
+    recent_drift_by_key: dict[tuple[str, str], float] = {}
     if universe_identifiers:
-        spark_rows = RunSnapshot.objects.filter(
-            run__repo_id=repo_id,
-            identifier__in=universe_identifiers,
-            run__created_at__gte=sparkline_cutoff,
-        ).values_list(
-            "identifier",
-            "run__run_type",
-            "run__created_at",
-            "result",
-            "is_quarantined",
-            "tolerated_hash_match_id",
-            "diff_percentage",
+        for identifier, run_type, c in (
+            RunSnapshot.objects.filter(
+                run__repo_id=repo_id,
+                run__branch__in=_DEFAULT_BRANCHES,
+                run__status=RunStatus.COMPLETED,
+                result__in=(SnapshotResult.CHANGED, SnapshotResult.REMOVED),
+            )
+            .values("identifier", "run__run_type")
+            .annotate(c=Count("id"))
+            .values_list("identifier", "run__run_type", "c")
+        ):
+            change_count_by_key[(run_type, identifier)] = c
+
+        recent_run_ids = list(
+            Run.objects.raw(
+                """
+                SELECT id, run_type FROM (
+                    SELECT id, run_type,
+                           ROW_NUMBER() OVER (PARTITION BY run_type ORDER BY created_at DESC) AS rn
+                    FROM visual_review_run
+                    WHERE repo_id = %s AND branch = ANY(%s) AND status = %s
+                ) ranked WHERE rn <= %s
+                """,
+                [str(repo_id), list(_DEFAULT_BRANCHES), RunStatus.COMPLETED, BASELINE_DRIFT_RECENT_RUN_COUNT],
+            )
         )
-        for identifier, run_type, run_created_at, result, is_quar, tol_match_id, diff_pct in spark_rows:
-            day_key = run_created_at.date().isoformat()
-            key = (run_type, identifier)
-            buckets = sparkline_by_key[key][day_key]
-            # `tolerated_hash_match` is a nullable FK but django-stubs types
-            # the `_id` column as a non-optional UUID, so without this widen
-            # mypy thinks `is not None` always succeeds → flags every later
-            # branch as unreachable.
-            tol_match_id_opt: UUID | None = tol_match_id
-            if is_quar:
-                buckets.quarantined += 1
-            elif tol_match_id_opt is not None:
-                buckets.tolerated += 1
-            elif result == "unchanged":
-                buckets.clean += 1
-            else:
-                buckets.changed += 1
-            if diff_pct is not None and diff_pct > 0:
-                drift_sum_by_key[key] += diff_pct
-                drift_count_by_key[key] += 1
+        if recent_run_ids:
+            for identifier, run_type, drift_avg in (
+                RunSnapshot.objects.filter(run_id__in=[r.id for r in recent_run_ids])
+                .values("identifier", "run__run_type")
+                .annotate(drift_avg=Avg("diff_percentage", filter=Q(diff_percentage__gt=0)))
+                .values_list("identifier", "run__run_type", "drift_avg")
+            ):
+                if drift_avg is not None:
+                    recent_drift_by_key[(run_type, identifier)] = drift_avg
 
     # 4. Totals computed across the *full* universe (not the truncated slice)
     # so the stat row stays correct when the entries are clipped.
@@ -2131,19 +2142,13 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     else:
         by_run_type = dict(Counter(s.run.run_type for s in universe))
 
-    drift_avg_by_key: dict[tuple[str, str], float] = {
-        key: drift_sum_by_key[key] / drift_count_by_key[key]
-        for key in drift_count_by_key
-        if drift_count_by_key[key] > 0
-    }
-
     return _BaselineOverviewRaw(
         entries=universe,
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
         quarantined_ids=quarantined_pairs,
-        sparkline_by_key=sparkline_by_key,
-        drift_avg_by_key=drift_avg_by_key,
+        change_count_by_key=change_count_by_key,
+        recent_drift_by_key=recent_drift_by_key,
         totals_all=totals_all,
         totals_recent=len(recent_ids),
         totals_frequent=len(frequent_ids),
@@ -2152,20 +2157,6 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         truncated=truncated,
         generated_at=now,
     )
-
-
-@dataclass
-class SparkBuckets:
-    """One day's classification counts on the stability sparkline.
-
-    Public so the facade can construct a zero-default without reaching into
-    private symbols of this module. Otherwise an internal-only shape.
-    """
-
-    clean: int = 0
-    tolerated: int = 0
-    changed: int = 0
-    quarantined: int = 0
 
 
 @dataclass
@@ -2179,11 +2170,11 @@ class _BaselineOverviewRaw:
     tolerate_30d_by_id: dict[str, int]
     tolerate_90d_by_id: dict[str, int]
     quarantined_ids: set[tuple[str, str]]
-    # Sparkline + drift are keyed by `(run_type, identifier)` because the same
+    # Stability signals keyed by `(run_type, identifier)` because the same
     # identifier in different run types is a different baseline; merging would
     # bleed storybook stability into playwright stability.
-    sparkline_by_key: dict[tuple[str, str], dict[str, SparkBuckets]]
-    drift_avg_by_key: dict[tuple[str, str], float]
+    change_count_by_key: dict[tuple[str, str], int]
+    recent_drift_by_key: dict[tuple[str, str], float]
     totals_all: int
     totals_recent: int
     totals_frequent: int

@@ -260,7 +260,8 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
                 } else {
                     filtered.sort(
                         (a, b) =>
-                            (b.recent_diff_avg ?? 0) - (a.recent_diff_avg ?? 0) ||
+                            (b.recent_drift_avg ?? 0) - (a.recent_drift_avg ?? 0) ||
+                            b.baseline_change_count - a.baseline_change_count ||
                             b.tolerate_count_30d - a.tolerate_count_30d ||
                             a.identifier.localeCompare(b.identifier)
                     )

@@ -32,6 +32,11 @@ export const scene: SceneExport = {
 // via `auto-fill, minmax(220px, 1fr)`.
 const CARD_MIN_WIDTH = 220
 
+// Mirror of the badge styling on `SnapshotCard` so the legend pills look
+// identical to the real badges.
+const BADGE_LEGEND_BASE =
+    'inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-white text-[10px] font-semibold leading-none'
+
 export function VisualReviewSnapshotOverviewScene(): JSX.Element {
     const {
         overview,
@@ -111,15 +116,6 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                         </button>
                     )}
                     <div className="text-xs text-muted">
-                        {filteredEntries.length > 0 && overview && (
-                            <>
-                                <span className="text-default">{filteredEntries.length.toLocaleString()}</span>
-                                {filteredEntries.length !== overview.entries.length && (
-                                    <> of {overview.entries.length.toLocaleString()}</>
-                                )}{' '}
-                                snapshots ·{' '}
-                            </>
-                        )}
                         Sorted by <span className="text-default">{sortLabel.label}</span>
                     </div>
                 </div>
@@ -133,26 +129,20 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
             )}
 
             {/* Legend lives above the grid so first-time viewers see what the
-                sparkline colors and the "tolerated" chip mean before they dive
-                into hundreds of cards. */}
+                badges mean before they dive into hundreds of cards. */}
             <div className="flex items-center gap-3 text-[11px] text-muted">
                 <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--success)' }} />
-                    Clean
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--primary-3000)' }} />
-                    Tolerated
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--warning-dark)' }} />
-                    Changed
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--danger)' }} />
+                    <span className={`${BADGE_LEGEND_BASE} bg-warning`}>!</span>
                     Quarantined
                 </span>
-                <span className="ml-auto">Sparkline shows last 30 days</span>
+                <span className="flex items-center gap-1">
+                    <span className={`${BADGE_LEGEND_BASE} bg-primary-3000`}>~N</span>
+                    Tolerates in last 30 days
+                </span>
+                <span className="flex items-center gap-1">
+                    <span className="font-mono">↻ N</span>
+                    Baseline updates since inception
+                </span>
             </div>
 
             <div className="flex gap-6 items-start">
@@ -170,7 +160,16 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                     }}
                 />
 
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    {overview && filteredEntries.length > 0 && (
+                        <div className="text-sm text-default">
+                            Showing <span className="font-semibold">{filteredEntries.length.toLocaleString()}</span>
+                            {filteredEntries.length !== overview.entries.length && (
+                                <> of {overview.entries.length.toLocaleString()}</>
+                            )}{' '}
+                            {filteredEntries.length === 1 ? 'snapshot' : 'snapshots'}
+                        </div>
+                    )}
                     {overviewLoading && !overview ? (
                         <div
                             className="grid gap-3"
