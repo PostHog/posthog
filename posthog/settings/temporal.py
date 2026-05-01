@@ -41,6 +41,18 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
+# Local-dev overrides (DEBUG-only) — let a sandboxed agent talk to a remote PostHog
+# MCP server (typically `https://mcp.posthog.com/mcp`) using a personal API key while
+# the rest of the stack stays local. The override headers are applied to the primary
+# MCP server only; if `SANDBOX_MCP_LOCAL_FALLBACK_URL` is also set, a second local MCP
+# server is registered alongside so harness-only tools (memory, run history, emit) keep
+# resolving to the local Django process.
+SANDBOX_MCP_OVERRIDE_API_KEY: str | None = get_from_env("SANDBOX_MCP_OVERRIDE_API_KEY", None, optional=True)
+SANDBOX_MCP_OVERRIDE_PROJECT_ID: int | None = get_from_env(
+    "SANDBOX_MCP_OVERRIDE_PROJECT_ID", None, type_cast=int, optional=True
+)
+SANDBOX_MCP_LOCAL_FALLBACK_URL: str | None = get_from_env("SANDBOX_MCP_LOCAL_FALLBACK_URL", None, optional=True)
+
 # When True, cloud-to-cloud resume boots from a Modal filesystem snapshot taken at
 # end-of-run. When False, no Modal snapshot is taken and resume relies on the
 # git-checkpoint mechanism in the agent server (same path as local-to-cloud handoff).

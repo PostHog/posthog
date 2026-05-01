@@ -283,14 +283,78 @@ def get_sandbox_ph_mcp_configs(
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
-    Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
-    - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
-    - eu.posthog.com → https://mcp-eu.posthog.com/mcp
-    - Other hosts → empty list (MCP not available)
+    Primary MCP server URL resolution:
+    - `SANDBOX_MCP_URL` if explicitly set
+    - else derived from `SITE_URL` host (`*.posthog.com` → hosted MCP)
+    - else empty list (MCP not available)
+
+    DEBUG-only overrides on the primary server:
+    - `SANDBOX_MCP_OVERRIDE_API_KEY` swaps the Authorization Bearer token for the
+      provided value (e.g. a remote PostHog personal API key) so a local sandbox can
+      talk to a remote MCP server. Locally-minted OAuth tokens won't authenticate
+      against a remote MCP — the override is the escape hatch.
+    - `SANDBOX_MCP_OVERRIDE_PROJECT_ID` swaps the `x-posthog-project-id` header so
+      reads target a specific remote project (e.g. project 2) regardless of the
+      local team the agent is running for.
+
+    DEBUG-only fallback server:
+    - `SANDBOX_MCP_LOCAL_FALLBACK_URL`, when set alongside an override, registers
+      a second MCP server pointed at the local Django process. The agent SDK sees
+      the union of tools across both servers; tools that exist only locally
+      (signals-agent harness tools today) keep resolving locally even while the
+      primary server is remote.
     """
     url = _resolve_mcp_url()
     if not url:
         return []
+
+    debug = bool(getattr(settings, "DEBUG", False))
+    override_api_key = getattr(settings, "SANDBOX_MCP_OVERRIDE_API_KEY", None) if debug else None
+    override_project_id = getattr(settings, "SANDBOX_MCP_OVERRIDE_PROJECT_ID", None) if debug else None
+    fallback_url = getattr(settings, "SANDBOX_MCP_LOCAL_FALLBACK_URL", None) if debug else None
+
+    primary_token = override_api_key or token
+    primary_project_id = override_project_id if override_project_id is not None else project_id
+    has_override = bool(override_api_key or override_project_id)
+
+    configs: list[McpServerConfig] = [
+        _build_mcp_config(
+            name="posthog",
+            url=url,
+            token=primary_token,
+            project_id=primary_project_id,
+            scopes=scopes,
+            interaction_origin=interaction_origin,
+        )
+    ]
+
+    if has_override and fallback_url:
+        # Second server registered with the locally-issued OAuth token + the local team
+        # so tools that don't yet exist on the remote MCP (e.g. in-flight harness work)
+        # keep resolving against the local Django process.
+        configs.append(
+            _build_mcp_config(
+                name="posthog-local",
+                url=fallback_url,
+                token=token,
+                project_id=project_id,
+                scopes=scopes,
+                interaction_origin=interaction_origin,
+            )
+        )
+
+    return configs
+
+
+def _build_mcp_config(
+    *,
+    name: str,
+    url: str,
+    token: str,
+    project_id: int,
+    scopes: PosthogMcpScopes,
+    interaction_origin: str | None,
+) -> McpServerConfig:
     read_only = not has_write_scopes(scopes)
     headers = [
         {"name": "Authorization", "value": f"Bearer {token}"},
@@ -299,7 +363,7 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
         {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
     ]
-    return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
+    return McpServerConfig(type="http", name=name, url=url, headers=headers)
 
 
 def _resolve_mcp_url() -> str | None:

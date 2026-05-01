@@ -19,14 +19,37 @@ class TestGetSandboxMcpConfigs(TestCase):
     TOKEN = "phx_test_token"
     PROJECT_ID = 42
 
-    def _expected_headers(self, *, read_only: bool = True, consumer: str = "posthog-code") -> list[dict[str, str]]:
+    def _expected_headers(
+        self,
+        *,
+        read_only: bool = True,
+        consumer: str = "posthog-code",
+        token: str | None = None,
+        project_id: int | None = None,
+    ) -> list[dict[str, str]]:
         return [
-            {"name": "Authorization", "value": f"Bearer {self.TOKEN}"},
-            {"name": "x-posthog-project-id", "value": str(self.PROJECT_ID)},
+            {"name": "Authorization", "value": f"Bearer {token or self.TOKEN}"},
+            {"name": "x-posthog-project-id", "value": str(project_id if project_id is not None else self.PROJECT_ID)},
             {"name": "x-posthog-mcp-version", "value": "2"},
             {"name": "x-posthog-read-only", "value": str(read_only).lower()},
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
+
+    @staticmethod
+    def _stub_settings(mock_settings: MagicMock, **overrides) -> None:
+        """Pin every settings attribute the helper reads so MagicMock auto-attrs don't
+        accidentally activate the DEBUG-only override branch."""
+        defaults: dict = {
+            "SANDBOX_MCP_URL": None,
+            "SITE_URL": "https://app.posthog.com",
+            "DEBUG": False,
+            "SANDBOX_MCP_OVERRIDE_API_KEY": None,
+            "SANDBOX_MCP_OVERRIDE_PROJECT_ID": None,
+            "SANDBOX_MCP_LOCAL_FALLBACK_URL": None,
+        }
+        defaults.update(overrides)
+        for key, value in defaults.items():
+            setattr(mock_settings, key, value)
 
     @parameterized.expand(
         [
@@ -37,8 +60,7 @@ class TestGetSandboxMcpConfigs(TestCase):
     )
     def test_derives_mcp_config_from_site_url(self, site_url: str, expected_mcp_url: str) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
+            self._stub_settings(mock_settings, SITE_URL=site_url)
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert configs == [
                 McpServerConfig(
@@ -51,8 +73,7 @@ class TestGetSandboxMcpConfigs(TestCase):
 
     def test_explicit_sandbox_mcp_url_takes_precedence(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = "https://custom-mcp.example.com/mcp"
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            self._stub_settings(mock_settings, SANDBOX_MCP_URL="https://custom-mcp.example.com/mcp")
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert configs == [
                 McpServerConfig(
@@ -65,8 +86,7 @@ class TestGetSandboxMcpConfigs(TestCase):
 
     def test_full_scopes_preset(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            self._stub_settings(mock_settings)
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes="full")
             assert configs == [
                 McpServerConfig(
@@ -79,8 +99,7 @@ class TestGetSandboxMcpConfigs(TestCase):
 
     def test_custom_scopes_with_write(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            self._stub_settings(mock_settings)
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "feature_flag:write"]
             )
@@ -95,8 +114,7 @@ class TestGetSandboxMcpConfigs(TestCase):
 
     def test_custom_scopes_read_only(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            self._stub_settings(mock_settings)
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "insight:read"]
             )
@@ -117,14 +135,12 @@ class TestGetSandboxMcpConfigs(TestCase):
     )
     def test_returns_empty_list_for_unknown_hosts(self, site_url: str) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
+            self._stub_settings(mock_settings, SITE_URL=site_url)
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
     def test_returns_empty_list_when_no_site_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = ""
+            self._stub_settings(mock_settings, SITE_URL="")
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
     @parameterized.expand(
@@ -140,8 +156,7 @@ class TestGetSandboxMcpConfigs(TestCase):
         self, interaction_origin: str | None, expected_consumer: str
     ) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            self._stub_settings(mock_settings)
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, interaction_origin=interaction_origin)
             assert configs == [
                 McpServerConfig(
@@ -151,6 +166,108 @@ class TestGetSandboxMcpConfigs(TestCase):
                     headers=self._expected_headers(consumer=expected_consumer),
                 )
             ]
+
+    # --- DEBUG-only override behaviour ----------------------------------------
+
+    def test_override_api_key_replaces_authorization_header_in_debug(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            self._stub_settings(
+                mock_settings,
+                DEBUG=True,
+                SANDBOX_MCP_URL="https://mcp.posthog.com/mcp",
+                SANDBOX_MCP_OVERRIDE_API_KEY="phx_my_personal_remote_key",
+            )
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(token="phx_my_personal_remote_key"),
+                )
+            ]
+
+    def test_override_project_id_replaces_project_header_in_debug(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            self._stub_settings(
+                mock_settings,
+                DEBUG=True,
+                SANDBOX_MCP_URL="https://mcp.posthog.com/mcp",
+                SANDBOX_MCP_OVERRIDE_PROJECT_ID=2,
+            )
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(project_id=2),
+                )
+            ]
+
+    def test_overrides_ignored_outside_debug(self) -> None:
+        # Cloud / prod must not honour the local-dev escape hatches even if the env
+        # vars get accidentally set — the OAuth token + team id come from the auth path.
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            self._stub_settings(
+                mock_settings,
+                DEBUG=False,
+                SANDBOX_MCP_OVERRIDE_API_KEY="phx_should_be_ignored",
+                SANDBOX_MCP_OVERRIDE_PROJECT_ID=999,
+                SANDBOX_MCP_LOCAL_FALLBACK_URL="http://host.docker.internal:8787/mcp",
+            )
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(),
+                )
+            ]
+
+    def test_local_fallback_registers_second_server_when_override_is_active(self) -> None:
+        # Override → primary points at remote MCP with the prod key; fallback → second
+        # server points at the local Django process with the locally-issued OAuth token,
+        # so harness-only tools (memory, run history, emit) keep resolving locally.
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            self._stub_settings(
+                mock_settings,
+                DEBUG=True,
+                SANDBOX_MCP_URL="https://mcp.posthog.com/mcp",
+                SANDBOX_MCP_OVERRIDE_API_KEY="phx_my_personal_remote_key",
+                SANDBOX_MCP_OVERRIDE_PROJECT_ID=2,
+                SANDBOX_MCP_LOCAL_FALLBACK_URL="http://host.docker.internal:8787/mcp",
+            )
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="https://mcp.posthog.com/mcp",
+                    headers=self._expected_headers(token="phx_my_personal_remote_key", project_id=2),
+                ),
+                McpServerConfig(
+                    type="http",
+                    name="posthog-local",
+                    url="http://host.docker.internal:8787/mcp",
+                    headers=self._expected_headers(),
+                ),
+            ]
+
+    def test_local_fallback_ignored_without_override(self) -> None:
+        # The fallback only attaches when there's actually a remote primary to back up.
+        # Setting the fallback URL alone is a misconfiguration — keep the single-server
+        # shape so the agent doesn't see the same MCP twice.
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            self._stub_settings(
+                mock_settings,
+                DEBUG=True,
+                SANDBOX_MCP_LOCAL_FALLBACK_URL="http://host.docker.internal:8787/mcp",
+            )
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert len(configs) == 1
+            assert configs[0].name == "posthog"
 
 
 class TestMcpServerConfigToDict(TestCase):
