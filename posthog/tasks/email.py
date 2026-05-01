@@ -38,7 +38,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
@@ -292,8 +292,12 @@ def send_invite(invite_id: str) -> None:
     # retries dispatch.
     if is_delegation:
         message.send(send_async=False)
+        # MessagingRecord stores SHA-256(SECRET_KEY + email) in `email_hash`. The custom
+        # manager remaps a `raw_email=` kwarg to `email_hash=` magically, but django-stubs
+        # can't follow that override and mypy then can't resolve `raw_email` against the
+        # model's actual fields. Compute the hash directly to keep mypy happy.
         delivered = MessagingRecord.objects.filter(
-            campaign_key=campaign_key, raw_email=invite.target_email, sent_at__isnull=False
+            campaign_key=campaign_key, email_hash=get_email_hash(invite.target_email), sent_at__isnull=False
         ).exists()
         if delivered:
             OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
