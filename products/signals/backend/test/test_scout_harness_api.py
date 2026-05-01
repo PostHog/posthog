@@ -420,4 +420,5 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "external_data_sources",
             "signal_source_configs",
             "existing_inbox_reports",
+            "top_events",
         }
