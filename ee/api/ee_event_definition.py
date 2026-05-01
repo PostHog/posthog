@@ -24,6 +24,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     post_to_slack = serializers.BooleanField(default=False)
     default_columns = serializers.ListField(child=serializers.CharField(), required=False)
     media_preview_urls = serializers.SerializerMethodField(read_only=True)
+    promoted_property = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=False,
+        max_length=400,
+        help_text=(
+            "Name of a single property on this event that PostHog UIs should display alongside the event "
+            "(for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector "
+            "show the property's value next to the event name without the user having to open the event."
+        ),
+    )
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -43,6 +54,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_by",
             "hidden",
             "enforcement_mode",
+            "promoted_property",
             # Action fields
             "is_action",
             "action_id",

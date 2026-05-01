@@ -45,6 +45,10 @@ async def upload_video_to_gemini_activity(
     inputs: VideoSummarySingleSessionInputs, asset_id: int
 ) -> UploadVideoToGeminiOutput:
     """Upload full video to Gemini for analysis and return file reference with duration, plus team name"""
+    # display_name is read by the cleanup sweeper. The deployment prefix scopes ownership so that
+    # one cluster's sweeper can't delete another cluster's in-use files when they share a Gemini key.
+    deployment = settings.CLOUD_DEPLOYMENT or "local"
+    display_name = f"{deployment}:{temporalio.activity.info().workflow_id}"
     try:
         # Fetch team name once here to avoid fetching it 100+ times in parallel segment analysis
         team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
@@ -80,7 +84,8 @@ async def upload_video_to_gemini_activity(
             raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
             # Wrap sync Google API call in thread pool to avoid blocking the event loop
             uploaded_file = await sync_to_async(raw_client.files.upload, thread_sensitive=False)(
-                file=tmp_file.name, config=types.UploadFileConfig(mime_type=asset.export_format)
+                file=tmp_file.name,
+                config=types.UploadFileConfig(mime_type=asset.export_format, display_name=display_name),
             )
             # Wait for file to be ready
             wait_start_time = time.time()

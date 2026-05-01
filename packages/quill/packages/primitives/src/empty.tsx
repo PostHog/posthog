@@ -1,6 +1,7 @@
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
+import './empty.css'
 import { cn } from './lib/utils'
 
 function Empty({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
@@ -9,7 +10,7 @@ function Empty({ className, ...props }: React.ComponentProps<'div'>): React.Reac
             data-quill
             data-slot="empty"
             className={cn(
-                'flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border border-dashed p-6 text-center text-balance',
+                'quill-empty flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4',
                 className
             )}
             {...props}
@@ -27,20 +28,17 @@ function EmptyHeader({ className, ...props }: React.ComponentProps<'div'>): Reac
     )
 }
 
-const emptyMediaVariants = cva(
-    'mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
-    {
-        variants: {
-            variant: {
-                default: 'bg-transparent',
-                icon: "flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-foreground [&_svg:not([class*='size-'])]:size-4",
-            },
+const emptyMediaVariants = cva('quill-empty__media flex shrink-0 items-center justify-center', {
+    variants: {
+        variant: {
+            default: 'quill-empty__media--variant-default',
+            icon: 'quill-empty__media--variant-icon',
         },
-        defaultVariants: {
-            variant: 'default',
-        },
-    }
-)
+    },
+    defaultVariants: {
+        variant: 'default',
+    },
+})
 
 function EmptyMedia({
     className,
@@ -58,30 +56,18 @@ function EmptyMedia({
 }
 
 function EmptyTitle({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
-    return <div data-slot="empty-title" className={cn('text-sm font-medium tracking-tight', className)} {...props} />
+    return <div data-slot="empty-title" className={cn('quill-empty__title', className)} {...props} />
 }
 
 function EmptyDescription({ className, ...props }: React.ComponentProps<'p'>): React.ReactElement {
-    return (
-        <div
-            data-slot="empty-description"
-            className={cn(
-                'text-xs/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary',
-                className
-            )}
-            {...props}
-        />
-    )
+    return <div data-slot="empty-description" className={cn('quill-empty__description', className)} {...props} />
 }
 
 function EmptyContent({ className, ...props }: React.ComponentProps<'div'>): React.ReactElement {
     return (
         <div
             data-slot="empty-content"
-            className={cn(
-                'flex w-full max-w-sm min-w-0 flex-col items-center gap-2 text-xs/relaxed text-balance',
-                className
-            )}
+            className={cn('quill-empty__content flex w-full max-w-sm min-w-0 flex-col items-center gap-2', className)}
             {...props}
         />
     )

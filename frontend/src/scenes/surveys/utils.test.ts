@@ -180,21 +180,20 @@ describe('survey utils', () => {
                             },
                         ],
                     },
-                ],
-            })
-        })
-
-        it('can include partial responses when requested', () => {
-            expect(getSurveyNotificationFilters('survey-123', false)).toEqual({
-                events: [
                     {
-                        id: SurveyEventName.SENT,
+                        id: SurveyEventName.DISMISSED,
                         type: 'events',
                         properties: [
                             {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                type: PropertyFilterType.Event,
+                                value: true,
                                 operator: PropertyOperator.Exact,
                             },
                         ],

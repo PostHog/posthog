@@ -24,7 +24,6 @@ import React, {
     useRef,
     useState,
 } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -126,9 +125,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const currentPopoverLevel = parentPopoverLevel + 1
 
     if (!parentPopoverVisible) {
-        // If parentPopoverVisible is false, this means the parent will be unmounted imminently (per CSSTransition),
-        // and then THIS child popover wil also be unmounted. Here we propagate this transition from the parent,
-        // so that all of the unmounting seems smooth and not abrupt (which is how it'd look for this child otherwise)
+        // If parentPopoverVisible is false, this means the parent will unmount imminently
+        // (per its own exit timeout), and then THIS child popover will also be unmounted.
+        // Propagate the transition from the parent so that all of the unmounting seems
+        // smooth and not abrupt (which is how it'd look for this child otherwise).
         visible = false
     }
 
@@ -181,14 +181,66 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     })
 
     const [floatingElement, setFloatingElement] = useState<HTMLElement | null>(null)
-    // Track whether the portal should be rendered (visible or animating out)
+    // `shouldRenderPortal` controls whether the portal is mounted. It flips to
+    // `true` as soon as `visible` becomes true and flips back to `false` after
+    // the exit transition has had `delayMs` to play out — this matches the
+    // behaviour of the previous `CSSTransition` + `unmountOnExit` setup.
+    // `isOpen` controls the CSS open/close class toggle that drives the
+    // fade-in/fade-out transition defined in Popover.scss.
     const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
+    const [isOpen, setIsOpen] = useState(false)
+    const exitTimeoutRef = useRef<number | null>(null)
+    const enterFrameRef = useRef<number | null>(null)
 
     useLayoutEffect(() => {
         if (visible) {
+            if (exitTimeoutRef.current !== null) {
+                clearTimeout(exitTimeoutRef.current)
+                exitTimeoutRef.current = null
+            }
             setShouldRenderPortal(true)
+            // Wait one animation frame before applying the `open` class so the
+            // initial (closed) styles commit first and the transition plays.
+            enterFrameRef.current = requestAnimationFrame(() => {
+                enterFrameRef.current = null
+                setIsOpen(true)
+            })
+        } else {
+            if (enterFrameRef.current !== null) {
+                cancelAnimationFrame(enterFrameRef.current)
+                enterFrameRef.current = null
+            }
+            if (exitTimeoutRef.current !== null) {
+                // Covers the case where `delayMs` changes while `visible` is already
+                // false: without this, the previous timer would be orphaned rather
+                // than cancelled.
+                clearTimeout(exitTimeoutRef.current)
+                exitTimeoutRef.current = null
+            }
+            setIsOpen(false)
+            exitTimeoutRef.current = window.setTimeout(() => {
+                exitTimeoutRef.current = null
+                setFloatingElement(null)
+                floatingRef.current = null
+                if (extraFloatingRef) {
+                    extraFloatingRef.current = null
+                }
+                setShouldRenderPortal(false)
+            }, delayMs)
         }
-    }, [visible])
+    }, [visible, delayMs]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(
+        () => () => {
+            if (exitTimeoutRef.current !== null) {
+                clearTimeout(exitTimeoutRef.current)
+            }
+            if (enterFrameRef.current !== null) {
+                cancelAnimationFrame(enterFrameRef.current)
+            }
+        },
+        []
+    )
     const mergedReferenceRef = useMergeRefs([
         referenceRef,
         extraReferenceRef || null,
@@ -243,15 +295,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const floatingContainer = useFloatingContainer()
 
-    const onExited = useCallback((): void => {
-        setFloatingElement(null)
-        floatingRef.current = null
-        if (extraFloatingRef) {
-            extraFloatingRef.current = null
-        }
-        setShouldRenderPortal(false)
-    }, [extraFloatingRef]) // oxlint-disable-line react-hooks/exhaustive-deps
-
     useEffect(() => {
         return () => {
             floatingRef.current = null
@@ -302,80 +345,66 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             {shouldRenderPortal && (
                 // floating-ui@0.27 changed null to suppress the portal entirely
                 <FloatingPortal root={floatingContainer ?? undefined}>
-                    <CSSTransition
-                        nodeRef={floatingRef as React.RefObject<HTMLDivElement>}
-                        in={visible}
-                        timeout={delayMs}
-                        classNames="Popover-"
-                        appear
-                        mountOnEnter
-                        unmountOnExit
-                        onExited={onExited}
-                    >
-                        <PopoverReferenceContext.Provider
-                            value={null /* Resetting the reference, since there's none */}
-                        >
-                            <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
-                                <div
-                                    className={clsx(
-                                        'Popover',
-                                        padded && 'Popover--padded',
-                                        maxContentWidth && 'Popover--max-content-width',
-                                        !isAttached && 'Popover--top-centered',
-                                        showArrow && 'Popover--with-arrow',
-                                        className
+                    <PopoverReferenceContext.Provider value={null /* Resetting the reference, since there's none */}>
+                        <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
+                            <div
+                                className={clsx(
+                                    'Popover',
+                                    padded && 'Popover--padded',
+                                    maxContentWidth && 'Popover--max-content-width',
+                                    !isAttached && 'Popover--top-centered',
+                                    showArrow && 'Popover--with-arrow',
+                                    isOpen && 'Popover--enter-active',
+                                    className
+                                )}
+                                data-placement={effectivePlacement}
+                                ref={floatingCallbackRef}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
+                                    position: strategy,
+                                    top,
+                                    left,
+                                    ...style,
+                                }}
+                                onClick={_onClickInside}
+                                onMouseEnter={onMouseEnterInside}
+                                onMouseLeave={onMouseLeaveInside}
+                                aria-level={currentPopoverLevel}
+                            >
+                                <div className="Popover__box">
+                                    {showArrow && isAttached && (
+                                        // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
+                                        <div
+                                            ref={arrowRef}
+                                            className="Popover__arrow"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={arrowStyle}
+                                        />
                                     )}
-                                    data-placement={effectivePlacement}
-                                    ref={floatingCallbackRef}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
-                                        position: strategy,
-                                        top,
-                                        left,
-                                        ...style,
-                                    }}
-                                    onClick={_onClickInside}
-                                    onMouseEnter={onMouseEnterInside}
-                                    onMouseLeave={onMouseLeaveInside}
-                                    aria-level={currentPopoverLevel}
-                                >
-                                    <div className="Popover__box">
-                                        {showArrow && isAttached && (
-                                            // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
-                                            <div
-                                                ref={arrowRef}
-                                                className="Popover__arrow"
-                                                // eslint-disable-next-line react/forbid-dom-props
-                                                style={arrowStyle}
-                                            />
-                                        )}
 
-                                        {loadingBar != null && (
-                                            <LemonTableLoader loading={loadingBar} placement="top" />
-                                        )}
+                                    {loadingBar != null && <LemonTableLoader loading={loadingBar} placement="top" />}
 
-                                        {!overflowHidden ? (
-                                            <ScrollableShadows
-                                                className="Popover__content"
-                                                ref={contentRef}
-                                                direction="vertical"
-                                            >
-                                                {overlay}
-                                            </ScrollableShadows>
-                                        ) : (
-                                            <div
-                                                className="Popover__content flex flex-col overflow-hidden"
-                                                ref={contentRef}
-                                            >
-                                                {overlay}
-                                            </div>
-                                        )}
-                                    </div>
+                                    {!overflowHidden ? (
+                                        <ScrollableShadows
+                                            className="Popover__content"
+                                            ref={contentRef}
+                                            direction="vertical"
+                                        >
+                                            {overlay}
+                                        </ScrollableShadows>
+                                    ) : (
+                                        <div
+                                            className="Popover__content flex flex-col overflow-hidden"
+                                            ref={contentRef}
+                                        >
+                                            {overlay}
+                                        </div>
+                                    )}
                                 </div>
-                            </PopoverOverlayContext.Provider>
-                        </PopoverReferenceContext.Provider>
-                    </CSSTransition>
+                            </div>
+                        </PopoverOverlayContext.Provider>
+                    </PopoverReferenceContext.Provider>
                 </FloatingPortal>
             )}
         </>

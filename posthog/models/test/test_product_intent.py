@@ -9,12 +9,14 @@ from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.file_system.user_product_list import UserProductList
+from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.surveys.backend.models import Survey
 
@@ -716,3 +718,70 @@ class TestProductIntent(BaseTest):
         user_product_lists = UserProductList.objects.filter(user=self.user, team=self.team)
         assert user_product_lists.count() == 1
         assert user_product_lists.get().reason == UserProductList.Reason.PRODUCT_INTENT
+
+    def _make_ai_generation_event_definition(self) -> EventDefinition:
+        return EventDefinition.objects.create(team=self.team, name="$ai_generation")
+
+    def _make_llm_intent(self, contexts: dict) -> ProductIntent:
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.LLM_ANALYTICS).delete()
+        return ProductIntent.objects.create(
+            team=self.team,
+            product_type=ProductKey.LLM_ANALYTICS,
+            contexts=contexts,
+        )
+
+    def test_has_activated_llm_analytics_with_ingestion_and_dashboard_viewed(self):
+        self._make_ai_generation_event_definition()
+        intent = self._make_llm_intent({"llm_analytics_viewed": 1})
+
+        assert intent.has_activated_llm_analytics() is True
+
+    def test_has_activated_llm_analytics_with_ingestion_and_trace_viewed(self):
+        self._make_ai_generation_event_definition()
+        intent = self._make_llm_intent({"llm_analytics_trace_viewed": 1})
+
+        assert intent.has_activated_llm_analytics() is True
+
+    def test_has_not_activated_llm_analytics_without_ingestion(self):
+        intent = self._make_llm_intent({"llm_analytics_viewed": 5})
+
+        assert intent.has_activated_llm_analytics() is False
+
+    def test_has_not_activated_llm_analytics_with_ingestion_but_no_engagement(self):
+        self._make_ai_generation_event_definition()
+        intent = self._make_llm_intent({})
+
+        assert intent.has_activated_llm_analytics() is False
+
+    def test_has_not_activated_llm_analytics_without_intent(self):
+        self._make_ai_generation_event_definition()
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.LLM_ANALYTICS).delete()
+
+        assert self.product_intent.has_activated_llm_analytics() is False
+
+    def test_has_activated_workflows_with_active_workflow(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.ACTIVE)
+
+        assert self.product_intent.has_activated_workflows() is True
+
+    def test_has_not_activated_workflows_with_draft_workflow_only(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.DRAFT)
+
+        assert self.product_intent.has_activated_workflows() is False
+
+    def test_has_not_activated_workflows_with_archived_workflow_only(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+        HogFlow.objects.create(team=self.team, name="Test workflow", status=HogFlow.State.ARCHIVED)
+
+        assert self.product_intent.has_activated_workflows() is False
+
+    def test_has_not_activated_workflows_without_any_workflows(self):
+        self.product_intent.product_type = ProductKey.WORKFLOWS
+        self.product_intent.save()
+
+        assert self.product_intent.has_activated_workflows() is False

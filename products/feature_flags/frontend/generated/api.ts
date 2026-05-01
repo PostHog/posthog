@@ -19,8 +19,8 @@ import type {
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagVersionResponseApi,
-    FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
+    FeatureFlagsAllActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsLocalEvaluationRetrieveParams,
@@ -54,16 +54,16 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
+export const getOrgFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
     return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`
 }
 
-export const featureFlagsRetrieve = async (
+export const orgFeatureFlagsRetrieve = async (
     organizationId: string,
     featureFlagKey: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsRetrieveUrl(organizationId, featureFlagKey), {
+    return apiMutator<void>(getOrgFeatureFlagsRetrieveUrl(organizationId, featureFlagKey), {
         ...options,
         method: 'GET',
     })
@@ -145,16 +145,16 @@ export const featureFlagsCreate = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsRetrieve2Url = (projectId: string, id: number) => {
+export const getFeatureFlagsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
-export const featureFlagsRetrieve2 = async (
+export const featureFlagsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
-    return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieve2Url(projectId, id), {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -225,10 +225,10 @@ export const featureFlagsDestroy = async (projectId: string, id: number, options
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsActivityRetrieve2Url = (
+export const getFeatureFlagsActivityRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: FeatureFlagsActivityRetrieve2Params
+    params?: FeatureFlagsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -245,13 +245,13 @@ export const getFeatureFlagsActivityRetrieve2Url = (
         : `/api/projects/${projectId}/feature_flags/${id}/activity/`
 }
 
-export const featureFlagsActivityRetrieve2 = async (
+export const featureFlagsActivityRetrieve = async (
     projectId: string,
     id: number,
-    params?: FeatureFlagsActivityRetrieve2Params,
+    params?: FeatureFlagsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<ActivityLogPaginatedResponseApi> => {
-    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieve2Url(projectId, id, params), {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -410,7 +410,10 @@ export const featureFlagsVersionsRetrieve = async (
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const getFeatureFlagsActivityRetrieveUrl = (projectId: string, params?: FeatureFlagsActivityRetrieveParams) => {
+export const getFeatureFlagsAllActivityRetrieveUrl = (
+    projectId: string,
+    params?: FeatureFlagsAllActivityRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -426,12 +429,12 @@ export const getFeatureFlagsActivityRetrieveUrl = (projectId: string, params?: F
         : `/api/projects/${projectId}/feature_flags/activity/`
 }
 
-export const featureFlagsActivityRetrieve = async (
+export const featureFlagsAllActivityRetrieve = async (
     projectId: string,
-    params?: FeatureFlagsActivityRetrieveParams,
+    params?: FeatureFlagsAllActivityRetrieveParams,
     options?: RequestInit
 ): Promise<ActivityLogPaginatedResponseApi> => {
-    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, params), {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

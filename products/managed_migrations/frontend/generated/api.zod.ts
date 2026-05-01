@@ -10,6 +10,19 @@
 import * as zod from 'zod'
 
 /**
+ * Create a new managed migration/batch import.
+ */
+export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['completed', 'failed', 'paused', 'running'])
+            .optional()
+            .describe('* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running'),
+        import_config: zod.unknown(),
+    })
+    .describe('Serializer for BatchImport model')
+
+/**
  * Viewset for BatchImport model
  */
 export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod

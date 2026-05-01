@@ -22,8 +22,8 @@ class SavedHeatmap(UUIDTModel):
     data_url = models.URLField(max_length=2000, null=True, blank=True, help_text="URL for fetching heatmap data")
     # Planned widths to generate for screenshot-type heatmaps
     target_widths = models.JSONField(default=list)
-    type = models.CharField(max_length=20, choices=Type.choices, default=Type.SCREENSHOT)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PROCESSING)
+    type = models.CharField(max_length=20, choices=Type, default=Type.SCREENSHOT)
+    status = models.CharField(max_length=20, choices=Status, default=Status.PROCESSING)
 
     # Content moved to HeatmapSnapshot per width
 

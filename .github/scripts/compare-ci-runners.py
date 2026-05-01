@@ -4,6 +4,7 @@
 #
 # Usage:
 #   python3 .github/scripts/compare-ci-runners.py --days 7 > report.md
+#   python3 .github/scripts/compare-ci-runners.py --since 2026-04-20T18:00:00Z --until 2026-04-21T10:30:00Z > report.md
 #   python3 .github/scripts/compare-ci-runners.py --days 7 --format csv > pairs.csv
 #
 # Requires: `gh` CLI authenticated, `jq` not required (we parse JSON in Python).
@@ -25,11 +26,14 @@
 import re
 import sys
 import json
+import time
 import argparse
 import statistics
 import subprocess
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 WORKFLOWS = [
     "ci-backend.yml",
@@ -54,19 +58,83 @@ RUNNER_LABEL_RE = re.compile(
 )
 
 
-def run_gh(args: list[str]) -> str:
-    r = subprocess.run(["gh", *args], capture_output=True, text=True, check=True)
-    return r.stdout
+DEFAULT_CACHE_DIR = Path(".cache/compare-ci-runners")
+SKIPPED_RUN_CONCLUSIONS = {"skipped", "cancelled", "action_required"}
 
 
-def list_recent_runs(workflow: str, since: datetime) -> list[dict]:
-    # gh run list --workflow <w> -L 1000 --json databaseId,headSha,createdAt,conclusion,event
+def is_retryable_gh_error(stderr: str) -> bool:
+    return "HTTP 5" in stderr or "Server Error" in stderr or "connection reset" in stderr
+
+
+def run_gh(args: list[str], attempts: int = 3) -> str:
+    for attempt in range(1, attempts + 1):
+        try:
+            r = subprocess.run(["gh", *args], capture_output=True, text=True, check=True)
+            return r.stdout
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr or ""
+            if attempt < attempts and is_retryable_gh_error(stderr):
+                time.sleep(2 * attempt)
+                continue
+            if stderr:
+                print(stderr.strip(), file=sys.stderr)
+            raise
+    raise RuntimeError("unreachable")
+
+
+def parse_utc_datetime(value: str) -> datetime:
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(f"invalid datetime: {value}") from e
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def created_dates(since: datetime, until: datetime) -> list[str]:
+    day = since.date()
+    last_day = until.date()
+    dates = []
+    while day <= last_day:
+        dates.append(day.isoformat())
+        day += timedelta(days=1)
+    return dates
+
+
+def safe_cache_key(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
+
+
+def load_cached_run_list(cache_dir: Path, workflow: str, created: str) -> list[dict] | None:
+    cache_path = cache_dir / "runs" / f"{safe_cache_key(workflow)}-{created}.json"
+    try:
+        return json.loads(cache_path.read_text())
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
+
+
+def save_cached_run_list(cache_dir: Path, workflow: str, created: str, runs: list[dict]) -> None:
+    cache_path = cache_dir / "runs" / f"{safe_cache_key(workflow)}-{created}.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(runs, sort_keys=True))
+
+
+def list_runs_for_date(workflow: str, created: str, cache_dir: Path, use_cache: bool) -> tuple[list[dict], bool]:
+    if use_cache:
+        cached_runs = load_cached_run_list(cache_dir, workflow, created)
+        if cached_runs is not None:
+            return cached_runs, True
     out = run_gh(
         [
             "run",
             "list",
             "--workflow",
             workflow,
+            "--created",
+            created,
             "-L",
             "1000",
             "--json",
@@ -74,19 +142,67 @@ def list_recent_runs(workflow: str, since: datetime) -> list[dict]:
         ]
     )
     runs = json.loads(out)
-    filtered = []
-    for r in runs:
-        try:
-            ts = datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
-        except Exception:
-            continue
-        if ts < since:
-            continue
-        filtered.append(r)
-    return filtered
+    if use_cache:
+        save_cached_run_list(cache_dir, workflow, created, runs)
+    return runs, False
 
 
-def get_jobs(run_id: int, repo: str) -> list[dict]:
+def list_recent_runs(
+    workflow: str,
+    since: datetime,
+    until: datetime,
+    include_cancelled: bool,
+    cache_dir: Path,
+    use_cache: bool,
+) -> tuple[list[dict], dict[str, int], dict[str, int]]:
+    # Use GitHub's created filter to avoid walking unrelated pages, then apply
+    # exact timestamp bounds locally because --created is day-granular here.
+    runs_by_id: dict[int, dict] = {}
+    skipped_by_conclusion: dict[str, int] = defaultdict(int)
+    cache_stats = {"run_list_cache_hits": 0, "run_list_api_fetches": 0}
+    allowed_skipped_conclusions = SKIPPED_RUN_CONCLUSIONS - ({"cancelled"} if include_cancelled else set())
+    for created in created_dates(since, until):
+        runs, from_cache = list_runs_for_date(workflow, created, cache_dir, use_cache)
+        cache_stats["run_list_cache_hits" if from_cache else "run_list_api_fetches"] += 1
+        for r in runs:
+            run_id = r.get("databaseId")
+            if not run_id or run_id in runs_by_id:
+                continue
+            try:
+                ts = datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if ts < since or ts > until:
+                continue
+            conclusion = r.get("conclusion") or "unknown"
+            if conclusion in allowed_skipped_conclusions:
+                skipped_by_conclusion[conclusion] += 1
+                continue
+            runs_by_id[run_id] = r
+    return list(runs_by_id.values()), dict(skipped_by_conclusion), cache_stats
+
+
+def load_cached_jobs(cache_dir: Path, run_id: int) -> list[dict] | None:
+    cache_path = cache_dir / "jobs" / f"{run_id}.json"
+    try:
+        return json.loads(cache_path.read_text())
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
+
+
+def save_cached_jobs(cache_dir: Path, run_id: int, jobs: list[dict]) -> None:
+    cache_path = cache_dir / "jobs" / f"{run_id}.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(jobs, sort_keys=True))
+
+
+def get_jobs(run_id: int, repo: str, cache_dir: Path, use_cache: bool) -> tuple[list[dict], bool]:
+    if use_cache:
+        cached_jobs = load_cached_jobs(cache_dir, run_id)
+        if cached_jobs is not None:
+            return cached_jobs, True
     out = run_gh(
         [
             "api",
@@ -107,7 +223,9 @@ def get_jobs(run_id: int, repo: str) -> list[dict]:
                     "conclusion": j.get("conclusion"),
                 }
             )
-    return jobs
+    if use_cache:
+        save_cached_jobs(cache_dir, run_id, jobs)
+    return jobs, False
 
 
 def classify_runner(job_name: str) -> tuple[str, str]:
@@ -155,6 +273,29 @@ def get_repo() -> str:
     return out.strip()
 
 
+def collect_jobs_for_runs(
+    runs: list[dict], repo: str, cache_dir: Path, use_cache: bool, workers: int
+) -> tuple[list[tuple[dict, list[dict]]], dict[str, int]]:
+    stats = {"cache_hits": 0, "api_fetches": 0, "errors": 0}
+    if not runs:
+        return [], stats
+
+    results: list[tuple[dict, list[dict]]] = []
+    max_workers = max(1, workers)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(get_jobs, run["databaseId"], repo, cache_dir, use_cache): run for run in runs}
+        for future in as_completed(futures):
+            run = futures[future]
+            try:
+                jobs, from_cache = future.result()
+            except subprocess.CalledProcessError:
+                stats["errors"] += 1
+                continue
+            stats["cache_hits" if from_cache else "api_fetches"] += 1
+            results.append((run, jobs))
+    return results, stats
+
+
 def derive_stats(by_sha: dict[str, dict[str, dict]]) -> dict:
     """Reduce a (wf, base) sha→provider→{sec,conclusion} map into summary stats."""
     depot_total = depot_fail = 0
@@ -197,30 +338,70 @@ def derive_stats(by_sha: dict[str, dict[str, dict]]) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=7)
+    ap.add_argument("--since", type=parse_utc_datetime)
+    ap.add_argument("--until", type=parse_utc_datetime)
     ap.add_argument("--format", choices=["md", "csv"], default="md")
+    ap.add_argument("--repo", help="GitHub repo in OWNER/REPO form. Defaults to gh's current repo.")
+    ap.add_argument(
+        "--workflow",
+        action="append",
+        dest="workflows",
+        help="Workflow file to include. Can be passed multiple times. Defaults to all tracked workflows.",
+    )
+    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE_DIR)
+    ap.add_argument("--no-cache", action="store_true")
+    ap.add_argument(
+        "--include-cancelled",
+        action="store_true",
+        help="Fetch jobs for cancelled workflow runs. Useful for forensics, but noisy for runner comparison.",
+    )
     args = ap.parse_args()
+    if args.until and not args.since:
+        ap.error("--until requires --since")
 
-    repo = get_repo()
-    since = datetime.now(UTC) - timedelta(days=args.days)
-    print(f"# Collecting jobs from {repo} since {since.date()}", file=sys.stderr)
+    repo = args.repo or get_repo()
+    until = args.until or datetime.now(UTC)
+    since = args.since or (until - timedelta(days=args.days))
+    if since > until:
+        ap.error("--since must be before --until")
+    use_cache = not args.no_cache
+    print(f"# Collecting jobs from {repo} from {since.isoformat()} through {until.isoformat()}", file=sys.stderr)
 
     # observations[(workflow, base_name)][sha][provider] = {"sec": dur, "conclusion": conc}
     observations: dict[tuple[str, str], dict[str, dict[str, dict]]] = defaultdict(lambda: defaultdict(dict))
+    total_runs = total_cache_hits = total_api_fetches = total_errors = 0
+    total_run_list_cache_hits = total_run_list_api_fetches = 0
+    total_skipped_by_conclusion: dict[str, int] = defaultdict(int)
 
-    for wf in WORKFLOWS:
+    workflows = args.workflows or WORKFLOWS
+    for wf in workflows:
         print(f"# {wf}", file=sys.stderr)
         try:
-            runs = list_recent_runs(wf, since)
+            runs, skipped_by_conclusion, run_list_stats = list_recent_runs(
+                wf, since, until, args.include_cancelled, args.cache_dir, use_cache
+            )
         except subprocess.CalledProcessError as e:
             print(f"  SKIP ({e})", file=sys.stderr)
             continue
-        for run in runs:
-            rid = run["databaseId"]
+        total_run_list_cache_hits += run_list_stats["run_list_cache_hits"]
+        total_run_list_api_fetches += run_list_stats["run_list_api_fetches"]
+        for conclusion, count in skipped_by_conclusion.items():
+            total_skipped_by_conclusion[conclusion] += count
+        total_runs += len(runs)
+        run_jobs, fetch_stats = collect_jobs_for_runs(runs, repo, args.cache_dir, use_cache, args.workers)
+        total_cache_hits += fetch_stats["cache_hits"]
+        total_api_fetches += fetch_stats["api_fetches"]
+        total_errors += fetch_stats["errors"]
+        print(
+            f"  runs={len(runs)} run_list_cache_hits={run_list_stats['run_list_cache_hits']} "
+            f"run_list_api_fetches={run_list_stats['run_list_api_fetches']} "
+            f"job_cache_hits={fetch_stats['cache_hits']} job_api_fetches={fetch_stats['api_fetches']} "
+            f"errors={fetch_stats['errors']}",
+            file=sys.stderr,
+        )
+        for run, jobs in run_jobs:
             sha = run["headSha"]
-            try:
-                jobs = get_jobs(rid, repo)
-            except subprocess.CalledProcessError:
-                continue
             for j in jobs:
                 base, provider = classify_runner(j["name"])
                 dur = duration_seconds(j["started_at"], j["completed_at"])
@@ -232,6 +413,17 @@ def main() -> None:
                     "sec": dur,
                     "conclusion": j["conclusion"],
                 }
+    skipped_summary = ", ".join(
+        f"{conclusion}={count}" for conclusion, count in sorted(total_skipped_by_conclusion.items())
+    )
+    print(
+        "# Summary: "
+        f"runs_fetched={total_runs} run_list_cache_hits={total_run_list_cache_hits} "
+        f"run_list_api_fetches={total_run_list_api_fetches} job_cache_hits={total_cache_hits} "
+        f"job_api_fetches={total_api_fetches} "
+        f"errors={total_errors} skipped_before_jobs=({skipped_summary or 'none'})",
+        file=sys.stderr,
+    )
 
     if args.format == "csv":
         print("workflow,job,sha,depot_sec,blacksmith_sec,depot_conclusion,blacksmith_conclusion,delta_sec,speedup")
@@ -254,7 +446,7 @@ def main() -> None:
 
     # Markdown summary
     print("# Blacksmith vs Depot — paired CI job durations")
-    print(f"\nCollection window: last {args.days} days. Repo: `{repo}`.\n")
+    print(f"\nCollection window: `{since.isoformat()}` through `{until.isoformat()}`. Repo: `{repo}`.\n")
     print(
         "Each row is an `(workflow, job)` with at least one same-SHA success↔success pair. "
         "**Speedup uses success↔success pairs only** — mixed-conclusion pairs are counted in `Mixed` but excluded from the ratio. "

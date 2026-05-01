@@ -568,6 +568,9 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         if inputs.recipient_results is not None:
             delivery.recipient_results = inputs.recipient_results
             update_fields.append("recipient_results")
+        if inputs.change_summary is not None:
+            delivery.change_summary = inputs.change_summary
+            update_fields.append("change_summary")
         delivery.error = inputs.error
         update_fields.append("error")
         if inputs.finished:

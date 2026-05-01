@@ -43,7 +43,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         metric = ExperimentMeanMetric(
             source=ExperimentDataWarehouseNode(
                 table_name=table_name,
-                events_join_key="properties.$user_id",
+                events_join_key="distinct_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
                 math=ExperimentMetricMathType.TOTAL,
@@ -94,12 +94,11 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
-                    distinct_id=f"distinct_{variant}_{i}",
+                    distinct_id=f"user_{variant}_{i}",
                     properties={
                         "$feature_flag_response": variant,
                         feature_flag_property: variant,
                         "$feature_flag": feature_flag.key,
-                        "$user_id": f"user_{variant}_{i}",
                         "$group_0": group_key,
                         "$groups": {
                             "organization": group_key,
@@ -124,8 +123,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(control_result.number_of_samples, 1)
         self.assertEqual(test_result.number_of_samples, 2)
-        self.assertEqual(control_result.sum, 6)
-        self.assertEqual(test_result.sum, 7)
+        self.assertEqual(control_result.sum, 1)
+        self.assertEqual(test_result.sum, 2)
 
     @snapshot_clickhouse_queries
     def test_query_runner_data_warehouse_count_metric(self):

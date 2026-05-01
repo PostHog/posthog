@@ -98,6 +98,11 @@
             "minLength": 1,
             "type": "string"
         },
+        "search_values": {
+            "default": false,
+            "description": "When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.",
+            "type": "boolean"
+        },
         "serviceNames": {
             "default": [],
             "description": "Filter attributes to those appearing in logs from these services.",

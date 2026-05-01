@@ -18,11 +18,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestAccountRequests(StripeProvisioningTestBase):
+class TestAccountRequests(ProvisioningTestBase):
     def _account_request_payload(self, **overrides):
         payload = {
             "id": "acctreq_test123",
@@ -177,7 +177,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
             "/api/agentic/provisioning/account_requests",
             data=payload,
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -197,7 +197,9 @@ class TestAccountRequests(StripeProvisioningTestBase):
         payload = self._account_request_payload(email="orgname@example.com", configuration=config)
         self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         user = User.objects.get(email="orgname@example.com")
-        assert user.organization.name == expected_org_name
+        org = user.organization
+        assert org is not None
+        assert org.name == expected_org_name
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
@@ -262,7 +264,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
+class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         self.pkce_partner = OAuthApplication.objects.create(
@@ -340,6 +342,21 @@ class TestPKCEPartnerExistingUserConsent(StripeProvisioningTestBase):
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
+
+    def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
+        self.pkce_partner.provisioning_skip_existing_user_consent = True
+        self.pkce_partner.save()
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload()
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+        # Consent path would return a requires_auth payload with redirect URL; absence proves consent was skipped.
+        assert "requires_auth" not in data
 
     def test_pkce_partner_missing_code_challenge_returns_400(self):
         User.objects.create_and_join(

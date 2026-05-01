@@ -2,9 +2,10 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
-from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
+from django.contrib.admin.exceptions import NotRegistered
 from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import RedirectView
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -111,6 +112,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.backfill_precalculated_events_admin import backfill_precalculated_events_view
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
@@ -127,6 +129,8 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view
 
     admin_urlpatterns = [
+        # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
+        path("admin", RedirectView.as_view(url="/admin/", permanent=False, query_string=True)),
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
@@ -172,6 +176,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
+        ),
+        path(
+            "admin/backfill-precalculated-events/",
+            admin.site.admin_view(backfill_precalculated_events_view),
+            name="backfill-precalculated-events",
         ),
         path(
             "admin/backfill-precalculated-person-properties/",
@@ -259,7 +268,7 @@ urlpatterns: list[Any] = [
         name="scim_resource_types",
     ),
     path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
-    # Stripe Agentic Provisioning Protocol (APP 0.1d)
+    # Agentic Provisioning Protocol (APP 0.1d)
     path(
         "api/agentic/provisioning/health",
         csrf_exempt(agentic_provisioning_views.provisioning_health),
@@ -329,6 +338,57 @@ urlpatterns: list[Any] = [
         "agentic/login",
         agentic_provisioning_views.agentic_login,
         name="agentic_login",
+    ),
+    # Generic provisioning URL aliases (keep /api/agentic/... for backward compat)
+    path(
+        "api/provisioning/health",
+        csrf_exempt(agentic_provisioning_views.provisioning_health),
+        name="provisioning_health",
+    ),
+    path(
+        "api/provisioning/services",
+        csrf_exempt(agentic_provisioning_views.provisioning_services),
+        name="provisioning_services",
+    ),
+    path(
+        "api/provisioning/account_requests",
+        csrf_exempt(agentic_provisioning_views.account_requests),
+        name="provisioning_account_requests",
+    ),
+    path(
+        "api/provisioning/oauth/token",
+        csrf_exempt(agentic_provisioning_views.oauth_token),
+        name="provisioning_oauth_token",
+    ),
+    path(
+        "api/provisioning/resources",
+        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
+        name="provisioning_resources_create",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/rotate_credentials",
+        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
+        name="provisioning_rotate_credentials",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/update_service",
+        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
+        name="provisioning_update_service",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>/remove",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
+        name="provisioning_resource_remove",
+    ),
+    path(
+        "api/provisioning/resources/<str:resource_id>",
+        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
+        name="provisioning_resource_detail",
+    ),
+    path(
+        "api/provisioning/deep_links",
+        csrf_exempt(agentic_provisioning_views.deep_links),
+        name="provisioning_deep_links",
     ),
     *admin_urlpatterns,
 ]

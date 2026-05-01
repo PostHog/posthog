@@ -12,6 +12,14 @@ export interface ServiceRow {
     log_count: number
     error_count: number
     error_rate: number
+    volume_share_pct?: number
+    severity_breakdown?: {
+        debug: number
+        info: number
+        warn: number
+        error: number
+    }
+    active_rules?: { rule_id: string; rule_name: string; summary_string: string }[]
 }
 
 export interface ServiceSparklinePoint {
@@ -23,6 +31,10 @@ export interface ServiceSparklinePoint {
 export interface ServicesResponse {
     services: ServiceRow[]
     sparkline: ServiceSparklinePoint[]
+    summary?: {
+        top_services_count: number
+        top_services_volume_share_pct: number
+    }
 }
 
 export const logsServicesLogic = kea<logsServicesLogicType>([
@@ -43,7 +55,7 @@ export const logsServicesLogic = kea<logsServicesLogicType>([
 
     loaders(({ values }) => ({
         servicesData: [
-            { services: [], sparkline: [] } as ServicesResponse,
+            { services: [], sparkline: [], summary: undefined } as ServicesResponse,
             {
                 loadServicesData: async () => {
                     const response = await api.logs.services({
@@ -62,6 +74,8 @@ export const logsServicesLogic = kea<logsServicesLogicType>([
 
     selectors({
         services: [(s) => [s.servicesData], (data: ServicesResponse): ServiceRow[] => data.services],
+
+        servicesSummary: [(s) => [s.servicesData], (data: ServicesResponse) => data.summary],
 
         sparklineByService: [
             (s) => [s.servicesData],

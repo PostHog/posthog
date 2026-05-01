@@ -55,7 +55,12 @@ from products.conversations.backend.support_teams import (
     invalidate_bot_framework_token,
     is_trusted_teams_service_url,
 )
-from products.conversations.backend.teams import _is_bot_mention, handle_teams_mention, handle_teams_message
+from products.conversations.backend.teams import (
+    _is_bot_mention,
+    handle_teams_mention,
+    handle_teams_message,
+    post_help_card,
+)
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
@@ -71,7 +76,14 @@ def _is_duplicate_supporthog_event(event_id: str) -> bool:
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
 
 
-def _is_duplicate_teams_event(activity_id: str) -> bool:
+def is_duplicate_teams_event(activity_id: str) -> bool:
+    """Atomic Redis-backed dedup keyed on Bot Framework ``activity.id``.
+
+    Used both by ``process_teams_event`` (after dispatch) and by the webhook
+    handler (before dispatch, for the welcome and help-reply paths). Bot
+    Framework retries with the same ``activity.id`` for up to ~10 mins on
+    5xx/timeouts, so any handler that produces side effects must guard.
+    """
     key = f"{SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX}{activity_id}"
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
 
@@ -529,11 +541,31 @@ def send_email_reply(
     )
 
 
+@shared_task(bind=True, ignore_result=True, max_retries=2, default_retry_delay=5)
+def send_teams_help(self, activity: dict[str, Any], reply: bool = False) -> None:
+    """Post the help/welcome adaptive card (Teams Store cert 11.4.4.3).
+
+    ``reply=True`` lands the card as a thread reply (response to a "Hi"/"Help"
+    command); ``reply=False`` is the proactive welcome on install.
+    """
+    try:
+        ok = post_help_card(
+            activity,
+            log_prefix="teams_help_reply" if reply else "teams_welcome",
+            reply=reply,
+        )
+    except Exception as exc:
+        logger.exception("supporthog_teams_help_failed", error=str(exc), reply=reply)
+        raise cast(Any, self).retry(exc=exc)
+    if not ok:
+        raise cast(Any, self).retry(exc=Exception("teams_help_card_post_failed"))
+
+
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: str = "") -> None:
     """Process an inbound Teams Bot Framework activity."""
 
-    if activity_id and _is_duplicate_teams_event(activity_id):
+    if activity_id and is_duplicate_teams_event(activity_id):
         logger.info("supporthog_teams_event_duplicate_skipped", activity_id=activity_id)
         return
 

@@ -76,6 +76,7 @@ MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
+        # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
         fields = ["id", "organization_id", "name", "product_description", "created_at"]
         read_only_fields = ["id", "organization_id", "created_at"]
 
@@ -87,6 +88,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
+    default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
+    person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:

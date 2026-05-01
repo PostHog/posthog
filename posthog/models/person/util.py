@@ -36,6 +36,7 @@ from posthog.personhog_client.metrics import (
     get_client_name,
 )
 from posthog.personhog_client.proto import (
+    CheckCohortMembershipRequest,
     DeletePersonsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
@@ -44,6 +45,7 @@ from posthog.personhog_client.proto import (
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
+    ListCohortMemberIdsRequest,
 )
 from posthog.settings import TEST
 
@@ -554,6 +556,120 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
         lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS)
         .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
         .first(),
+        team_id=team_id,
+    )
+
+
+def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.check_cohort_membership(CheckCohortMembershipRequest(person_id=person_id, cohort_ids=cohort_ids))
+    membership_by_cohort: dict[int, bool] = {m.cohort_id: m.is_member for m in resp.memberships}
+    return {cohort_id: membership_by_cohort.get(cohort_id, False) for cohort_id in cohort_ids}
+
+
+def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    """Return ``{cohort_id: is_member}`` for the given person.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    Membership for cohorts the person is not in is returned as ``False`` rather
+    than being omitted, so callers can index directly by cohort_id.
+    """
+    if not cohort_ids:
+        return {}
+
+    # Local import to avoid circulars (cohort → person via CohortPeople FK).
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+
+    # Scope cohort_ids to the team via Cohort on the default DB before querying
+    # either the personhog RPC or the persons-DB CohortPeople table. Neither
+    # downstream path enforces team ownership (posthog_cohortpeople has no
+    # team_id column; the RPC just filters by person_id + cohort_id), so the
+    # tenant boundary has to be applied here. Cohorts belonging to a different
+    # team are reported as ``False`` rather than looked up. Same pattern as
+    # `posthog.models.team.util.delete_bulky_postgres_data`.
+    scoped_cohort_ids = list(Cohort.objects.filter(id__in=cohort_ids, team_id=team_id).values_list("id", flat=True))
+    if not scoped_cohort_ids:
+        return dict.fromkeys(cohort_ids, False)
+
+    def orm_fn() -> dict[int, bool]:
+        member_ids = set(
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(person_id=person_id, cohort_id__in=scoped_cohort_ids)
+            .values_list("cohort_id", flat=True)
+        )
+        return {cohort_id: cohort_id in member_ids for cohort_id in scoped_cohort_ids}
+
+    scoped_result = _personhog_routed(
+        "check_cohort_membership",
+        lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
+        orm_fn,
+        team_id=team_id,
+    )
+    # Expand back to the caller's original cohort_ids; cohorts that were scoped
+    # out (not owned by this team) register as non-member.
+    return {cohort_id: scoped_result.get(cohort_id, False) for cohort_id in cohort_ids}
+
+
+def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
+    """Convenience single-cohort variant of ``check_cohort_membership``."""
+    return check_cohort_membership(team_id, person_id, [cohort_id]).get(cohort_id, False)
+
+
+_LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
+
+
+def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    all_ids: list[int] = []
+    cursor = 0
+    while True:
+        resp = client.list_cohort_member_ids(
+            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
+        )
+        all_ids.extend(resp.person_ids)
+        if resp.next_cursor == 0:
+            break
+        cursor = resp.next_cursor
+    return all_ids
+
+
+def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
+    """Return all person IDs belonging to a static cohort.
+
+    Routes through personhog when the gate is enabled, falling back to a Django
+    ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
+    """
+    from posthog.models.cohort.cohort import Cohort, CohortPeople
+
+    # Validate cohort ownership on the default DB before querying the persons DB
+    # or the personhog RPC — neither downstream path enforces team isolation
+    # (posthog_cohortpeople has no team_id column; the proto has no team_id field).
+    # Same pattern as check_cohort_membership / delete_bulky_postgres_data.
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return []
+
+    def orm_fn() -> list[int]:
+        return list(
+            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(cohort_id=cohort_id)
+            .values_list("person_id", flat=True)
+        )
+
+    return _personhog_routed(
+        "list_cohort_member_ids",
+        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
+        orm_fn,
         team_id=team_id,
     )
 

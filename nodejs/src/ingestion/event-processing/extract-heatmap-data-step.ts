@@ -1,6 +1,6 @@
 import { URL } from 'url'
 
-import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
+import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../types'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
@@ -12,6 +12,7 @@ import { ProcessingStep } from '../pipelines/steps'
 
 export interface ExtractHeatmapDataStepInput {
     preparedEvent: PreIngestionEvent
+    headers?: EventHeaders
 }
 
 export type ExtractHeatmapDataStepResult<TInput> = TInput & {
@@ -24,8 +25,15 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
     return async function extractHeatmapDataStep(
         input: TInput
     ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
-        const { preparedEvent } = input
+        const { preparedEvent, headers } = input
         const { eventUuid } = preparedEvent
+
+        // When capture has already redirected heatmap data to the heatmaps topic,
+        // skip extraction here — capture strips $heatmap_data before publishing.
+        if (headers?.skip_heatmap_processing) {
+            return Promise.resolve(ok(input))
+        }
+
         const acks: Promise<void>[] = []
         const warnings: PipelineWarning[] = []
 

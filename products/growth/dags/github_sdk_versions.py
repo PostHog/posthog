@@ -1,7 +1,7 @@
 import re
 import json
 from collections.abc import Callable
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 
 from django.conf import settings
 
@@ -13,43 +13,16 @@ from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import redis
 from posthog.exceptions_capture import capture_exception
 
-from products.growth.backend.constants import SDK_CACHE_EXPIRY, github_sdk_versions_key
+from products.growth.backend.constants import SDK_CACHE_EXPIRY, SDK_TYPES, SdkTypes, github_sdk_versions_key
+
+# Re-exported for backward compatibility with callers that still import from here.
+__all__ = ["SDK_CACHE_EXPIRY", "SDK_TYPES", "SdkTypes", "github_sdk_versions_key"]
 
 logger = structlog.get_logger(__name__)
 
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
 UNPREFIXED_SEMVER_TAG = re.compile(r"\d+\.\d+(?:\.\d+)*$")
-
-
-SdkTypes = Literal[
-    "web",
-    "posthog-ios",
-    "posthog-android",
-    "posthog-node",
-    "posthog-python",
-    "posthog-php",
-    "posthog-ruby",
-    "posthog-go",
-    "posthog-flutter",
-    "posthog-react-native",
-    "posthog-dotnet",
-    "posthog-elixir",
-]
-SDK_TYPES: list[SdkTypes] = [
-    "web",
-    "posthog-ios",
-    "posthog-android",
-    "posthog-node",
-    "posthog-python",
-    "posthog-php",
-    "posthog-ruby",
-    "posthog-go",
-    "posthog-flutter",
-    "posthog-react-native",
-    "posthog-dotnet",
-    "posthog-elixir",
-]
 
 
 # Using lambda here to be able to define this before defining the functions

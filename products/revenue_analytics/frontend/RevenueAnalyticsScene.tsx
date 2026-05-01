@@ -67,7 +67,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
                         <Link to={urls.customerAnalytics()}>Customer analytics</Link>
                     ) : (
-                        <Link to={urls.earlyAccessFeatures()}>Customer analytics (early access)</Link>
+                        <Link to={urls.settings('user-feature-previews')}>Customer analytics (early access)</Link>
                     )}
                     .
                 </LemonBanner>

@@ -1,141 +1,70 @@
 #!/usr/bin/env bash
 #
-# Warm the feature flags HyperCache using the Rust CLI.
+# Run the warm-flags-cache Rust CLI against the local dev environment.
 #
-# Runs as a one-off pod in the current kubectl context, using the same
-# environment variables as the feature-flags service (database, Redis, S3).
-# Environment variables backed by Kubernetes secrets or configmaps are
-# resolved at pod startup, so credentials never leave the cluster.
+# Targets the dockerized services started by ./bin/start:
+#   - Postgres on localhost:5432 (posthog/posthog)
+#   - Redis on localhost:6379 (db 1 for flags, matching feature-flags service)
+#   - MinIO on localhost:19000 (bucket "posthog")
 #
 # Prerequisites:
-#   - kubectl configured for the target cluster (use kubectx to switch)
-#   - AWS SSO login completed
-#   - jq installed
+#   - ./bin/start running (or at least db, redis7, objectstorage containers up)
 #
 # Usage:
-#   bin/warm-flags-cache --team-ids 12345 67890
-#   bin/warm-flags-cache                          # warm all teams
-#   bin/warm-flags-cache --help                   # show all options
+#   bin/warm-flags-cache --team-ids 1 --no-stagger
+#   bin/warm-flags-cache                           # warm all teams with flags
+#   bin/warm-flags-cache --help
 #
-# Environment overrides:
-#   WARM_FLAGS_CACHE_IMAGE   Docker image (default: auto-detected from deployment)
-#   KUBE_NAMESPACE           Kubernetes namespace (default: posthog)
+# Pass --release to build in release mode (first run is slow, subsequent fast).
+# Everything else is forwarded to the binary.
 
 set -euo pipefail
 
-NAMESPACE="${KUBE_NAMESPACE:-posthog}"
-DEPLOYMENT="posthog-feature-flags"
-CONTAINER_NAME="warm-flags-cache"
-POD_NAME="${CONTAINER_NAME}-$(whoami | tr '.' '-')-$(date +%s)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Show what we're about to target — kubectl uses the current context silently,
-# so surface it here to avoid running against the wrong cluster.
-CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "<none>")
-echo "============================================"
-echo "  kubectl context: ${CURRENT_CONTEXT}"
-echo "  namespace:       ${NAMESPACE}"
-echo "============================================"
-
-# Auto-detect image from the running feature-flags deployment if not overridden
-if [ -z "${WARM_FLAGS_CACHE_IMAGE:-}" ]; then
-    echo "Detecting image from deployment ${DEPLOYMENT}..."
-    FF_IMAGE=$(kubectl get deployment "$DEPLOYMENT" -n "$NAMESPACE" \
-        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
-    if [ -z "$FF_IMAGE" ]; then
-        echo "Error: Could not detect image from deployment ${DEPLOYMENT}."
-        echo "Set WARM_FLAGS_CACHE_IMAGE manually or check your kubectl context."
-        exit 1
+CARGO_PROFILE=()
+BIN_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--release" ]; then
+        CARGO_PROFILE=(--release)
+    else
+        BIN_ARGS+=("$arg")
     fi
-    # The ECR image tag contains the service name — swap it for our binary.
-    # If the image doesn't contain "feature-flags", fall back to the original
-    # (operator can always override via WARM_FLAGS_CACHE_IMAGE).
-    WARM_FLAGS_CACHE_IMAGE="${FF_IMAGE/feature-flags/warm-flags-cache}"
-    if [ "$WARM_FLAGS_CACHE_IMAGE" = "$FF_IMAGE" ]; then
-        echo "Warning: image '${FF_IMAGE}' does not contain 'feature-flags' — using as-is"
-    fi
-    echo "Using image: ${WARM_FLAGS_CACHE_IMAGE}"
+done
+
+# Local dev defaults — mirror bin/start-rust-service feature-flags, plus the
+# MinIO endpoint/creds that the object storage client needs.
+export READ_DATABASE_URL="${READ_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/posthog}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379/}"
+export FLAGS_REDIS_URL="${FLAGS_REDIS_URL:-redis://localhost:6379/1}"
+export OBJECT_STORAGE_BUCKET="${OBJECT_STORAGE_BUCKET:-posthog}"
+export OBJECT_STORAGE_REGION="${OBJECT_STORAGE_REGION:-us-east-1}"
+export OBJECT_STORAGE_ENDPOINT="${OBJECT_STORAGE_ENDPOINT:-http://localhost:19000}"
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-object_storage_root_user}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-object_storage_root_password}"
+# .envrc sets RUST_LOG to suppress flox noise (e.g. "flox=error,..."). Once RUST_LOG
+# has any value, EnvFilter's default directive no longer applies — so the binary's
+# logs would be silenced. Append our directive so warm_flags_cache=info always
+# wins, while preserving any flox suppression the user wants.
+if [ -z "${RUST_LOG:-}" ]; then
+    export RUST_LOG="info"
+elif [[ "$RUST_LOG" != *"warm_flags_cache="* ]]; then
+    export RUST_LOG="${RUST_LOG},warm_flags_cache=info"
 fi
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 
-# Extract the full pod spec from the deployment, then narrow it to just the
-# fields we need on the one-off pod. Pod-level identity (serviceAccountName,
-# imagePullSecrets) carries over so IRSA-backed S3 access and private-registry
-# pulls work the same as the running deployment. Container env preserves
-# secretKeyRef/configMapKeyRef/fieldRef entries so Kubernetes still resolves
-# them at pod startup (credentials stay server-side).
-echo "Extracting pod + env config from deployment ${DEPLOYMENT}..."
+# Strip user:password@ from URLs before printing — the local defaults are safe
+# but operators sometimes override these with real DSNs, and terminal scrollback
+# / session recordings shouldn't capture credentials.
+redact_dsn() {
+    # scheme://user:pass@host… → scheme://***@host…
+    printf '%s\n' "$1" | sed -E 's#(://)[^@/]*@#\1***@#'
+}
 
-POD_SPEC_JSON=$(kubectl get deployment "$DEPLOYMENT" -n "$NAMESPACE" \
-    -o jsonpath='{.spec.template.spec}' 2>/dev/null || true)
+echo ">> READ_DATABASE_URL=$(redact_dsn "$READ_DATABASE_URL")"
+echo ">> FLAGS_REDIS_URL=$(redact_dsn "$FLAGS_REDIS_URL")"
+echo ">> OBJECT_STORAGE_ENDPOINT=$(redact_dsn "$OBJECT_STORAGE_ENDPOINT") (bucket=$OBJECT_STORAGE_BUCKET)"
 
-if [ -z "$POD_SPEC_JSON" ]; then
-    echo "Error: Could not extract pod spec from deployment ${DEPLOYMENT}."
-    exit 1
-fi
-
-CONTAINER_JSON=$(echo "$POD_SPEC_JSON" | jq '.containers[0]')
-
-if [ "$CONTAINER_JSON" = "null" ] || [ -z "$CONTAINER_JSON" ]; then
-    echo "Error: Could not extract container spec from deployment ${DEPLOYMENT}."
-    exit 1
-fi
-
-# Filter env to only the vars the binary needs, keeping valueFrom intact.
-NEEDED_VARS='["READ_DATABASE_URL","FLAGS_REDIS_URL","REDIS_URL","OBJECT_STORAGE_BUCKET","OBJECT_STORAGE_REGION","OBJECT_STORAGE_ENDPOINT","DATABASE_MAX_CONNECTIONS"]'
-
-ENV_FILTERED=$(echo "$CONTAINER_JSON" | jq --argjson needed "$NEEDED_VARS" \
-    '[.env // [] | .[] | select(.name as $n | $needed | index($n))]')
-
-ENVFROM=$(echo "$CONTAINER_JSON" | jq '.envFrom // []')
-
-# Surface the inherited identity so the operator can sanity-check it before
-# the pod runs.
-SERVICE_ACCOUNT=$(echo "$POD_SPEC_JSON" | jq -r '.serviceAccountName // ""')
-if [ -n "$SERVICE_ACCOUNT" ]; then
-    echo "Inheriting serviceAccountName: ${SERVICE_ACCOUNT}"
-fi
-
-# Build args array from remaining script arguments so they land inside the
-# overrides JSON. kubectl run's default --override-type is "merge" (RFC 7396
-# JSON merge patch), which replaces arrays whole — so the override container
-# must carry image/command/args itself, not rely on --image/--command flags.
-ARGS_JSON=$(jq -n -c '$ARGS.positional' --args -- "$@")
-
-OVERRIDES=$(echo "$POD_SPEC_JSON" | jq \
-    --arg name "$POD_NAME" \
-    --arg image "$WARM_FLAGS_CACHE_IMAGE" \
-    --arg binary "/usr/local/bin/${CONTAINER_NAME}" \
-    --argjson args "$ARGS_JSON" \
-    --argjson env "$ENV_FILTERED" \
-    --argjson envFrom "$ENVFROM" \
-    '{
-        spec: (
-            ({} +
-                (if .serviceAccountName then {serviceAccountName: .serviceAccountName} else {} end) +
-                (if .serviceAccount then {serviceAccount: .serviceAccount} else {} end) +
-                (if .imagePullSecrets then {imagePullSecrets: .imagePullSecrets} else {} end) +
-                (if .nodeSelector then {nodeSelector: .nodeSelector} else {} end) +
-                (if .tolerations then {tolerations: .tolerations} else {} end) +
-                (if .affinity then {affinity: .affinity} else {} end) +
-                (if .securityContext then {securityContext: .securityContext} else {} end)
-            )
-            + {containers: [{
-                name: $name,
-                image: $image,
-                command: [$binary],
-                args: $args,
-                env: $env,
-                envFrom: $envFrom,
-                stdin: true,
-                stdinOnce: true,
-                tty: true
-            }]}
-        )
-    }')
-
-echo "Starting ${CONTAINER_NAME} pod: ${POD_NAME}"
-kubectl run "$POD_NAME" \
-    --rm -it \
-    --restart=Never \
-    --image="$WARM_FLAGS_CACHE_IMAGE" \
-    --overrides="$OVERRIDES" \
-    -n "$NAMESPACE"
+cd "$REPO_ROOT/rust"
+exec cargo run "${CARGO_PROFILE[@]}" -p feature-flags --features warm-flags-cache --bin warm-flags-cache -- "${BIN_ARGS[@]}"

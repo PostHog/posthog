@@ -38,6 +38,13 @@ export const ToolConfigSchema = z
         system_prompt_hint: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
+        /**
+         * Body key/value pairs hardcoded by the generated handler. The values are always sent and
+         * always win over anything the caller supplied (the assignments are emitted after the
+         * dynamic body builder). Use to attribute a tool's requests — e.g. forcing
+         * `created_via: 'mcp'` so agents can't claim another origin.
+         */
+        inject_body: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
         param_overrides: z
             .record(
                 z.string(),
@@ -192,6 +199,8 @@ const DetailUiAppSchema = z
         data_type: z.string().optional(),
         /** React component name that renders the detail view. Default: PascalCase(key) + "View". */
         view_component: z.string().optional(),
+        /** Prop name to bind the host's `openLink(url)` callback to. Omit if the view has no inline external links. */
+        link_prop: z.string().optional(),
     })
     .strict()
 
@@ -262,6 +271,7 @@ export interface ResolvedDetailUiApp {
     component_import: string
     data_type: string
     view_component: string
+    link_prop?: string
 }
 
 /** List config with all fields resolved (after convention defaults are applied). */

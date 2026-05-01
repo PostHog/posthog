@@ -644,6 +644,26 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
 
 ---
 
+## Analytics Events
+
+All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-signal events carry `source_product`, `source_type`, `source_id` — pivot on `source_id` to trace one signal.
+
+**Lifecycle (in order):**
+
+- `signal_data_source_entered` / `signal_data_source_summarized` / `signal_data_source_filtered` — data-source pipeline only (`pipeline.py`)
+- `signal_emission_started` — `emit_signal()` past validation
+- `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
+- `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
+- `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
+- `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
+- `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
+
+**Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
+
+Telemetry is best-effort; failures are logged, not raised.
+
+---
+
 ## LLM Integration
 
 Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-4-5`).

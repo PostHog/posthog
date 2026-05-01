@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
-import { EventHeaders, Person } from '~/types'
+import { Person } from '~/types'
 
 import { BLOAT_PROPERTIES } from '../event-processing/strip-bloat-properties'
 import { PipelineResultType, isOkResult } from '../pipelines/results'
@@ -12,12 +13,6 @@ describe('createErrorTrackingPrepareEventStep', () => {
     let step: ReturnType<typeof createErrorTrackingPrepareEventStep>
 
     const team = createTestTeam({ id: 123, project_id: 456 as any })
-
-    const createTestHeaders = (overrides: Partial<EventHeaders> = {}): EventHeaders => ({
-        force_disable_person_processing: false,
-        historical_migration: false,
-        ...overrides,
-    })
 
     const createTestPerson = (overrides: Partial<Person> = {}): Person => ({
         team_id: 123,
@@ -41,7 +36,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
         })
         const person = createTestPerson()
 
-        const result = await step({ event, team, person, headers: createTestHeaders() })
+        const result = await step({ event, team, person, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -61,7 +56,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
         const event = createTestPluginEvent({ event: '$exception' })
         const person = createTestPerson({ uuid: 'existing-person-uuid' })
 
-        const result = await step({ event, team, person, headers: createTestHeaders() })
+        const result = await step({ event, team, person, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -74,7 +69,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
     it('returns undefined person when person is null', async () => {
         const event = createTestPluginEvent({ event: '$exception' })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -86,11 +81,16 @@ describe('createErrorTrackingPrepareEventStep', () => {
         const event = createTestPluginEvent({ event: '$exception' })
 
         // With person
-        const resultWithPerson = await step({ event, team, person: createTestPerson(), headers: createTestHeaders() })
+        const resultWithPerson = await step({
+            event,
+            team,
+            person: createTestPerson(),
+            headers: createTestEventHeaders(),
+        })
         expect(isOkResult(resultWithPerson) && resultWithPerson.value.processPerson).toBe(true)
 
         // Without person
-        const resultWithoutPerson = await step({ event, team, person: null, headers: createTestHeaders() })
+        const resultWithoutPerson = await step({ event, team, person: null, headers: createTestEventHeaders() })
         expect(isOkResult(resultWithoutPerson) && resultWithoutPerson.value.processPerson).toBe(true)
     })
 
@@ -101,7 +101,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             event,
             team,
             person: null,
-            headers: createTestHeaders({ historical_migration: true }),
+            headers: createTestEventHeaders({ historical_migration: true }),
         })
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -113,7 +113,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
     it('defaults historical_migration to false when not in headers', async () => {
         const event = createTestPluginEvent({ event: '$exception' })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -129,7 +129,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             timestamp: '2024-01-20T12:00:00.000Z',
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -143,7 +143,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             properties: null as any,
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -158,7 +158,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
         })
         const anonymizedTeam = createTestTeam({ id: 123, project_id: 456 as any, anonymize_ips: true })
 
-        const result = await step({ event, team: anonymizedTeam, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team: anonymizedTeam, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -177,7 +177,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             },
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -193,7 +193,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             properties: { $ip: '1.2.3.4' },
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -215,7 +215,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             },
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -237,7 +237,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             },
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -259,7 +259,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             },
         })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
@@ -279,7 +279,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
             event,
             team,
             person: null,
-            headers: createTestHeaders(),
+            headers: createTestEventHeaders(),
             message: { topic: 'test-topic', partition: 0 } as any,
             customField: 'should-be-preserved',
         }
@@ -301,7 +301,7 @@ describe('createErrorTrackingPrepareEventStep', () => {
     it('removes event from output but preserves team and adds preparedEvent', async () => {
         const event = createTestPluginEvent({ event: '$exception' })
 
-        const result = await step({ event, team, person: null, headers: createTestHeaders() })
+        const result = await step({ event, team, person: null, headers: createTestEventHeaders() })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {

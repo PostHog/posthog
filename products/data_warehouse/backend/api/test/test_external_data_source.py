@@ -61,11 +61,12 @@ from products.data_warehouse.backend.models.external_data_schema import sync_fre
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 
 
 class TestExternalDataSource(APIBaseTest):
-    def _create_external_data_source(self) -> ExternalDataSource:
+    def _create_external_data_source(self, created_via: str = ExternalDataSource.CreatedVia.WEB) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -73,6 +74,7 @@ class TestExternalDataSource(APIBaseTest):
             destination_id=str(uuid.uuid4()),
             source_type="Stripe",
             created_by=self.user,
+            created_via=created_via,
             prefix="test",
             job_inputs={
                 "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
@@ -93,6 +95,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -144,6 +147,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": False,
@@ -163,6 +167,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -174,6 +179,90 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+
+    @parameterized.expand(
+        [
+            (ExternalDataSource.CreatedVia.WEB,),
+            (ExternalDataSource.CreatedVia.API,),
+            (ExternalDataSource.CreatedVia.MCP,),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_persists_created_via(self, created_via, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": created_via,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == created_via
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_defaults_created_via_to_api_when_missing(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.created_via == ExternalDataSource.CreatedVia.API
+
+    def test_create_external_data_source_rejects_invalid_created_via(self):
+        # created_via choice validation happens before credentials, so no StripeSource mock is needed here.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "hacker",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.json()["attr"] == "created_via"
+        assert ExternalDataSource.objects.count() == 0
+
+    def test_patch_external_data_source_ignores_created_via(self):
+        source = self._create_external_data_source(created_via=ExternalDataSource.CreatedVia.WEB)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"created_via": "mcp"},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.created_via == ExternalDataSource.CreatedVia.WEB
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
@@ -260,6 +349,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -291,6 +381,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -323,6 +414,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -355,6 +447,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -392,6 +485,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -459,6 +553,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -520,6 +615,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
@@ -589,6 +685,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
                     "source_type": "BigQuery",
+                    "created_via": "web",
                     "payload": {
                         "schemas": [
                             {
@@ -627,6 +724,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "BigQuery",
+                "created_via": "web",
                 "payload": {
                     "dataset_id": "my_dataset",
                     "key_file": {
@@ -719,6 +817,58 @@ class TestExternalDataSource(APIBaseTest):
         # stripe_secret_key must still be in the DB
         source.refresh_from_db()
         assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
+
+    @patch(
+        "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_snowflake_keypair_private_key(self, _mock_validate):
+        """Regression: Snowflake's keypair auth uses `auth_type` (not `auth_method`).
+        After redaction, a PATCH that doesn't re-supply private_key must not wipe it.
+        """
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="snowflake-test",
+            job_inputs={
+                "account_id": "abc-123",
+                "database": "MY_DB",
+                "warehouse": "COMPUTE_WH",
+                "schema": "PUBLIC",
+                "auth_type": {
+                    "selection": "keypair",
+                    "user": "myuser",
+                    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----",
+                    "passphrase": "secret-passphrase",
+                },
+            },
+        )
+
+        # GET strips private_key and passphrase from auth_type
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        assert "private_key" not in get_data["job_inputs"]["auth_type"]
+        assert "passphrase" not in get_data["job_inputs"]["auth_type"]
+        assert get_data["job_inputs"]["auth_type"]["user"] == "myuser"
+
+        # PATCH with the redacted data (simulating a save without re-pasting credentials)
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+        assert patch_response.status_code == 200, patch_response.json()
+
+        # Sensitive fields nested in auth_type must still be in the DB
+        source.refresh_from_db()
+        assert source.job_inputs["auth_type"]["selection"] == "keypair"
+        assert source.job_inputs["auth_type"]["user"] == "myuser"
+        assert source.job_inputs["auth_type"]["private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+        assert source.job_inputs["auth_type"]["passphrase"] == "secret-passphrase"
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -855,6 +1005,7 @@ class TestExternalDataSource(APIBaseTest):
                 "id",
                 "created_at",
                 "created_by",
+                "created_via",
                 "status",
                 "source_type",
                 "latest_error",
@@ -895,6 +1046,65 @@ class TestExternalDataSource(APIBaseTest):
                 }
             ],
         )
+
+    @parameterized.expand(
+        [
+            (
+                "failed_disabled_schema_ignored",
+                ExternalDataSchema.Status.FAILED,
+                ExternalDataSchema.Status.COMPLETED,
+                ExternalDataSchema.Status.COMPLETED,
+            ),
+            (
+                "billing_limit_reached_disabled_schema_ignored",
+                ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+                ExternalDataSchema.Status.COMPLETED,
+                ExternalDataSchema.Status.COMPLETED,
+            ),
+            (
+                "billing_limit_too_low_disabled_schema_ignored",
+                ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+                ExternalDataSchema.Status.RUNNING,
+                ExternalDataSchema.Status.RUNNING,
+            ),
+            (
+                "failed_enabled_schema_still_propagates",
+                ExternalDataSchema.Status.COMPLETED,
+                ExternalDataSchema.Status.FAILED,
+                ExternalDataSchema.Status.FAILED,
+            ),
+        ]
+    )
+    def test_status_excludes_disabled_schemas_from_negative_statuses(
+        self,
+        _name: str,
+        disabled_schema_status: str,
+        enabled_schema_status: str,
+        expected_source_status: str,
+    ):
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(
+            name="DisabledWithError",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            table=None,
+            should_sync=False,
+            status=disabled_schema_status,
+            latest_error="boom",
+        )
+        ExternalDataSchema.objects.create(
+            name="EnabledHealthy",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            table=None,
+            should_sync=True,
+            status=enabled_schema_status,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == expected_source_status
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
@@ -1557,6 +1767,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
+                "created_via": "web",
                 "access_method": "direct",
                 "prefix": "Primary database",
                 "payload": {
@@ -1591,6 +1802,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
+                "created_via": "web",
                 "access_method": "direct",
                 "prefix": "   ",
                 "payload": {},
@@ -1639,6 +1851,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
+                "created_via": "web",
                 "access_method": "direct",
                 "prefix": "Read replica",
                 "payload": {
@@ -1691,6 +1904,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
+                "created_via": "web",
                 "access_method": "direct",
                 "prefix": "Primary database",
                 "payload": {
@@ -1773,6 +1987,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
+                "created_via": "web",
                 "access_method": "direct",
                 "prefix": "Primary database",
                 "payload": {
@@ -1876,6 +2091,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
+                "created_via": "web",
                 "payload": {
                     "host": "localhost",
                     "port": 5432,
@@ -1902,11 +2118,100 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table_to_cdc_publication.assert_called_once()
         assert mock_add_table_to_cdc_publication.call_args.args[1:] == ("test_pub", "analytics", "events")
 
+    @parameterized.expand(
+        [
+            # Frontend sends null when the user leaves the PK selector empty — backend falls
+            # back to the source-detected primary key so sync-time detection is not the only
+            # line of defense.
+            ("fallback_to_detected", None, ["id"], ["id"]),
+            # User explicitly overrides — caller value wins, detected is ignored.
+            ("explicit_wins_over_detected", ["custom_pk"], ["id"], ["custom_pk"]),
+            # Nothing detected and nothing provided — key omitted from sync_type_config
+            # entirely (preserves pre-existing behaviour for tables without a PK).
+            ("both_absent_omits_key", None, None, None),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_incremental_primary_key_fallback(
+        self,
+        _name: str,
+        payload_primary_keys: list[str] | None,
+        detected_primary_keys: list[str] | None,
+        expected_persisted: list[str] | None,
+        mock_get_source,
+    ):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=True,
+                supports_append=True,
+                columns=[("id", "integer", False), ("updated_at", "timestamp", False)],
+                foreign_keys=[],
+                incremental_fields=[
+                    {
+                        "label": "updated_at",
+                        "type": IncrementalFieldType.Timestamp,
+                        "field": "updated_at",
+                        "field_type": IncrementalFieldType.Timestamp,
+                        "nullable": False,
+                    }
+                ],
+                detected_primary_keys=detected_primary_keys,
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                            "primary_key_columns": payload_primary_keys,
+                        },
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        if expected_persisted is None:
+            assert "primary_key_columns" not in schema.sync_type_config
+        else:
+            assert schema.sync_type_config["primary_key_columns"] == expected_persisted
+
     def test_create_direct_non_postgres_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "access_method": "direct",
                 "prefix": "Read replica",
                 "payload": {},
@@ -1940,6 +2245,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
+                "created_via": "web",
                 "access_method": "warehouse",
                 "payload": {
                     "host": "db.example.com",
@@ -2230,12 +2536,22 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
+                    "label": None,
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,
                     "rows": None,
                     "incremental_fields": [
-                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                        {
+                            "label": "id",
+                            "type": "integer",
+                            "field": "id",
+                            "field_type": "integer",
+                            "nullable": True,
+                            # Index lookup raises against the mocked pg_connection (object())
+                            # and falls back to the no-warning default (is_indexed=True).
+                            "is_indexed": True,
+                        }
                     ],
                     "incremental_available": True,
                     "append_available": True,
@@ -2287,12 +2603,22 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json() == [
                 {
                     "table": "table_1",
+                    "label": None,
                     "should_sync": False,
                     "should_sync_default": True,
                     "description": None,
                     "rows": None,
                     "incremental_fields": [
-                        {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
+                        {
+                            "label": "id",
+                            "type": "integer",
+                            "field": "id",
+                            "field_type": "integer",
+                            "nullable": True,
+                            # Index lookup raises against the mocked pg_connection (object())
+                            # and falls back to the no-warning default (is_indexed=True).
+                            "is_indexed": True,
+                        }
                     ],
                     "incremental_available": True,
                     "append_available": True,
@@ -2360,6 +2686,7 @@ class TestExternalDataSource(APIBaseTest):
         create_url = f"/api/environments/{self.team.pk}/external_data_sources/"
         create_data = {
             "source_type": "Postgres",
+            "created_via": "web",
             "payload": {
                 "host": host,
                 "port": 5432,
@@ -2545,6 +2872,7 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Stripe",
+                "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "  sk_test_123   "},
                     "stripe_account_id": "  blah   ",
@@ -3568,6 +3896,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
                     "prefix": "",
+                    "created_via": "web",
                     "payload": {
                         "source_type": "Snowflake",
                         "account_id": "my_account_id",
@@ -3674,6 +4003,7 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/",
                 data={
                     "prefix": "",
+                    "created_via": "web",
                     "payload": {
                         "source_type": "BigQuery",
                         "key_file": {
@@ -3992,6 +4322,7 @@ class TestExternalDataSource(APIBaseTest):
                     f"/api/environments/{self.team.pk}/external_data_sources/",
                     data={
                         "source_type": "Stripe",
+                        "created_via": "web",
                         "prefix": prefix,
                         "payload": {
                             "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
@@ -4038,6 +4369,7 @@ class TestExternalDataSource(APIBaseTest):
                     f"/api/environments/{self.team.pk}/external_data_sources/",
                     data={
                         "source_type": "Stripe",
+                        "created_via": "web",
                         "prefix": prefix,
                         "payload": {
                             "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
@@ -4142,7 +4474,7 @@ class TestCreateWebhook(APIBaseTest):
             category=[],
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_success(self, mock_create_webhook, _mock_flag):
         mock_create_webhook.return_value = self._webhook_result()
@@ -4173,7 +4505,7 @@ class TestCreateWebhook(APIBaseTest):
 
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_create_webhook_no_job_inputs(self, _mock_flag):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -4192,7 +4524,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["message"] == "Source has no configuration"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_external_creation_fails(self, mock_create_webhook, _mock_flag):
         mock_create_webhook.return_value = self._webhook_result(success=False, error="Permission denied")
@@ -4214,7 +4546,7 @@ class TestCreateWebhook(APIBaseTest):
 
         assert HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_create_webhook_url_uses_cloud_deployment(self, mock_create_webhook, _mock_flag):
@@ -4230,7 +4562,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://webhooks.us.posthog.com")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT=None, SITE_URL="https://my.posthog.instance")
     def test_create_webhook_url_uses_site_url_for_self_hosted(self, mock_create_webhook, _mock_flag):
@@ -4246,7 +4578,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://my.posthog.instance")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook, _mock_flag):
         mock_create_webhook.return_value = self._webhook_result()
@@ -4283,7 +4615,7 @@ class TestCreateWebhook(APIBaseTest):
         assert charge_object_type in schema_mapping
         assert customer_object_type in schema_mapping
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_create_webhook_template_not_in_db(self, _mock_flag):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
@@ -4295,7 +4627,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "sync_hog_function_templates" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_saves_extra_inputs(self, mock_create_webhook, _mock_flag):
         from posthog.models.hog_functions.hog_function import HogFunction
@@ -4318,7 +4650,7 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs is not None
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_test123"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs(self, mock_create_webhook, _mock_flag):
         from posthog.models.hog_functions.hog_function import HogFunction
@@ -4346,7 +4678,7 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs is not None
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_manual123"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_rejects_invalid_keys(self, _mock_flag):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
@@ -4360,7 +4692,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid input keys" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_update_webhook_inputs_no_hog_function(self, _mock_flag):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
@@ -4374,7 +4706,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No webhook function found" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook, _mock_flag):
         """Regression: creating a source with multiple webhook tables then hitting the
@@ -4413,7 +4745,12 @@ class TestSensitiveFieldClassification(APIBaseTest):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
-                name="host", label="Host", placeholder="", required=True, type=SourceFieldInputConfigType.TEXT
+                name="host",
+                label="Host",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+                secret=False,
             ),
             SourceFieldInputConfig(
                 name="password",
@@ -4421,6 +4758,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 placeholder="",
                 required=True,
                 type=SourceFieldInputConfigType.PASSWORD,
+                secret=True,
             ),
         ]
         nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
@@ -4460,6 +4798,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                                 placeholder="",
                                 required=True,
                                 type=SourceFieldInputConfigType.TEXT,
+                                secret=False,
                             ),
                             SourceFieldInputConfig(
                                 name="password",
@@ -4467,6 +4806,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                                 placeholder="",
                                 required=True,
                                 type=SourceFieldInputConfigType.PASSWORD,
+                                secret=True,
                             ),
                         ],
                     ),
@@ -4490,6 +4830,31 @@ class TestSensitiveFieldClassification(APIBaseTest):
         assert "password" in sensitive
         assert "passphrase" in sensitive
         assert "private_key" in sensitive
+
+    def test_classifies_secret_flag_as_sensitive_regardless_of_type(self):
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="client_private_key",
+                label="Client private key",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXTAREA,
+                secret=True,
+            ),
+            SourceFieldInputConfig(
+                name="namespace",
+                label="Namespace",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+                secret=False,
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "client_private_key" in sensitive
+        assert "client_private_key" not in nonsensitive
+        assert "namespace" in nonsensitive
+        assert "namespace" not in sensitive
 
     def test_strip_sensitive_from_dict_basic(self):
         data = {"host": "localhost", "password": "secret", "unknown_key": "val"}
@@ -4539,6 +4904,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                             placeholder="",
                             required=True,
                             type=SourceFieldInputConfigType.TEXT,
+                            secret=False,
                         ),
                     ],
                 ),
@@ -4558,6 +4924,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 placeholder="",
                 required=True,
                 type=SourceFieldInputConfigType.TEXT,
+                secret=False,
             ),
             SourceFieldSwitchGroupConfig(
                 name="temporary-dataset",
@@ -4572,6 +4939,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                             placeholder="",
                             required=True,
                             type=SourceFieldInputConfigType.TEXT,
+                            secret=False,
                         ),
                     ],
                 ),
@@ -4600,6 +4968,37 @@ class TestSensitiveFieldClassification(APIBaseTest):
             # No field should appear in both sets
             overlap = nonsensitive & sensitive
             assert not overlap, f"{config.name}: fields in both sets: {overlap}"
+
+    def test_password_typed_fields_must_be_marked_secret(self):
+        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
+        it would obscure on screen but still be returned in plain text from the API.
+        """
+
+        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
+            offenders: list[str] = []
+            for field in fields:
+                if isinstance(field, SourceFieldInputConfig):
+                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
+                        offenders.append(field.name)
+                elif isinstance(field, SourceFieldSwitchGroupConfig):
+                    offenders.extend(collect_password_fields_without_secret(field.fields))
+                elif isinstance(field, SourceFieldSelectConfig):
+                    for option in field.options:
+                        if option.fields:
+                            offenders.extend(collect_password_fields_without_secret(option.fields))
+            return offenders
+
+        all_offenders: dict[str, list[str]] = {}
+        for source in SourceRegistry.get_all_sources().values():
+            config = source.get_source_config
+            offenders = collect_password_fields_without_secret(config.fields)
+            if offenders:
+                all_offenders[config.name] = offenders
+
+        assert not all_offenders, (
+            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
+            f"Offending fields: {all_offenders}"
+        )
 
     def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
         """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
@@ -4694,7 +5093,7 @@ class TestWebhookInfo(APIBaseTest):
             },
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_webhook_info_non_webhook_source(self, _mock_flag):
         source = self._create_postgres_source()
 
@@ -4704,7 +5103,7 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["supports_webhooks"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_webhook_info_no_hog_function(self, _mock_flag):
         source = self._create_stripe_source()
 
@@ -4715,7 +5114,7 @@ class TestWebhookInfo(APIBaseTest):
         assert data["supports_webhooks"] is True
         assert data["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
     def test_webhook_info_with_hog_function(self, mock_get_info, _mock_flag):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
@@ -4745,7 +5144,7 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"]["status"] == "enabled"
         assert data["external_status"]["enabled_events"] == ["charge.created", "charge.updated"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
     def test_webhook_info_external_not_found(self, mock_get_info, _mock_flag):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
@@ -4762,7 +5161,7 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"]["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
     def test_webhook_info_external_error(self, mock_get_info, _mock_flag):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
@@ -4782,7 +5181,7 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"]["error"] is not None
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_webhook_info_source_returns_none(self, _mock_flag):
         """When a source doesn't implement get_external_webhook_info, external_status should be null."""
         source = self._create_stripe_source()
@@ -4862,7 +5261,7 @@ class TestDeleteWebhook(APIBaseTest):
             should_sync=True,
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
     def test_delete_webhook_success(self, mock_delete_webhook, _mock_flag):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
@@ -4887,7 +5286,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.deleted is True
         assert hog_function.enabled is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_delete_webhook_blocked_by_webhook_schemas(self, _mock_flag):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, "Customers")
@@ -4901,7 +5300,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert "webhook sync" in response.json()["message"]
         assert "Customers" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
     def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook, _mock_flag):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
@@ -4926,7 +5325,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.deleted is True
         assert hog_function.enabled is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_delete_webhook_no_hog_function(self, _mock_flag):
         source = self._create_stripe_source()
 
@@ -4939,7 +5338,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert data["success"] is True
         assert data["external_deleted"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_delete_webhook_non_webhook_source(self, _mock_flag):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -4958,7 +5357,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not support webhooks" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     def test_delete_webhook_no_job_inputs_still_cleans_up_hog_function(self, _mock_flag):
         source = self._create_stripe_source(job_inputs={})
         hog_function = self._create_hog_function(source)
@@ -4978,7 +5377,7 @@ class TestDeleteWebhook(APIBaseTest):
 
 
 class TestDestroySourceCleansUpWebhook(APIBaseTest):
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
     def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook, _mock_flag):
         from posthog.models.hog_functions.hog_function import HogFunction
@@ -5017,7 +5416,7 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
         assert hog_function.enabled is False
         mock_delete_webhook.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
@@ -5128,3 +5527,20 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         # Unrelated table NOT deleted
         unrelated_table.refresh_from_db()
         assert unrelated_table.deleted is False
+
+
+class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("missing_source_type", {"payload": {"host": "localhost"}}),
+            ("missing_payload", {"source_type": "Postgres"}),
+            ("invalid_source_type", {"source_type": "InvalidType", "payload": {"host": "localhost"}}),
+        ]
+    )
+    def test_create_rejects_invalid_input(self, _name: str, data: dict) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data,
+            format="json",
+        )
+        assert response.status_code == 400

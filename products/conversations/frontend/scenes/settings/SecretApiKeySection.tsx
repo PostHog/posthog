@@ -33,6 +33,7 @@ export function SecretApiKeySection(): JSX.Element {
     return (
         <SceneSection
             title="Secret API key"
+            titleSize="sm"
             description="Used to sign identity hashes for identity verification and to authenticate external API requests for workflows."
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">

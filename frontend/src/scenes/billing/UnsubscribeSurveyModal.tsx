@@ -19,6 +19,7 @@ import {
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { humanFriendlyCurrency } from 'lib/utils'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -58,6 +59,7 @@ export const UnsubscribeSurveyModal = ({
     )
 
     const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
+    const isOnDiscountedPrice = isAddonProduct && (product as BillingProductV2AddonType).default_unit_amount_usd != null
 
     let action = 'Unsubscribe'
     let actionVerb = 'unsubscribing'
@@ -173,10 +175,22 @@ export const UnsubscribeSurveyModal = ({
                             </LemonBanner>
                         )}
                         {isAddonProduct ? (
-                            <p className="mb-0">
-                                We're sorry to see you go! Please note, you'll lose access to the addon features
-                                immediately.
-                            </p>
+                            isOnDiscountedPrice ? (
+                                <p className="mb-0">
+                                    We're sorry to see you go! You're on a special discounted price of{' '}
+                                    <strong>
+                                        {humanFriendlyCurrency(Number(product.unit_amount_usd), 0)} /{' '}
+                                        {product.unit ?? 'month'}
+                                    </strong>{' '}
+                                    — removing this add-on will end the discount and you'll lose access to the features
+                                    immediately.
+                                </p>
+                            ) : (
+                                <p className="mb-0">
+                                    We're sorry to see you go! Please note, you'll lose access to the addon features
+                                    immediately.
+                                </p>
+                            )
                         ) : (
                             <p className="mb-0">
                                 We're sorry to see you go! Please note, you'll lose access to platform features and

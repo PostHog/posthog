@@ -19,6 +19,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 
@@ -153,12 +154,12 @@ class ViewLinkValidationSerializer(serializers.Serializer, ViewLinkValidationMix
         return value
 
 
-class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete View Columns.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_view"
     queryset = DataWarehouseJoin.objects.all()
     serializer_class = ViewLinkSerializer
     filter_backends = [filters.SearchFilter]

@@ -36,6 +36,7 @@ from .event_buffer import EventBuffer
 from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
+from .role_external_reference import RoleExternalReference
 from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
@@ -88,6 +89,7 @@ from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
+from .user_integration import UserIntegration
 from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
@@ -146,6 +148,7 @@ __all__ = [
     "EventBuffer",
     "EventDefinition",
     "EventProperty",
+    "RoleExternalReference",
     "ExportedAsset",
     "ExportedRecording",
     "FeatureFlag",
@@ -231,6 +234,7 @@ __all__ = [
     "UserManager",
     "UserGroup",
     "UserGroupMembership",
+    "UserIntegration",
     "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",

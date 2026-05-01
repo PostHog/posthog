@@ -7,3 +7,4 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export type McpToolsCreate200 = { [key: string]: unknown }

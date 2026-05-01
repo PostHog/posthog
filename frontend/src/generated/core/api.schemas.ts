@@ -67,6 +67,11 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly finished_at: string | null
+    /**
+     * AI-generated summary included in this delivery, when one was produced.
+     * @nullable
+     */
+    readonly change_summary: string | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
@@ -261,10 +266,10 @@ export interface PatchedOrganizationDomainApi {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const OrganizationMembershipLevelApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -277,11 +282,7 @@ export interface OrganizationInviteApi {
     /** @maxLength 30 */
     first_name?: string
     readonly emailing_attempt_made: boolean
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
+    level?: OrganizationMembershipLevelEnumApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
     readonly created_by: UserBasicApi
@@ -359,6 +360,8 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 }
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type ProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
 
 export type ProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
@@ -1275,14 +1278,10 @@ export interface ProjectBackwardCompatApi {
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
-    /**
-   * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+    /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
 * `0` - Sunday
-* `1` - Monday
-   * @minimum -32768
-   * @maximum 32767
-   */
+* `1` - Monday */
     week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.
@@ -1296,12 +1295,12 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled: string
+    readonly person_on_events_querying_enabled: boolean
     /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown | null
     modifiers?: unknown | null
-    readonly default_modifiers: string
+    readonly default_modifiers: ProjectBackwardCompatApiDefaultModifiers
     has_completed_onboarding_for?: unknown | null
     /**
      * Enables displaying surveys via posthog-js on allowed origins.
@@ -1344,6 +1343,8 @@ export interface ProjectBackwardCompatApi {
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type PatchedProjectBackwardCompatApiDefaultModifiers = { [key: string]: unknown }
 
 export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     product_type?: string
@@ -2073,14 +2074,10 @@ export interface PatchedProjectBackwardCompatApi {
     session_replay_config?: unknown | null
     survey_config?: unknown | null
     access_control?: boolean
-    /**
-   * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+    /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
 * `0` - Sunday
-* `1` - Monday
-   * @minimum -32768
-   * @maximum 32767
-   */
+* `1` - Monday */
     week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
     /**
      * ID of the dashboard shown as the project's default landing dashboard.
@@ -2094,12 +2091,12 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled?: string
+    readonly person_on_events_querying_enabled?: boolean
     /** @nullable */
     inject_web_apps?: boolean | null
     extra_settings?: unknown | null
     modifiers?: unknown | null
-    readonly default_modifiers?: string
+    readonly default_modifiers?: PatchedProjectBackwardCompatApiDefaultModifiers
     has_completed_onboarding_for?: unknown | null
     /**
      * Enables displaying surveys via posthog-js on allowed origins.
@@ -2414,9 +2411,10 @@ export interface PatchedProjectSecretAPIKeyApi {
  * `Boolean` - Boolean
  * `Duration` - Duration
  */
-export type PropertyType02dEnumApi = (typeof PropertyType02dEnumApi)[keyof typeof PropertyType02dEnumApi]
+export type PropertyDefinitionTypeEnumApi =
+    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
 
-export const PropertyType02dEnumApi = {
+export const PropertyDefinitionTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -2438,7 +2436,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -2470,7 +2468,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyType02dEnumApi | BlankEnumApi | NullEnumApi | null
+    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | NullEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -2810,14 +2808,6 @@ export interface TeamBasicApi {
     readonly access_control: boolean
 }
 
-export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
-
-export const MembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
-
 /**
  * * `0` - none
  * `3` - config
@@ -2861,7 +2851,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -2925,7 +2915,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: MembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi | null
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.
@@ -3209,7 +3199,7 @@ export type OauthApplicationsListParams = {
     offset?: number
 }
 
-export type List2Params = {
+export type OrganizationsProjectsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3256,16 +3246,6 @@ export type FlagValueValuesRetrieveParams = {
      */
     key?: string
 }
-
-/**
- * Unspecified response body
- */
-export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
-
-/**
- * Unspecified response body
- */
-export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
 
 export type ProjectSecretApiKeysListParams = {
     /**
