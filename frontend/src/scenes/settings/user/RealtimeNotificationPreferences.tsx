@@ -83,7 +83,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                                 />
                             </div>
                             {isOpen && (
-                                <div className="ml-10 mb-2 mr-2 space-y-1">
+                                <div className="ml-16 mb-2 mr-2 space-y-1">
                                     {activeTypes.map((type) => {
                                         const meta = REALTIME_NOTIFICATION_TYPE_META[type] ?? {
                                             label: type,
