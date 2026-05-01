@@ -11,6 +11,7 @@ from django.test import override_settings
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthApplication
@@ -110,6 +111,26 @@ class TestProvisioningRegister(APIBaseTest):
         res = self._register({"callback_url": "javascript:alert(1)"})
         assert res.status_code == 400
 
+    def test_register_rejects_http_callback_url(self) -> None:
+        res = self._register({"callback_url": "http://example.com/callback"})
+        assert res.status_code == 400
+        assert "https" in res.json()["error"].lower()
+
+    def test_register_rejects_dangerous_logo_uri(self) -> None:
+        res = self._register({"logo_uri": "javascript:alert(1)"})
+        assert res.status_code == 400
+        assert "logo_uri" in res.json()["error"].lower()
+
+    def test_register_rejects_http_logo_uri(self) -> None:
+        res = self._register({"logo_uri": "http://example.com/logo.png"})
+        assert res.status_code == 400
+        assert "logo_uri" in res.json()["error"].lower()
+
+    def test_register_rejects_private_ip_logo_uri(self) -> None:
+        res = self._register({"logo_uri": "https://10.0.0.1/logo.png"})
+        assert res.status_code == 400
+        assert "logo_uri" in res.json()["error"].lower()
+
     def test_register_rejects_long_name(self) -> None:
         res = self._register({"name": "x" * 101})
         assert res.status_code == 400
@@ -125,19 +146,39 @@ class TestCallbackURLValidation(APIBaseTest):
     def test_valid_https_url(self) -> None:
         assert _validate_callback_url("https://example.com/callback") is None
 
-    def test_private_ips_rejected(self) -> None:
-        assert _validate_callback_url("https://10.0.0.1/callback") is not None
-        assert _validate_callback_url("https://172.16.0.1/callback") is not None
-        assert _validate_callback_url("https://192.168.1.1/callback") is not None
+    @parameterized.expand(
+        [
+            ("rfc1918_10", "https://10.0.0.1/callback"),
+            ("rfc1918_172", "https://172.16.0.1/callback"),
+            ("rfc1918_192", "https://192.168.1.1/callback"),
+        ]
+    )
+    def test_private_ips_rejected(self, _name: str, url: str) -> None:
+        assert _validate_callback_url(url) is not None
 
-    def test_metadata_host_rejected(self) -> None:
-        assert _validate_callback_url("http://169.254.169.254/latest/meta-data/") is not None
-        assert _validate_callback_url("http://metadata.google.internal/") is not None
+    @parameterized.expand(
+        [
+            ("aws_imds", "https://169.254.169.254/latest/meta-data/"),
+            ("gcp_metadata", "https://metadata.google.internal/"),
+        ]
+    )
+    def test_metadata_host_rejected(self, _name: str, url: str) -> None:
+        assert _validate_callback_url(url) is not None
 
-    def test_blocked_schemes_rejected(self) -> None:
-        assert _validate_callback_url("javascript:alert(1)") is not None
-        assert _validate_callback_url("data:text/html,hi") is not None
-        assert _validate_callback_url("file:///etc/passwd") is not None
+    @parameterized.expand(
+        [
+            ("javascript", "javascript:alert(1)"),
+            ("data", "data:text/html,hi"),
+            ("file", "file:///etc/passwd"),
+        ]
+    )
+    def test_blocked_schemes_rejected(self, _name: str, url: str) -> None:
+        assert _validate_callback_url(url) is not None
+
+    def test_http_scheme_rejected(self) -> None:
+        error = _validate_callback_url("http://example.com/callback")
+        assert error is not None
+        assert "https" in error.lower()
 
     def test_missing_scheme_rejected(self) -> None:
         assert _validate_callback_url("example.com/callback") is not None

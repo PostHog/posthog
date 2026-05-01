@@ -17,10 +17,12 @@ from django.core.exceptions import ValidationError
 
 import structlog
 import posthoganalytics
+from oauthlib.common import generate_token
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.cloud_utils import is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import PartnerRegistrationIPThrottle
@@ -31,6 +33,12 @@ logger = structlog.get_logger(__name__)
 
 NAME_MAX_LENGTH = 100
 PARTNER_TYPE_MAX_LENGTH = 50
+SIGNING_SECRET_BYTES = 32
+ALLOWED_URL_SCHEMES = frozenset(["https"])
+DEV_ALLOWED_URL_SCHEMES = frozenset(["http", "https"])
+DEFAULT_PROVISIONING_ACTIVE = False
+DEFAULT_CAN_CREATE_ACCOUNTS = False
+DEFAULT_CAN_PROVISION_RESOURCES = True
 
 
 def _validate_callback_url(url: str) -> str | None:
@@ -44,6 +52,10 @@ def _validate_callback_url(url: str) -> str | None:
 
     if parsed.scheme in OAuthApplication.DEFAULT_BLOCKED_SCHEMES:
         return f"URL scheme '{parsed.scheme}' is not allowed"
+
+    allowed_schemes = DEV_ALLOWED_URL_SCHEMES if is_dev_mode() else ALLOWED_URL_SCHEMES
+    if parsed.scheme not in allowed_schemes:
+        return f"URL must use HTTPS (got '{parsed.scheme}')"
 
     allowed, reason = is_url_allowed(url)
     if not allowed:
@@ -78,11 +90,12 @@ def provisioning_register(request: Request) -> Response:
     if (url_error := _validate_callback_url(callback_url)) is not None:
         return Response({"error": f"Invalid callback_url: {url_error}"}, status=400)
 
-    from oauthlib.common import generate_token
+    if logo_uri and (logo_uri_error := _validate_callback_url(logo_uri)) is not None:
+        return Response({"error": f"Invalid logo_uri: {logo_uri_error}"}, status=400)
 
     client_id = generate_token()
     client_secret = generate_token()
-    signing_secret = secrets.token_hex(32)
+    signing_secret = secrets.token_hex(SIGNING_SECRET_BYTES)
 
     try:
         app = OAuthApplication.objects.create(
@@ -97,9 +110,9 @@ def provisioning_register(request: Request) -> Response:
             provisioning_auth_method="hmac",
             provisioning_signing_secret=signing_secret,
             provisioning_partner_type=partner_type,
-            provisioning_active=False,
-            provisioning_can_create_accounts=False,
-            provisioning_can_provision_resources=True,
+            provisioning_active=DEFAULT_PROVISIONING_ACTIVE,
+            provisioning_can_create_accounts=DEFAULT_CAN_CREATE_ACCOUNTS,
+            provisioning_can_provision_resources=DEFAULT_CAN_PROVISION_RESOURCES,
             organization=None,
             user=None,
         )
@@ -131,7 +144,7 @@ def provisioning_register(request: Request) -> Response:
         "client_secret": client_secret,
         "signing_secret": signing_secret,
         "name": name,
-        "provisioning_active": False,
+        "provisioning_active": DEFAULT_PROVISIONING_ACTIVE,
         "message": "Partner registered successfully. An admin must activate provisioning before you can use the API.",
     }
     return Response(response_data, status=201)
