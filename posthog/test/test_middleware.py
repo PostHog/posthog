@@ -13,6 +13,7 @@ from django.http import HttpResponseRedirect
 from django.test import Client as DjangoClient
 from django.urls import reverse
 
+from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
 from social_core.backends.base import BaseAuth
@@ -1014,6 +1015,120 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         # No swap happens (original isn't staff anymore) → impersonated non-staff user blocked
         assert response.status_code == 302
         assert "/admin/login" in response.headers.get("Location", "")
+
+    @patch("posthog.views.get_client")
+    @patch("posthog.views.log_activity")
+    def test_admin_action_attributes_activity_to_staff_user_during_impersonation(
+        self, mock_log_activity: MagicMock, mock_get_client: MagicMock
+    ):
+        """Load-bearing security claim: admin actions performed during impersonation
+        must pass the original staff user (not the impersonated customer) to downstream
+        activity logging. The PR's middleware-ordering comment in `posthog/settings/web.py`
+        says the swap must run before activity-logging code — this asserts that.
+
+        A future middleware reorder that breaks attribution would silently leak
+        `customer-as-actor` into audit logs without breaking any existing test.
+
+        Mechanism: `redis_edit_ttl_view` calls `log_activity(user=request.user, ...)`.
+        Patch `log_activity` and assert the captured `user` kwarg is the staff user.
+        """
+        mock_redis = MagicMock()
+        mock_redis.ttl.return_value = -1
+        mock_get_client.return_value = mock_redis
+
+        self.login_as_other_user()
+
+        response = self.client.post(
+            "/admin/redis/edit-ttl",
+            data={"key": "test:key", "ttl_seconds": "60"},
+        )
+
+        assert response.status_code in (200, 302), f"unexpected status: {response.status_code}"
+        assert mock_log_activity.called, "log_activity was not called — admin view did not reach attribution code"
+        for call in mock_log_activity.call_args_list:
+            logged_user = call.kwargs.get("user")
+            assert logged_user is not None, "log_activity called with user=None"
+            assert logged_user.id == self.user.id, (
+                f"log_activity called with user={logged_user.id} ({logged_user.email}), "
+                f"expected staff user {self.user.id} ({self.user.email}), "
+                f"NOT impersonated customer {self.other_user.id} ({self.other_user.email})"
+            )
+
+    def test_admin_index_banner_shows_both_staff_and_customer_email(self):
+        """The banner must surface both identities. The existing test only asserts the
+        customer email — a regression dropping the staff portion would pass it. This test
+        pins both halves; it also proves request.user is swapped at template render time."""
+        self.login_as_other_user()
+        response = self.client.get("/admin/")
+        assert response.status_code == 200
+        assert self.other_user.email.encode() in response.content, "impersonated customer email missing from banner"
+        assert self.user.email.encode() in response.content, (
+            "staff user email missing from banner — request.user not swapped at template render"
+        )
+
+    def test_admin_blocked_when_original_user_deactivated(self):
+        """The swap requires `original_user.is_active and original_user.is_staff`. The
+        demotion (is_staff=False) case is already covered; this covers the deactivation
+        case — same line of code, distinct fault mode."""
+        self.login_as_other_user()
+
+        self.user.is_active = False
+        self.user.save()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    def test_swap_rejects_tampered_session_flag(self):
+        """`get_original_user_from_session` unsigns `la_settings.USER_SESSION_FLAG` via
+        `TimestampSigner`. A session value lacking a valid signature must not produce a
+        swap, even when `is_impersonated_session(request)` returns True. Pins the
+        cryptographic boundary."""
+        self.login_as_other_user()
+
+        # Replace the signed value with an unsigned PK. If the helper accepted this
+        # without verifying the signature, the swap would still fail (customer isn't
+        # staff), but the assertion is that signature verification is the first gate.
+        session = self.client.session
+        session[la_settings.USER_SESSION_FLAG] = str(self.user.pk)
+        session.save()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+
+    def test_swap_no_ops_when_original_user_deleted(self):
+        """If the original user has been deleted between session start and the current
+        request, `User.objects.get(pk=...)` raises DoesNotExist; the helper catches it
+        and returns None. Middleware must leave request.user untouched."""
+        self.login_as_other_user()
+        impersonated_pk = self.other_user.pk
+
+        self.user.delete()
+
+        response = self.client.get("/admin/")
+        assert response.status_code == 302
+        assert "/admin/login" in response.headers.get("Location", "")
+        assert User.objects.filter(pk=impersonated_pk).exists()
+
+    def test_read_only_bypass_does_not_fire_for_path_without_trailing_slash(self):
+        """`request.path.startswith('/admin/')` requires the trailing slash. A bare
+        `/admin` POST must NOT bypass the read-only middleware. Asserts the prefix
+        check correctly excludes the trailing-slash-less form — boundary test against
+        future tweaks to the prefix check."""
+        self.login_as_other_user_read_only()
+
+        response = self.client.post("/admin", data={})
+        # The read-only middleware must block this POST since `/admin` does NOT
+        # match the `/admin/` prefix. The bypass branch is gated on the same
+        # `startswith('/admin/')` check that the AdminImpersonationMiddleware uses,
+        # so blocking here proves both checks correctly exclude this path.
+        assert response.status_code == 403, (
+            f"expected 403 (read-only block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        assert response.json().get("code") == "impersonation_read_only", (
+            f"expected impersonation_read_only response, got: {response.content!r}"
+        )
 
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
