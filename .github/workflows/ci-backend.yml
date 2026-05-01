@@ -1874,18 +1874,29 @@ jobs:
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
                   fetch-depth: 1
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+            - name: Check for trusted timing reporter
+              id: timing-reporter
               if: github.run_attempt == '1'
+              shell: bash
+              run: |
+                  if [[ -f .github/scripts/report_test_timings.py ]]; then
+                    echo "available=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "available=false" >> "$GITHUB_OUTPUT"
+                    echo "Trusted timing reporter is not available on the checked-out ref; skipping emit."
+                  fi
+            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
-              if: github.run_attempt == '1'
+              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./junit-artifacts
                   pattern: junit-results-*
             - name: Emit per-test events
-              if: github.run_attempt == '1'
+              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
