@@ -184,7 +184,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             display,
             getTrendsColor,
             getTrendsHidden,
-            isStickiness,
+            // Coerce to boolean so the dep is stable during Kea logic init
+            // (isStickiness transitions undefined → false without affecting output).
+            !!isStickiness,
             incompletenessOffsetFromEnd,
             showMultipleYAxes,
             showMovingAverage,
