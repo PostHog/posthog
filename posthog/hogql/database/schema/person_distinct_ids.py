@@ -52,7 +52,8 @@ def select_from_person_distinct_ids_table(
     )
     select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
     if person_id_filter is not None:
-        select.where = build_distinct_id_pushdown(person_id_filter)
+        pushdown = build_distinct_id_pushdown(person_id_filter)
+        select.where = pushdown if select.where is None else ast.And(exprs=[select.where, pushdown])
     return select
 
 

@@ -1,21 +1,29 @@
 from typing import Optional, cast
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd, LazyTable, Table
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.parser import parse_select
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
+
+logger = structlog.get_logger(__name__)
 
 
 # Filter on a distinct_id IN subquery on raw_person_distinct_ids is the only safe
 # way to narrow person_distinct_id2 by person_id. The naive WHERE person_id IN (X)
 # would filter raw rows pre-argMax and report stale mappings for distinct_ids that
 # were rebound to a different person.
+#
+# The aliased table name "pdi_pushdown_pdi" is intentional: it appears in the
+# generated SQL and lets us grep system.query_log to measure how often the
+# optimization fires post-deploy.
 def build_distinct_id_pushdown(person_id_filter: ast.Expr) -> ast.CompareOperation:
     inner = cast(
         ast.SelectQuery,
-        parse_select("SELECT distinct_id FROM raw_person_distinct_ids"),
+        parse_select("SELECT distinct_id FROM raw_person_distinct_ids AS pdi_pushdown_pdi"),
     )
     inner.where = clone_expr(person_id_filter, clear_types=True, clear_locations=True)
     return ast.CompareOperation(
@@ -32,29 +40,48 @@ def derive_person_id_filter(
     context: HogQLContext,
     from_field_maps_to_person_id: bool,
 ) -> Optional[ast.Expr]:
-    if not node.where:
+    # Fail-open envelope: this runs on every persons.pdi join in HogQL compilation.
+    # An exception here would break the query entirely; we'd rather skip the
+    # optimization. Catches RecursionError on pathological WHERE depth too.
+    try:
+        return _derive_person_id_filter_inner(
+            node, join_to_add, context=context, from_field_maps_to_person_id=from_field_maps_to_person_id
+        )
+    except Exception as e:
+        logger.warning("pdi_person_id_pushdown_failed", error=str(e))
         return None
 
-    # Primary: reuse WhereClauseExtractor to extract any persons-side predicate
-    # (id IN, email =, properties.* IN, ...). Translate into a person_id filter
-    # by wrapping with a SELECT against raw_persons. This mirrors the inner
-    # subquery shape that select_from_persons_table already emits, just consumed
-    # by pdi instead.
+
+def _derive_person_id_filter_inner(
+    node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    *,
+    context: HogQLContext,
+    from_field_maps_to_person_id: bool,
+) -> Optional[ast.Expr]:
+    if not node.where and not node.prewhere:
+        return None
+
     if from_field_maps_to_person_id:
         # By the time persons_pdi_join runs, the persons FROM has already been
-        # rewritten to a SelectQueryAliasType (see lazy_tables.py). However, field
-        # references in node.where still carry the original PersonsTable instance,
-        # so we recover it from there to feed WhereClauseExtractor.
-        persons_table = _find_persons_table_in_where(node.where)
+        # rewritten to a SelectQueryAliasType (see lazy_tables.py). Field
+        # references in node.where still carry the original PersonsTable
+        # instance, so we recover it from there to feed WhereClauseExtractor.
+        persons_table = _find_persons_table(node)
         if persons_table is not None:
             extractor = WhereClauseExtractor(context)
-            if persons_table not in extractor.tracked_tables:
-                extractor.tracked_tables.append(persons_table)
+            extractor.tracked_tables.append(persons_table)
+            # The pushed-down filter lives inside an independent subquery
+            # (SELECT id FROM raw_persons WHERE ...). The outer query's joins
+            # are not in scope there, so any tombstoning the join-aware path
+            # would do is unwarranted here. Force is_join=False so NOT and
+            # negated comparisons stay extractable.
+            extractor.is_join = False
             persons_filter = extractor.get_inner_where(node)
             if persons_filter is not None:
                 inner_persons = cast(
                     ast.SelectQuery,
-                    parse_select("SELECT id FROM raw_persons"),
+                    parse_select("SELECT id FROM raw_persons AS pdi_pushdown_persons"),
                 )
                 inner_persons.where = persons_filter
                 return ast.CompareOperation(
@@ -63,13 +90,14 @@ def derive_person_id_filter(
                     op=ast.CompareOperationOp.In,
                 )
 
-    # Fallback: direct pdi.person_id IN (X) anywhere in the outer WHERE.
     pdi_table = join_to_add.lazy_join.join_table
     if not isinstance(pdi_table, (Table, LazyTable, LazyJoin)):
         return None
 
     matches: list[ast.CompareOperation] = []
-    _collect_pdi_person_id_in_filters(node.where, pdi_table=pdi_table, out=matches)
+    for source in (node.where, node.prewhere):
+        if source is not None:
+            _collect_pdi_person_id_in_filters(source, pdi_table=pdi_table, out=matches)
     if not matches:
         return None
 
@@ -79,70 +107,50 @@ def derive_person_id_filter(
     return ast.And(exprs=person_id_filters)
 
 
-def _find_persons_table_in_where(where: Optional[ast.Expr]):
-    """Walk a WHERE expression and return the first PersonsTable instance referenced."""
-    from posthog.hogql.database.schema.persons import PersonsTable
+class _FindPersonsTableVisitor(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: Optional[object] = None
 
-    if where is None:
-        return None
+    def visit(self, node):
+        if self.found is not None:
+            return
+        super().visit(node)
 
-    found: list = []
+    def visit_field(self, node: ast.Field) -> None:
+        from posthog.hogql.database.schema.persons import PersonsTable
 
-    def _table_from_field(expr) -> Optional[ast.Type]:
-        t = expr.type
-        if isinstance(t, ast.PropertyType):
-            t = t.field_type
-        if isinstance(t, ast.FieldAliasType):
-            inner = t.type
-            while isinstance(inner, ast.FieldAliasType):
-                inner = inner.type
-            if isinstance(inner, ast.PropertyType):
-                inner = inner.field_type
-            t = inner
-        if isinstance(t, ast.FieldType):
-            tt = t.table_type
-            while isinstance(tt, ast.TableAliasType):
-                tt = tt.table_type
-            return tt
-        return None
+        table_type = _table_type_from_field(node)
+        if isinstance(table_type, ast.LazyTableType) and isinstance(table_type.table, PersonsTable):
+            self.found = table_type.table
 
-    def _walk(expr):
-        if isinstance(expr, ast.Field):
-            tt = _table_from_field(expr)
-            if isinstance(tt, ast.LazyTableType) and isinstance(tt.table, PersonsTable):
-                found.append(tt.table)
-                return
-        if isinstance(expr, ast.Alias):
-            _walk(expr.expr)
-            return
-        if isinstance(expr, ast.CompareOperation):
-            _walk(expr.left)
-            if not found:
-                _walk(expr.right)
-            return
-        if isinstance(expr, ast.And) or isinstance(expr, ast.Or):
-            for sub in expr.exprs:
-                _walk(sub)
-                if found:
-                    return
-            return
-        if isinstance(expr, ast.Not):
-            _walk(expr.expr)
-            return
-        if isinstance(expr, ast.Call):
-            for arg in expr.args:
-                _walk(arg)
-                if found:
-                    return
-            return
-        if isinstance(expr, ast.Tuple):
-            for sub in expr.exprs:
-                _walk(sub)
-                if found:
-                    return
 
-    _walk(where)
-    return found[0] if found else None
+def _find_persons_table(node: ast.SelectQuery):
+    visitor = _FindPersonsTableVisitor()
+    if node.where is not None:
+        visitor.visit(node.where)
+    if visitor.found is None and node.prewhere is not None:
+        visitor.visit(node.prewhere)
+    return visitor.found
+
+
+def _table_type_from_field(node: ast.Field):
+    t = node.type
+    if isinstance(t, ast.PropertyType):
+        t = t.field_type
+    if isinstance(t, ast.FieldAliasType):
+        inner = t.type
+        while isinstance(inner, ast.FieldAliasType):
+            inner = inner.type
+        if isinstance(inner, ast.PropertyType):
+            inner = inner.field_type
+        t = inner
+    if isinstance(t, ast.FieldType):
+        tt = t.table_type
+        while isinstance(tt, ast.TableAliasType):
+            tt = tt.table_type
+        return tt
+    return None
 
 
 def _collect_pdi_person_id_in_filters(
@@ -151,6 +159,8 @@ def _collect_pdi_person_id_in_filters(
     pdi_table,
     out: list[ast.CompareOperation],
 ) -> None:
+    # Intentionally does NOT descend into Or/Not: a person_id IN (X) inside
+    # an OR cannot be safely promoted as a hard filter.
     if isinstance(expr, ast.CompareOperation):
         if expr.op == ast.CompareOperationOp.In and _is_pdi_person_id_field(expr.left, pdi_table=pdi_table):
             out.append(expr)

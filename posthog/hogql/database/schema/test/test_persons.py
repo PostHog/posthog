@@ -504,6 +504,7 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
+    @snapshot_clickhouse_queries
     def test_pdi_subquery_filtered_when_outer_filters_persons_id(self):
         response = execute_hogql_query(
             parse_select(
@@ -514,10 +515,11 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
             placeholders={"alice_id": ast.Constant(value=self.alice.uuid)},
         )
         assert response.clickhouse is not None
-        assert "in(distinct_id, (SELECT" in response.clickhouse
+        assert "pdi_pushdown_pdi" in response.clickhouse
         assert len(response.results) == 1
         assert response.results[0][1] == ["alice_a", "alice_b"]
 
+    @snapshot_clickhouse_queries
     def test_pdi_subquery_filtered_when_outer_filters_persons_property(self):
         response = execute_hogql_query(
             parse_select(
@@ -526,7 +528,8 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         assert response.clickhouse is not None
-        assert "in(distinct_id, (SELECT" in response.clickhouse
+        assert "pdi_pushdown_pdi" in response.clickhouse
+        assert "pdi_pushdown_persons" in response.clickhouse
         distinct_ids = sorted(row[0] for row in response.results)
         assert distinct_ids == ["alice_a", "alice_b"]
 
@@ -536,4 +539,77 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         assert response.clickhouse is not None
-        assert "in(distinct_id, (SELECT" not in response.clickhouse
+        assert "pdi_pushdown_pdi" not in response.clickhouse
+
+    def test_pdi_subquery_correct_when_distinct_id_was_rebound(self):
+        # Rebind one of alice's distinct_ids to bob via a higher-version pdi row.
+        # The motivating correctness case for the distinct_id IN (subquery) shape:
+        # filtering raw pdi rows by person_id pre-argMax would return a stale
+        # mapping for "alice_b", but the outer argMax must report bob as the
+        # current owner.
+        from posthog.models.person.util import create_person_distinct_id
+
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="alice_b",
+            person_id=str(self.bob.uuid),
+            version=99,
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT id, arraySort(groupArray(pdi.distinct_id)) AS distinct_ids "
+                "FROM persons WHERE id IN ({alice_id}) GROUP BY id"
+            ),
+            self.team,
+            placeholders={"alice_id": ast.Constant(value=self.alice.uuid)},
+        )
+        assert response.clickhouse is not None
+        assert "pdi_pushdown_pdi" in response.clickhouse
+        assert len(response.results) == 1
+        # alice_b now belongs to bob, so alice should only be associated with alice_a.
+        assert response.results[0][1] == ["alice_a"]
+
+    def test_pdi_subquery_with_negated_persons_filter(self):
+        # WHERE NOT (...) on persons side. WhereClauseExtractor's join-aware
+        # tombstoning of NOT must not apply to the inner subquery context, so
+        # the filter should still narrow correctly.
+        response = execute_hogql_query(
+            parse_select("SELECT pdi.distinct_id FROM persons WHERE NOT (properties.name = 'bob')"),
+            self.team,
+        )
+        assert response.clickhouse is not None
+        distinct_ids = sorted(row[0] for row in response.results)
+        assert distinct_ids == ["alice_a", "alice_b"]
+
+    def test_pdi_subquery_with_or_persons_filter(self):
+        # OR across persons-side predicates is safe to push down: both branches
+        # bind to the same persons table and both narrow person_id candidates.
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT pdi.distinct_id FROM persons WHERE properties.name = 'alice' OR properties.name = 'bob'"
+            ),
+            self.team,
+        )
+        assert response.clickhouse is not None
+        distinct_ids = sorted(row[0] for row in response.results)
+        assert distinct_ids == ["alice_a", "alice_b", "bob_a"]
+
+    def test_pdi_subquery_pushdown_fails_open_on_extractor_error(self):
+        # If the helper raises, the optimization must skip silently rather than
+        # break the query. We can't easily inject an exception via a real query,
+        # but we can verify the wrapper by patching the inner function.
+        from unittest.mock import patch
+
+        from posthog.hogql.database.schema.util import pdi_person_id_pushdown
+
+        with patch.object(pdi_person_id_pushdown, "_derive_person_id_filter_inner", side_effect=RuntimeError("boom")):
+            response = execute_hogql_query(
+                parse_select("SELECT pdi.distinct_id FROM persons WHERE properties.name = 'alice'"),
+                self.team,
+            )
+        assert response.clickhouse is not None
+        assert "pdi_pushdown_pdi" not in response.clickhouse
+        distinct_ids = sorted(row[0] for row in response.results)
+        assert distinct_ids == ["alice_a", "alice_b"]
