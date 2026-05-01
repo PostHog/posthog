@@ -4006,7 +4006,7 @@ export interface FeatureFlagGroupType {
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
     aggregation_group_type_index?: integer | null
-    early_exit?: boolean | null
+    early_exit?: boolean
 }
 
 export interface MultivariateFlagVariant {

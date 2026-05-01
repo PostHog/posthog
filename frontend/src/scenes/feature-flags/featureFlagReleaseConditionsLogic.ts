@@ -102,7 +102,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newProperties?: AnyPropertyFilter[],
             newVariant?: string | null,
             newDescription?: string | null,
-            newEarlyExit?: boolean | null
+            newEarlyExit?: boolean
         ) => ({
             index,
             newRolloutPercentage,

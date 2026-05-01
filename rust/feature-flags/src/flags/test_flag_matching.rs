@@ -9902,4 +9902,170 @@ mod tests {
             assert!(result.is_empty());
         }
     }
+
+    #[tokio::test]
+    async fn test_early_exit_behavior() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Create a flag with two conditions:
+        // 1. First condition: matches properties but has 0% rollout with early_exit enabled  
+        // 2. Second condition: would match all users with 100% rollout
+        let flag = mock!(FeatureFlag,
+            id: 1,
+            team_id: team.id,
+            key: "early-exit-test-flag".mock_into(),
+            active: true,
+            filters: FlagFilters {
+                groups: vec![
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("test@example.com")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(0.0),
+                        variant: None,
+                        early_exit: Some(true),
+                        aggregation_group_type_index: None,
+                    },
+                    FlagPropertyGroup {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        early_exit: Some(false),
+                        aggregation_group_type_index: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        let person_overrides = HashMap::from([("email".to_string(), json!("test@example.com"))]);
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(person_overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        // Should exit early at the first condition due to early_exit: true
+        // Even though the second condition would match with 100% rollout
+        let flag_result = result.flags.get("early-exit-test-flag").unwrap();
+        assert!(!flag_result.enabled);
+        assert_eq!(flag_result.reason.code, "out_of_rollout_bound");
+        assert_eq!(flag_result.reason.condition_index, Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_early_exit_disabled_continues_evaluation() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Same setup but with early_exit: false on first condition
+        let flag = mock!(FeatureFlag,
+            id: 2,
+            team_id: team.id,
+            key: "no-early-exit-test-flag".mock_into(),
+            active: true,
+            filters: FlagFilters {
+                groups: vec![
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("test@example.com")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(0.0),
+                        variant: None,
+                        early_exit: Some(false),
+                        aggregation_group_type_index: None,
+                    },
+                    FlagPropertyGroup {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                        early_exit: Some(false),
+                        aggregation_group_type_index: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+
+        let person_overrides = HashMap::from([("email".to_string(), json!("test@example.com"))]);
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flags,
+                Some(person_overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        // Should continue to second condition and match there
+        let flag_result = result.flags.get("no-early-exit-test-flag").unwrap();
+        assert!(flag_result.enabled);
+        // The test should match the second condition since the first has 0% rollout
+    }
 }

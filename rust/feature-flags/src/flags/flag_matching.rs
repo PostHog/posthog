@@ -1408,92 +1408,19 @@ impl FeatureFlagMatcher {
                 request_hash_key_override,
             )?;
 
-            // Check for early exit: if this condition has early_exit enabled,
-            // properties would match (no properties or all properties match),
-            // but rollout percentage failed, then exit early returning false
+            // Check for early exit: OutOfRolloutBound can only occur after properties
+            // have already been verified, so no need to re-check them
             if condition.early_exit.unwrap_or(false)
                 && !is_match
                 && reason == FeatureFlagMatchReason::OutOfRolloutBound
             {
-                // Check if the properties would have matched by testing the condition
-                // without the rollout percentage check
-                if let Some(flag_property_filters) = &condition.properties {
-                    if flag_property_filters.is_empty() {
-                        // No properties to check, so properties would match
-                        // Return false immediately due to early exit
-                        return Ok(FeatureFlagMatch {
-                            matches: false,
-                            variant: None,
-                            reason: FeatureFlagMatchReason::OutOfRolloutBound,
-                            condition_index: Some(index),
-                            payload: None,
-                        });
-                    } else {
-                        // Check if all properties would match (similar to logic in is_condition_match)
-                        let mut all_properties_match = true;
-                        let mut cohort_filters: Vec<&PropertyFilter> = Vec::new();
-
-                        for filter in flag_property_filters {
-                            if filter.depends_on_feature_flag() {
-                                if !match_flag_value_to_flag_filter(
-                                    filter,
-                                    &self.flag_evaluation_state.flag_evaluation_results,
-                                ) {
-                                    all_properties_match = false;
-                                    break;
-                                }
-                            } else if filter.is_cohort() {
-                                cohort_filters.push(filter);
-                            } else {
-                                let props = property_context.resolve_for_filter(filter);
-                                if !match_property(filter, props, false).unwrap_or(false) {
-                                    all_properties_match = false;
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Evaluate cohort filters if needed
-                        if all_properties_match && !cohort_filters.is_empty() {
-                            if let Some(cohorts) = &self.flag_evaluation_state.cohorts {
-                                let cohort_props = property_context
-                                    .person_properties
-                                    .unwrap_or(&*EMPTY_PROPERTY_MAP);
-                                if !self.evaluate_cohort_filters(
-                                    &cohort_filters,
-                                    cohort_props,
-                                    cohorts.clone(),
-                                )? {
-                                    all_properties_match = false;
-                                }
-                            } else {
-                                all_properties_match = false;
-                            }
-                        }
-
-                        if all_properties_match {
-                            // Properties match but rollout failed and early_exit is true
-                            // Return false immediately
-                            return Ok(FeatureFlagMatch {
-                                matches: false,
-                                variant: None,
-                                reason: FeatureFlagMatchReason::OutOfRolloutBound,
-                                condition_index: Some(index),
-                                payload: None,
-                            });
-                        }
-                    }
-                } else {
-                    // No properties to check, so properties would match
-                    // Return false immediately due to early exit
-                    return Ok(FeatureFlagMatch {
-                        matches: false,
-                        variant: None,
-                        reason: FeatureFlagMatchReason::OutOfRolloutBound,
-                        condition_index: Some(index),
-                        payload: None,
-                    });
-                }
+                return Ok(FeatureFlagMatch {
+                    matches: false,
+                    variant: None,
+                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                    condition_index: Some(index),
+                    payload: None,
+                });
             }
 
             // Update highest_match and highest_index
