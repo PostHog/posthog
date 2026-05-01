@@ -83,17 +83,8 @@ export function computeSeriesBars({
                 continue
             }
             const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-            result.push(
-                makeBarRect(
-                    isHorizontal,
-                    bandStart + groupOffsetForKey,
-                    groupBandWidth,
-                    valueAtZero,
-                    valuePixel,
-                    corners,
-                    i
-                )
-            )
+            const start = bandStart + groupOffsetForKey
+            result.push(makeBarRect(isHorizontal, start, groupBandWidth, valueAtZero, valuePixel, corners, i))
             continue
         }
 
