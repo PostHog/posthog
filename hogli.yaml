@@ -652,10 +652,6 @@ tools:
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation
-    tool:ty:
-        bin_script: ty.py
-        description: Type checker with ty baseline filtering and sync
-        hidden: true
     tool:turbo:
         bin_script: turbo
         description: Turborepo wrapper with automatic dependency installation
