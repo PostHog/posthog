@@ -99,6 +99,12 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         )
 
     def _discover_trace_bounds(self) -> tuple[datetime, datetime] | None:
+        # HAVING count() > 0 makes the aggregate return zero rows when the WHERE clause
+        # matches nothing. Without it, min/max over an empty subset still returns one row
+        # of (epoch_0, epoch_0), defeating execute_with_ai_events_fallback's empty-check
+        # and skipping the events-table fallback. That breaks trace lookups for traces
+        # older than the team's ai_events dual-write start while ai_events itself has
+        # plenty of recent rows for OTHER traces. INC-828.
         bounds_query = parse_select(
             """
             SELECT
@@ -109,6 +115,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
               AND {filter_conditions}
+            HAVING count() > 0
             """,
         )
 

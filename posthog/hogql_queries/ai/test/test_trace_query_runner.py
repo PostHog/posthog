@@ -1548,3 +1548,80 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         gen_event = next(e for e in trace.events if e.event == "$ai_generation")
         assert "$ai_input" in gen_event.properties
         assert "$ai_output_choices" in gen_event.properties
+
+    @freeze_time("2025-01-15T12:00:00Z")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
+    @patch("posthog.test.base._flush_ai_events", return_value=None)
+    def test_fallback_when_ai_events_has_other_traces_but_not_this_one(self, _mock_flush, _mock_flag):
+        # Regression for INC-828. Production scenario: ai_events has plenty of recent
+        # rows, just not for the requested trace_id. The bounds query's min/max over
+        # the filtered (empty) subset returns one row of (epoch_0, epoch_0) instead of
+        # zero rows, defeating the resolver's empty-check and skipping the fallback.
+        # Without the HAVING count() > 0 guard on the bounds query, the bounds resolve
+        # to epoch and the main trace query then finds nothing.
+        #
+        # Patches `_flush_ai_events` so the events created via _create_event land in
+        # the events table only, mimicking 'older than the ai_events dual-write start'.
+        # Then seeds ai_events directly with an unrelated trace so the table is
+        # non-empty, matching the production shape that exposes the aggregation bug.
+        from posthog.models.ai_events.test_util import bulk_create_ai_events
+
+        target_trace_id = "target-trace-only-in-events"
+        unrelated_trace_id = "unrelated-trace-in-ai-events"
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        # Target trace: events table only (auto-mirror to ai_events suppressed via patch)
+        _create_ai_trace_event(
+            trace_id=target_trace_id,
+            trace_name="target-trace",
+            input_state=None,
+            output_state=None,
+            distinct_id="person1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=target_trace_id,
+            input=[{"role": "user", "content": "Hello"}],
+            output=[{"role": "assistant", "content": "Hi there"}],
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 1),
+            properties={"$ai_parent_id": target_trace_id},
+        )
+
+        # Unrelated trace: ai_events only. Makes the table non-empty so min/max over
+        # a WHERE-filtered-empty subset returns (epoch_0, epoch_0) — the production
+        # behavior we need to reproduce.
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "person1",
+                    "team": self.team,
+                    "timestamp": datetime(2025, 1, 15, 0, 30),
+                    "properties": {
+                        "$ai_trace_id": unrelated_trace_id,
+                        "$ai_input": [{"role": "user", "content": "noise"}],
+                        "$ai_output_choices": [{"role": "assistant", "content": "noise"}],
+                    },
+                }
+            ]
+        )
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=target_trace_id,
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1, (
+            "Trace should be returned via the events fallback. "
+            "If this asserts 0, the bounds query is satisfying the empty-check with an "
+            "(epoch_0, epoch_0) row and skipping the fallback — see INC-828."
+        )
+        trace = response.results[0]
+        assert trace.id == target_trace_id
+        assert trace.traceName == "target-trace"
