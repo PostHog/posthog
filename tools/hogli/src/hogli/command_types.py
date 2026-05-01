@@ -6,7 +6,6 @@ import os
 import sys
 import shlex
 import shutil
-import importlib
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -207,94 +206,6 @@ class Command:
         # Store config on the Click command for visibility filtering
         cmd.hogli_config = self.config  # type: ignore[attr-defined]
         return cmd
-
-
-class _LazyClickStub(click.Command):
-    """A Click command that defers importing its real implementation.
-
-    Stores ``name`` and ``short_help`` eagerly so the top-level ``hogli --help``
-    can render category listings without loading the underlying module. The
-    real ``click.Command`` is imported the first time per-command --help runs,
-    args are parsed, or the command is invoked.
-    """
-
-    def __init__(self, name: str, short_help: str, import_string: str, hogli_config: dict) -> None:
-        super().__init__(name=name, short_help=short_help or None)
-        self._import_string = import_string
-        self._real: click.Command | None = None
-        # hogli_config carries fields like {"hidden": true} consumed by
-        # CategorizedGroup.format_commands; kept on the stub so visibility
-        # filtering does not require importing the module.
-        self.hogli_config = hogli_config
-
-    def _resolve(self) -> click.Command:
-        if self._real is not None:
-            return self._real
-        module_path, _, attr = self._import_string.partition(":")
-        if not module_path or not attr:
-            raise click.ClickException(
-                f"hogli: lazy command {self.name!r} has invalid click import string "
-                f"{self._import_string!r}; expected 'module.path:attr'"
-            )
-        module = importlib.import_module(module_path)
-        try:
-            real = getattr(module, attr)
-        except AttributeError as exc:
-            raise click.ClickException(
-                f"hogli: lazy command {self.name!r} could not resolve {self._import_string!r}: {exc}"
-            ) from exc
-        if not isinstance(real, click.Command):
-            raise click.ClickException(
-                f"hogli: lazy command {self.name!r} resolved to {type(real).__name__}, expected click.Command"
-            )
-        self._real = real
-        return real
-
-    def get_help(self, ctx: click.Context) -> str:
-        return self._resolve().get_help(ctx)
-
-    def get_usage(self, ctx: click.Context) -> str:
-        return self._resolve().get_usage(ctx)
-
-    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        return self._resolve().parse_args(ctx, args)
-
-    def invoke(self, ctx: click.Context) -> Any:
-        return self._resolve().invoke(ctx)
-
-    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[Any]:
-        return self._resolve().shell_complete(ctx, incomplete)
-
-
-class LazyClickCommand:
-    """Builder that turns a manifest entry with ``click:`` into a registered stub.
-
-    Construct via :py:meth:`from_manifest`. The framework calls
-    ``register(cli_group)`` once per manifest entry; the actual command module
-    is imported lazily on first --help or invocation.
-    """
-
-    def __init__(self, name: str, short_help: str, import_string: str, config: dict) -> None:
-        self.name = name
-        self.short_help = short_help
-        self.import_string = import_string
-        self.config = config
-
-    @classmethod
-    def from_manifest(cls, name: str, config: dict) -> LazyClickCommand:
-        import_string = config.get("click", "")
-        short_help = config.get("description", "") or ""
-        return cls(name=name, short_help=short_help, import_string=import_string, config=config)
-
-    def register(self, cli_group: click.Group) -> click.Command:
-        stub = _LazyClickStub(
-            name=self.name,
-            short_help=self.short_help,
-            import_string=self.import_string,
-            hogli_config=self.config,
-        )
-        cli_group.add_command(stub)
-        return stub
 
 
 def _run_prechecks(prechecks: list[dict[str, Any]], yes: bool = False) -> bool:

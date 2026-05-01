@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 # Base deps are deliberately light: click + pyyaml are enough to import every
-# module listed in `config.boot_modules` plus any lazy-loaded command stub.
+# module listed in `config.boot_modules` before lazy command resolution.
 # Heavy deps (pydantic for devenv, requests for telemetry, etc.) live in the
 # `full` extra so partial CI installs (e.g. lint:workflows) don't pull them in.
 dependencies = [

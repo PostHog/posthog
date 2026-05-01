@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import sys
+
+import pytest
 from unittest.mock import MagicMock, patch
 
+import click
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli.manifest import get_manifest
 
 runner = CliRunner()
+
+
+def _manifest_click_commands() -> list[str]:
+    manifest = get_manifest()
+    return [
+        cmd_name
+        for cmd_name in manifest.get_all_commands()
+        if (config := manifest.get_command_config(cmd_name)) and config.get("click")
+    ]
 
 
 class TestMainCommand:
@@ -100,6 +114,47 @@ class TestDynamicCommandRegistration:
         # build:schema-json uses direct cmd field
         result = runner.invoke(cli, ["build:schema-json", "--help"])
         assert result.exit_code in (0, 2)
+
+
+class TestLazyClickCommands:
+    def test_manifest_click_commands_resolve_and_render_help(self) -> None:
+        with click.Context(cli) as ctx:
+            for command_name in _manifest_click_commands():
+                command = cli.get_command(ctx, command_name)
+                assert isinstance(command, click.Command), command_name
+                assert command.name == command_name
+
+                result = runner.invoke(cli, [command_name, "--help"])
+                assert result.exit_code == 0, f"{command_name}: {result.output}"
+                assert "Usage:" in result.output
+
+    def test_top_level_help_does_not_import_lazy_command_modules(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        lazy_modules = [
+            "hogli_commands.devenv.cli",
+            "hogli_commands.devbox.cli",
+            "hogli_commands.metabase",
+            "hogli_commands.migrations",
+            "hogli_commands.test_runner",
+        ]
+        for module_name in lazy_modules:
+            monkeypatch.delitem(sys.modules, module_name, raising=False)
+
+        result = runner.invoke(cli, ["--help"])
+
+        assert result.exit_code == 0
+        for module_name in lazy_modules:
+            assert module_name not in sys.modules
+
+    def test_hidden_lazy_commands_are_hidden_from_help_and_listing(self) -> None:
+        hidden_command = "dev:list-units"
+
+        result = runner.invoke(cli, ["--help"])
+
+        assert result.exit_code == 0
+        assert hidden_command not in result.output
+        with click.Context(cli) as ctx:
+            assert hidden_command not in cli.list_commands(ctx)
+            assert isinstance(cli.get_command(ctx, hidden_command), click.Command)
 
 
 class TestCommandInjectionPrevention:

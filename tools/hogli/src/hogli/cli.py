@@ -18,7 +18,7 @@ from typing import Any
 import click
 
 from hogli import telemetry
-from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand, LazyClickCommand
+from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
 from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
 from hogli.validate import auto_update_manifest, find_missing_manifest_entries
@@ -33,6 +33,30 @@ class CategorizedGroup(click.Group):
     tracking (timing, exit code) using ``ctx.meta`` for state instead of a
     module-level singleton.
     """
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        command = super().get_command(ctx, cmd_name)
+        if command is not None:
+            return command
+
+        config = get_manifest().get_command_config(cmd_name)
+        if not config:
+            return None
+
+        if "click" not in config:
+            return None
+
+        return self._load_click_command(cmd_name, config["click"])
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        commands = {name for name in super().list_commands(ctx) if not self._is_registered_command_hidden(ctx, name)}
+        manifest_obj = get_manifest()
+        for cmd_name in manifest_obj.get_all_commands():
+            config = manifest_obj.get_command_config(cmd_name)
+            if not config or "click" not in config or config.get("hidden", False):
+                continue
+            commands.add(cmd_name)
+        return sorted(commands)
 
     def invoke(self, ctx: click.Context) -> Any:
         ctx.meta["hogli.start_time"] = _time.monotonic()
@@ -67,6 +91,7 @@ class CategorizedGroup(click.Group):
 
         # Group commands by category, storing (key, title) tuple
         grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
+        grouped_command_names: set[str] = set()
         for cmd_name, cmd in self.commands.items():
             # Skip hidden commands (they're still callable, just not shown in help)
             hogli_config = getattr(cmd, "hogli_config", {})
@@ -85,6 +110,21 @@ class CategorizedGroup(click.Group):
                 (key for key, title in category_key_to_title.items() if title == category_title), "commands"
             )
             grouped[(category_key, category_title)].append((cmd_name, help_text))
+            grouped_command_names.add(cmd_name)
+
+        for cmd_name in manifest_obj.get_all_commands():
+            config = manifest_obj.get_command_config(cmd_name)
+            if not config or "click" not in config or config.get("hidden", False):
+                continue
+            if cmd_name in grouped_command_names or cmd_name in child_commands:
+                continue
+
+            category_title = get_category_for_command(cmd_name)
+            category_key = next(
+                (key for key, title in category_key_to_title.items() if title == category_title), "commands"
+            )
+            grouped[(category_key, category_title)].append((cmd_name, config.get("description", "")))
+            grouped_command_names.add(cmd_name)
 
         # Build category order from the list
         category_order = {idx: cat.get("key") for idx, cat in enumerate(categories_list)}
@@ -110,6 +150,47 @@ class CategorizedGroup(click.Group):
             if rows:
                 with formatter.section(category_title):
                     formatter.write_dl(rows)
+
+    def _is_registered_command_hidden(self, ctx: click.Context, cmd_name: str) -> bool:
+        command = super().get_command(ctx, cmd_name)
+        if command is None:
+            return False
+        hogli_config = getattr(command, "hogli_config", {})
+        return bool(command.hidden or hogli_config.get("hidden", False))
+
+    def _load_click_command(self, cmd_name: str, import_string: Any) -> click.Command:
+        if not isinstance(import_string, str) or import_string.count(":") != 1:
+            raise click.ClickException(
+                f"hogli: command {cmd_name!r} has invalid click import string "
+                f"{import_string!r}; expected 'module.path:attr'"
+            )
+
+        module_path, attr = import_string.split(":", 1)
+        if not module_path or not attr:
+            raise click.ClickException(
+                f"hogli: command {cmd_name!r} has invalid click import string "
+                f"{import_string!r}; expected 'module.path:attr'"
+            )
+
+        try:
+            module = importlib.import_module(module_path)
+        except Exception as exc:
+            raise click.ClickException(f"hogli: command {cmd_name!r} could not import {module_path!r}: {exc}") from exc
+
+        try:
+            command = getattr(module, attr)
+        except AttributeError as exc:
+            raise click.ClickException(
+                f"hogli: command {cmd_name!r} could not resolve {import_string!r}: {exc}"
+            ) from exc
+
+        if not isinstance(command, click.Command):
+            raise click.ClickException(
+                f"hogli: command {cmd_name!r} resolved {import_string!r} to "
+                f"{type(command).__name__}, expected click.Command"
+            )
+
+        return command
 
 
 def _auto_update_manifest() -> None:
@@ -211,13 +292,13 @@ def concepts() -> None:
 def _register_script_commands() -> None:
     """Dynamically register commands from hogli.yaml.
 
-    Supports five entry types, dispatched in order:
-    1. ``click:`` — lazy-loaded Click command. Registered as a stub; the
-       backing module is imported on first per-command --help or invocation.
-    2. ``steps:`` — compose multiple hogli commands in sequence.
-    3. ``cmd:`` — execute a direct shell command.
-    4. ``hogli:`` — wrap another hogli command with extra args.
-    5. ``bin_script:`` — delegate to a shell script in ``config.scripts_dir``.
+    Supports four eagerly registered entry types:
+    1. ``steps:`` — compose multiple hogli commands in sequence.
+    2. ``cmd:`` — execute a direct shell command.
+    3. ``hogli:`` — wrap another hogli command with extra args.
+    4. ``bin_script:`` — delegate to a shell script in ``config.scripts_dir``.
+
+    ``click:`` entries are resolved lazily by ``CategorizedGroup.get_command``.
     """
     manifest = get_manifest()
     scripts_dir = manifest.scripts_dir
@@ -230,14 +311,12 @@ def _register_script_commands() -> None:
             if not isinstance(config, dict):
                 continue
 
-            click_target = config.get("click")
             steps = config.get("steps")
             cmd = config.get("cmd")
             hogli = config.get("hogli")
             bin_script = config.get("bin_script")
 
-            if click_target:
-                LazyClickCommand.from_manifest(cli_name, config).register(cli)
+            if "click" in config:
                 continue
 
             if steps:
