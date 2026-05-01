@@ -26639,6 +26639,7 @@
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
+                "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
                 "llm_cluster_explored",
                 "llm_dataset_created",

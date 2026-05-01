@@ -3649,6 +3649,7 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
+    LLM_ANALYTICS_TRACE_VIEWED = "llm_analytics_trace_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
     LLM_DATASET_CREATED = "llm_dataset_created"
