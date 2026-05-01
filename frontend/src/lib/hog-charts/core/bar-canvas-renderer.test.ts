@@ -192,8 +192,7 @@ describe('hog-charts canvas-renderer (bars)', () => {
             const ctx = mockCanvasContext()
             const drawCtx = makeDrawContext(ctx, ['a'])
             const series = makeSeries({ key: 's', data: [1] })
-            drawBars(drawCtx, series, [{ ...SQUARE, corners: { topLeft: true, topRight: true } }], { cornerRadius: 12 })
-            // 2 rounded corners → 2 quadraticCurveTo calls
+            drawBars(drawCtx, series, [{ ...SQUARE, corners: { topLeft: true, topRight: true } }], 12)
             expect(ctx.quadraticCurveTo).toHaveBeenCalledTimes(2)
         })
 

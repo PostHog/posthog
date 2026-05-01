@@ -431,18 +431,19 @@ export interface BarRect {
  *  are filled with a diagonal hatch pattern (mirrors the line/area dashed-region convention).
  *  The partial-range indices are clamped against `series.data.length`, so callers may pre-filter
  *  out non-drawable bars without distorting the hatch boundary. */
+export const DEFAULT_BAR_CORNER_RADIUS = 4
+
 export function drawBars(
     drawCtx: DrawContext,
     series: ResolvedSeries,
     bars: BarRect[],
-    options: { cornerRadius?: number } = {}
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
 ): void {
     const { ctx } = drawCtx
     if (bars.length === 0) {
         return
     }
 
-    const cornerRadius = options.cornerRadius ?? 4
     const dataLength = series.data.length
     const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, dataLength)
     const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
@@ -455,19 +456,18 @@ export function drawBars(
         const useHatch =
             hatch !== null &&
             ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
-        ctx.fillStyle = useHatch && hatch ? hatch : series.color
+        ctx.fillStyle = useHatch ? hatch : series.color
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()
     }
 }
 
-/** Draws a thin highlight ring around a bar rectangle. */
 export function drawBarHighlight(
     ctx: CanvasRenderingContext2D,
     bar: BarRect,
     color: string,
-    cornerRadius: number = 4
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
 ): void {
     if (bar.width <= 0 || bar.height <= 0) {
         return
