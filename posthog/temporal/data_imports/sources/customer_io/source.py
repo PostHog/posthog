@@ -217,7 +217,7 @@ class CustomerIOSource(
 
     def _webhook_source_response(self, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
