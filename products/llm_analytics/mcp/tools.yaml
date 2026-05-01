@@ -14,6 +14,12 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
+    llm-analytics-offline-evaluations-experiment-items-create:
+        operation: llm_analytics_offline_evaluations_experiment_items_create
+        enabled: false
+    llm-analytics-sentiment-generations-create:
+        operation: llm_analytics_sentiment_generations_create
+        enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_retrieve
         enabled: false
@@ -968,10 +974,4 @@ tools:
             clear only a matching pending queue item after the review is saved.
     llma-translate-create:
         operation: llm_analytics_translate_create
-        enabled: false
-    llm-analytics-offline-evaluations-experiment-items-create:
-        operation: llm_analytics_offline_evaluations_experiment_items_create
-        enabled: false
-    llm-analytics-sentiment-generations-create:
-        operation: llm_analytics_sentiment_generations_create
         enabled: false
