@@ -23,6 +23,7 @@ from products.signals.backend.agent_harness.profile.builders import (
     _integrations,
     _product_intents,
     _products_in_use,
+    _project_context,
     _signal_source_configs,
 )
 from products.signals.backend.agent_harness.tools.profile import (
@@ -31,6 +32,41 @@ from products.signals.backend.agent_harness.tools.profile import (
     get_project_profile,
 )
 from products.signals.backend.models import SignalProjectProfile, SignalReport, SignalSourceConfig
+
+
+class TestProjectContext(BaseTest):
+    def test_returns_product_description_and_app_urls(self) -> None:
+        self.team.app_urls = ["https://app.example.com", "https://docs.example.com"]
+        self.team.save()
+        self.team.project.product_description = "A demo SaaS for testing"
+        self.team.project.save()
+        result = _project_context(self.team)
+        assert result == {
+            "product_description": "A demo SaaS for testing",
+            "app_urls": ["https://app.example.com", "https://docs.example.com"],
+        }
+
+    def test_null_product_description_when_unset(self) -> None:
+        self.team.project.product_description = None
+        self.team.project.save()
+        self.team.app_urls = []
+        self.team.save()
+        result = _project_context(self.team)
+        assert result == {"product_description": None, "app_urls": []}
+
+    def test_strips_blank_product_description(self) -> None:
+        # A blank-string description should surface as null so the agent doesn't read
+        # an empty string as "I have a product description, it's just empty."
+        self.team.project.product_description = "   "
+        self.team.project.save()
+        result = _project_context(self.team)
+        assert result["product_description"] is None
+
+    def test_filters_empty_app_urls(self) -> None:
+        self.team.app_urls = ["https://app.example.com", "", None]  # type: ignore[list-item]
+        self.team.save()
+        result = _project_context(self.team)
+        assert result["app_urls"] == ["https://app.example.com"]
 
 
 class TestProductsInUse(BaseTest):
@@ -149,6 +185,7 @@ class TestBuildInventory(BaseTest):
     def test_returns_all_inventory_keys(self) -> None:
         inventory = build_inventory(self.team)
         assert set(inventory.keys()) == {
+            "project_context",
             "products_in_use",
             "product_intents",
             "integrations",

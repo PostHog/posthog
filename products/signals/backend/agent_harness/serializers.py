@@ -380,6 +380,26 @@ class TopEventEntrySerializer(serializers.Serializer):
     )
 
 
+class ProjectContextSerializer(serializers.Serializer):
+    """`inventory.project_context` — free-form orientation about the project's product."""
+
+    product_description = serializers.CharField(
+        allow_null=True,
+        allow_blank=False,
+        help_text=(
+            "Human-set product description on the project (max 1000 chars). When present, "
+            'the most direct "what does this team\'s product do" answer. `null` when unset.'
+        ),
+    )
+    app_urls = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Registered app URLs for this team (toolbar / replay). The team's actual "
+            "product surface; complements `$pageview.$host` discovery via `read-data-schema`."
+        ),
+    )
+
+
 class ProjectProfileInventorySerializer(serializers.Serializer):
     """The deterministic inventory layer of a project profile.
 
@@ -388,6 +408,9 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     profile is ground truth from authoritative tables; memory is agent inference.
     """
 
+    project_context = ProjectContextSerializer(
+        help_text="Free-form orientation: human-set product description + registered app URLs.",
+    )
     products_in_use = serializers.ListField(
         child=serializers.CharField(),
         help_text="Product keys this team has completed onboarding for, sorted alphabetically.",

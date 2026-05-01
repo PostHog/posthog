@@ -394,6 +394,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         response = self.client.get(self._list_url())
         inventory = response.json()["payload"]["inventory"]
         assert set(inventory.keys()) == {
+            "project_context",
             "products_in_use",
             "product_intents",
             "integrations",

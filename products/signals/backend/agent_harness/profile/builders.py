@@ -53,6 +53,7 @@ def build_inventory(team: Team) -> dict[str, Any]:
     raise, since all the sources read here are local Postgres queries on indexed columns.
     """
     return {
+        "project_context": _project_context(team),
         "products_in_use": _products_in_use(team),
         "product_intents": _product_intents(team),
         "integrations": _integrations(team),
@@ -60,6 +61,24 @@ def build_inventory(team: Team) -> dict[str, Any]:
         "signal_source_configs": _signal_source_configs(team),
         "existing_inbox_reports": _existing_inbox_reports(team),
         "top_events": _top_events(team),
+    }
+
+
+def _project_context(team: Team) -> dict[str, Any]:
+    """Free-form orientation about the project's product and surface area.
+
+    `product_description` is a human-set text field on the project (max 1000 chars) —
+    when populated, it's the most direct "what does this team's product do" answer
+    available without scraping. `app_urls` is the registered set of URLs (toolbar,
+    replay) — useful as the team's actual product surface, complementing the event-
+    based `$host` discovery the scout can do via MCP if it needs to.
+    """
+    project = team.project
+    product_description = (project.product_description or "").strip() if project else ""
+    app_urls = [url for url in (team.app_urls or []) if url]
+    return {
+        "product_description": product_description or None,
+        "app_urls": app_urls,
     }
 
 
