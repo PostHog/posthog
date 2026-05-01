@@ -115,17 +115,17 @@ function primaryDisabledReason({
     isDraft,
     alertForm,
     alertFormChanged,
-    alertFormErrors,
+    nameError,
     hasPendingNotifications,
 }: {
     isDraft: boolean
     alertForm: { name: string; severityLevels: string[]; serviceNames: string[]; filterGroup: UniversalFiltersGroup }
     alertFormChanged: boolean
-    alertFormErrors: Record<string, string | undefined>
+    nameError: string | undefined
     hasPendingNotifications: boolean
 }): string | undefined {
-    if (alertFormErrors?.name) {
-        return alertFormErrors.name
+    if (nameError) {
+        return nameError
     }
     if (isDraft) {
         return !hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
@@ -207,7 +207,7 @@ function AlertHeader(): JSX.Element {
                                 isDraft,
                                 alertForm,
                                 alertFormChanged,
-                                alertFormErrors,
+                                nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
                                 hasPendingNotifications: pendingNotifications.length > 0,
                             })}
                             data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}

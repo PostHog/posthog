@@ -175,9 +175,9 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
             }),
             submit: async (form) => {
                 if (!form.name?.trim()) {
-                    lemonToast.error('Name is required')
-                    throw new Error('Name is required')
+                    form.name = 'Untitled alert'
                 }
+
                 if (!hasAnyFilter(form.severityLevels, form.serviceNames, form.filterGroup)) {
                     lemonToast.error('At least one filter is required')
                     throw new Error('At least one filter is required')
