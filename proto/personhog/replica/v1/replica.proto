@@ -51,7 +51,7 @@ service PersonHogReplica {
 
   // Group writes
   rpc CreateGroup(personhog.types.v1.CreateGroupRequest) returns (personhog.types.v1.CreateGroupResponse);
-  rpc UpdateGroupProperties(personhog.types.v1.UpdateGroupPropertiesRequest) returns (personhog.types.v1.UpdateGroupPropertiesResponse);
+  rpc UpdateGroup(personhog.types.v1.UpdateGroupRequest) returns (personhog.types.v1.UpdateGroupResponse);
   rpc DeleteGroupsBatchForTeam(personhog.types.v1.DeleteGroupsBatchForTeamRequest) returns (personhog.types.v1.DeleteGroupsBatchForTeamResponse);
 
   // Group type mapping writes

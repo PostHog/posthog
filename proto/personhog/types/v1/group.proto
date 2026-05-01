@@ -117,14 +117,21 @@ message CreateGroupResponse {
   Group group = 1;
 }
 
-message UpdateGroupPropertiesRequest {
+message UpdateGroupRequest {
   int64 team_id = 1;
   int32 group_type_index = 2;
   string group_key = 3;
-  bytes group_properties = 4;
+  // Only fields listed in update_mask are written.
+  // Valid paths: "group_properties", "properties_last_updated_at", "properties_last_operation", "created_at"
+  // version is always auto-incremented on any update.
+  repeated string update_mask = 4;
+  optional bytes group_properties = 5;
+  optional bytes properties_last_updated_at = 6;
+  optional bytes properties_last_operation = 7;
+  optional int64 created_at = 8;
 }
 
-message UpdateGroupPropertiesResponse {
+message UpdateGroupResponse {
   Group group = 1;
   bool updated = 2;
 }
