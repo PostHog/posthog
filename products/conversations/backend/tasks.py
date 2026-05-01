@@ -760,7 +760,7 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
                 channel_detail="github_issue",
                 widget_session_id="",
                 distinct_id=f"github:{issue_author}" if issue_author else "github:unknown",
-                status=Status.OPEN,
+                status=Status.NEW,
                 anonymous_traits={"name": issue_author, "github_login": issue_author},
                 github_repo=repo,
                 github_issue_number=issue_number,
@@ -862,9 +862,8 @@ def _handle_github_issue_event(team: Team, repo: str, action: str, payload: dict
                 }
                 first_comment.save(update_fields=["content", "item_context"])
 
-        ticket.status = Status.NEW
         ticket.unread_team_count = 1
-        ticket.save(update_fields=["status", "unread_team_count", "updated_at"])
+        ticket.save(update_fields=["unread_team_count", "updated_at"])
 
     elif action == "closed":
         existing = _find_github_ticket(team.id, repo, issue_number)
