@@ -13,13 +13,26 @@ from datetime import timedelta
 from typing import Optional
 from uuid import UUID
 
+from django.db import transaction
+from django.utils import timezone
+
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
+from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
+from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
+from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
+from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
+from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.notebooks.backend.models import Notebook
 
 logger = structlog.get_logger(__name__)
 
@@ -66,14 +79,6 @@ class AnomalyInvestigationWorkflow(PostHogWorkflow):
 
 @activity.defn
 async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInputs) -> None:
-    from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
-    from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
-    from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
-    from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
-    from posthog.temporal.common.heartbeat import Heartbeater
-
-    from products.notebooks.backend.models import Notebook
-
     team, alert, alert_check = await asyncio.gather(
         Team.objects.aget(id=inputs.team_id),
         AlertConfiguration.objects.select_related("insight").aget(id=inputs.alert_id),
@@ -194,12 +199,6 @@ def _dispatch_gated_notification(
     Idempotent: if another codepath (retry, safety-net task) already dispatched,
     this is a no-op.
     """
-    from django.db import transaction
-    from django.utils import timezone
-
-    from posthog.models.alert import AlertCheck
-    from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
-
     inconclusive_action = alert.investigation_inconclusive_action or "notify"
     suppress = verdict == "false_positive" or (verdict == "inconclusive" and inconclusive_action == "suppress")
 
@@ -291,16 +290,12 @@ def _truncate_summary(summary: str | None) -> str | None:
 
 
 async def _update_status(alert_check, status: str) -> None:
-    from posthog.models.alert import AlertCheck
-
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_status=status,
     )
 
 
 async def _mark_failed(alert_check, reason: str) -> None:
-    from posthog.models.alert import AlertCheck, InvestigationStatus
-
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_status=InvestigationStatus.FAILED,
         investigation_error={"message": reason},
@@ -314,9 +309,6 @@ def _build_multimodal_context(*, alert, context_text: str):
     Best-effort: if the detector can't simulate or the chart fails to render, we
     fall back to text-only so the investigation still runs.
     """
-    from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
-    from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
-
     if alert.detector_config is None or alert.insight is None:
         return context_text
 

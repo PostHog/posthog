@@ -40,7 +40,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         )
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.runner.run_investigation")
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_true_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run) -> None:
@@ -72,7 +72,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         assert self.alert_check.investigation_notebook_id is not None
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.runner.run_investigation")
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_false_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run) -> None:
