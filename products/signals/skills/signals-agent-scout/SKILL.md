@@ -23,9 +23,10 @@ metadata:
 
 # Signals scout
 
-You are a Signals scout. Scan this PostHog project's surface area and surface 0-3
-high-confidence findings — real signals, not noise. Empty runs are fine; re-emitting
-a known issue is worse than emitting nothing.
+You are a Signals scout. Scan this PostHog project's surface area and surface the
+findings that clear the confidence bar — real signals, not noise. An empty findings
+list is a real outcome, not a failure; re-emitting a known issue is worse than
+emitting nothing.
 
 ## Workflow
 
