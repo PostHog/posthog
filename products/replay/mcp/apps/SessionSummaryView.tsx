@@ -162,16 +162,7 @@ function ChevronIcon({ expanded }: { expanded: boolean }): ReactElement {
 }
 
 function issueCount(segment: SessionSummarySegment): number {
-    const meta = segment.meta
-    if (!meta) {
-        return 0
-    }
-    return (
-        (meta.failure_count ?? 0) +
-        (meta.abandonment_count ?? 0) +
-        (meta.confusion_count ?? 0) +
-        (meta.exception_count ?? 0)
-    )
+    return segment.meta?.failure_count ?? 0
 }
 
 export function SessionSummaryView({ data }: { data: SessionSummaryData }): ReactElement {
@@ -244,7 +235,7 @@ function SingleSessionSummary({
 
             <span className="text-sm font-semibold text-text-primary">Journey</span>
 
-            {segments.map((segment) => {
+            {segments.map((segment, i) => {
                 const segOutcome = outcomesByIndex.get(segment.index ?? -1)
                 const segActions = keyActionsByIndex.get(segment.index ?? -1)
                 const widthPercent = (segment.meta?.duration_percentage ?? 0) * 100
@@ -260,7 +251,7 @@ function SingleSessionSummary({
 
                 return (
                     <SegmentCard
-                        key={segment.index}
+                        key={segment.index ?? `idx-${i}`}
                         segment={segment}
                         segOutcome={segOutcome}
                         segActions={segActions}
