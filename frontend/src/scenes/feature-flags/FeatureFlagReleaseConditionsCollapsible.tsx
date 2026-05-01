@@ -305,7 +305,8 @@ interface ConditionProps {
         rollout?: number,
         properties?: AnyPropertyFilter[],
         variant?: string | null,
-        description?: string
+        description?: string,
+        earlyExit?: boolean
     ) => void
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
@@ -680,7 +681,7 @@ const ConditionContent = ({
                                                     )
                                                 }}
                                                 label="Stop evaluation if excluded by rollout"
-                                                labelInline
+                                                labelInline={true}
                                             />
                                             <Tooltip title="When enabled, evaluation will stop if users match the conditions but are excluded by the rollout percentage. Otherwise, evaluation continues to the next condition set.">
                                                 <IconInfo className="text-sm text-muted" />
