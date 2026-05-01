@@ -22,7 +22,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SessionMinTimestampWhereClauseExtractorV3,
+    build_session_property_pre_aggregation_predicate,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
@@ -176,7 +179,10 @@ class RawSessionsTableV3(Table):
 
 
 def select_from_sessions_table_v3(
-    requested_fields: dict[str, list[str | int]], node: ast.SelectQuery, context: HogQLContext
+    requested_fields: dict[str, list[str | int]],
+    node: ast.SelectQuery,
+    context: HogQLContext,
+    extra_where: Optional[ast.Expr] = None,
 ):
     from posthog.hogql import ast
 
@@ -391,6 +397,8 @@ def select_from_sessions_table_v3(
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     where = SessionMinTimestampWhereClauseExtractorV3(context).get_inner_where(node)
+    if extra_where is not None:
+        where = ast.And(exprs=[where, extra_where]) if where is not None else extra_where
 
     return ast.SelectQuery(
         select=select_fields,
@@ -449,7 +457,20 @@ def join_events_table_to_sessions_table_v3(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context))
+    extra_where: Optional[ast.Expr] = None
+    if context.modifiers.sessionPropertyPreAggregation:
+        extra_where = build_session_property_pre_aggregation_predicate(
+            node,
+            join_to_add,
+            context,
+            requested_fields=join_to_add.fields_accessed,
+            select_from_fn=select_from_sessions_table_v3,
+            session_id_v7_field=ast.Field(chain=["raw_sessions_v3", "session_id_v7"]),
+        )
+
+    join_expr = ast.JoinExpr(
+        table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context, extra_where=extra_where)
+    )
     join_expr.join_type = "LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
