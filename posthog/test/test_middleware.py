@@ -1743,12 +1743,15 @@ def test_oauth_coop_middleware(path, query_string, expected_coop):
 
 @parameterized.expand(
     [
-        ("posthog/mcp-server v1", "mcp", "mcp", "query"),
-        ("Mozilla/5.0", "web", None, None),
-        ("posthog/code", "posthog_code", None, None),
+        ("posthog/mcp-server v1", "mcp"),
+        ("Mozilla/5.0", "web"),
+        ("posthog/code", "posthog_code"),
     ]
 )
-def test_chqueries_middleware_mcp_defaults(user_agent, expected_source, expected_product, expected_feature):
+def test_chqueries_middleware_tags_source(user_agent, expected_source):
+    # Middleware only tags `source`. Product/feature are filled later by `add_fallback_query_tags`
+    # in `sync_execute` based on scene/query_type — or surfaced via UntaggedQueryError if neither
+    # is available. Tagging product=mcp here would mask genuinely untagged queries.
     from django.http import HttpResponse
     from django.test import RequestFactory
 
@@ -1772,8 +1775,8 @@ def test_chqueries_middleware_mcp_defaults(user_agent, expected_source, expected
     CHQueries(get_response)(request)
 
     assert captured["source"] == expected_source
-    assert captured["product"] == expected_product
-    assert captured["feature"] == expected_feature
+    assert captured["product"] is None
+    assert captured["feature"] is None
 
 
 def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> None:
