@@ -1,24 +1,23 @@
 ---
 name: signals-agent-scout
 description: >
-  Generic Signals scout for PostHog projects. Reads the project profile, recent runs, and
-  durable memory; picks one or two loud threads (error bursts, experiment regressions,
-  warehouse stalls, feature-flag rollouts, traffic anomalies); validates with concrete MCP
-  read-tool queries; and emits 0-3 high-confidence findings via
-  signals-agent-harness-runs-findings-create. Use for first-pass scouting on any project, or
-  as a starting point for a more focused scout.
+  Generic Signals scout for PostHog projects. Explores freely across whichever products the
+  team uses (errors, replays, web analytics, experiments, feature flags, warehouse, LLM
+  analytics, surveys, hog functions), saves observations as durable memory, and emits the
+  findings that clear the confidence bar via signals-agent-harness-runs-findings-create.
+  Use for first-pass scouting on any project. The scout's understanding of the team
+  compounds across runs through memory; per-product references in references/products/
+  steer attention without prescribing a fixed playbook.
 compatibility: >
   Designed for the PostHog Signals agent harness in a Claude sandbox with read-only PostHog
   MCP scopes (task:read, llm_skill:read, plus standard analytics reads). Assumes the
   signals-agent-harness MCP family is available: project-profile-get, runs-list, memory-list,
-  runs-findings-create, memory-create.
+  runs-findings-create, memory-create. The sandbox image bakes the official PostHog skill
+  set into ~/.claude/skills/ and /scripts/plugins/posthog/skills/, so per-product
+  references can name upstream skills directly without MCP fetches.
 metadata:
   owner_team: signals
   scope: general
-  references_index:
-    finding_schema: references/finding-schema.md
-    dedupe_rules: references/dedupe-rules.md
-    investigation_patterns: references/investigation-patterns.md
 ---
 
 # Signals scout
@@ -28,63 +27,111 @@ findings that clear the confidence bar — real signals, not noise. An empty fin
 list is a real outcome, not a failure; re-emitting a known issue is worse than
 emitting nothing.
 
-## Workflow
+## How a run works
 
-1. **Orient.** Call in this order, each is one cheap read:
-   - `signals-agent-harness-project-profile-get` — deterministic snapshot of products in
-     use, integrations, external data sources, signal source configs, recent dashboards,
-     popular insights, top events (with reach + burst metrics over 7d), and inbox report
-     counts. Replaces 4-5 discovery calls.
-   - `signals-agent-harness-runs-list` (last 7d) — prior scout runs and what they concluded.
-   - `signals-agent-harness-memory-list` — durable team steering (known noise, team-confirmed
-     patterns, "already addressed" notes).
+There's no fixed sequence. The sections below are **moves you'll cycle between** as
+you find threads and develop hypotheses. Skip what's not useful, revisit what is.
 
-2. **Pick one or two threads.** Don't fan out. Go where the signal is loudest in the
-   profile (`top_events.recent_24h_users` spike, a `signal_source_configs.disabled`
-   surprise, an `external_data_sources` failure). See
-   [`references/investigation-patterns.md`](references/investigation-patterns.md) for
-   common shapes (error bursts, experiment regressions, warehouse stalls, feature-flag
-   rollouts, traffic anomalies, popular-insight regressions).
+### Get oriented
 
-3. **Investigate with concrete queries.** Use the PostHog MCP read tools (`query-trends`,
-   `query-funnel`, `error-tracking-issues-list`, `read-data-schema`, `inbox-reports-list`,
-   `execute-sql`, etc.) to validate the hypothesis. If the data doesn't support it, drop
-   it — do not stretch.
+Three cheap reads cold-start a run. Skip any you already have context on:
 
-4. **Decide per hypothesis.**
-   - **Emit** via `signals-agent-harness-runs-findings-create`. Before your first emit,
-     read [`references/finding-schema.md`](references/finding-schema.md) — it covers the
-     description prose contract, weight/confidence rubrics, evidence list shape, hypothesis
-     wording, severity mapping, and worked examples.
-   - **Remember** via `signals-agent-harness-memory-create` to carry forward steering ("issue
-     X stayed quiet after 13:22 — treat as already-surfaced if quiet next run") or to record
-     what you ruled out and why.
-   - **Skip** with a one-line note in your final summary.
+- `signals-agent-harness-memory-list` — durable team steering inherited from past
+  runs. **This is your team-specific map.** Memories tagged `pattern`, `noise`,
+  `addressed`, `dedupe`, or `domain:<area>` tell you what's normal, what's already
+  surfaced, and what to skip.
+- `signals-agent-harness-runs-list` (last 7d) — what prior scouts found and ruled
+  out. Skim summaries; pull `runs-retrieve` only when a summary mentions a topic
+  you're considering.
+- `signals-agent-harness-project-profile-get` — deterministic snapshot (products in
+  use, integrations, external data sources, signal source configs, recent
+  dashboards, popular insights, top events with reach + burst metrics, inbox report
+  counts). Most useful on a project you've never run on; once memory is dense,
+  profile is one of several baselines rather than the primary map.
 
-   When a prior run already covered the topic, read
-   [`references/dedupe-rules.md`](references/dedupe-rules.md) to decide between
-   fresh-emit-citing-prior, skip, or remember.
+### Explore
 
-5. **Close out.** End your turn with a one-paragraph summary listing what you looked at,
-   what you found, what you ruled out and why. The harness writes that summary to the run
-   row as searchable prose.
+Pick what looks interesting and follow it. There is no required starting point —
+let the project, memory, or recent runs lead you.
+
+The profile names the products this team uses (`products_in_use`). For each
+product covered by [`references/products/`](references/products/), there's a thin
+**lens** — what to look for proactively, what's signal vs noise, which upstream
+PostHog skill (already on disk under `~/.claude/skills/`) gives the deeper
+exploration playbook. Use these to direct attention; don't march through them.
+
+You don't need a per-product reference to start exploring. Memory might point at a
+specific entity to recheck. The profile might surface a `top_events` burst or a
+failing `external_data_sources` row that's worth investigating directly. Recent
+runs might raise a thread you can advance with fresh evidence.
+
+If a thread doesn't pan out, drop it. If it does, validate with concrete queries
+(`query-trends`, `query-funnel`, `error-tracking-issues-list`, `read-data-schema`,
+`inbox-reports-list`, `execute-sql`, etc.) until you have evidence solid enough to
+emit or to rule out.
+
+### Save memory as you go
+
+Memory is a **continuous activity**, not an end-of-run wrap-up. Write a memory
+entry whenever you observe something a future run should know:
+
+- _"This project's `$pageview` baseline is ~5k/day; weekend dips of ~30% are
+  normal."_
+- _"Team uses experiments heavily; primary conversion event is `$identify`."_
+- _"`stripe-charges` warehouse sync runs weekdays only — Sunday gaps are not a
+  stall."_
+- _"Issue X stayed quiet after 13:22Z on 2026-05-01 — treat as already-surfaced
+  if quiet next run."_
+
+Tag liberally (`pattern`, `dedupe`, `noise`, `addressed`, `domain:<area>`,
+`entity:<id>`). Future runs read these and act on them. Memory is how the scout's
+understanding of the team **compounds across runs** — profile gives you ground
+truth, memory is where you build the team-specific map.
+
+See [`references/dedupe-rules.md`](references/dedupe-rules.md) for memory shape,
+when memory replaces an emit, and noise patterns.
+
+### Decide
+
+For each candidate finding:
+
+- **Emit** via `signals-agent-harness-runs-findings-create` if it clears the
+  confidence bar. Read [`references/finding-schema.md`](references/finding-schema.md)
+  before your first emit — covers the prose contract, weight/confidence rubrics,
+  evidence shape, hypothesis wording, severity mapping, and a worked example.
+- **Remember** if it's below the bar but worth carrying forward, or to record
+  what you ruled out and why.
+- **Skip** with a one-line note in your final summary.
+
+When a prior run already covered the topic,
+[`references/dedupe-rules.md`](references/dedupe-rules.md) tells you whether to
+fresh-emit-citing-prior, skip, or remember.
+
+### Close out
+
+End your turn with a one-paragraph summary of what you looked at, what you
+emitted, what you remembered, what you ruled out and why. The harness writes
+that summary to the run row as searchable prose.
+
+An empty findings list is a real outcome — the run still generated memory entries
+about what's normal, what's quiet, what you ruled out. The scout's value
+compounds; one quiet run today doesn't reduce the value of catching tomorrow's
+burst.
 
 ## Investigation order
 
-Cheap reads first — the orientation calls in step 1 are three calls that give you full
-context. Only reach for expensive reads (HogQL aggregations, paths, drill-downs) once
-you have a concrete hypothesis worth validating. If a hypothesis doesn't survive a
-quick check, drop it and pick another.
+Cheap reads first — orientation calls give you full context. Only reach for
+expensive reads (HogQL aggregations, paths, drill-downs) once you have a concrete
+hypothesis worth validating. If a hypothesis doesn't survive a quick check, drop
+it and pick another.
 
 ## When to stop
 
-- The project profile is quiet (no fresh top-events bursts, no failing data sources,
-  no new inbox reports, prior runs all empty) — stop and close out with an empty
-  findings list.
-- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` — skip
-  with a one-line note. See
-  [`references/dedupe-rules.md`](references/dedupe-rules.md) for the full classifier.
-- You've validated a couple of hypotheses and emitted what's solid — close out, even
-  if there's more you could look at. Fewer, better signals.
+- Profile + memory + recent runs are quiet → close out with empty findings.
+- A candidate matches a memory entry tagged `noise` / `addressed` / `dedupe` →
+  skip with a one-line note. See
+  [`references/dedupe-rules.md`](references/dedupe-rules.md) for the classifier.
+- You've validated some hypotheses and emitted what's solid → close out, even if
+  there's more you could look at. Fewer, better signals.
 
 "Looked but found nothing meaningful" is a real outcome, not a failure.
