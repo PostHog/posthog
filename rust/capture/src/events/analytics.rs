@@ -1619,13 +1619,20 @@ mod tests {
 
     // ============ heatmap redirect tests ============
 
-    fn create_event_with_heatmap_data() -> RawEvent {
+    /// Two shapes of input event qualify for a heatmap redirect: an event
+    /// carrying `$heatmap_data` directly, or an event carrying the
+    /// scroll-depth pair (`$prev_pageview_pathname` + `$current_url`) which
+    /// the heatmap pipeline turns into a synthetic `scrolldepth` data point.
+    /// The pipeline must handle both identically end-to-end.
+    #[derive(Clone, Copy, Debug)]
+    enum HeatmapShape {
+        HeatmapData,
+        ScrollDepth,
+    }
+
+    fn build_heatmap_carrier_event(shape: HeatmapShape) -> RawEvent {
         let mut properties = HashMap::new();
         properties.insert("distinct_id".to_string(), json!("test_user"));
-        properties.insert(
-            "$heatmap_data".to_string(),
-            json!({"https://example.com": [{"x": 100, "y": 200, "target_fixed": false, "type": "click"}]}),
-        );
         properties.insert("$viewport_height".to_string(), json!(900));
         properties.insert("$viewport_width".to_string(), json!(1440));
         properties.insert("$session_id".to_string(), json!("session-abc"));
@@ -1634,6 +1641,19 @@ mod tests {
             "other_prop".to_string(),
             json!("should_not_appear_in_redirect"),
         );
+
+        match shape {
+            HeatmapShape::HeatmapData => {
+                properties.insert(
+                    "$heatmap_data".to_string(),
+                    json!({"https://example.com": [{"x": 100, "y": 200, "target_fixed": false, "type": "click"}]}),
+                );
+            }
+            HeatmapShape::ScrollDepth => {
+                properties.insert("$prev_pageview_pathname".to_string(), json!("/old"));
+                properties.insert("$prev_pageview_max_scroll".to_string(), json!(0.42));
+            }
+        }
 
         RawEvent {
             uuid: Some(uuid_v7()),
@@ -1684,7 +1704,7 @@ mod tests {
     fn test_create_heatmap_redirect_properties_and_metadata() {
         let now = Utc::now();
         let context = create_test_context(now, None);
-        let event = create_event_with_heatmap_data();
+        let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         let redirect = create_heatmap_redirect(&event, historical_cfg, &context).unwrap();
@@ -1708,11 +1728,14 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::heatmap_data(HeatmapShape::HeatmapData)]
+    #[case::scroll_depth(HeatmapShape::ScrollDepth)]
     #[tokio::test]
-    async fn test_process_events_creates_heatmap_redirect() {
+    async fn test_process_events_creates_heatmap_redirect(#[case] shape: HeatmapShape) {
         let now = Utc::now();
         let context = create_test_context(now, None);
-        let events = vec![create_event_with_heatmap_data()];
+        let events = vec![build_heatmap_carrier_event(shape)];
 
         let sink = Arc::new(MockSink::new());
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
@@ -1740,11 +1763,11 @@ mod tests {
         let orig_data: RawEvent = serde_json::from_str(&original.event.data).unwrap();
         assert!(
             !orig_data.properties.contains_key("$heatmap_data"),
-            "$heatmap_data should be stripped from original"
+            "$heatmap_data must never be on the original (stripped if present, never added if not)"
         );
         assert!(
             orig_data.properties.contains_key("$current_url"),
-            "non-$heatmap_data properties should remain on original"
+            "non-$heatmap_data properties remain on original"
         );
 
         let redirect = &captured[1];
@@ -1758,7 +1781,7 @@ mod tests {
         let now = Utc::now();
         let context = create_test_context(now, None);
 
-        let mut event = create_event_with_heatmap_data();
+        let mut event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
         event.event = "$$heatmap".to_string();
         let events = vec![event];
 
@@ -1821,19 +1844,22 @@ mod tests {
         assert!(!captured[0].metadata.skip_heatmap_processing);
     }
 
-    /// End-to-end pipeline-to-kafka contract for the heatmap redirect: an
-    /// event with `$heatmap_data` produces two kafka records — the stripped
-    /// original on the events topic with the `skip_heatmap_processing`
-    /// header, and a `$$heatmap` redirect on the heatmaps topic carrying the
-    /// heatmap properties. Pre-refactor the events branch was the sole
-    /// extractor of heatmap data; this test pins the new contract that the
-    /// heatmaps branch is now the sole extractor and the events branch sees
-    /// a pre-stripped payload it must skip.
+    /// End-to-end pipeline-to-kafka contract for the heatmap redirect: a
+    /// non-`$$heatmap` event that qualifies as a heatmap carrier produces
+    /// two kafka records — the stripped original on the events topic with
+    /// the `skip_heatmap_processing` header, and a `$$heatmap` redirect on
+    /// the heatmaps topic carrying the heatmap properties. Both qualifying
+    /// shapes (explicit `$heatmap_data`, and the scroll-depth pair) must
+    /// produce identical end-to-end behavior except for which heatmap-
+    /// payload properties end up on the redirect.
+    #[rstest]
+    #[case::heatmap_data(HeatmapShape::HeatmapData)]
+    #[case::scroll_depth(HeatmapShape::ScrollDepth)]
     #[tokio::test]
-    async fn e2e_heatmap_redirect_strips_original_and_routes_redirect() {
+    async fn e2e_heatmap_redirect_strips_original_and_routes_redirect(#[case] shape: HeatmapShape) {
         let now = Utc::now();
         let context = create_test_context(now, None);
-        let event = create_event_with_heatmap_data();
+        let event = build_heatmap_carrier_event(shape);
         let original_uuid = event.uuid.unwrap();
         let events = vec![event];
 
@@ -1897,7 +1923,7 @@ mod tests {
             .expect("data field should be a serialized RawEvent");
         assert!(
             !original_raw.properties.contains_key("$heatmap_data"),
-            "$heatmap_data must be stripped from the original on the events topic"
+            "$heatmap_data must never be on the original (stripped if present, never added otherwise)"
         );
         // Other heatmap-adjacent properties must remain — web analytics queries depend on them.
         assert!(original_raw.properties.contains_key("$current_url"));
@@ -1932,18 +1958,8 @@ mod tests {
         let redirect_raw: RawEvent = serde_json::from_str(&redirect_captured.data)
             .expect("data field should be a serialized RawEvent");
         assert_eq!(redirect_raw.event, "$$heatmap");
-        // The redirect carries the heatmap properties the pipeline reads.
-        assert_eq!(
-            redirect_raw.properties.get("$heatmap_data"),
-            Some(&json!({
-                "https://example.com": [{
-                    "x": 100,
-                    "y": 200,
-                    "target_fixed": false,
-                    "type": "click",
-                }]
-            })),
-        );
+
+        // Properties carried by every heatmap redirect, regardless of shape.
         assert_eq!(
             redirect_raw.properties.get("$viewport_height"),
             Some(&json!(900)),
@@ -1970,5 +1986,42 @@ mod tests {
             !redirect_raw.properties.contains_key("other_prop"),
             "redirect must only carry heatmap properties"
         );
+
+        // Shape-specific payload properties.
+        match shape {
+            HeatmapShape::HeatmapData => {
+                assert_eq!(
+                    redirect_raw.properties.get("$heatmap_data"),
+                    Some(&json!({
+                        "https://example.com": [{
+                            "x": 100,
+                            "y": 200,
+                            "target_fixed": false,
+                            "type": "click",
+                        }]
+                    })),
+                );
+                assert!(
+                    !redirect_raw
+                        .properties
+                        .contains_key("$prev_pageview_pathname"),
+                    "scroll-depth properties absent on heatmap-data shape"
+                );
+            }
+            HeatmapShape::ScrollDepth => {
+                assert!(
+                    !redirect_raw.properties.contains_key("$heatmap_data"),
+                    "scroll-depth shape doesn't carry $heatmap_data — the heatmap pipeline derives it from $prev_pageview_*"
+                );
+                assert_eq!(
+                    redirect_raw.properties.get("$prev_pageview_pathname"),
+                    Some(&json!("/old")),
+                );
+                assert_eq!(
+                    redirect_raw.properties.get("$prev_pageview_max_scroll"),
+                    Some(&json!(0.42)),
+                );
+            }
+        }
     }
 }
