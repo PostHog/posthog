@@ -135,10 +135,36 @@ describe('hog-charts bar scales', () => {
                 barLayout: 'stacked',
                 stackedSeries,
             })
-            // The "30" stack top should map within the plot area
             const yAtStackTop = value(30)
             expect(yAtStackTop).toBeGreaterThanOrEqual(dimensions.plotTop - 1)
             expect(yAtStackTop).toBeLessThanOrEqual(dimensions.plotTop + dimensions.plotHeight + 1)
+        })
+
+        it('skips excluded series when building the grouped sub-band', () => {
+            const visible = makeSeries({ key: 'visible', data: [10] })
+            const excluded = makeSeries({ key: 'excluded', data: [10], visibility: { excluded: true } })
+            const { group } = createBarScales([visible, excluded], ['a'], dimensions, { barLayout: 'grouped' })
+            expect(group?.('visible')).not.toBeUndefined()
+            expect(group?.('excluded')).toBeUndefined()
+        })
+    })
+
+    describe('createBarScales — log scale', () => {
+        it('snaps the domain to enclosing decade boundaries with positive data', () => {
+            const series = [makeSeries({ key: 's1', data: [3, 50, 700] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { scaleType: 'log' })
+            const [lo, hi] = value.domain()
+            expect(lo).toBeLessThanOrEqual(3)
+            expect(hi).toBeGreaterThanOrEqual(700)
+            expect(value(700)).toBeLessThan(value(3))
+        })
+
+        it('falls back to linear when the data has no positive values', () => {
+            const series = [makeSeries({ key: 's1', data: [-10, -5, 0] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { scaleType: 'log' })
+            const domain = value.domain()
+            expect(domain[0]).toBeLessThanOrEqual(-10)
+            expect(domain[1]).toBeGreaterThanOrEqual(0)
         })
     })
 })
