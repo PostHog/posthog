@@ -1003,16 +1003,22 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         assert response.status_code == 403
         assert response.json()["code"] == "impersonation_read_only"
 
-    def test_admin_blocked_when_original_user_loses_staff(self):
-        """If the original (impersonator) user is no longer staff, admin access is denied."""
+    @parameterized.expand(
+        [
+            ("loses_staff", {"is_staff": False}),
+            ("deactivated", {"is_active": False}),
+        ]
+    )
+    def test_admin_blocked_when_original_user_cannot_swap(self, _name, user_attrs):
+        """The swap requires `original_user.is_active and original_user.is_staff`.
+        Falsifying either attribute on the original user must block admin access on
+        the next request — proves both halves of the gate are load-bearing."""
         self.login_as_other_user()
-
-        # Demote the original user mid-session.
-        self.user.is_staff = False
+        for attr, val in user_attrs.items():
+            setattr(self.user, attr, val)
         self.user.save()
 
         response = self.client.get("/admin/")
-        # No swap happens (original isn't staff anymore) → impersonated non-staff user blocked
         assert response.status_code == 302
         assert "/admin/login" in response.headers.get("Location", "")
 
@@ -1066,19 +1072,6 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
             "staff user email missing from banner — request.user not swapped at template render"
         )
 
-    def test_admin_blocked_when_original_user_deactivated(self):
-        """The swap requires `original_user.is_active and original_user.is_staff`. The
-        demotion (is_staff=False) case is already covered; this covers the deactivation
-        case — same line of code, distinct fault mode."""
-        self.login_as_other_user()
-
-        self.user.is_active = False
-        self.user.save()
-
-        response = self.client.get("/admin/")
-        assert response.status_code == 302
-        assert "/admin/login" in response.headers.get("Location", "")
-
     def test_swap_rejects_tampered_session_flag(self):
         """`get_original_user_from_session` unsigns `la_settings.USER_SESSION_FLAG` via
         `TimestampSigner`. A session value lacking a valid signature must not produce a
@@ -1086,9 +1079,11 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         cryptographic boundary."""
         self.login_as_other_user()
 
-        # Replace the signed value with an unsigned PK. If the helper accepted this
-        # without verifying the signature, the swap would still fail (customer isn't
-        # staff), but the assertion is that signature verification is the first gate.
+        # Inject the STAFF user's PK as an unsigned value. If signature verification
+        # were bypassed, `get_original_user_from_session` would return the staff user,
+        # both `is_active` and `is_staff` would be True, the swap would succeed, and
+        # `/admin/` would return 200 (not 302). The 302 assertion therefore directly
+        # pins the TimestampSigner gate — a bypass would change the response.
         session = self.client.session
         session[la_settings.USER_SESSION_FLAG] = str(self.user.pk)
         session.save()
