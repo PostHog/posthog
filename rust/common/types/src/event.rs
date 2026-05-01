@@ -56,7 +56,7 @@ pub trait EventWithLibraryInfo {
     fn extract_library_info(&self) -> Option<LibraryInfo>;
 }
 
-#[derive(Default, Debug, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct RawEvent {
     #[serde(
         alias = "$token",

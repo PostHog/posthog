@@ -86,25 +86,6 @@ fn create_heatmap_redirect(
     process_single_event(&heatmap_event, historical_cfg, context)
 }
 
-/// Strip `$heatmap_data` from a processed event's serialized data and mark it
-/// so the events pipeline knows extraction has already happened on the
-/// redirect. Other heatmap-related properties (`$current_url`,
-/// `$prev_pageview_pathname`) stay on the original because web analytics
-/// queries depend on them.
-fn strip_heatmap_data(processed: &mut ProcessedEvent) -> Result<(), CaptureError> {
-    let mut raw_event: RawEvent = serde_json::from_str(&processed.event.data).map_err(|e| {
-        error!("failed to deserialize event data while stripping heatmap: {e:#}");
-        CaptureError::NonRetryableSinkError
-    })?;
-    raw_event.properties.remove("$heatmap_data");
-    processed.event.data = serde_json::to_string(&raw_event).map_err(|e| {
-        error!("failed to serialize stripped heatmap event: {e:#}");
-        CaptureError::NonRetryableSinkError
-    })?;
-    processed.metadata.skip_heatmap_processing = true;
-    Ok(())
-}
-
 /// Process a single analytics event from RawEvent to ProcessedEvent
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
@@ -238,39 +219,38 @@ pub async fn process_events<'a>(
     Span::current().record("request_id", &context.request_id);
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
 
+    // Build the processed batch one raw event at a time so we can split a
+    // heatmap-carrying event into a stripped original + a `$$heatmap`
+    // redirect *before* serialization happens inside `process_single_event`.
+    // The original loses `$heatmap_data` and is flagged so the events
+    // pipeline skips re-extracting; other heatmap-related properties
+    // (`$prev_pageview_pathname`, `$current_url`) stay on it because web
+    // analytics queries depend on them. If the redirect fails to construct,
+    // we fall back to processing the original unchanged so the events
+    // pipeline still extracts as before — no silent data loss.
     let raw_events = events;
-    let mut events: Vec<ProcessedEvent> = raw_events
-        .iter()
-        .map(|e| process_single_event(e, historical_cfg.clone(), context))
-        .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
-
-    // Redirect heatmap data carried on non-`$$heatmap` events to the heatmaps
-    // topic. We produce a stripped-down `$$heatmap` event for each carrier,
-    // remove `$heatmap_data` from the original, and mark the original so the
-    // events pipeline skips re-extracting. We only mutate the original when
-    // both the redirect was constructed and the strip succeeded — otherwise
-    // the original keeps its data and the events pipeline handles extraction
-    // as before, avoiding silent data loss on a partial failure.
-    let mut heatmap_redirects: Vec<ProcessedEvent> = Vec::new();
-    for (raw, processed) in raw_events.iter().zip(events.iter_mut()) {
+    let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
+    for raw in raw_events {
         if raw.event == "$$heatmap" || !has_heatmap_data(raw) {
+            events.push(process_single_event(raw, historical_cfg.clone(), context)?);
             continue;
         }
         let redirect = match create_heatmap_redirect(raw, historical_cfg.clone(), context) {
             Ok(redirect) => redirect,
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
+                events.push(process_single_event(raw, historical_cfg.clone(), context)?);
                 continue;
             }
         };
-        if let Err(err) = strip_heatmap_data(processed) {
-            error!("failed to strip heatmap data from original event: {err:#}");
-            continue;
-        }
+        let mut stripped = raw.clone();
+        stripped.properties.remove("$heatmap_data");
+        let mut processed = process_single_event(&stripped, historical_cfg.clone(), context)?;
+        processed.metadata.skip_heatmap_processing = true;
+        events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
-        heatmap_redirects.push(redirect);
+        events.push(redirect);
     }
-    events.extend(heatmap_redirects);
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
 
@@ -1726,27 +1706,6 @@ mod tests {
         assert!(
             !data.properties.contains_key("other_prop"),
             "redirect should only contain heatmap properties"
-        );
-    }
-
-    #[test]
-    fn test_strip_heatmap_data_removes_property_and_sets_flag() {
-        let now = Utc::now();
-        let context = create_test_context(now, None);
-        let event = create_event_with_heatmap_data();
-        let historical_cfg = router::HistoricalConfig::new(false, 1);
-
-        let mut processed = process_single_event(&event, historical_cfg, &context).unwrap();
-        assert!(!processed.metadata.skip_heatmap_processing);
-
-        strip_heatmap_data(&mut processed).unwrap();
-
-        assert!(processed.metadata.skip_heatmap_processing);
-        let data: RawEvent = serde_json::from_str(&processed.event.data).unwrap();
-        assert!(!data.properties.contains_key("$heatmap_data"));
-        assert!(
-            data.properties.contains_key("$viewport_height"),
-            "non-$heatmap_data properties should be preserved"
         );
     }
 
