@@ -23,7 +23,7 @@ import { buildTrendsYTickFormatter } from '../trends-line-chart/trendsAxisFormat
 import type { TrendsSeriesMeta } from '../trends-line-chart/trendsSeriesMeta'
 import { TrendsTooltip } from '../trends-line-chart/TrendsTooltip'
 import { handleTrendsBarChartClick, type TrendsBarChartClickDeps } from './handleTrendsBarChartClick'
-import { buildTrendsBarChartConfig, buildTrendsBarTimeSeries } from './trendsBarChartTransforms'
+import { buildTrendsBarTimeSeries } from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
@@ -118,17 +118,15 @@ export function TrendsBarChart({ context }: TrendsBarChartProps): JSX.Element | 
     )
 
     const chartConfig: BarChartConfig = useMemo(
-        () =>
-            buildTrendsBarChartConfig({
-                yAxisScaleType,
-                isPercentStackView,
-                axisOrientation: 'vertical',
-                showGrid: true,
-                pinnableTooltip: true,
-                tooltipPlacement: 'top',
-                xTickFormatter,
-                yTickFormatter,
-            }),
+        () => ({
+            showGrid: true,
+            tooltip: { pinnable: true, placement: 'top' },
+            yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
+            axisOrientation: 'vertical',
+            barLayout: isPercentStackView ? 'percent' : 'stacked',
+            xTickFormatter,
+            yTickFormatter,
+        }),
         [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
