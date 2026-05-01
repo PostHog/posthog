@@ -291,4 +291,188 @@ describe('handleToken', () => {
         // Verify region was re-stored in KV for subsequent requests
         expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'eu', { expirationTtl: 3600 })
     })
+
+    it('uses client mapping and succeeds on first region (US) without trying EU', async () => {
+        const clientHash = await hashKey('proxy_client_us')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve(null)
+            }
+            if (key === 'client:proxy_client_us' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_us',
+                    eu_client_id: 'eu_real_id',
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ access_token: 'pha_us_refreshed', token_type: 'bearer' }), {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_us_token&client_id=proxy_client_us',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(200)
+        expect(data.access_token).toBe('pha_us_refreshed')
+        // Only one fetch call — did not try EU
+        expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1)
+        // Region re-stored as US
+        expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'us', { expirationTtl: 3600 })
+    })
+
+    it('returns error when mapping exists but both regions reject the refresh_token', async () => {
+        const clientHash = await hashKey('proxy_client_bad')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve(null)
+            }
+            if (key === 'client:proxy_client_bad' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_bad',
+                    eu_client_id: 'eu_real_id',
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ error: 'invalid_grant' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ error: 'invalid_grant' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_expired&client_id=proxy_client_bad',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(400)
+        expect(data.error).toBe('invalid_request')
+        expect(data.error_description).toBe('Unable to determine region')
+        // Tried both regions
+        expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+        // Did not re-store region
+        expect(vi.mocked(mockKV.put)).not.toHaveBeenCalled()
+    })
+
+    it('does not use client mapping for authorization_code even when mapping exists', async () => {
+        const clientHash = await hashKey('proxy_client_authcode')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve(null)
+            }
+            if (key === 'client:proxy_client_authcode' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_authcode',
+                    eu_client_id: 'eu_real_id',
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=authorization_code&code=test_code&client_id=proxy_client_authcode',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        // Should return error, not attempt mapping-based routing
+        expect(response.status).toBe(400)
+        expect(data.error_description).toBe('Unable to determine region for this authorization code')
+        expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+    })
+
+    it('uses client mapping with JSON content type', async () => {
+        const clientHash = await hashKey('proxy_client_json')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve(null)
+            }
+            if (key === 'client:proxy_client_json' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_json',
+                    eu_client_id: 'eu_json_id',
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ error: 'invalid_grant' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ access_token: 'pha_eu_json', token_type: 'bearer' }), {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                grant_type: 'refresh_token',
+                refresh_token: 'rt_json_token',
+                client_id: 'proxy_client_json',
+            }),
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(200)
+        expect(data.access_token).toBe('pha_eu_json')
+
+        // Verify EU attempt rewrote the client_id in JSON body
+        const euCall = vi.mocked(fetch).mock.calls[1]!
+        const euBody = JSON.parse(euCall[1]!.body as string) as Record<string, unknown>
+        expect(euBody.client_id).toBe('eu_json_id')
+    })
 })

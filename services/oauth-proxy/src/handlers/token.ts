@@ -1,5 +1,11 @@
 import type { Region } from '@/lib/constants'
-import { getCallbackRedirectUri, getClientMapping, getRegionSelection, putRegionSelection } from '@/lib/kv'
+import {
+    getCallbackRedirectUri,
+    getClientMapping,
+    getRegionSelection,
+    putRegionSelection,
+    resolveMappingRewrite,
+} from '@/lib/kv'
 import { proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
 
 /**
@@ -111,16 +117,9 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         const mapping = await getClientMapping(kv, clientId)
         if (mapping) {
             for (const candidateRegion of ['us', 'eu'] as Region[]) {
-                const regionalClientId = candidateRegion === 'eu' ? mapping.eu_client_id : mapping.us_client_id
-                if (!regionalClientId) {
+                const rewrite = resolveMappingRewrite(mapping, candidateRegion)
+                if (!rewrite) {
                     continue
-                }
-
-                const proxySecret = mapping.us_client_secret
-                const regionalSecret = candidateRegion === 'eu' ? mapping.eu_client_secret : mapping.us_client_secret
-                let clientSecretRewrite: { from: string; to: string } | undefined
-                if (proxySecret && regionalSecret && proxySecret !== regionalSecret) {
-                    clientSecretRewrite = { from: proxySecret, to: regionalSecret }
                 }
 
                 console.info(
@@ -138,9 +137,9 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
                     candidateRegion,
                     '/oauth/token/',
                     clientId,
-                    regionalClientId,
+                    rewrite.regionalClientId,
                     undefined,
-                    clientSecretRewrite
+                    rewrite.clientSecretRewrite
                 )
 
                 if (response.ok) {
@@ -214,22 +213,16 @@ async function proxyWithMapping(
     if (proxyClientId) {
         const mapping = await getClientMapping(kv, proxyClientId)
         if (mapping) {
-            const regionalClientId = region === 'eu' ? mapping.eu_client_id : mapping.us_client_id
-            if (regionalClientId) {
-                const proxySecret = mapping.us_client_secret
-                const regionalSecret = region === 'eu' ? mapping.eu_client_secret : mapping.us_client_secret
-                let clientSecretRewrite: { from: string; to: string } | undefined
-                if (proxySecret && regionalSecret && proxySecret !== regionalSecret) {
-                    clientSecretRewrite = { from: proxySecret, to: regionalSecret }
-                }
+            const rewrite = resolveMappingRewrite(mapping, region)
+            if (rewrite) {
                 return proxyPostWithClientId(
                     request,
                     region,
                     '/oauth/token/',
                     proxyClientId,
-                    regionalClientId,
+                    rewrite.regionalClientId,
                     redirectUriRewrite,
-                    clientSecretRewrite
+                    rewrite.clientSecretRewrite
                 )
             }
         }
