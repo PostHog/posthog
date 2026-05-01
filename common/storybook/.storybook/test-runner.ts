@@ -1,6 +1,6 @@
 import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
-import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
+import { PrepareContext, TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import path from 'path'
 
@@ -107,6 +107,28 @@ module.exports = {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
         jest.setTimeout(JEST_TIMEOUT_MS)
+    },
+
+    // Replaces test-runner's defaultPrepare. The default uses `waitUntil: 'load'`, which on webkit
+    // under CI contention regularly exceeds the 30s page.goto budget while the bundle loads — failing
+    // the entire file before any test runs. We don't read anything from the bare iframe.html; the
+    // per-story `waitForPageReady` below already enforces full readiness before each snapshot, so
+    // shifting this initial navigation to `domcontentloaded` is safe.
+    async prepare({ page, browserContext, testRunnerConfig }: PrepareContext): Promise<void> {
+        const targetURL = process.env.TARGET_URL
+        const iframeURL = new URL('iframe.html', targetURL).toString()
+        if (testRunnerConfig?.getHttpHeaders) {
+            const headers = await testRunnerConfig.getHttpHeaders(iframeURL)
+            await browserContext.setExtraHTTPHeaders(headers)
+        }
+        await page.goto(iframeURL, { waitUntil: 'domcontentloaded' }).catch((err) => {
+            if (err.message?.includes('ERR_CONNECTION_REFUSED')) {
+                throw new Error(
+                    `Could not access the Storybook instance at ${targetURL}. Are you sure it's running?\n\n${err.message}`
+                )
+            }
+            throw err
+        })
     },
 
     async preVisit(page, context) {
