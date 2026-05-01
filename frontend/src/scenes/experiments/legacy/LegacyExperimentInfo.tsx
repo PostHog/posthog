@@ -107,7 +107,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                     <div className="flex flex-col" data-attr="experiment-status">
                         <Label intent="menu">Status</Label>
                         <div className="flex gap-1">
-                            <StatusTag status={status} isPaused={isPaused} />
+                            <StatusTag status={status} />
                             {isSingleVariantShipped(experiment) && (
                                 <Tooltip
                                     title={`Variant "${getShippedVariantKey(experiment)}" has been rolled out to 100% of users`}

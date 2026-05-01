@@ -178,15 +178,16 @@ export const BreakdownTypeApi = {
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    Cohort: 'cohort',
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    Cohort: 'cohort',
     RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface BreakdownApi {
@@ -4853,6 +4854,7 @@ export const AIEventTypeApi = {
     AiMetric: '$ai_metric',
     AiFeedback: '$ai_feedback',
     AiEvaluation: '$ai_evaluation',
+    AiTag: '$ai_tag',
     AiTraceSummary: '$ai_trace_summary',
     AiGenerationSummary: '$ai_generation_summary',
     AiTraceClusters: '$ai_trace_clusters',
@@ -6066,14 +6068,14 @@ export interface ExperimentStatsBaseValidatedApi {
     /** @nullable */
     covariate_sum?: number | null
     /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
     covariate_sum_squares?: number | null
     /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
-    /** @nullable */
-    main_covariate_sum_product?: number | null
     number_of_samples: number
     /** @nullable */
     numerator_denominator_sum_product?: number | null
@@ -6104,14 +6106,14 @@ export interface ExperimentVariantResultFrequentistApi {
     /** @nullable */
     covariate_sum?: number | null
     /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
     covariate_sum_squares?: number | null
     /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
-    /** @nullable */
-    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultFrequentistApiMethod
     number_of_samples: number
     /** @nullable */
@@ -6143,6 +6145,8 @@ export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     covariate_sum?: number | null
     /** @nullable */
+    covariate_sum_product?: number | null
+    /** @nullable */
     covariate_sum_squares?: number | null
     /**
      * @minItems 2
@@ -6155,8 +6159,6 @@ export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
-    /** @nullable */
-    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultBayesianApiMethod
     number_of_samples: number
     /** @nullable */

@@ -57,16 +57,34 @@ def get_config() -> dict[str, str]:
     return _get_config_from_env_strict()
 
 
+def _catalog_to_config(catalog: DuckLakeCatalog) -> dict[str, str]:
+    config = catalog.to_public_config()
+    config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
+    return config
+
+
+def get_org_config(organization_id: str) -> dict[str, str]:
+    """Get DuckLake configuration for an organization from DuckLakeCatalog."""
+    if is_dev_mode():
+        return get_config()
+
+    catalog = get_ducklake_catalog_for_organization(organization_id)
+    if catalog is not None:
+        return _catalog_to_config(catalog)
+    raise ValueError(f"No DuckLakeCatalog configured for organization {organization_id}")
+
+
 def get_team_config(team_id: int) -> dict[str, str]:
-    """Get DuckLake configuration for a specific team from DuckLakeCatalog."""
+    """Get DuckLake configuration for a specific team from DuckLakeCatalog.
+
+    Deprecated: use get_org_config() instead.
+    """
     if is_dev_mode():
         return get_config()
 
     catalog = get_ducklake_catalog_for_team(team_id)
     if catalog is not None:
-        config = catalog.to_public_config()
-        config["DUCKLAKE_RDS_PASSWORD"] = catalog.db_password
-        return config
+        return _catalog_to_config(catalog)
     raise ValueError(f"No DuckLakeCatalog configured for team {team_id}")
 
 
@@ -97,10 +115,53 @@ def _get_config_from_env_strict() -> dict[str, str]:
     return config
 
 
+def _get_org_id_for_team(team_id: int) -> str:
+    """Resolve organization_id from team_id. Used by callers that only have team_id."""
+    from posthog.models import Team
+
+    team = Team.objects.only("organization_id").get(id=team_id)
+    return str(team.organization_id)
+
+
+def get_ducklake_catalog_by_team_org(team_id: int) -> DuckLakeCatalog | None:
+    """Look up DuckLakeCatalog via team_id → organization_id.
+
+    Convenience wrapper for callers that have team_id but catalog is org-scoped.
+    """
+    if is_dev_mode():
+        return None
+    org_id = _get_org_id_for_team(team_id)
+    return get_ducklake_catalog_for_organization(org_id)
+
+
+def get_duckgres_server_by_team_org(team_id: int) -> DuckgresServer | None:
+    """Look up DuckgresServer via team_id → organization_id.
+
+    Convenience wrapper for callers that have team_id but server is org-scoped.
+    """
+    if is_dev_mode():
+        return None
+    org_id = _get_org_id_for_team(team_id)
+    return get_duckgres_server_for_organization(org_id)
+
+
+def get_ducklake_catalog_for_organization(organization_id: str) -> DuckLakeCatalog | None:
+    """Look up DuckLakeCatalog for an organization."""
+    if is_dev_mode():
+        return None
+
+    from posthog.ducklake.models import DuckLakeCatalog
+
+    try:
+        return DuckLakeCatalog.objects.get(organization_id=organization_id)
+    except DuckLakeCatalog.DoesNotExist:
+        return None
+
+
 def get_ducklake_catalog_for_team(team_id: int) -> DuckLakeCatalog | None:
     """Look up DuckLakeCatalog for a team.
 
-    Returns None if no team-specific catalog is configured or in dev mode.
+    Deprecated: use get_ducklake_catalog_for_organization() instead.
     """
     if is_dev_mode():
         return None
@@ -123,32 +184,63 @@ DUCKGRES_DEFAULTS: dict[str, str] = {
 }
 
 
+def _server_to_config(server: DuckgresServer) -> dict[str, str]:
+    return {
+        "DUCKGRES_HOST": server.host,
+        "DUCKGRES_PORT": str(server.port),
+        "DUCKGRES_FLIGHT_PORT": str(server.flight_port),
+        "DUCKGRES_DATABASE": server.database,
+        "DUCKGRES_USERNAME": server.username,
+        "DUCKGRES_PASSWORD": server.password,
+    }
+
+
+def _duckgres_dev_config() -> dict[str, str]:
+    return {key: os.environ.get(key, default) or default for key, default in DUCKGRES_DEFAULTS.items()}
+
+
+def get_duckgres_config_for_org(organization_id: str) -> dict[str, str]:
+    """Get duckgres connection config for an organization."""
+    if is_dev_mode():
+        return _duckgres_dev_config()
+
+    server = get_duckgres_server_for_organization(organization_id)
+    if server is not None:
+        return _server_to_config(server)
+    raise ValueError(f"No DuckgresServer configured for organization {organization_id}")
+
+
 def get_duckgres_config(team_id: int) -> dict[str, str]:
     """Get duckgres connection config for a specific team.
 
-    In dev mode, returns localhost defaults from DUCKGRES_DEFAULTS (overridable
-    via env vars). In production, reads from the DuckgresServer model.
+    Deprecated: use get_duckgres_config_for_org() instead.
     """
     if is_dev_mode():
-        return {key: os.environ.get(key, default) or default for key, default in DUCKGRES_DEFAULTS.items()}
+        return _duckgres_dev_config()
 
     server = get_duckgres_server_for_team(team_id)
     if server is not None:
-        return {
-            "DUCKGRES_HOST": server.host,
-            "DUCKGRES_PORT": str(server.port),
-            "DUCKGRES_FLIGHT_PORT": str(server.flight_port),
-            "DUCKGRES_DATABASE": server.database,
-            "DUCKGRES_USERNAME": server.username,
-            "DUCKGRES_PASSWORD": server.password,
-        }
+        return _server_to_config(server)
     raise ValueError(f"No DuckgresServer configured for team {team_id}")
+
+
+def get_duckgres_server_for_organization(organization_id: str) -> DuckgresServer | None:
+    """Look up DuckgresServer for an organization."""
+    if is_dev_mode():
+        return None
+
+    from posthog.ducklake.models import DuckgresServer
+
+    try:
+        return DuckgresServer.objects.get(organization_id=organization_id)
+    except DuckgresServer.DoesNotExist:
+        return None
 
 
 def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:
     """Look up DuckgresServer for a team.
 
-    Returns None if no team-specific server is configured or in dev mode.
+    Deprecated: use get_duckgres_server_for_organization() instead.
     """
     if is_dev_mode():
         return None
@@ -412,11 +504,16 @@ __all__ = [
     "attach_catalog",
     "escape",
     "get_config",
+    "get_ducklake_catalog_for_organization",
+    "get_ducklake_catalog_for_team",
     "get_ducklake_connection_string",
-    "get_duckgres_config",
-    "get_duckgres_server_for_team",
-    "get_team_config",
     "get_ducklake_data_path",
+    "get_duckgres_config",
+    "get_duckgres_config_for_org",
+    "get_duckgres_server_for_organization",
+    "get_duckgres_server_for_team",
+    "get_org_config",
+    "get_team_config",
     "ensure_ducklake_catalog",
     "initialize_ducklake",
     "is_ducklake_catalog_reset_allowed",

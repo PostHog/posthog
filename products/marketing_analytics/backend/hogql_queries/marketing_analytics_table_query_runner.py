@@ -279,9 +279,14 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         else:
             all_columns = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
 
-        # Add conversion goal columns using the aggregator
+        # Add conversion goal columns using the aggregator.
+        # "Cost per conversion" is only meaningful when the Cost metric exists at this
+        # drill-down level — at UTM levels (medium/content/term) Cost is excluded because
+        # we can't attribute platform cost to a specific UTM value, so cost-per-conversion
+        # must be hidden too.
         if conversion_aggregator:
-            conversion_columns = conversion_aggregator.get_conversion_goal_columns()
+            include_cost_per = MarketingAnalyticsBaseColumns.COST not in excluded
+            conversion_columns = conversion_aggregator.get_conversion_goal_columns(include_cost_per=include_cost_per)
             all_columns.update(conversion_columns)
 
         return all_columns
@@ -302,9 +307,29 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
         level = self.config.drill_down_level
+        # Same invariant as _build_select_columns_mapping: if Cost is excluded at this level,
+        # joining campaign_costs buys us nothing but phantom rows from the FULL OUTER JOIN.
+        bypass_campaign_costs = (
+            MarketingAnalyticsBaseColumns.COST in DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
+        )
 
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
+
+        # Bypass campaign_costs when cost isn't computable at this level — select directly
+        # from unified conversions to avoid phantom rows.
+        if conversion_aggregator and bypass_campaign_costs:
+            coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns(campaign_costs_joined=False)
+            for key, coalesce_col in coalesce_columns.items():
+                conversion_columns_mapping[key] = coalesce_col
+
+            return ast.SelectQuery(
+                select=list(conversion_columns_mapping.values()),
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
+                    alias=self.config.unified_conversion_goals_cte_alias,
+                ),
+            )
 
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
@@ -314,9 +339,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             if level in (
                 MarketingAnalyticsDrillDownLevel.CHANNEL,
                 MarketingAnalyticsDrillDownLevel.SOURCE,
-                MarketingAnalyticsDrillDownLevel.MEDIUM,
-                MarketingAnalyticsDrillDownLevel.CONTENT,
-                MarketingAnalyticsDrillDownLevel.TERM,
             ):
                 join_type = "FULL OUTER JOIN"
                 join_constraint = ast.JoinConstraint(

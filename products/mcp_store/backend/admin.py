@@ -28,6 +28,7 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
             "description",
             "auth_type",
             "icon_key",
+            "category",
             "oauth_issuer_url",
             "oauth_metadata",
             "is_active",
@@ -72,8 +73,17 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
 
 class MCPServerTemplateAdmin(admin.ModelAdmin):
     form = MCPServerTemplateAdminForm
-    list_display = ("name", "url", "auth_type", "has_client_id", "has_metadata", "is_active", "updated_at")
-    list_filter = ("auth_type", "is_active", "created_at", "updated_at")
+    list_display = (
+        "name",
+        "url",
+        "category",
+        "auth_type",
+        "has_client_id",
+        "has_metadata",
+        "is_active",
+        "updated_at",
+    )
+    list_filter = ("auth_type", "category", "is_active", "created_at", "updated_at")
     search_fields = ("name", "url")
     actions = ("activate_templates", "deactivate_templates", "discover_metadata")
 

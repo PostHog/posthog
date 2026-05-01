@@ -1,8 +1,9 @@
 import { cleanup, render } from '@testing-library/react'
 import React from 'react'
 
-import type { BaseChartContext } from '../core/chart-context'
-import { ChartContext } from '../core/chart-context'
+import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
+import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
+import type { ChartTheme } from '../core/types'
 import { ReferenceLine, ReferenceLines } from './ReferenceLine'
 
 const DIMENSIONS = {
@@ -13,6 +14,8 @@ const DIMENSIONS = {
     plotWidth: 720,
     plotHeight: 352,
 }
+
+const THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
 
 // Simple linear y-scale: 0 -> plotBottom (368), 100 -> plotTop (16)
 const yScale = (v: number): number => 368 - (v / 100) * 352
@@ -26,11 +29,23 @@ const CONTEXT: BaseChartContext = {
         y: yScale,
         yTicks: () => [0, 50, 100],
     },
+    theme: THEME,
+    resolveValue: (s, i) => s.data[i] ?? 0,
+    canvasBounds: () => null,
     hoverIndex: -1,
 }
 
-function renderInChart(node: React.ReactNode): ReturnType<typeof render> {
-    return render(<ChartContext.Provider value={CONTEXT}>{node}</ChartContext.Provider>)
+function toLayout(ctx: BaseChartContext): ChartLayoutContextValue {
+    const { hoverIndex: _hoverIndex, ...layout } = ctx
+    return layout
+}
+
+function renderInChart(node: React.ReactNode, ctx: BaseChartContext = CONTEXT): ReturnType<typeof render> {
+    return render(
+        <ChartLayoutContext.Provider value={toLayout(ctx)}>
+            <ChartHoverContext.Provider value={{ hoverIndex: ctx.hoverIndex }}>{node}</ChartHoverContext.Provider>
+        </ChartLayoutContext.Provider>
+    )
 }
 
 function lineDiv(container: HTMLElement, side: 'top' | 'left'): HTMLDivElement | null {
@@ -113,11 +128,7 @@ describe('ReferenceLine', () => {
                     },
                 },
             }
-            const { container } = render(
-                <ChartContext.Provider value={multiAxisContext}>
-                    <ReferenceLine value={500} yAxisId="y1" />
-                </ChartContext.Provider>
-            )
+            const { container } = renderInChart(<ReferenceLine value={500} yAxisId="y1" />, multiAxisContext)
             const line = lineDiv(container, 'top')
             expect(line).not.toBeNull()
             // rightScale(500) = 192; width 2 → top = 191

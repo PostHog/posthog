@@ -1,11 +1,12 @@
 import dataclasses
 from typing import Any, Optional
 
-import requests
 from requests import Request, Response
+from requests.exceptions import RequestException
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
@@ -151,7 +152,7 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     }
 
     try:
-        response = requests.get(url, headers=headers, params={"limit": 1}, timeout=10)
+        response = make_tracked_session().get(url, headers=headers, params={"limit": 1}, timeout=10)
 
         if response.status_code == 200:
             return True, None
@@ -164,7 +165,7 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
             pass
 
         return False, response.text
-    except requests.exceptions.RequestException as e:
+    except RequestException as e:
         return False, str(e)
 
 

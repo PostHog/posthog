@@ -13,70 +13,48 @@ ui_apps:
         view_prop: data
         link_prop: openLink
 tools:
-    insights-list:
-        operation: insights_list
-        enabled: true
-        scopes:
-            - insight:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{short_id}'
-        list: true
-        title: Get all insights
-        description: >
-            List saved insights in the project with optional filtering by favorited status or search term. Returns
-            metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the
-            actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.
-        exclude_params:
-            - basic
-            - format
-            - refresh
-        response:
-            include:
-                - id
-                - short_id
-                - name
-                - derived_name
-                - description
-                - tags
-                - favorited
-                - dashboards
-                - created_at
-                - created_by
-                - last_modified_at
-                - last_modified_by
-                - last_viewed_at
-                - alerts
-    insight-get:
-        operation: insights_retrieve
-        enabled: true
-        scopes:
-            - insight:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{short_id}'
-        title: Get insight
-        description: >
-            Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query
-            definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the
-            same identifier.
-        exclude_params:
-            - format
-            - refresh
-            - from_dashboard
-        response:
-            exclude:
-                - result
-                - hasMore
-                - columns
-                - is_cached
-                - query_status
-                - hogql
-                - types
+    column-configurations-create:
+        operation: column_configurations_create
+        enabled: false
+    column-configurations-destroy:
+        operation: column_configurations_destroy
+        enabled: false
+    column-configurations-list:
+        operation: column_configurations_list
+        enabled: false
+    column-configurations-partial-update:
+        operation: column_configurations_partial_update
+        enabled: false
+    column-configurations-retrieve:
+        operation: column_configurations_retrieve
+        enabled: false
+    column-configurations-update:
+        operation: column_configurations_update
+        enabled: false
+    elements-create:
+        operation: elements_create
+        enabled: false
+    elements-destroy:
+        operation: elements_destroy
+        enabled: false
+    elements-list:
+        operation: elements_list
+        enabled: false
+    elements-partial-update:
+        operation: elements_partial_update
+        enabled: false
+    elements-retrieve:
+        operation: elements_retrieve
+        enabled: false
+    elements-stats-retrieve:
+        operation: elements_stats_retrieve
+        enabled: false
+    elements-update:
+        operation: elements_update
+        enabled: false
+    elements-values-retrieve:
+        operation: elements_values_retrieve
+        enabled: false
     insight-create:
         operation: insights_create
         enabled: true
@@ -108,6 +86,47 @@ tools:
                 description: >
                     Dashboard IDs this insight should belong to. This is a full replacement — always include all
                     existing dashboard IDs when adding a new one.
+        response:
+            exclude:
+                - result
+                - hasMore
+                - columns
+                - is_cached
+                - query_status
+                - hogql
+                - types
+    insight-delete:
+        operation: insights_destroy
+        enabled: true
+        scopes:
+            - insight:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete insight
+        description: |
+            Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.
+        soft_delete: true
+    insight-get:
+        operation: insights_retrieve
+        enabled: true
+        scopes:
+            - insight:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        title: Get insight
+        description: >
+            Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query
+            definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the
+            same identifier.
+        exclude_params:
+            - format
+            - refresh
+            - from_dashboard
         response:
             exclude:
                 - result
@@ -156,97 +175,78 @@ tools:
                 - query_status
                 - hogql
                 - types
-    insight-delete:
-        operation: insights_destroy
-        enabled: true
-        scopes:
-            - insight:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete insight
-        description: |
-            Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.
-        soft_delete: true
-    insights-update:
-        operation: insights_update
-        enabled: false
     insights-activity-retrieve:
         operation: insights_activity_retrieve
         enabled: false
     insights-activity-retrieve-2:
         operation: insights_activity_retrieve
         enabled: false
-    insights-my-last-viewed-retrieve:
-        operation: insights_my_last_viewed_retrieve
-        enabled: false
-    insights-trending-retrieve:
-        operation: insights_trending_retrieve
-        enabled: false
-    insights-cancel-create:
-        operation: insights_cancel_create
-        enabled: false
-    column-configurations-list:
-        operation: column_configurations_list
-        enabled: false
-    column-configurations-create:
-        operation: column_configurations_create
-        enabled: false
-    column-configurations-retrieve:
-        operation: column_configurations_retrieve
-        enabled: false
-    column-configurations-update:
-        operation: column_configurations_update
-        enabled: false
-    column-configurations-partial-update:
-        operation: column_configurations_partial_update
-        enabled: false
-    column-configurations-destroy:
-        operation: column_configurations_destroy
-        enabled: false
-    elements-list:
-        operation: elements_list
-        enabled: false
-    elements-create:
-        operation: elements_create
-        enabled: false
-    elements-retrieve:
-        operation: elements_retrieve
-        enabled: false
-    elements-update:
-        operation: elements_update
-        enabled: false
-    elements-partial-update:
-        operation: elements_partial_update
-        enabled: false
-    elements-destroy:
-        operation: elements_destroy
-        enabled: false
-    elements-stats-retrieve:
-        operation: elements_stats_retrieve
-        enabled: false
-    elements-values-retrieve:
-        operation: elements_values_retrieve
+    insights-all-activity-retrieve:
+        operation: insights_all_activity_retrieve
         enabled: false
     insights-analyze-retrieve:
         operation: insights_analyze_retrieve
         enabled: false
-    insights-suggestions-retrieve:
-        operation: insights_suggestions_retrieve
+    insights-bulk-update-tags-create:
+        operation: insights_bulk_update_tags_create
         enabled: false
-    insights-suggestions-create:
-        operation: insights_suggestions_create
+    insights-cancel-create:
+        operation: insights_cancel_create
         enabled: false
     insights-generate-metadata-create:
         operation: insights_generate_metadata_create
         enabled: false
+    insights-list:
+        operation: insights_list
+        enabled: true
+        scopes:
+            - insight:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{short_id}'
+        list: true
+        title: Get all insights
+        description: >
+            List saved insights in the project with optional filtering by favorited status or search term. Returns
+            metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the
+            actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.
+        exclude_params:
+            - basic
+            - format
+            - refresh
+        response:
+            include:
+                - id
+                - short_id
+                - name
+                - derived_name
+                - description
+                - tags
+                - favorited
+                - dashboards
+                - created_at
+                - created_by
+                - last_modified_at
+                - last_modified_by
+                - last_viewed_at
+                - alerts
+    insights-my-last-viewed-retrieve:
+        operation: insights_my_last_viewed_retrieve
+        enabled: false
+    insights-suggestions-create:
+        operation: insights_suggestions_create
+        enabled: false
+    insights-suggestions-retrieve:
+        operation: insights_suggestions_retrieve
+        enabled: false
+    insights-trending-retrieve:
+        operation: insights_trending_retrieve
+        enabled: false
+    insights-update:
+        operation: insights_update
+        enabled: false
     insights-viewed-create:
         operation: insights_viewed_create
-        enabled: false
-    insights-all-activity-retrieve:
-        operation: insights_all_activity_retrieve
-        enabled: false
-    insights-bulk-update-tags-create:
-        operation: insights_bulk_update_tags_create
         enabled: false

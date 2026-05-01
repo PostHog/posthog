@@ -14,6 +14,7 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils.html import escape
@@ -35,6 +36,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -70,10 +72,11 @@ from posthog.event_usage import (
 )
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.session_cache import SessionCache
-from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
+from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
@@ -276,8 +279,6 @@ class UserSerializer(serializers.ModelSerializer):
         return default_device(instance) is not None
 
     def get_has_sso_enforcement(self, instance: User) -> bool:
-        from posthog.models.organization_domain import OrganizationDomain
-
         organization = instance.current_organization
         if not organization:
             return False
@@ -503,6 +504,19 @@ class UserSerializer(serializers.ModelSerializer):
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
+            new_email = validated_data["email"]
+            # Block bypass: a user on an SSO-enforced domain can't move off of it.
+            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
+                raise serializers.ValidationError(
+                    "You can't change your email because SSO is enforced on your current email's domain.",
+                    code="sso_enforced_current_email",
+                )
+            # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
+            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email):
+                raise serializers.ValidationError(
+                    "You can't change your email to a domain where SSO is enforced.",
+                    code="sso_enforced_new_email",
+                )
             instance.pending_email = validated_data.pop("email", None)
             instance.save()
             EmailVerifier.create_token_and_send_email_verification(instance)
@@ -715,16 +729,25 @@ class UserViewSet(
 
         if user.pending_email:
             old_email = user.email
-            user.email = user.pending_email
-            user.pending_email = None
-            user.save()
+            with transaction.atomic():
+                user.email = user.pending_email
+                user.pending_email = None
+                user.save(update_fields=["email", "pending_email"])
+                # Delete social auth so the old external identity can't keep logging in.
+                UserSocialAuth.objects.filter(user=user).delete()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
         user.save()
         report_user_verified_email(user)
 
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+        if default_device(user) or passkeys_enabled_for_2fa:
+            return Response({"success": True, "token": token, "requires_2fa": True})
+
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        set_two_factor_verified_in_session(self.request)
         report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
@@ -746,6 +769,13 @@ class UserViewSet(
         except User.DoesNotExist:
             user = None
         if user:
+            # Allow re-requests when there's a pending email change that still
+            # needs to be verified, even though the current address is verified.
+            if user.is_email_verified and not user.pending_email:
+                raise serializers.ValidationError(
+                    "Email is already verified.",
+                    code="already_verified",
+                )
             EmailVerifier.create_token_and_send_email_verification(user)
 
         return Response({"success": True})

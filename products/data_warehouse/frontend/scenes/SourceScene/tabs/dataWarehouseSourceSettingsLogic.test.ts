@@ -154,7 +154,7 @@ describe('sourceSettingsLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(sceneLogicForTab.values.breadcrumbName).toEqual('Postgres')
+        expect(sceneLogicForTab.values.breadcrumbName).toEqual('warehouse')
 
         sceneLogicForTab.unmount()
     })

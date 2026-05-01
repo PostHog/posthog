@@ -243,7 +243,11 @@ INSERT INTO FUNCTION {s3_function}
         )
 
     async def get_backfill_info(
-        self, start_at: dt.datetime | None, end_at: dt.datetime | None, log_comment: str
+        self,
+        start_at: dt.datetime | None,
+        end_at: dt.datetime | None,
+        log_comment: str,
+        max_execution_time_seconds: int,
     ) -> tuple[dt.datetime | None, int | None]:
         """Estimate record count and earliest timestamp for a backfill.
 
@@ -255,6 +259,7 @@ INSERT INTO FUNCTION {s3_function}
         context = await self.get_hogql_context()
 
         context.values["log_comment"] = log_comment
+        context.values["max_execution_time_seconds"] = max_execution_time_seconds
 
         prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
             hogql_query, context=context, dialect="clickhouse", stack=[]
@@ -268,10 +273,11 @@ INSERT INTO FUNCTION {s3_function}
             stack=[],
         )
 
+        query_settings = "max_execution_time={max_execution_time_seconds}, log_comment={log_comment}"
         if "settings" not in printed.lower():
-            printed += " SETTINGS log_comment={log_comment}"
+            printed += f" SETTINGS {query_settings}"
         else:
-            printed += ", log_comment={log_comment}"
+            printed += f", {query_settings}"
 
         query_id = str(uuid.uuid4())
         logger = LOGGER.bind(query_id=query_id)

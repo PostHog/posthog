@@ -36,7 +36,11 @@ class TestGetTaskProcessingContextActivity:
     def test_get_task_processing_context_success(self, activity_environment, test_task):
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.close_old_database_connections"
+        ) as close_old_database_connections_mock:
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
@@ -45,6 +49,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
+        close_old_database_connections_mock.assert_called_once()
 
     @pytest.mark.django_db
     def test_get_task_processing_context_task_not_found(self, activity_environment):
@@ -107,6 +112,40 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.sandbox_environment_name == "Restricted env"
         assert result.allowed_domains == ["example.com"]
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_preserves_empty_restricted_domains(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Restricted empty env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=[],
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_environment_id == str(sandbox_environment.id)
+        assert result.allowed_domains == []
+
+    @pytest.mark.django_db
+    def test_get_task_processing_context_keeps_full_access_unrestricted(self, activity_environment, test_task):
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=test_task.created_by,
+            name="Full access env",
+            network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+            allowed_domains=[],
+        )
+        task_run = test_task.create_run(extra_state={"sandbox_environment_id": str(sandbox_environment.id)})
+
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_environment_id == str(sandbox_environment.id)
+        assert result.allowed_domains is None
 
     @pytest.mark.django_db
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(

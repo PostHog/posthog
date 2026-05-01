@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { sceneLogic } from './sceneLogic'
+import { mergePinnedTabs, sceneLogic } from './sceneLogic'
 import type { logicType } from './sceneLogic.testType'
 
 jest.mock('lib/api', () => ({
@@ -306,6 +306,41 @@ describe('sceneLogic', () => {
         expect(tab3Instances[0].pinned).toBe(false)
         expect(pinnedTabs.map((tab) => tab.id)).not.toContain('tab-3')
     })
+    describe('mergePinnedTabs', () => {
+        const tabBase = { search: '', hash: '', title: '', iconType: 'blank' as const }
+
+        it('restores in-memory sceneParams when stored tab is stripped', () => {
+            const inMemory = [
+                {
+                    ...tabBase,
+                    id: 'tab-dashboard',
+                    pathname: '/dashboard/42',
+                    active: true,
+                    sceneParams: { params: { id: '42' }, searchParams: {}, hashParams: {} },
+                },
+            ]
+            const stored = {
+                tabs: [{ ...tabBase, id: 'tab-dashboard', pathname: '/dashboard/42', pinned: true, active: false }],
+                homepage: null,
+            }
+
+            const merged = mergePinnedTabs(stored, inMemory)
+
+            expect(merged).toHaveLength(1)
+            expect(merged[0]).toMatchObject({
+                id: 'tab-dashboard',
+                pinned: true,
+                active: true,
+                sceneParams: { params: { id: '42' } },
+            })
+        })
+
+        it('returns fallback when storedPinned is null', () => {
+            const fallback = [{ ...tabBase, id: 'a', pathname: '/x', active: false }]
+            expect(mergePinnedTabs(null, fallback)).toMatchObject([{ id: 'a', pinned: true }])
+        })
+    })
+
     it('hydrates pinned tabs stored under legacy personal key', async () => {
         const teamId = teamLogic.values.currentTeamId ?? 'null'
         const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`

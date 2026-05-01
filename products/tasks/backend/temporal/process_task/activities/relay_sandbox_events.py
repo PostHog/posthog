@@ -102,12 +102,60 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
-        await redis_stream.mark_error("Relay cancelled")
+        # Cancellation is expected when the workflow finishes or is replaced.
+        # Do not emit an error sentinel: it makes clients treat a still-valid
+        # task run as unrecoverably disconnected.
+        await redis_stream.mark_complete()
         raise
     except Exception as e:
-        logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
-        await redis_stream.mark_error(str(e)[:500])
+        try:
+            marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
+        except Exception as status_check_error:
+            logger.exception(
+                "relay_sandbox_events_terminal_status_check_failed",
+                run_id=input.run_id,
+                relay_error=str(e),
+                error=str(status_check_error),
+            )
+            try:
+                await redis_stream.mark_error(str(e)[:500])
+            except Exception as mark_error_error:
+                logger.exception(
+                    "relay_sandbox_events_mark_error_failed",
+                    run_id=input.run_id,
+                    relay_error=str(e),
+                    error=str(mark_error_error),
+                )
+            logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
+        else:
+            if marked_complete:
+                logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=input.run_id, error=str(e))
+            else:
+                logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         raise
+
+
+async def _mark_error_unless_run_is_terminal(
+    redis_stream: TaskRunRedisStream,
+    run_id: str,
+    error: str,
+) -> bool:
+    try:
+        task_run = await TaskRunModel.objects.only("status").aget(id=run_id)
+    except TaskRunModel.DoesNotExist:
+        await redis_stream.mark_error(error[:500])
+        return False
+
+    if task_run.status in (
+        TaskRunModel.Status.COMPLETED,
+        TaskRunModel.Status.FAILED,
+        TaskRunModel.Status.CANCELLED,
+    ):
+        await redis_stream.mark_complete()
+        return True
+
+    await redis_stream.mark_error(error[:500])
+    return False
 
 
 async def _background_heartbeat(
@@ -208,7 +256,6 @@ async def _relay_loop(
                         params=params,
                     ) as event_source:
                         event_source.response.raise_for_status()
-                        reconnect_count = 0  # Reset on successful connection
                         last_event_time[0] = time.monotonic()
 
                         async for sse_event in event_source.aiter_sse():
@@ -226,6 +273,8 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if not _is_keepalive_event(event_data):
+                                reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
                             if _is_end_of_turn(event_data):
@@ -255,7 +304,8 @@ async def _relay_loop(
 
                     # SSE stream ended normally (sandbox closed connection)
                     await redis_stream.mark_complete()
-                return
+                    logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
+                    return
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
@@ -266,7 +316,29 @@ async def _relay_loop(
                 )
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
-            except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                if status < 500:
+                    # 4xx errors are permanent — sandbox is gone or auth is invalid
+                    logger.warning(
+                        "relay_sandbox_events_sandbox_gone",
+                        run_id=run_id,
+                        status_code=status,
+                    )
+                    await redis_stream.mark_error(f"Sandbox returned HTTP {status}")
+                    return
+                # 5xx — transient server error, worth retrying
+                reconnect_count += 1
+                logger.warning(
+                    "relay_sandbox_events_http_error",
+                    run_id=run_id,
+                    status_code=status,
+                    error=str(e),
+                    reconnect_count=reconnect_count,
+                )
+                await asyncio.sleep(min(reconnect_count * 2, 10))
+
+            except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
                 logger.warning(
                     "relay_sandbox_events_connection_error",
@@ -295,6 +367,10 @@ def _is_session_update(event_data: dict) -> bool:
         return False
     notification = event_data.get("notification", {})
     return notification.get("method") == "session/update"
+
+
+def _is_keepalive_event(event_data: dict) -> bool:
+    return event_data.get("type") == "keepalive"
 
 
 _is_end_of_turn = is_turn_complete

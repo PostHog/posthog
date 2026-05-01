@@ -1725,6 +1725,28 @@ class TestExperimentService(APIBaseTest):
         assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
+    # Unarchive
+    # ------------------------------------------------------------------
+
+    def test_unarchive_experiment_success(self):
+        experiment = self._create_ended_experiment(name="Unarchive Test", feature_flag_key="unarchive-flag")
+        service = self._service()
+        service.archive_experiment(experiment)
+
+        unarchived = service.unarchive_experiment(experiment)
+
+        assert unarchived.archived is False
+        assert unarchived.status == Experiment.Status.STOPPED
+
+    def test_unarchive_experiment_not_archived_raises(self):
+        experiment = self._create_ended_experiment(name="Not Archived", feature_flag_key="not-archived-flag")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().unarchive_experiment(experiment)
+
+        assert "not archived" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
     # End
     # ------------------------------------------------------------------
 
@@ -1874,10 +1896,27 @@ class TestExperimentService(APIBaseTest):
         self._service().launch_experiment(experiment)
         return experiment
 
+    def test_is_paused_false_for_draft_with_inactive_flag(self) -> None:
+        # Inactive flag alone does not make an experiment paused — must also be running.
+        draft = self._create_launchable_experiment(name="Draft Inactive", feature_flag_key="draft-inactive-flag")
+        draft.feature_flag.active = False
+        draft.feature_flag.save()
+        assert draft.is_paused is False
+
+    def test_is_paused_false_for_stopped_with_inactive_flag(self) -> None:
+        # Inactive flag alone does not make an experiment paused — must also be running.
+        stopped = self._create_running_experiment(name="Stopped Inactive", feature_flag_key="stopped-inactive-flag")
+        self._service().end_experiment(stopped, request=MagicMock())
+        stopped.feature_flag.active = False
+        stopped.feature_flag.save()
+        stopped.refresh_from_db()
+        assert stopped.is_paused is False
+
     def test_pause_experiment_success(self):
         experiment = self._create_running_experiment(name="Pause Test", feature_flag_key="pause-flag")
 
         assert experiment.feature_flag.active is True
+        assert experiment.is_paused is False
 
         paused = self._service().pause_experiment(experiment)
 
@@ -1885,6 +1924,8 @@ class TestExperimentService(APIBaseTest):
         assert paused.feature_flag.active is False
         assert paused.start_date is not None
         assert paused.end_date is None
+        assert paused.is_paused is True
+        assert paused.is_running is True  # status remains running while paused
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -2523,10 +2564,11 @@ class TestExperimentService(APIBaseTest):
         [
             ("draft", {"status": "draft"}, {"Draft"}),
             ("running", {"status": "running"}, {"Running"}),
+            ("paused", {"status": "paused"}, {"Paused"}),
             ("stopped", {"status": "stopped"}, {"Stopped"}),
             ("complete", {"status": "complete"}, {"Stopped"}),
-            ("all", {"status": "all"}, {"Draft", "Running", "Stopped"}),
-            ("invalid", {"status": "bogus"}, {"Draft", "Running", "Stopped"}),
+            ("all", {"status": "all"}, {"Draft", "Running", "Paused", "Stopped"}),
+            ("invalid", {"status": "bogus"}, {"Draft", "Running", "Paused", "Stopped"}),
         ]
     )
     def test_filter_experiments_queryset_filters_by_status(
@@ -2540,6 +2582,13 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="status-running",
             start_date=now - timedelta(days=2),
         )
+        paused = service.create_experiment(
+            name="Paused",
+            feature_flag_key="status-paused",
+            start_date=now - timedelta(days=2),
+        )
+        paused.feature_flag.active = False
+        paused.feature_flag.save()
         service.create_experiment(
             name="Stopped",
             feature_flag_key="status-stopped",

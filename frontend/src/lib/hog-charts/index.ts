@@ -1,17 +1,23 @@
 // Components
+export { BarChart } from './charts/BarChart'
+export type { BarChartProps } from './charts/BarChart'
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
+export { TimeSeriesLineChart } from './timeseries/TimeSeriesLineChart'
+export type { TimeSeriesLineChartConfig, TimeSeriesLineChartProps } from './timeseries/TimeSeriesLineChart'
 
 // Base chart (for building new chart types)
-export { Chart, DEFAULT_MARGINS } from './core/Chart'
+export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'
+export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
 
 // Chart context (for custom overlay children)
-export { useChart } from './core/chart-context'
-export type { BaseChartContext } from './core/chart-context'
+export { useChart, useChartHover, useChartLayout } from './core/chart-context'
+export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue } from './core/chart-context'
 
 // Core types
 export type {
+    BarChartConfig,
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,
@@ -21,6 +27,7 @@ export type {
     CreateScalesFn,
     LineChartConfig,
     PointClickData,
+    ResolvedSeries,
     ResolveValueFn,
     Series,
     TooltipContext,

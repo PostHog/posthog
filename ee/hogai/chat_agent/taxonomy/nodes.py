@@ -57,7 +57,7 @@ class TaxonomyAgentNode(
     def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
         return list(
-            GroupTypeMapping.objects.filter(project_id=self._team.project.id)
+            GroupTypeMapping.objects.filter(project_id=self._team.project.id)  # nosemgrep: no-direct-persons-db-orm
             .order_by("group_type_index")
             .values_list("group_type", flat=True)
         )

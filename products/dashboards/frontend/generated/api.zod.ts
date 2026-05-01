@@ -71,10 +71,10 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -131,10 +131,10 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -169,10 +169,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -211,10 +211,10 @@ export const DashboardsAnalyzeRefreshResultCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -257,10 +257,10 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -306,10 +306,10 @@ export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -371,10 +371,10 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -414,10 +414,10 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         restriction_level: zod
             .union([zod.literal(21), zod.literal(37)])
+            .optional()
             .describe(
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
-            )
-            .optional(),
+            ),
         last_refresh: zod.iso.datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())

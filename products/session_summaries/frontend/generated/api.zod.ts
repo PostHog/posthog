@@ -10,6 +10,21 @@
 import * as zod from 'zod'
 
 /**
+ * Update the team's session summaries configuration (product context used to tailor single-session replay summaries).
+ */
+export const updateSessionSummariesConfigBodyProductContextMax = 10000
+
+export const UpdateSessionSummariesConfigBody = /* @__PURE__ */ zod.object({
+    product_context: zod
+        .string()
+        .max(updateSessionSummariesConfigBodyProductContextMax)
+        .optional()
+        .describe(
+            "Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page."
+        ),
+})
+
+/**
  * Generate AI summary for a group of session recordings to find patterns and generate a notebook.
  */
 export const createSessionSummariesBodySessionIdsMax = 300

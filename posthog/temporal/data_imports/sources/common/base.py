@@ -7,6 +7,8 @@ from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourc
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
+    from products.data_warehouse.backend.models import ExternalDataSource
+
 from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -98,6 +100,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
 
+    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
+        """Best-effort teardown of CDC resources tied to the source. No-op by default."""
+        return None
+
 
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
@@ -124,6 +130,10 @@ class WebhookCreationResult:
     success: bool
     error: str | None = None
     extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Names of `webhookFields` the user still needs to fill in after creation
+    # (e.g. when the source's API doesn't return the signing secret on create).
+    # Empty list means the auto-created webhook is fully configured.
+    pending_inputs: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass

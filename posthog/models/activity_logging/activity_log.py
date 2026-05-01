@@ -81,6 +81,7 @@ ActivityScope = Literal[
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "LogsExclusionRule",
     "ProductTour",
     "Ticket",
 ]

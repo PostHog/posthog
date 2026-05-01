@@ -38,10 +38,10 @@ export interface BatchImportApi {
     readonly state: unknown | null
     /** @nullable */
     readonly created_by: BatchImportApiCreatedBy
-    status?: BatchImportStatusEnumApi
+    readonly status: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message: string | null
-    import_config: unknown
+    readonly import_config: unknown
 }
 
 export interface PaginatedBatchImportListApi {
@@ -69,10 +69,10 @@ export interface PatchedBatchImportApi {
     readonly state?: unknown | null
     /** @nullable */
     readonly created_by?: PatchedBatchImportApiCreatedBy
-    status?: BatchImportStatusEnumApi
+    readonly status?: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message?: string | null
-    import_config?: unknown
+    readonly import_config?: unknown
 }
 
 export type ManagedMigrationsListParams = {

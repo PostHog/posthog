@@ -30,16 +30,15 @@ If the user gives enough context to infer these, don't ask — just proceed.
 
 ### Step 2: Who sees what variant?
 
-This is about rollout configuration. **Load the `configuring-experiment-rollout` skill** for guidance.
+This is about rollout configuration.
 
-Key decision points:
+**Before asking any rollout question, load `configuring-experiment-rollout`.** The disambiguation wording, recommendations, and post-answer branches live there — do not formulate rollout questions yourself, and do not assume an example you remember covers the user's path.
+
+Key decision points (covered in detail by `configuring-experiment-rollout`):
 
 - Variant split (how many variants, what percentage each)
 - Overall rollout percentage (what % of all users enter the experiment)
 - Whether to persist the flag across authentication steps
-
-**CRITICAL**: If the user mentions a specific percentage (e.g. "roll out to 25%"), this is ambiguous.
-You MUST clarify before proceeding — see the `configuring-experiment-rollout` skill.
 
 If the user doesn't mention rollout specifics, use defaults: 50/50 control/test, 100% rollout.
 
@@ -92,33 +91,3 @@ Key details:
 3. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
 
 4. **Launch** when ready — use the `experiment-launch` tool.
-
-## Example interaction
-
-```text
-User: "Create an experiment to test our new checkout flow with 25% rollout"
-
-Agent thinks: User mentioned a percentage — this is ambiguous. Load configuring-experiment-rollout.
-
-Agent responds:
-  "Before I create this, I need to clarify the 25% rollout. There are two ways to achieve this:
-
-  1. **Reduced rollout** (recommended): 50% overall rollout with a 50/50 control/test split.
-     25% of all users see the new checkout, and only the 50% in the experiment are analyzed.
-
-  2. **Variant split**: 100% rollout with a 75/25 control/test split.
-     25% of all users see the new checkout, but ALL users are included in the analysis.
-
-  Which approach do you prefer?"
-
-User: "Option 1"
-
-Agent: Creates experiment with overall rollout_percentage: 50, 50/50 variant split, no metrics.
-  "Created draft experiment 'New checkout flow test':
-  http://localhost:8010/project/1/experiments/123
-
-  Next steps:
-  1. Implement the flag in your code — see the experiment page for SDK snippets
-  2. Add metrics — what event represents a successful checkout?
-  3. Launch when ready"
-```

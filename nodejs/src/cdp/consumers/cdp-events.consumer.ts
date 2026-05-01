@@ -74,10 +74,16 @@ export class CdpEventsConsumer<
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
-                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
-                this.hogFunctionMonitoringService.flush().catch((err) => {
-                    captureException(err)
-                    logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+                instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
+                    this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
+                ),
+                instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+                    try {
+                        await this.hogFunctionMonitoringService.flush()
+                    } catch (err) {
+                        captureException(err)
+                        logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+                    }
                 }),
             ]),
             invocations: invocationsToBeQueued,

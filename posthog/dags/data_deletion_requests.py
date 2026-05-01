@@ -212,6 +212,7 @@ def load_deletion_request(
         }
     )
 
+    assert request.start_time is not None and request.end_time is not None
     return DeletionRequestContext(
         request_id=str(request.pk),
         team_id=request.team_id,
@@ -365,6 +366,7 @@ def load_property_removal_request(
         }
     )
 
+    assert request.start_time is not None and request.end_time is not None
     return DeletionRequestContext(
         request_id=str(request.pk),
         team_id=request.team_id,

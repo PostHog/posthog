@@ -1,1 +1,1 @@
-1124_alter_alertconfiguration_subscribed_users
+1133_alter_integration_kind

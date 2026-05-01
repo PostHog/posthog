@@ -96,7 +96,9 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
     for field in fields:
-        if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
+        if isinstance(field, SourceFieldInputConfig) and (
+            field.type == SourceFieldInputConfigType.PASSWORD or field.secret
+        ):
             sensitive.add(field.name)
         elif isinstance(field, SourceFieldFileUploadConfig):
             sensitive.add(field.name)
@@ -132,7 +134,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
 
     for field in fields:
         if isinstance(field, SourceFieldInputConfig):
-            if field.type == SourceFieldInputConfigType.PASSWORD:
+            if field.type == SourceFieldInputConfigType.PASSWORD or field.secret:
                 _add_name_variants(sensitive, field.name)
             else:
                 _add_name_variants(nonsensitive, field.name)
@@ -393,6 +395,19 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    # Optional on both create and update. On create, missing values default to `api`
+    # in the viewset to preserve backward compatibility with direct API callers that
+    # predate this field; the in-app UI and MCP tool always send it explicitly.
+    # `update` strips it to make the field write-once.
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSource.CreatedVia.choices,
+        required=False,
+        help_text=(
+            "How this source was created. Defaults to `api` on create when omitted. "
+            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
+            "Ignored on update."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -400,6 +415,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "id",
             "created_at",
             "created_by",
+            "created_via",
             "status",
             "client_secret",
             "account_id",
@@ -484,12 +500,15 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
-        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in active_schemas)
+        # Negative statuses should ignore schemas the user has disabled — those can linger in
+        # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
+        syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
+        any_failures = any(schema.status == ExternalDataSchema.Status.FAILED for schema in syncing_schemas)
         any_billing_limits_reached = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in active_schemas
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED for schema in syncing_schemas
         )
         any_billing_limits_too_low = any(
-            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in active_schemas
+            schema.status == ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW for schema in syncing_schemas
         )
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
         any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
@@ -539,6 +558,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             raise ValidationError("Access method cannot be changed. Create a new source instead.")
 
         validated_data.pop("access_method", None)
+        # created_via is set at creation time and cannot be mutated afterwards
+        validated_data.pop("created_via", None)
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
         if instance.is_direct_postgres:
@@ -569,22 +590,26 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
 
-        # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
-        existing_auth_method = existing_job_inputs.get("auth_method")
-        incoming_auth_method = incoming_job_inputs.get("auth_method")
-        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
-            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
-        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
-            selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
+        # Nested SourceFieldSelectConfig containers (e.g. Stripe `auth_method`, Snowflake `auth_type`) need
+        # a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge above
+        # would otherwise wipe redacted credentials nested inside these containers.
+        for container_key in ("auth_method", "auth_type"):
+            existing_container = existing_job_inputs.get(container_key)
+            incoming_container = incoming_job_inputs.get(container_key)
+            if incoming_container is not None and not isinstance(incoming_container, dict):
+                raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
+            if not (isinstance(existing_container, dict) and isinstance(incoming_container, dict)):
+                continue
+            selection_changed = existing_container.get("selection") != incoming_container.get("selection")
             if selection_changed:
-                # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
-                new_job_inputs["auth_method"] = incoming_auth_method
+                # Selection switched (e.g. password→keypair) — use only incoming, don't carry over old secrets
+                new_job_inputs[container_key] = incoming_container
             else:
-                merged_auth_method = {**existing_auth_method, **incoming_auth_method}
+                merged_container = {**existing_container, **incoming_container}
                 for key in sensitive_fields:
-                    if existing_auth_method.get(key) and not incoming_auth_method.get(key):
-                        merged_auth_method[key] = existing_auth_method[key]
-                new_job_inputs["auth_method"] = merged_auth_method
+                    if existing_container.get(key) and not incoming_container.get(key):
+                        merged_container[key] = existing_container[key]
+                new_job_inputs[container_key] = merged_container
 
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
@@ -702,6 +727,12 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.AccessMethod.WAREHOUSE,
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
+    created_via = serializers.ChoiceField(
+        choices=ExternalDataSource.CreatedVia.values,
+        required=False,
+        default=ExternalDataSource.CreatedVia.API,
+        help_text="Where the request came from",
+    )
 
 
 class DatabaseSchemaRequestSerializer(serializers.Serializer):
@@ -816,6 +847,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description = serializer.validated_data.get("description")
         source_type = serializer.validated_data["source_type"]
         access_method = serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        created_via = serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API)
+
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
         )
@@ -888,6 +921,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             created_by=request.user if isinstance(request.user, User) else None,
+            created_via=created_via,
             team=self.team,
             status="Running",
             source_type=source_type_model,
@@ -1470,14 +1504,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": str(e)},
             )
 
+        # Cache the CDC flag once: in non-DEBUG environments this calls posthoganalytics.feature_enabled,
+        # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
+        # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
+        cdc_enabled = is_cdc_enabled_for_team(self.team)
         data = [
             {
                 "table": schema.name,
+                "label": schema.label,
                 "should_sync": False,
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
-                "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
+                "cdc_available": schema.supports_cdc if cdc_enabled else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -1873,6 +1912,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "success": result.success,
                 "webhook_url": result.webhook_url,
                 "error": result.error,
+                "pending_inputs": result.pending_inputs,
             },
         )
 

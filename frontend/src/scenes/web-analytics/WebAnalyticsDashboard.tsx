@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
@@ -12,6 +12,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -26,7 +27,6 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { BotDetail } from 'scenes/web-analytics/BotDetail'
 import {
     ProductTab,
     QueryTile,
@@ -51,10 +51,12 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { BotAnalyticsFilters } from './BotAnalyticsFilters'
+import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
-import { BotAnalyticsFilters, WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -423,7 +425,7 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
 }
 
 const MainContent = (): JSX.Element => {
-    const { productTab, botDetailName } = useValues(webAnalyticsLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
 
     if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
@@ -437,11 +439,28 @@ const MainContent = (): JSX.Element => {
         return <LiveWebAnalyticsMetrics />
     }
 
-    if (productTab === ProductTab.BOT_ANALYTICS && botDetailName) {
-        return <BotDetail />
+    if (productTab === ProductTab.BOT_ANALYTICS) {
+        return <BotAnalyticsTiles />
     }
 
     return <Tiles />
+}
+
+const BotAnalyticsTiles = (): JSX.Element => {
+    // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
+    useMountedLogic(botAnalyticsLogic)
+    const { tiles } = useValues(botAnalyticsLogic)
+
+    return (
+        <>
+            <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
+                Bot detection is based on user agent pattern matching. Events with no user agent are excluded from these
+                results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
+                don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
+            </LemonBanner>
+            <Tiles tiles={tiles} />
+        </>
+    )
 }
 
 const HealthTabLabel = (): JSX.Element => {
@@ -484,7 +503,7 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
             label: (
                 <div className="flex items-center gap-1">
                     Live
-                    <LemonTag type="highlight" className="uppercase">
+                    <LemonTag type="completion" className="uppercase">
                         Alpha
                     </LemonTag>
                 </div>
@@ -506,9 +525,9 @@ const botAnalyticsTab = (
             key: ProductTab.BOT_ANALYTICS,
             label: (
                 <div className="flex items-center gap-1">
-                    Bot analytics
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
+                    Bots
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
                     </LemonTag>
                 </div>
             ),
@@ -632,8 +651,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     link: '/web/page-reports',
                 },
                 ...liveTab(featureFlags),
-                ...healthTab(featureFlags),
                 ...botAnalyticsTab(featureFlags),
+                ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"
