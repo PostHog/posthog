@@ -65,6 +65,23 @@ tools:
             - count
             - experiment_set
         ui_app: cohort
+    cohorts-csv-imports-retrieve:
+        operation: cohorts_csv_imports_retrieve
+        enabled: true
+        scopes:
+            - cohort:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List CSV import history
+        description: >
+            List CSV import attempts for a static cohort, most recent first. Use this to see whether a CSV upload
+            succeeded, how many rows were parsed, how many persons matched and were added to the cohort, and which input
+            IDs failed to resolve to a person. Unmatched IDs are now available as downloadable files via `unmatched_records_download_url`. 
+            Requires the cohort to be static. v2 agents should query `system.cohort_csv_imports` directly via SQL.
+        mcp_version: 1
     cohorts-destroy:
         operation: cohorts_destroy
         enabled: false
