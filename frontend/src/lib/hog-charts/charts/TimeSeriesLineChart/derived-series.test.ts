@@ -2,7 +2,7 @@ import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
 
-import { DEFAULT_Y_AXIS_ID, type Series } from '../core/types'
+import { DEFAULT_Y_AXIS_ID, type Series } from '../../core/types'
 import {
     buildMainTrendsSeries,
     buildTrendsChartConfig,

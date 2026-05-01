@@ -3,8 +3,8 @@ export { BarChart } from './charts/BarChart'
 export type { BarChartProps } from './charts/BarChart'
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
-export { TimeSeriesLineChart } from './timeseries/TimeSeriesLineChart'
-export type { TimeSeriesLineChartConfig, TimeSeriesLineChartProps } from './timeseries/TimeSeriesLineChart'
+export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart'
+export type { TimeSeriesLineChartConfig, TimeSeriesLineChartProps } from './charts/TimeSeriesLineChart'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -56,22 +56,26 @@ export type { ValueLabelsProps } from './overlays/ValueLabels'
 export { computeVisibleXLabels } from './overlays/AxisLabels'
 
 // Timeseries overlays
-export { AnnotationsLayer } from './timeseries/overlays/AnnotationsLayer'
-export { AnomalyPointsLayer } from './timeseries/overlays/AnomalyPointsLayer'
+export { AnnotationsLayer } from './overlays/AnnotationsLayer'
+export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
 
 // Timeseries utils
-export { createXAxisTickCallback, parseDateForAxis } from './timeseries/utils/dates'
+export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
 export {
     alertThresholdsToReferenceLines,
     computeSeriesNonZeroMax,
     goalLinesToReferenceLines,
-} from './timeseries/utils/goalLinesAdapter'
+} from './charts/TimeSeriesLineChart/utils/goalLinesAdapter'
 
 // Timeseries derived series
-export { buildMainTrendsSeries, buildTrendsChartConfig, buildTrendsSeries } from './timeseries/derived-series'
+export {
+    buildMainTrendsSeries,
+    buildTrendsChartConfig,
+    buildTrendsSeries,
+} from './charts/TimeSeriesLineChart/derived-series'
 export type {
     BuildTrendsChartConfigOpts,
     BuildTrendsSeriesOpts,
     BuiltTrendsSeries,
     TrendsResultLike,
-} from './timeseries/derived-series'
+} from './charts/TimeSeriesLineChart/derived-series'

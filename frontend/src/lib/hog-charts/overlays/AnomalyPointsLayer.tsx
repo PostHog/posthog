@@ -6,7 +6,7 @@ import React from 'react'
 // move the type into hog-charts before this layer is reusable from non-trends call sites.
 import type { AnomalyMarker } from 'scenes/trends/viz/trends-line-chart/anomalyPointsAdapter'
 
-import { useChartLayout } from '../../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 interface AnomalyPointsLayerProps {
     markers: AnomalyMarker[]
