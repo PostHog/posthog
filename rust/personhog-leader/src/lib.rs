@@ -6,3 +6,4 @@ pub mod kafka;
 pub mod person_update;
 pub mod pg;
 pub mod service;
+pub mod warming;

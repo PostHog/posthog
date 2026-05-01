@@ -8,29 +8,47 @@ use tracing::info;
 
 use crate::cache::PartitionedCache;
 use crate::inflight::InflightTracker;
+use crate::warming::{warm_from_kafka, WarmingConfig};
 
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Handles partition ownership lifecycle events for a leader pod.
 ///
-/// Drives three phase responses via the `HandoffHandler` trait:
-///   - `drain_partition_inflight`: waits until no in-flight request handlers
-///     remain for the partition. Because the produce path awaits the Kafka
-///     delivery future before returning, this implies every write this pod
-///     ever acked is durable in Kafka.
-///   - `warm_partition`: creates an empty per-partition cache slot. A
-///     follow-up change wires this to consume the changelog topic and
-///     repopulate state; until then, the new owner takes over with an empty
-///     cache and falls back to PG on miss.
-///   - `release_partition`: drops the partition's cache.
+/// Drives three phase responses via the `HandoffHandler` trait,
+/// matching the four-phase handoff protocol
+/// (`Freezing → Draining → Warming → Complete`):
+///   - `drain_partition_inflight` (fired in `Draining` for the
+///     old owner): waits until no in-flight request handlers remain
+///     for the partition. By the time the coordinator advances to
+///     `Draining`, every router has acked freeze and stopped
+///     forwarding, so the inflight count strictly drops to zero.
+///     Because the produce path awaits the Kafka delivery future
+///     before returning, "no in-flight" implies "every write this
+///     pod ever acked is durable in Kafka." The pod then writes
+///     `PodDrainedAck` so the coordinator can advance to `Warming`.
+///   - `warm_partition` (fired in `Warming` for the new owner):
+///     consumes the `personhog_updates` topic for the partition and
+///     repopulates the in-memory cache up to the now-stable HWM.
+///   - `release_partition` (fired in `Complete` for the old owner):
+///     drops the partition's cache after the routing table has
+///     flipped to the new owner.
 pub struct LeaderHandoffHandler {
     cache: Arc<PartitionedCache>,
     inflight: Arc<InflightTracker>,
+    warming: WarmingConfig,
 }
 
 impl LeaderHandoffHandler {
-    pub fn new(cache: Arc<PartitionedCache>, inflight: Arc<InflightTracker>) -> Self {
-        Self { cache, inflight }
+    pub fn new(
+        cache: Arc<PartitionedCache>,
+        inflight: Arc<InflightTracker>,
+        warming: WarmingConfig,
+    ) -> Self {
+        Self {
+            cache,
+            inflight,
+            warming,
+        }
     }
 
     pub fn owns_partition(&self, partition: u32) -> bool {
@@ -50,8 +68,8 @@ impl HandoffHandler for LeaderHandoffHandler {
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
-        info!(partition, "warming partition cache");
-        self.cache.create_partition(partition);
+        info!(partition, "warming partition cache from kafka");
+        warm_from_kafka(&self.warming, &self.cache, partition).await?;
         info!(partition, "partition warmed");
         Ok(())
     }
@@ -67,43 +85,93 @@ impl HandoffHandler for LeaderHandoffHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::warming::WarmingRetryPolicy;
+    use common_kafka::config::KafkaConfig;
 
+    /// `warm_partition` is exercised end-to-end in
+    /// `tests/warming_integration.rs` against a mock Kafka cluster
+    /// because it now consumes from a real broker. These unit tests
+    /// cover the parts of `LeaderHandoffHandler` that don't require
+    /// Kafka: drain semantics, release semantics, and `owns_partition`.
     fn handler() -> LeaderHandoffHandler {
         LeaderHandoffHandler::new(
             Arc::new(PartitionedCache::new(100)),
             Arc::new(InflightTracker::new()),
+            WarmingConfig {
+                kafka: KafkaConfig {
+                    kafka_producer_linger_ms: 0,
+                    kafka_producer_queue_mib: 50,
+                    kafka_message_timeout_ms: 5000,
+                    kafka_compression_codec: "none".to_string(),
+                    kafka_hosts: "localhost:9092".to_string(),
+                    kafka_tls: false,
+                    kafka_producer_queue_messages: 1000,
+                    kafka_client_rack: String::new(),
+                    kafka_client_id: String::new(),
+                },
+                topic: "personhog_updates".to_string(),
+                pod_name: "test".to_string(),
+                writer_consumer_group: "personhog-writer".to_string(),
+                lookback_offsets: 0,
+                committed_offsets_timeout: Duration::from_secs(5),
+                fetch_watermarks_timeout: Duration::from_secs(5),
+                recv_timeout: Duration::from_secs(10),
+                retry: WarmingRetryPolicy {
+                    max_attempts: 3,
+                    initial_backoff: Duration::from_millis(500),
+                    max_backoff: Duration::from_secs(5),
+                },
+            },
         )
     }
 
     #[tokio::test]
-    async fn warm_partition_adds_ownership() {
+    async fn release_partition_drops_cache_entry() {
         let handler = handler();
-        assert!(!handler.owns_partition(42));
-        handler.warm_partition(42).await.unwrap();
+        // Simulate a successful prior warm by creating the partition
+        // directly. We can't call `warm_partition` here because it
+        // would try to talk to Kafka.
+        handler.cache.create_partition(42);
         assert!(handler.owns_partition(42));
-    }
 
-    #[tokio::test]
-    async fn release_partition_removes_ownership() {
-        let handler = handler();
-        handler.warm_partition(42).await.unwrap();
-        assert!(handler.owns_partition(42));
         handler.release_partition(42).await.unwrap();
         assert!(!handler.owns_partition(42));
     }
 
     #[tokio::test]
-    async fn multiple_partitions() {
+    async fn release_partition_is_idempotent_for_unknown_partition() {
         let handler = handler();
-        handler.warm_partition(1).await.unwrap();
-        handler.warm_partition(2).await.unwrap();
-        handler.warm_partition(3).await.unwrap();
+        // Releasing a partition that was never warmed must be a no-op,
+        // not an error. The pod's watch loop can deliver Complete events
+        // for partitions this pod never owned (e.g., during a rapid
+        // assignment churn) and we shouldn't fail the protocol.
+        handler.release_partition(99).await.unwrap();
+        assert!(!handler.owns_partition(99));
+    }
+
+    #[tokio::test]
+    async fn owns_partition_reflects_cache_state_across_lifecycle() {
+        let handler = handler();
+        assert!(!handler.owns_partition(1));
+        handler.cache.create_partition(1);
         assert!(handler.owns_partition(1));
+        handler.cache.create_partition(2);
+        handler.cache.create_partition(3);
         assert!(handler.owns_partition(2));
         assert!(handler.owns_partition(3));
+
         handler.release_partition(2).await.unwrap();
         assert!(handler.owns_partition(1));
         assert!(!handler.owns_partition(2));
         assert!(handler.owns_partition(3));
+    }
+
+    #[tokio::test]
+    async fn drain_partition_inflight_returns_immediately_when_empty() {
+        let handler = handler();
+        // No request handlers in flight → drain returns immediately.
+        // The protocol relies on this for partitions that never
+        // received traffic between Freezing and the actual drain call.
+        handler.drain_partition_inflight(7).await.unwrap();
     }
 }

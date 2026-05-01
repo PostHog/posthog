@@ -1,3 +1,8 @@
+// Each `tests/*.rs` integration test compiles as its own binary and imports
+// `common` via `mod common;`. Helpers used by some test files but not others
+// would otherwise fire `dead_code` per-binary; suppress at the module level.
+#![allow(dead_code)]
+
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -159,6 +164,50 @@ pub struct LeaderPodHandles {
     pub _mock_cluster: MockCluster<'static, DefaultProducerContext>,
 }
 
+/// Kafka config pointing at local kafka for e2e tests. Used for both the
+/// producer and the warming consumer inside `LeaderHandoffHandler`.
+pub fn test_kafka_config() -> KafkaConfig {
+    KafkaConfig {
+        kafka_producer_linger_ms: 0,
+        kafka_producer_queue_mib: 50,
+        kafka_message_timeout_ms: 5000,
+        kafka_compression_codec: "none".to_string(),
+        kafka_hosts: KAFKA_BOOTSTRAP.to_string(),
+        kafka_tls: false,
+        kafka_producer_queue_messages: 1000,
+        kafka_client_rack: String::new(),
+        kafka_client_id: String::new(),
+    }
+}
+
+/// Default warming knobs for e2e tests — production-equivalent timeouts and
+/// retry policy. `kafka_bootstrap` must match the broker the test's
+/// producer is publishing to, so the warming consumer reads from the same
+/// place. With a mock cluster, that's `mock_cluster.bootstrap_servers()`;
+/// with real local Kafka, `KAFKA_BOOTSTRAP`.
+pub fn test_warming_config(
+    pod_name: &str,
+    kafka_bootstrap: &str,
+) -> personhog_leader::warming::WarmingConfig {
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = kafka_bootstrap.to_string();
+    personhog_leader::warming::WarmingConfig {
+        kafka,
+        topic: CHANGELOG_TOPIC.to_string(),
+        pod_name: pod_name.to_string(),
+        writer_consumer_group: "personhog-writer".to_string(),
+        lookback_offsets: 0,
+        committed_offsets_timeout: Duration::from_secs(5),
+        fetch_watermarks_timeout: Duration::from_secs(5),
+        recv_timeout: Duration::from_secs(10),
+        retry: personhog_leader::warming::WarmingRetryPolicy {
+            max_attempts: 3,
+            initial_backoff: Duration::from_millis(500),
+            max_backoff: Duration::from_secs(5),
+        },
+    }
+}
+
 /// Create a producer against local Kafka for e2e tests.
 pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
     let registry = HealthRegistry::new("test");
@@ -181,14 +230,31 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         .expect("failed to connect to local Kafka")
 }
 
-/// Create a mock Kafka cluster and producer for tests.
+/// Create a mock Kafka cluster and producer for tests. The mock topic is
+/// pre-created with `NUM_PARTITIONS` partitions so the warming pipeline's
+/// `fetch_watermarks` calls succeed for every partition the test exercises;
+/// otherwise warming aborts trying to query a non-existent partition and
+/// the handoff stalls.
 pub async fn create_test_kafka() -> (
+    MockCluster<'static, DefaultProducerContext>,
+    FutureProducer<KafkaContext>,
+) {
+    create_test_kafka_with_partitions(NUM_PARTITIONS as i32).await
+}
+
+/// Variant of `create_test_kafka` that lets a test pin the topic to a
+/// specific partition count. Use this for tests that exercise the
+/// producer's partition-routing behavior — they need a topology they
+/// control, not the default warming-friendly multi-partition setup.
+pub async fn create_test_kafka_with_partitions(
+    partitions: i32,
+) -> (
     MockCluster<'static, DefaultProducerContext>,
     FutureProducer<KafkaContext>,
 ) {
     let (cluster, producer) = common_kafka::test::create_mock_kafka().await;
     cluster
-        .create_topic(CHANGELOG_TOPIC, 1, 1)
+        .create_topic(CHANGELOG_TOPIC, partitions, 1)
         .expect("failed to create mock topic");
     (cluster, producer)
 }
@@ -204,9 +270,15 @@ pub async fn start_leader_pod(
     let cache = Arc::new(PartitionedCache::new(cache_capacity));
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
-    // Pod with real handoff handler
+    // Pod with real handoff handler. Warming consumer reads from the same
+    // mock broker the producer is publishing to so the topic actually
+    // exists when warming queries watermarks.
     let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
-    let handler = LeaderHandoffHandler::new(Arc::clone(&cache), Arc::clone(&inflight));
+    let handler = LeaderHandoffHandler::new(
+        Arc::clone(&cache),
+        Arc::clone(&inflight),
+        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+    );
     let pod = PodHandle::new(
         store,
         PodConfig {
@@ -264,7 +336,11 @@ pub async fn start_leader_pod_with_lease_ttl(
 
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
-    let handler = LeaderHandoffHandler::new(Arc::clone(&cache), Arc::clone(&inflight));
+    let handler = LeaderHandoffHandler::new(
+        Arc::clone(&cache),
+        Arc::clone(&inflight),
+        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+    );
     let pod = PodHandle::new(
         store,
         PodConfig {
