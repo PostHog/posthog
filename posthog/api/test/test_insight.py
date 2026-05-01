@@ -46,6 +46,7 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
+from posthog.api.insight import _last_refresh_for_shared_gate
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
@@ -533,6 +534,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
+                # The shared force_blocking gate downgrades to IF_STALE because the insight was
+                # just created — the InsightCachingState row's `created_at` is younger than
+                # `SHARED_FORCE_BLOCKING_MIN_AGE` and the throttle clock falls back to it.
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
@@ -541,6 +545,26 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 analytics_props=ANY,
             )
+
+    @parameterized.expand(
+        [
+            # When no caching state row exists, the gate falls back to insight.created_at so
+            # legitimate stale-refresh isn't silently blocked on insights without rows.
+            ("missing_row_falls_back_to_insight_created_at", True),
+            ("existing_row_used_when_present", False),
+        ]
+    )
+    def test_last_refresh_for_shared_gate_fallback(self, _name: str, delete_caching_state: bool) -> None:
+        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        if delete_caching_state:
+            InsightCachingState.objects.filter(insight=insight).delete()
+            self.assertIsNone(InsightCachingState.objects.filter(insight=insight).first())
+            expected = insight.created_at
+        else:
+            cs = InsightCachingState.objects.filter(insight=insight, dashboard_tile=None).first()
+            assert cs is not None  # narrows type for mypy
+            expected = cs.created_at  # last_refresh is null on a freshly created row
+        self.assertEqual(_last_refresh_for_shared_gate(insight, None), expected)
 
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}

@@ -9,6 +9,8 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -22,11 +24,14 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.webhook_s3 import (
-    WebhookSourceManager,
-    is_webhook_feature_flag_enabled,
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.customer_io import api_client
+from posthog.temporal.data_imports.sources.customer_io.constants import (
+    CIO_API_ENDPOINTS,
+    CIO_API_SCHEMA_NAMES,
+    CIO_WEBHOOK_SCHEMA_NAMES,
+    RESOURCE_TO_CIO_OBJECT_TYPE,
 )
-from posthog.temporal.data_imports.sources.customer_io.constants import CIO_ENDPOINTS, RESOURCE_TO_CIO_OBJECT_TYPE
 from posthog.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -36,6 +41,7 @@ if TYPE_CHECKING:
 
 
 CIO_DOCS_WEBHOOKS_URL = "https://fly.customer.io/settings/webhooks/new/reporting_webhook"
+CIO_APP_API_KEY_URL = "https://fly.customer.io/settings/api_credentials?keyType=app"
 
 
 @SourceRegistry.register
@@ -62,26 +68,57 @@ class CustomerIOSource(
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOMER_IO,
             caption=(
-                "Connect your Customer.io account by sending reporting webhooks to PostHog. "
-                f"Create a reporting webhook in [Customer.io]({CIO_DOCS_WEBHOOKS_URL}) and "
-                "complete the signing key step during webhook setup."
+                "Connect your Customer.io workspace using an "
+                f"[App API Key]({CIO_APP_API_KEY_URL}). PostHog uses the key to pull "
+                "campaigns, broadcasts, segments, newsletters, and more, and to register "
+                "a reporting webhook for realtime message activity."
             ),
             iconPath="/static/services/customer-io.png",
             label="Customer.io",
             docsUrl="https://posthog.com/docs/cdp/sources/customer-io",
-            fields=cast(list[FieldType], []),
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="app_api_key",
+                        label="App API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="Customer.io App API Key",
+                        caption=(
+                            f"Generate a key under [API Credentials > App API Keys]({CIO_APP_API_KEY_URL}). "
+                            "PostHog needs this key both for pulling list endpoints and for managing the "
+                            "reporting webhook automatically."
+                        ),
+                        secret=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="region",
+                        label="Region",
+                        required=True,
+                        defaultValue="us",
+                        options=[
+                            SourceFieldSelectConfigOption(label="US (api.customer.io)", value="us"),
+                            SourceFieldSelectConfigOption(label="EU (api-eu.customer.io)", value="eu"),
+                        ],
+                    ),
+                ],
+            ),
             releaseStatus=ReleaseStatus.ALPHA,
             featureFlag="dwh-customer-io",
-            webhookSetupCaption="""To set up the webhook manually:
-
-1. Go to your [Customer.io workspace > Data & Integrations > Integrations > Reporting Webhooks](https://fly.customer.io/settings/webhooks/new/reporting_webhook)
-2. Click **Add Reporting Webhook**
-3. Paste the webhook URL shown below into the **Endpoint URL** field
-4. Select the events you want to track (email, push, sms, in-app, slack, webhook, customer)
-5. Use **Selected events** or **All events** as appropriate
-6. Click **Save**
-
-Once created, copy the **Signing key** from the webhook details page and add it to your source configuration for signature verification.""",
+            webhookSetupCaption=(
+                "PostHog tries to register the reporting webhook for you using your App API Key. "
+                "Customer.io doesn't return the signing key in the API response, so you still need "
+                "to copy it from the **Reporting Webhooks** page in Customer.io and paste it below.\n\n"
+                "**Manual setup** (only needed if auto-registration failed):\n\n"
+                "1. Go to your [Customer.io workspace > Data & Integrations > Integrations > Reporting Webhooks]"
+                "(https://fly.customer.io/settings/webhooks/new/reporting_webhook)\n"
+                "2. Click **Add Reporting Webhook**\n"
+                "3. Paste the webhook URL shown below into the **Endpoint URL** field\n"
+                "4. Select the events you want to track (customer, email, push, sms, in-app, slack, webhook)\n"
+                "5. Click **Save**\n\n"
+                "Then copy the **Signing key** from the webhook details page into the field below."
+            ),
             webhookFields=cast(
                 list[FieldType],
                 [
@@ -100,9 +137,19 @@ Once created, copy the **Signing key** from the webhook details page and add it 
     def validate_credentials(
         self, config: CustomerIOSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        # Customer.io has no API credentials for this source — the user only provides the
-        # webhook signing key via webhookFields at webhook setup time. Nothing to validate up front.
-        return True, None
+        return api_client.validate_credentials(config.app_api_key, config.region)
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized": (
+                "Customer.io rejected the App API Key. Generate a new key from Settings > API "
+                "Credentials > App API Keys and reconnect."
+            ),
+            "403 Client Error: Forbidden": (
+                "The App API Key doesn't have permission for this endpoint. Make sure the key has "
+                "access to the resources you're syncing."
+            ),
+        }
 
     def get_schemas(
         self,
@@ -111,17 +158,34 @@ Once created, copy the **Signing key** from the webhook details page and add it 
         with_counts: bool = False,
         names: list[str] | None = None,
     ) -> list[SourceSchema]:
-        webhooks_enabled = is_webhook_feature_flag_enabled(team_id)
-        schemas = [
+        # `supports_append=False` on the webhook schemas: events arrive via the realtime
+        # webhook pipeline (not the polling sync), so user-facing append/full-refresh
+        # toggles don't apply. The polling sync would also have nothing to fetch from
+        # the API for these — they're webhook-only.
+        webhook_schemas = [
             SourceSchema(
-                name=endpoint,
+                name=name,
                 supports_incremental=False,
-                supports_append=True,
-                supports_webhooks=webhooks_enabled,
+                supports_append=False,
+                supports_webhooks=True,
                 incremental_fields=[],
             )
-            for endpoint in CIO_ENDPOINTS
+            for name in CIO_WEBHOOK_SCHEMA_NAMES
         ]
+        # API list endpoints are full-refresh: the App API doesn't expose a
+        # server-side time filter on `created_at`, so an "append" sync would still
+        # have to read every row each run.
+        api_schemas = [
+            SourceSchema(
+                name=name,
+                supports_incremental=False,
+                supports_append=False,
+                supports_webhooks=False,
+                incremental_fields=[],
+            )
+            for name in CIO_API_SCHEMA_NAMES
+        ]
+        schemas = [*webhook_schemas, *api_schemas]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
@@ -131,23 +195,27 @@ Once created, copy the **Signing key** from the webhook details page and add it 
         return WebhookSourceManager(inputs, inputs.logger)
 
     def create_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
-        return WebhookCreationResult(
-            success=False,
-            error="Customer.io webhooks must be created manually in the Customer.io dashboard.",
+        return api_client.create_webhook(
+            api_key=config.app_api_key,
+            region=config.region,
+            webhook_url=webhook_url,
+            resource_names=list(RESOURCE_TO_CIO_OBJECT_TYPE.keys()),
         )
 
     def get_external_webhook_info(
         self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int
     ) -> ExternalWebhookInfo | None:
-        return None
+        return api_client.get_external_webhook_info(config.app_api_key, config.region, webhook_url)
 
     def delete_webhook(self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
-        return WebhookDeletionResult(
-            success=False,
-            error="Customer.io webhooks must be deleted manually in the Customer.io dashboard.",
-        )
+        return api_client.delete_webhook(config.app_api_key, config.region, webhook_url)
 
     def source_for_pipeline(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        if inputs.schema_name in CIO_API_ENDPOINTS:
+            return self._api_source_response(config, inputs)
+        return self._webhook_source_response(inputs)
+
+    def _webhook_source_response(self, inputs: SourceInputs) -> SourceResponse:
         webhook_source_manager = self.get_webhook_source_manager(inputs)
         webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
@@ -166,4 +234,25 @@ Once created, copy the **Signing key** from the webhook details page and add it 
             partition_mode="datetime",
             partition_format="week",
             partition_keys=["timestamp"],
+        )
+
+    def _api_source_response(self, config: CustomerIOSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        endpoint = CIO_API_ENDPOINTS[inputs.schema_name]
+
+        def items() -> Iterable[Any]:
+            yield from api_client.iterate_list_endpoint(
+                api_key=config.app_api_key,
+                region=config.region,
+                endpoint=endpoint,
+            )
+
+        return SourceResponse(
+            items=items,
+            primary_keys=endpoint.primary_keys,
+            name=inputs.schema_name,
+            partition_keys=endpoint.partition_keys,
+            partition_mode=endpoint.partition_mode,
+            partition_format=endpoint.partition_format,
+            partition_count=endpoint.partition_count,
+            partition_size=endpoint.partition_size,
         )

@@ -86,6 +86,12 @@ tools:
     integrations-github-branches-retrieve:
         operation: integrations_github_branches_retrieve
         enabled: false
+    integrations-github-link-existing-create:
+        operation: integrations_github_link_existing_create
+        enabled: false
+    integrations-github-oauth-authorize-create:
+        operation: integrations_github_oauth_authorize_create
+        enabled: false
     integrations-github-repos-refresh-create:
         operation: integrations_github_repos_refresh_create
         enabled: false

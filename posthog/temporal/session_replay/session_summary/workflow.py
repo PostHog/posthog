@@ -820,7 +820,7 @@ async def execute_summarize_session_video_stream(
         )
         yield serialize_to_sse_event(
             event_label="session-summary-stream",
-            event_data=json.dumps(existing_summary.summary),
+            event_data=json.dumps({"id": str(existing_summary.id), "summary": existing_summary.summary}),
         )
         return
 
@@ -872,7 +872,7 @@ async def execute_summarize_session_video_stream(
                     return
                 yield serialize_to_sse_event(
                     event_label="session-summary-stream",
-                    event_data=json.dumps(summary_row.summary),
+                    event_data=json.dumps({"id": str(summary_row.id), "summary": summary_row.summary}),
                 )
                 return
 

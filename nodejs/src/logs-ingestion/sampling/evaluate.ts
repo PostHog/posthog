@@ -21,6 +21,8 @@ export type CompiledSamplingRule = {
     scopeService: string | null
     pathRegex: RegExp | null
     pathDropPatterns: RegExp[] | null
+    /** When set, path_drop regexes match only this attribute; null uses pathForMatching(). */
+    pathDropMatchAttributeKey: string | null
     severityActions: [SeverityAction, SeverityAction, SeverityAction, SeverityAction]
     alwaysKeep: {
         statusGte: number | null
@@ -167,7 +169,9 @@ export function evaluateLogRecord(teamRuleSet: CompiledRuleSet | null, record: L
             if (!rule.pathDropPatterns || rule.pathDropPatterns.length === 0) {
                 continue
             }
-            const p = pathForMatching(record)
+            const p = rule.pathDropMatchAttributeKey
+                ? (getAttribute(record, rule.pathDropMatchAttributeKey) ?? '')
+                : pathForMatching(record)
             for (const rx of rule.pathDropPatterns) {
                 if (rx.test(p)) {
                     return { decision: SAMPLING_DECISION_DROP, ruleId: rule.id }

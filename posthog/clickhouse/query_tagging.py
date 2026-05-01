@@ -26,6 +26,7 @@ logger = structlog.get_logger(__name__)
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
     OAUTH = "oauth"
+    SHARING_TOKEN = "sharing_token"
 
 
 class Product(StrEnum):

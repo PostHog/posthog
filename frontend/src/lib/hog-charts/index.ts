@@ -1,4 +1,6 @@
 // Components
+export { BarChart } from './charts/BarChart'
+export type { BarChartProps } from './charts/BarChart'
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
 
@@ -13,6 +15,7 @@ export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue 
 
 // Core types
 export type {
+    BarChartConfig,
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,

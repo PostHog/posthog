@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconEllipsis, IconShare } from '@posthog/icons'
 import {
@@ -24,12 +25,40 @@ import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsServicesLogic, ServiceRow } from './logsServicesLogic'
 
+/** Collapsed Rules column shows this many rule chips before "+ N more". */
+const RULES_PREVIEW_COUNT = 3
+
 const DATE_OPTIONS = [
     { value: '-1h', label: 'Last hour' },
     { value: '-24h', label: 'Last 24 hours' },
     { value: '-7d', label: 'Last 7 days' },
     { value: '-30d', label: 'Last 30 days' },
 ]
+
+function severityMixTooltipBody(b: NonNullable<ServiceRow['severity_breakdown']>, total: number): JSX.Element {
+    const rows: { label: string; n: number; dotClass: string }[] = [
+        { label: 'Debug', n: b.debug, dotClass: 'bg-accent-secondary' },
+        { label: 'Info', n: b.info, dotClass: 'bg-blue-400' },
+        { label: 'Warn', n: b.warn, dotClass: 'bg-yellow-500' },
+        { label: 'Error', n: b.error, dotClass: 'bg-danger' },
+    ]
+    return (
+        <div className="text-xs space-y-1 min-w-[11rem]">
+            <div className="font-semibold text-muted">Severity mix</div>
+            {rows.map(({ label, n, dotClass }) => (
+                <div key={label} className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5">
+                        <span className={`inline-block size-2 shrink-0 rounded-sm ${dotClass}`} />
+                        {label}
+                    </span>
+                    <span className="tabular-nums text-muted">
+                        {total > 0 ? ((n / total) * 100).toFixed(1) : '0.0'}% · {humanFriendlyNumber(n)}
+                    </span>
+                </div>
+            ))}
+        </div>
+    )
+}
 
 function severityMixBar(row: ServiceRow): JSX.Element {
     const b = row.severity_breakdown
@@ -40,23 +69,81 @@ function severityMixBar(row: ServiceRow): JSX.Element {
     if (total <= 0) {
         return <span className="text-muted">-</span>
     }
-    const seg = (n: number, className: string, label: string): JSX.Element | null => {
+    const seg = (n: number, className: string): JSX.Element | null => {
         if (n <= 0) {
             return null
         }
         const flex = Math.max(0.02, n / total)
-        return (
-            <Tooltip key={label} title={`${label}: ${humanFriendlyNumber(n)}`}>
-                <div className={`h-2 min-w-0 ${className}`} style={{ flex }} />
-            </Tooltip>
-        )
+        return <div className={`h-2 min-w-0 ${className}`} style={{ flex }} />
     }
     return (
-        <div className="flex h-2 w-28 overflow-hidden rounded bg-surface-secondary">
-            {seg(b.debug, 'bg-accent-secondary', 'Debug')}
-            {seg(b.info, 'bg-blue-400', 'Info')}
-            {seg(b.warn, 'bg-yellow-500', 'Warn')}
-            {seg(b.error, 'bg-danger', 'Error')}
+        <Tooltip title={severityMixTooltipBody(b, total)} placement="top">
+            <div className="flex h-2 w-28 overflow-hidden rounded bg-surface-secondary cursor-default">
+                {seg(b.debug, 'bg-accent-secondary')}
+                {seg(b.info, 'bg-blue-400')}
+                {seg(b.warn, 'bg-yellow-500')}
+                {seg(b.error, 'bg-danger')}
+            </div>
+        </Tooltip>
+    )
+}
+
+function ServiceRulesCell({
+    row,
+    rulesExpandAll,
+    rulesExpandedByService,
+    onToggleRow,
+}: {
+    row: ServiceRow
+    rulesExpandAll: boolean
+    rulesExpandedByService: Record<string, boolean>
+    onToggleRow: (serviceName: string) => void
+}): JSX.Element {
+    const rules = row.active_rules ?? []
+    if (rules.length === 0) {
+        return <span className="text-muted">-</span>
+    }
+
+    const rowExpanded = rulesExpandAll || rulesExpandedByService[row.service_name]
+    const needsTruncate = rules.length > RULES_PREVIEW_COUNT
+    const showAll = rowExpanded || !needsTruncate
+    const visibleRules = showAll ? rules : rules.slice(0, RULES_PREVIEW_COUNT)
+    const hiddenCount = rules.length - RULES_PREVIEW_COUNT
+
+    return (
+        <div className="flex flex-col gap-1 max-w-md">
+            <div className="flex flex-wrap gap-1">
+                {visibleRules.map((r) => (
+                    <LemonButton
+                        key={r.rule_id}
+                        size="xsmall"
+                        to={urls.logsSamplingDetail(r.rule_id)}
+                        className="font-normal"
+                    >
+                        {r.rule_name}
+                    </LemonButton>
+                ))}
+            </div>
+            {needsTruncate && !rowExpanded ? (
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    className="self-start font-normal"
+                    onClick={() => onToggleRow(row.service_name)}
+                >
+                    Show {hiddenCount} more
+                </LemonButton>
+            ) : null}
+            {needsTruncate && rowExpanded && !rulesExpandAll ? (
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    className="self-start font-normal"
+                    onClick={() => onToggleRow(row.service_name)}
+                >
+                    Show less
+                </LemonButton>
+            ) : null}
         </div>
     )
 }
@@ -78,7 +165,26 @@ export function LogsServices(): JSX.Element {
         useValues(logsServicesLogic)
     const { setDateFrom } = useActions(logsServicesLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
-    const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.samplingRules)
+    const samplingRulesUi = useFeatureFlag(LogsFeatureFlagKeys.dropRules)
+
+    const [rulesExpandAll, setRulesExpandAll] = useState(false)
+    const [rulesExpandedByService, setRulesExpandedByService] = useState<Record<string, boolean>>({})
+
+    const servicesWithManyRules = useMemo(
+        () => services.filter((s) => (s.active_rules?.length ?? 0) > RULES_PREVIEW_COUNT),
+        [services]
+    )
+    const showRulesBulkControls = samplingRulesUi && servicesWithManyRules.length > 0
+
+    useEffect(() => {
+        if (servicesWithManyRules.length === 0) {
+            setRulesExpandAll(false)
+        }
+    }, [servicesWithManyRules.length])
+
+    const toggleServiceRulesExpanded = (serviceName: string): void => {
+        setRulesExpandedByService((prev) => ({ ...prev, [serviceName]: !prev[serviceName] }))
+    }
 
     const presetItems = DATE_OPTIONS.map((opt) => ({
         label: opt.label,
@@ -145,28 +251,37 @@ export function LogsServices(): JSX.Element {
         ...(samplingRulesUi
             ? ([
                   {
-                      title: 'Rules',
+                      title: showRulesBulkControls ? (
+                          <div className="flex items-center gap-2 min-w-0">
+                              <span className="shrink-0">Rules</span>
+                              <LemonButton
+                                  size="xsmall"
+                                  type="secondary"
+                                  onClick={() => {
+                                      if (rulesExpandAll) {
+                                          setRulesExpandAll(false)
+                                          setRulesExpandedByService({})
+                                      } else {
+                                          setRulesExpandAll(true)
+                                          setRulesExpandedByService({})
+                                      }
+                                  }}
+                              >
+                                  {rulesExpandAll ? 'Collapse all' : 'Expand all'}
+                              </LemonButton>
+                          </div>
+                      ) : (
+                          'Rules'
+                      ),
                       key: 'active_rules',
-                      render: (_: unknown, row: ServiceRow) => {
-                          const rules = row.active_rules ?? []
-                          if (rules.length === 0) {
-                              return <span className="text-muted">-</span>
-                          }
-                          return (
-                              <div className="flex flex-wrap gap-1 max-w-xs">
-                                  {rules.map((r) => (
-                                      <LemonButton
-                                          key={r.rule_id}
-                                          size="xsmall"
-                                          to={urls.logsSamplingDetail(r.rule_id)}
-                                          className="font-normal"
-                                      >
-                                          {r.rule_name}
-                                      </LemonButton>
-                                  ))}
-                              </div>
-                          )
-                      },
+                      render: (_: unknown, row: ServiceRow) => (
+                          <ServiceRulesCell
+                              row={row}
+                              rulesExpandAll={rulesExpandAll}
+                              rulesExpandedByService={rulesExpandedByService}
+                              onToggleRow={toggleServiceRulesExpanded}
+                          />
+                      ),
                   },
               ] as LemonTableColumns<ServiceRow>)
             : []),

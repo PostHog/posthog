@@ -13128,6 +13128,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export interface DataWarehouseSavedQueryDraft {
@@ -13149,6 +13154,9 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface DataWarehouseSavedQueryFolder {
       readonly id: string;
       /**
@@ -13159,6 +13167,11 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly view_count: number;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export type DataWarehouseSavedQueryMinimalColumnsItem = { [key: string]: unknown };
@@ -13209,6 +13222,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export type HedgehogActorAccessoryOption = typeof HedgehogActorAccessoryOption[keyof typeof HedgehogActorAccessoryOption];
@@ -21544,7 +21562,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -25023,6 +25041,9 @@ export namespace Schemas {
 
     export type TableOptions = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface Table {
       readonly id: string;
       /** @nullable */
@@ -25040,6 +25061,11 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema: TableExternalSchema;
       options?: TableOptions;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedTableList {
@@ -26699,6 +26725,11 @@ export namespace Schemas {
        * @nullable
        */
       readonly expires_at?: string | null;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedDataWarehouseSavedQueryDraft {
@@ -26720,6 +26751,9 @@ export namespace Schemas {
       edited_history_id?: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedDataWarehouseSavedQueryFolder {
       readonly id?: string;
       /**
@@ -26730,6 +26764,11 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly view_count?: number;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedDataset {
@@ -28318,7 +28357,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. rate_limit is reserved. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -30596,6 +30635,9 @@ export namespace Schemas {
 
     export type PatchedTableOptions = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedTable {
       readonly id?: string;
       /** @nullable */
@@ -30613,6 +30655,11 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
       options?: PatchedTableOptions;
+      /**
+       * The effective access level the user has for this object
+       * @nullable
+       */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedTagger {

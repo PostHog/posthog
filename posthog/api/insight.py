@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -59,6 +59,7 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -91,6 +92,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
+from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -397,6 +399,25 @@ class QueryFieldSerializer(serializers.Serializer):
         if data is not None and not isinstance(data, dict):
             raise serializers.ValidationError("Query must be a valid JSON object")
         return data
+
+
+def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
+    """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
+    ``now()`` so the gate fails closed."""
+    try:
+        if dashboard_tile is not None:
+            cs = next(iter(dashboard_tile.caching_states.all()), None)
+        else:
+            cs = (
+                InsightCachingState.objects.filter(insight=insight, dashboard_tile=None)
+                .only("last_refresh", "created_at")
+                .first()
+            )
+    except Exception:
+        return datetime.now(UTC)
+    if cs is None:
+        return insight.created_at
+    return cs.last_refresh or cs.created_at
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -992,20 +1013,28 @@ class InsightSerializer(InsightBasicSerializer):
                     self.context["request"], dashboard_tile
                 )
 
-                if self.context.get("is_shared", False):
-                    execution_mode = shared_insights_execution_mode(execution_mode)
+                is_shared = self.context.get("is_shared", False)
+                if is_shared:
+                    execution_mode = shared_insights_execution_mode(
+                        execution_mode,
+                        last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
+                    )
 
-                return calculate_for_query_based_insight(
-                    insight,
-                    team=self.context["get_team"](),
-                    dashboard=dashboard,
-                    execution_mode=execution_mode,
-                    user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
-                    filters_override=filters_override,
-                    variables_override=variables_override,
-                    tile_filters_override=tile_filters_override,
-                    analytics_props=get_request_analytics_properties(self.context["request"]),
-                )
+                # Shared rendering bypasses the FE scene-tag flow, so set product/feature
+                # tags here. No-op overwrite for authenticated paths (same values).
+                shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
+                with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
+                    return calculate_for_query_based_insight(
+                        insight,
+                        team=self.context["get_team"](),
+                        dashboard=dashboard,
+                        execution_mode=execution_mode,
+                        user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                        filters_override=filters_override,
+                        variables_override=variables_override,
+                        tile_filters_override=tile_filters_override,
+                        analytics_props=get_request_analytics_properties(self.context["request"]),
+                    )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))
             except ConcurrencyLimitExceeded as e:
