@@ -10,18 +10,19 @@ https://github.com/PostHog/posthog/pull/55299.
 from __future__ import annotations
 
 import secrets
-from typing import Any
 from urllib.parse import urlparse
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import OpenApiResponse
 from oauthlib.common import generate_token
-from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
-from rest_framework.request import Request
+from rest_framework import serializers, status
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.cloud_utils import is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
@@ -64,87 +65,141 @@ def _validate_callback_url(url: str) -> str | None:
     return None
 
 
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([])
-@throttle_classes([PartnerRegistrationIPThrottle])
-def provisioning_register(request: Request) -> Response:
-    data = request.data
-    name = str(data.get("name", "")).strip()
-    callback_url = str(data.get("callback_url", "")).strip()
-    partner_type = str(data.get("partner_type", "")).strip()
-    logo_uri = str(data.get("logo_uri", "")).strip() or None
-
-    if not name:
-        return Response({"error": "name is required"}, status=400)
-    if len(name) > NAME_MAX_LENGTH:
-        return Response({"error": f"name must be {NAME_MAX_LENGTH} characters or fewer"}, status=400)
-    if not callback_url:
-        return Response({"error": "callback_url is required"}, status=400)
-    if len(partner_type) > PARTNER_TYPE_MAX_LENGTH:
-        return Response(
-            {"error": f"partner_type must be {PARTNER_TYPE_MAX_LENGTH} characters or fewer"},
-            status=400,
-        )
-
-    if (url_error := _validate_callback_url(callback_url)) is not None:
-        return Response({"error": f"Invalid callback_url: {url_error}"}, status=400)
-
-    if logo_uri and (logo_uri_error := _validate_callback_url(logo_uri)) is not None:
-        return Response({"error": f"Invalid logo_uri: {logo_uri_error}"}, status=400)
-
-    client_id = generate_token()
-    client_secret = generate_token()
-    signing_secret = secrets.token_hex(SIGNING_SECRET_BYTES)
-
-    try:
-        app = OAuthApplication.objects.create(
-            name=name,
-            client_id=client_id,
-            client_secret=client_secret,
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris=callback_url,
-            algorithm="RS256",
-            logo_uri=logo_uri,
-            provisioning_auth_method="hmac",
-            provisioning_signing_secret=signing_secret,
-            provisioning_partner_type=partner_type,
-            provisioning_active=DEFAULT_PROVISIONING_ACTIVE,
-            provisioning_can_create_accounts=DEFAULT_CAN_CREATE_ACCOUNTS,
-            provisioning_can_provision_resources=DEFAULT_CAN_PROVISION_RESOURCES,
-            organization=None,
-            user=None,
-        )
-    except ValidationError as e:
-        return Response({"error": "; ".join(e.messages) if e.messages else "Invalid registration"}, status=400)
-
-    logger.info(
-        "agentic_provisioning.partner_registered",
-        app_id=str(app.id),
-        client_id=client_id,
-        name=name,
-        partner_type=partner_type,
-        ip=get_ip_address(request),
+class ProvisioningRegisterRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=NAME_MAX_LENGTH,
+        help_text="Display name shown to end users when they authorize the partner.",
     )
-    try:
-        posthoganalytics.capture(
-            "agentic_provisioning partner_registered",
-            distinct_id=f"provisioning_partner_{app.id}",
-            properties={
-                "partner_type": partner_type,
-                "app_id": str(app.id),
-            },
-        )
-    except Exception:
-        capture_exception()
+    callback_url = serializers.CharField(
+        help_text=(
+            "OAuth redirect URI. Must be an HTTPS URL with a public host - private IPs, "
+            "loopback, cloud metadata endpoints, and non-HTTPS schemes are rejected."
+        ),
+    )
+    partner_type = serializers.CharField(
+        max_length=PARTNER_TYPE_MAX_LENGTH,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Free-form partner category for analytics (e.g. 'billing', 'wizard').",
+    )
+    logo_uri = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default=None,
+        help_text="HTTPS URL to a square logo shown on the consent screen. Same scheme and host rules as callback_url.",
+    )
 
-    response_data: dict[str, Any] = {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "signing_secret": signing_secret,
-        "name": name,
-        "provisioning_active": DEFAULT_PROVISIONING_ACTIVE,
-        "message": "Partner registered successfully. An admin must activate provisioning before you can use the API.",
-    }
-    return Response(response_data, status=201)
+    def validate_callback_url(self, value: str) -> str:
+        error = _validate_callback_url(value)
+        if error is not None:
+            raise serializers.ValidationError(error)
+        return value
+
+    def validate_logo_uri(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        error = _validate_callback_url(value)
+        if error is not None:
+            raise serializers.ValidationError(error)
+        return value
+
+
+class ProvisioningRegisterResponseSerializer(serializers.Serializer):
+    client_id = serializers.CharField(help_text="OAuth client identifier issued to the partner.")
+    client_secret = serializers.CharField(
+        help_text="OAuth client secret. Returned once at registration; store securely.",
+    )
+    signing_secret = serializers.CharField(
+        help_text="HMAC signing secret used to authenticate webhook requests from the partner.",
+    )
+    name = serializers.CharField(help_text="Echo of the registered partner name.")
+    provisioning_active = serializers.BooleanField(
+        help_text=(
+            "Whether the partner can use the provisioning API. Always false on registration; "
+            "an admin must activate the partner before any provisioning calls succeed."
+        ),
+    )
+    message = serializers.CharField(help_text="Human-readable summary of the registration result.")
+
+
+class ProvisioningRegisterView(APIView):
+    authentication_classes: list = []
+    permission_classes: list = []
+    throttle_classes = [PartnerRegistrationIPThrottle]
+
+    @validated_request(
+        request_serializer=ProvisioningRegisterRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=ProvisioningRegisterResponseSerializer),
+        },
+        summary="Register a self-serve HMAC partner",
+        tags=["agentic_provisioning"],
+    )
+    def post(self, request: ValidatedRequest) -> Response:
+        data = request.validated_data
+        name = data["name"].strip()
+        callback_url = data["callback_url"].strip()
+        partner_type = (data.get("partner_type") or "").strip()
+        logo_uri = data.get("logo_uri") or None
+
+        client_id = generate_token()
+        client_secret = generate_token()
+        signing_secret = secrets.token_hex(SIGNING_SECRET_BYTES)
+
+        try:
+            app = OAuthApplication.objects.create(
+                name=name,
+                client_id=client_id,
+                client_secret=client_secret,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris=callback_url,
+                algorithm="RS256",
+                logo_uri=logo_uri,
+                provisioning_auth_method="hmac",
+                provisioning_signing_secret=signing_secret,
+                provisioning_partner_type=partner_type,
+                provisioning_active=DEFAULT_PROVISIONING_ACTIVE,
+                provisioning_can_create_accounts=DEFAULT_CAN_CREATE_ACCOUNTS,
+                provisioning_can_provision_resources=DEFAULT_CAN_PROVISION_RESOURCES,
+                organization=None,
+                user=None,
+            )
+        except DjangoValidationError as e:
+            raise serializers.ValidationError("; ".join(e.messages) if e.messages else "Invalid registration")
+
+        logger.info(
+            "agentic_provisioning.partner_registered",
+            app_id=str(app.id),
+            client_id=client_id,
+            name=name,
+            partner_type=partner_type,
+            ip=get_ip_address(request),
+        )
+        try:
+            posthoganalytics.capture(
+                "agentic_provisioning partner_registered",
+                distinct_id=f"provisioning_partner_{app.id}",
+                properties={
+                    "partner_type": partner_type,
+                    "app_id": str(app.id),
+                },
+            )
+        except Exception:
+            capture_exception()
+
+        response_serializer = ProvisioningRegisterResponseSerializer(
+            {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "signing_secret": signing_secret,
+                "name": name,
+                "provisioning_active": DEFAULT_PROVISIONING_ACTIVE,
+                "message": (
+                    "Partner registered successfully. An admin must activate provisioning before you can use the API."
+                ),
+            }
+        )
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)

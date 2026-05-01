@@ -88,58 +88,68 @@ class TestProvisioningRegister(APIBaseTest):
     def test_register_missing_name(self) -> None:
         res = self._register({"name": ""})
         assert res.status_code == 400
-        assert "name" in res.json()["error"]
+        body = res.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "name"
 
     def test_register_missing_callback_url(self) -> None:
         res = self._register({"callback_url": ""})
         assert res.status_code == 400
-        assert "callback_url" in res.json()["error"]
+        body = res.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "callback_url"
 
     def test_register_rejects_private_ip(self) -> None:
         res = self._register({"callback_url": "https://10.0.0.1/callback"})
         assert res.status_code == 400
+        assert res.json()["attr"] == "callback_url"
 
     def test_register_rejects_metadata_host(self) -> None:
         res = self._register({"callback_url": "http://169.254.169.254/latest/meta-data/"})
         assert res.status_code == 400
+        assert res.json()["attr"] == "callback_url"
 
     def test_register_rejects_localhost(self) -> None:
         res = self._register({"callback_url": "http://localhost:3000/callback"})
         assert res.status_code == 400
+        assert res.json()["attr"] == "callback_url"
 
     def test_register_rejects_dangerous_scheme(self) -> None:
         res = self._register({"callback_url": "javascript:alert(1)"})
         assert res.status_code == 400
+        assert res.json()["attr"] == "callback_url"
 
     def test_register_rejects_http_callback_url(self) -> None:
         res = self._register({"callback_url": "http://example.com/callback"})
         assert res.status_code == 400
-        assert "https" in res.json()["error"].lower()
+        body = res.json()
+        assert body["attr"] == "callback_url"
+        assert "https" in body["detail"].lower()
 
     def test_register_rejects_dangerous_logo_uri(self) -> None:
         res = self._register({"logo_uri": "javascript:alert(1)"})
         assert res.status_code == 400
-        assert "logo_uri" in res.json()["error"].lower()
+        assert res.json()["attr"] == "logo_uri"
 
     def test_register_rejects_http_logo_uri(self) -> None:
         res = self._register({"logo_uri": "http://example.com/logo.png"})
         assert res.status_code == 400
-        assert "logo_uri" in res.json()["error"].lower()
+        assert res.json()["attr"] == "logo_uri"
 
     def test_register_rejects_private_ip_logo_uri(self) -> None:
         res = self._register({"logo_uri": "https://10.0.0.1/logo.png"})
         assert res.status_code == 400
-        assert "logo_uri" in res.json()["error"].lower()
+        assert res.json()["attr"] == "logo_uri"
 
     def test_register_rejects_long_name(self) -> None:
         res = self._register({"name": "x" * 101})
         assert res.status_code == 400
-        assert "name" in res.json()["error"].lower()
+        assert res.json()["attr"] == "name"
 
     def test_register_rejects_long_partner_type(self) -> None:
         res = self._register({"partner_type": "x" * 51})
         assert res.status_code == 400
-        assert "partner_type" in res.json()["error"].lower()
+        assert res.json()["attr"] == "partner_type"
 
 
 class TestCallbackURLValidation(APIBaseTest):
