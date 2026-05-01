@@ -824,6 +824,32 @@ class FeatureFlagSerializer(
                         "because this flag already has evaluation contexts and the team requires them."
                     )
 
+        # Validate that persist across auth is not enabled with device ID bucketing
+        bucketing_identifier = attrs.get("bucketing_identifier")
+        ensure_experience_continuity = attrs.get("ensure_experience_continuity")
+
+        # Check current instance values if not provided in attrs
+        if self.instance:
+            if bucketing_identifier is None:
+                bucketing_identifier = self.instance.bucketing_identifier
+            if ensure_experience_continuity is None:
+                ensure_experience_continuity = self.instance.ensure_experience_continuity
+
+        # Prevent new combinations of device_id + ensure_experience_continuity=True
+        if bucketing_identifier == "device_id" and ensure_experience_continuity is True:
+            # Allow if this combination already existed (no change)
+            if (
+                self.instance
+                and self.instance.bucketing_identifier == "device_id"
+                and self.instance.ensure_experience_continuity is True
+            ):
+                pass  # Allow existing combination to be saved without changes
+            else:
+                raise serializers.ValidationError(
+                    "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
+                    "These features are incompatible."
+                )
+
         return attrs
 
     def validate_key(self, value):

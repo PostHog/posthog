@@ -649,37 +649,42 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     />
                                                 </LemonField>
 
-                                                <LemonDivider className="my-1" />
+                                                {/* Persistence - hide when device ID bucketing is selected */}
+                                                {featureFlag.bucketing_identifier !==
+                                                    FeatureFlagBucketingIdentifier.DEVICE_ID && (
+                                                    <>
+                                                        <LemonDivider className="my-1" />
 
-                                                {/* Persistence */}
-                                                <LemonField
-                                                    name="ensure_experience_continuity"
-                                                    label="Persistence"
-                                                    labelClassName="text-sm font-medium"
-                                                    info={
-                                                        <>
-                                                            Keep flag values consistent before and after login. Requires
-                                                            anonymous user profiles.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                                target="_blank"
-                                                            >
-                                                                Learn more
-                                                            </Link>
-                                                        </>
-                                                    }
-                                                >
-                                                    {({ value, onChange }) => (
-                                                        <LemonSwitch
-                                                            checked={value}
-                                                            onChange={onChange}
-                                                            bordered
-                                                            fullWidth
-                                                            label="Persist flag across authentication steps"
-                                                            data-attr="feature-flag-persist-across-auth"
-                                                        />
-                                                    )}
-                                                </LemonField>
+                                                        <LemonField
+                                                            name="ensure_experience_continuity"
+                                                            label="Persistence"
+                                                            labelClassName="text-sm font-medium"
+                                                            info={
+                                                                <>
+                                                                    Keep flag values consistent before and after login.
+                                                                    Requires anonymous user profiles.{' '}
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                                        target="_blank"
+                                                                    >
+                                                                        Learn more
+                                                                    </Link>
+                                                                </>
+                                                            }
+                                                        >
+                                                            {({ value, onChange }) => (
+                                                                <LemonSwitch
+                                                                    checked={value}
+                                                                    onChange={onChange}
+                                                                    bordered
+                                                                    fullWidth
+                                                                    label="Persist flag across authentication steps"
+                                                                    data-attr="feature-flag-persist-across-auth"
+                                                                />
+                                                            )}
+                                                        </LemonField>
+                                                    </>
+                                                )}
                                             </div>
                                         ),
                                     },

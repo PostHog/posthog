@@ -20,6 +20,7 @@ import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOp
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -660,19 +661,45 @@ export function FeatureFlagReleaseConditions({
                                   : 'user'
                         }
                         onChange={(value) => {
-                            if (value === 'user') {
-                                setAggregationGroupTypeIndex(null)
-                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-                            } else if (value === 'device') {
-                                setAggregationGroupTypeIndex(null)
-                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                            } else if (value === 'group') {
-                                // Default to first group type when selecting Group
-                                const firstGroupType = Array.from(groupTypes.values())[0]
-                                if (firstGroupType) {
-                                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
-                                }
-                                setBucketingIdentifier(null)
+                            const currentValue =
+                                filters.aggregation_group_type_index != null
+                                    ? 'group'
+                                    : featureFlag.bucketing_identifier === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                      ? 'device'
+                                      : 'user'
+
+                            // If changing from current value, show confirmation
+                            if (value !== currentValue) {
+                                LemonDialog.open({
+                                    title: 'Change bucketing option?',
+                                    description:
+                                        'Changing the bucketing option will cause users to re-evaluate the flag and may cause changes in the evaluation results. Are you sure you want to continue?',
+                                    primaryButton: {
+                                        children: 'Continue',
+                                        onClick: () => {
+                                            if (value === 'user') {
+                                                setAggregationGroupTypeIndex(null)
+                                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                                            } else if (value === 'device') {
+                                                setAggregationGroupTypeIndex(null)
+                                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                                            } else if (value === 'group') {
+                                                // Default to first group type when selecting Group
+                                                const firstGroupType = Array.from(groupTypes.values())[0]
+                                                if (firstGroupType) {
+                                                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+                                                }
+                                                setBucketingIdentifier(null)
+                                            }
+                                        },
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
                             }
                         }}
                         options={[
