@@ -20,4 +20,4 @@ class TestSourceBatchStatusModel:
 
     def test_batch_fk_has_no_db_constraint(self):
         field = SourceBatchStatus._meta.get_field("batch")
-        assert not field.db_constraint  # type: ignore[union-attr]
+        assert not field.db_constraint  # type: ignore[attr-defined]

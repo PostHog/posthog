@@ -344,6 +344,7 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
         job_id=job_id,
         team_id=team_id,
         status=ExternalDataJob.Status.FAILED,
+        logger=structlog.get_logger(),
         latest_error=error,
     )
 

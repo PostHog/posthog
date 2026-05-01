@@ -96,7 +96,7 @@ def _ensure_sourcebatch_tables(django_db_setup, django_db_blocker):
             """)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _clean_sourcebatch_tables(_ensure_sourcebatch_tables):
     """Truncate sourcebatch tables between tests so v3 runs start clean."""
     yield
