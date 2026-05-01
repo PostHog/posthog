@@ -1199,24 +1199,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 assert isinstance(item["breakdown_value"], list)
                 assert len(item["breakdown_value"]) == 1
 
-            # 2. Structural HAVING-pushdown shape. The URL regex predicate must appear
-            # at least twice in the printed ClickHouse SQL — once in the outer WHERE
-            # on the lazy join, and once as HAVING on the inner aggregation subquery
-            # so the per-session ``$channel_type`` materialization isn't paid for
-            # every unfiltered session in the date range. Without the fix it appears
-            # exactly once.
+            # 2. Structural HAVING-pushdown shape. The URL regex must be applied in
+            # two places — the outer WHERE on the lazy join (so the events scan is
+            # narrowed) AND the inner HAVING on the aggregation subquery (so the
+            # per-session ``$channel_type`` materialization isn't paid for every
+            # unfiltered session in the date range). Without the fix it's only
+            # applied once. ClickHouse-printed SQL parameterizes string literals,
+            # so we assert on both:
+            #   - the regex value appears at least twice in ``context.values``
+            #     (one parameter per duplicate use site), and
+            #   - the inner ``raw_sessions_v3`` subquery has a ``HAVING`` clause.
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,
                 modifiers=create_default_modifiers_for_team(self.team, runner.modifiers),
             )
             printed_sql, _ = prepare_and_print_ast(runner.to_query(), context, dialect="clickhouse")
-            # A distinctive fragment of the regex literal that won't collide with
-            # anything else in the printed SQL.
+            # A distinctive fragment of the regex value used as a sentinel.
             distinctive_fragment = "feature-flags|error-tracking"
-            assert printed_sql.count(distinctive_fragment) >= 2, (
-                f"expected URL regex fragment in both outer WHERE and inner HAVING; "
-                f"found {printed_sql.count(distinctive_fragment)} occurrence(s) in:\n{printed_sql}"
+            regex_value_count = sum(
+                1 for v in context.values.values() if isinstance(v, str) and distinctive_fragment in v
+            )
+            assert regex_value_count >= 2, (
+                f"expected URL regex value to appear in both outer WHERE and inner HAVING parameters; "
+                f"found {regex_value_count} parameter(s) carrying it. context.values={context.values}"
+            )
+            # And the HAVING must be attached to the inner ``raw_sessions_v3`` aggregation —
+            # not just any HAVING anywhere in the SQL.
+            assert "raw_sessions_v3" in printed_sql, printed_sql
+            inner_subquery_idx = printed_sql.find("raw_sessions_v3")
+            tail_after_inner = printed_sql[inner_subquery_idx:]
+            assert " HAVING " in tail_after_inner, (
+                f"expected inner raw_sessions_v3 aggregation to carry a HAVING clause; got:\n{printed_sql}"
             )
 
     @also_test_with_person_on_events_v2
