@@ -191,7 +191,7 @@ function BarChartInner<Meta = unknown>({
                     baseDrawCtx,
                     s,
                     bars.filter((b): b is BarRect => b !== null),
-                    { cornerRadius: barCornerRadius }
+                    barCornerRadius
                 )
             }
         },
