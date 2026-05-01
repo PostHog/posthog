@@ -78,11 +78,9 @@ export interface ChartProps<Meta = unknown> {
      *  should ensure that toggle also updates `series` or the chart's scales — otherwise
      *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
-    /** Which axis the categorical-label hit detection runs on. Defaults to 'x'.
-     *  `'y'` is used for horizontal bar charts. */
-    interactionAxis?: 'x' | 'y'
-    /** Used instead of `scales.x` to map labels to a coordinate on `interactionAxis`.
-     *  Useful for bar charts that map labels to band centers, not point positions. */
+    /** Required for horizontal orientation — maps labels to the coordinate on the categorical
+     *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
+     *  invalidate the interaction memo on every render. */
     labelToCoord?: (label: string) => number | undefined
 }
 
@@ -99,7 +97,6 @@ export function Chart<Meta = unknown>({
     className,
     children,
     resolveValue,
-    interactionAxis = 'x',
     labelToCoord,
 }: ChartProps<Meta>): React.ReactElement {
     const {
@@ -111,6 +108,7 @@ export function Chart<Meta = unknown>({
         showCrosshair = false,
         axisOrientation = 'vertical',
     } = config ?? {}
+    const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
