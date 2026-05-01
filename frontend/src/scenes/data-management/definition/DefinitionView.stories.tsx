@@ -45,7 +45,10 @@ const meta: Meta = {
         // matching-events table — those keep their loaders spinning because we don't mock every
         // downstream endpoint. The metadata row (Status + Primary property) is what this story
         // exists to capture, so don't block on loaders that are intentionally never going to settle.
-        testOptions: { waitForLoadersToDisappear: false },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            viewportWidths: ['narrow', 'medium', 'wide', 'superwide'],
+        },
     },
     decorators: [
         mswDecorator({
@@ -64,22 +67,4 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const Desktop: Story = {}
-
-export const TabletPortrait: Story = {
-    parameters: {
-        viewport: { defaultViewport: 'ipad' },
-    },
-}
-
-export const MobileLarge: Story = {
-    parameters: {
-        viewport: { defaultViewport: 'iphone6plus' },
-    },
-}
-
-export const MobileSmall: Story = {
-    parameters: {
-        viewport: { defaultViewport: 'iphone6' },
-    },
-}
+export const EventDefinitionMetadata: Story = {}
