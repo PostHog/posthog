@@ -1774,3 +1774,19 @@ def test_chqueries_middleware_mcp_defaults(user_agent, expected_source, expected
     assert captured["source"] == expected_source
     assert captured["product"] == expected_product
     assert captured["feature"] == expected_feature
+
+
+def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> None:
+    from posthog.middleware import QueryTimeCountingMiddleware
+
+    middleware = QueryTimeCountingMiddleware(get_response=lambda r: None)
+    header = middleware._construct_header(
+        durations_ms={"django": 2050.4, "pg": 1490.6, "pg_max": 1200.0, "ch": 0.0, "ch_max": 0.0},
+        counts={"pg_count": 17, "pg_slow": 2, "ch_count": 0, "ch_slow": 0},
+    )
+
+    assert "django;dur=2050" in header
+    assert "pg;dur=1491" in header
+    assert "pg_max;dur=1200" in header
+    assert 'pg_count;desc="17"' in header
+    assert 'pg_slow;desc="2"' in header
