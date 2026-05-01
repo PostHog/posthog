@@ -203,6 +203,15 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
                         Rolled out to <b>{rollout}%</b> of <b>{aggregationTargetName}</b> in this set.
                     </span>
                 </LemonTag>
+
+                {group.early_exit && (
+                    <div className="mt-2 flex items-center gap-1.5 text-sm text-muted">
+                        <Tooltip title="Evaluation will stop if users match the conditions but are excluded by the rollout percentage. Otherwise, evaluation continues to the next condition set.">
+                            <IconInfo className="text-sm" />
+                        </Tooltip>
+                        <span>Stops evaluation if excluded by rollout</span>
+                    </div>
+                )}
             </div>
 
             {group.variant && (

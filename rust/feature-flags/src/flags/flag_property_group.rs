@@ -86,6 +86,7 @@ mod tests {
             properties: None,
             rollout_percentage: None,
             variant: None,
+            early_exit: None,
             aggregation_group_type_index: condition_level,
         };
         assert_eq!(group.effective_aggregation(flag_level), expected);

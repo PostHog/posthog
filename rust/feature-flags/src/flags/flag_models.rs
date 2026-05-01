@@ -140,6 +140,11 @@ pub struct FlagPropertyGroup {
     /// a value, the condition uses that group type for hashing and property evaluation.
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub aggregation_group_type_index: Option<Option<i32>>,
+    /// Indicates whether evaluation should exit early when user matches conditions
+    /// but is not included in the rollout percentage. If true, the flag will return
+    /// false instead of continuing to evaluate other conditions.
+    #[serde(default)]
+    pub early_exit: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -440,6 +445,7 @@ mod mock_impls {
             FlagPropertyGroup {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
+                early_exit: Some(false),
                 ..Default::default()
             }
         }
@@ -500,6 +506,7 @@ mod mock_impls {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(properties),
                     rollout_percentage: Some(100.0),
+                    early_exit: Some(false),
                     ..Default::default()
                 }],
                 ..Default::default()

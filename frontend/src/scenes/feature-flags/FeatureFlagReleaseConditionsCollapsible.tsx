@@ -28,7 +28,16 @@ import {
     IconTrash,
     IconCheckCircle,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonLabel,
+    LemonSelect,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -655,6 +664,28 @@ const ConditionContent = ({
                                                 {resolvedTargetName}…
                                             </div>
                                         )}
+
+                                        <div className="mt-3 flex items-center gap-2">
+                                            <LemonCheckbox
+                                                data-attr="early-exit"
+                                                checked={group.early_exit ?? false}
+                                                onChange={(checked) => {
+                                                    updateConditionSet(
+                                                        index,
+                                                        undefined,
+                                                        undefined,
+                                                        undefined,
+                                                        undefined,
+                                                        checked
+                                                    )
+                                                }}
+                                                label="Stop evaluation if excluded by rollout"
+                                                labelInline
+                                            />
+                                            <Tooltip title="When enabled, evaluation will stop if users match the conditions but are excluded by the rollout percentage. Otherwise, evaluation continues to the next condition set.">
+                                                <IconInfo className="text-sm text-muted" />
+                                            </Tooltip>
+                                        </div>
                                     </div>
 
                                     {variants && variants.length > 0 && (

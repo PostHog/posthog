@@ -101,13 +101,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newRolloutPercentage?: number,
             newProperties?: AnyPropertyFilter[],
             newVariant?: string | null,
-            newDescription?: string | null
+            newDescription?: string | null,
+            newEarlyExit?: boolean | null
         ) => ({
             index,
             newRolloutPercentage,
             newProperties,
             newVariant,
             newDescription,
+            newEarlyExit,
         }),
         setConditionAggregation: (index: number, groupTypeIndex: number | null) => ({
             index,
@@ -224,11 +226,15 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         rollout_percentage: 0,
                         variant: null,
                         sort_key: sortKey ?? uuidv4(),
+                        early_exit: false,
                     },
                 ]
                 return { ...state, groups }
             },
-            updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant, newDescription }) => {
+            updateConditionSet: (
+                state,
+                { index, newRolloutPercentage, newProperties, newVariant, newDescription, newEarlyExit }
+            ) => {
                 if (!state) {
                     return state
                 }
@@ -252,6 +258,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 if (newDescription !== undefined) {
                     const description = newDescription && newDescription.trim() ? newDescription : null
                     groups[index] = { ...groups[index], description }
+                }
+
+                if (newEarlyExit !== undefined) {
+                    groups[index] = { ...groups[index], early_exit: newEarlyExit }
                 }
 
                 return { ...state, groups }

@@ -480,6 +480,11 @@ class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Variant key override for multivariate flags.",
     )
+    early_exit = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Indicates whether evaluation should exit early when user matches conditions but is not included in the rollout percentage. If true, the flag will return false instead of continuing to evaluate other conditions.",
+    )
     aggregation_group_type_index = serializers.IntegerField(
         required=False,
         allow_null=True,

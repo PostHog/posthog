@@ -587,6 +587,7 @@ mod tests {
             }]),
             rollout_percentage: Some(100.0),
             variant: None,
+            early_exit: None,
             aggregation_group_type_index: None,
         };
 

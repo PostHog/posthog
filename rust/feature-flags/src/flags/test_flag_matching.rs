@@ -8733,6 +8733,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    early_exit: None,
                     aggregation_group_type_index: Some(Some(1)),
                 }],
                 multivariate: None,
@@ -8807,6 +8808,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    early_exit: None,
                     aggregation_group_type_index: None, // Person-level condition
                 }],
                 multivariate: None,
@@ -8873,6 +8875,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                     },
                     // Condition 1: person-aggregated
@@ -8888,6 +8891,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: None,
                     },
                 ],
@@ -8995,6 +8999,7 @@ mod tests {
             }]),
             rollout_percentage: Some(100.0),
             variant: None,
+            early_exit: None,
             aggregation_group_type_index: Some(Some(1)),
         };
 
@@ -9012,6 +9017,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    early_exit: None,
                     aggregation_group_type_index: None,
                 },
                 group_condition,
@@ -9022,6 +9028,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    early_exit: None,
                     aggregation_group_type_index: None,
                 },
                 group_condition,
@@ -9104,6 +9111,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                     },
                     // Condition 1: person-aggregated
@@ -9119,6 +9127,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: None,
                     },
                 ],
@@ -9200,6 +9209,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    early_exit: None,
                     aggregation_group_type_index: None, // No per-condition aggregation
                 }],
                 multivariate: None,
@@ -9276,6 +9286,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    early_exit: None,
                     // Condition explicitly sets group type 1, overriding the flag-level None
                     aggregation_group_type_index: Some(Some(1)),
                 }],
@@ -9352,6 +9363,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                     },
                     // Condition 1: person-aggregated — will match
@@ -9359,6 +9371,7 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: None,
                     },
                 ],
@@ -9449,6 +9462,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                     },
                     // Condition 1: person-aggregated — wrong email
@@ -9464,6 +9478,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: None,
                     },
                 ],
@@ -9527,6 +9542,7 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: Some(Some(1)),
                     },
                     // Condition 1: person-aggregated, 100% rollout, no properties
@@ -9534,6 +9550,7 @@ mod tests {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        early_exit: None,
                         aggregation_group_type_index: None,
                     },
                 ],
@@ -9615,6 +9632,7 @@ mod tests {
                     ]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    early_exit: None,
                     aggregation_group_type_index: Some(Some(0)),
                 }],
                 ..Default::default()
@@ -9697,6 +9715,7 @@ mod tests {
                     ]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    early_exit: None,
                     aggregation_group_type_index: Some(Some(1)),
                 }],
                 ..Default::default()
