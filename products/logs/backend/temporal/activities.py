@@ -43,7 +43,9 @@ from products.logs.backend.temporal.metrics import (
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
+    record_alert_event_create_duration,
     record_alert_save_duration,
+    record_alert_update_duration,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
@@ -362,11 +364,13 @@ def _evaluate_single_alert(
     state_changed = state_before != committed_state.value
     is_error = outcome.error_message is not None
     save_start = time.perf_counter()
+    event_create_ms: int | None = None
     with transaction.atomic():
         # Stateless eval: write a CHECK row only on state transition or eval error.
         # Steady-state same-state evals don't write — the N-of-M evaluator gets its
         # window from the bucketed CH query, not from PG.
         if state_changed or is_error:
+            event_create_start = time.perf_counter()
             LogsAlertEvent.objects.create(
                 alert=alert,
                 result_count=check_result.result_count,
@@ -376,6 +380,7 @@ def _evaluate_single_alert(
                 error_message=outcome.error_message,
                 query_duration_ms=check_result.query_duration_ms,
             )
+            event_create_ms = int((time.perf_counter() - event_create_start) * 1000)
 
         # All state/consecutive_failures writes go through apply_outcome —
         # single source of truth, enforced by the semgrep rule.
@@ -392,7 +397,9 @@ def _evaluate_single_alert(
             alert.last_notified_at = now
             update_fields.append("last_notified_at")
 
+        update_start = time.perf_counter()
         alert.save(update_fields=update_fields)
+        update_ms = int((time.perf_counter() - update_start) * 1000)
     save_ms = int((time.perf_counter() - save_start) * 1000)
 
     stats["checked"] += 1
@@ -405,6 +412,9 @@ def _evaluate_single_alert(
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         record_check_duration(elapsed_ms)
         record_alert_save_duration(save_ms)
+        if event_create_ms is not None:
+            record_alert_event_create_duration(event_create_ms)
+        record_alert_update_duration(update_ms)
         if check_result.query_duration_ms is not None:
             record_clickhouse_duration(check_result.query_duration_ms)
         if original_next_check_at is not None:
