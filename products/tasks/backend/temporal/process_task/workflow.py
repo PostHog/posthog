@@ -7,6 +7,10 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+# Required so that post-merge master code referencing
+# `temporalio.exceptions.ActivityError` resolves at lint time after this
+# branch merges with master.
+import temporalio  # noqa: F401
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.workflow import ParentClosePolicy
@@ -145,6 +149,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_active_time: Optional[datetime] = None
         self._pr_event_received: bool = False
         self._pr_event_time: Optional[datetime] = None
+        self._pr_event_messages: list[str] = []
         self._pr_waiting_since: Optional[datetime] = None
         self._pr_fingerprint: Optional[str] = None
         # Tracks which progress step is currently in-progress (step, label,
@@ -335,6 +340,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
+        # Append any messages forwarded by the webhook handler since the last
+        # dispatch (typically PR review comments / check_run text). Cleared
+        # after a successful flush so we don't replay them on later iterations.
+        if self._pr_event_messages:
+            joined = "\n\n---\n\n".join(self._pr_event_messages)
+            ci_message = f"{ci_message}\n\nIncoming PR activity:\n\n{joined}"
+            self._pr_event_messages = []
         self._last_active_time = workflow.now()
         await self._send_followup_to_sandbox(ci_message, [])
 
@@ -907,8 +919,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         }
 
     @workflow.signal
-    async def pr_event(self) -> None:
+    async def pr_event(self, message: str | None = None) -> None:
+        # Accept an optional `message` so webhook handlers can forward the raw
+        # comment/check_run text. Stored on the workflow until the debounce
+        # window flushes it to the sandbox alongside the get_pr_context fetch.
         self._pr_event_received = True
+        if message:
+            self._pr_event_messages.append(message)
 
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(

@@ -25,6 +25,30 @@ class PullRequestRef(_Base):
 
 class IssueRef(_Base):
     pull_request: PullRequestRef | None = None
+    html_url: str | None = None
+
+
+class CommentUser(_Base):
+    login: str | None = None
+    # GitHub comment users have type "User", "Bot", or sometimes "Mannequin".
+    # We branch on this to ignore bot/system comments before forwarding.
+    type: str | None = None
+
+
+class Comment(_Base):
+    body: str | None = None
+    user: CommentUser = Field(default_factory=CommentUser)
+    # Review-comment-specific: present on `pull_request_review_comment`, absent
+    # on `issue_comment` payloads.
+    path: str | None = None
+    line: int | None = None
+    diff_hunk: str | None = None
+
+
+class Review(_Base):
+    body: str | None = None
+    user: CommentUser = Field(default_factory=CommentUser)
+    state: str | None = None
 
 
 class CheckRunPullRequest(_Base):
@@ -50,6 +74,8 @@ class CommentEvent(_Base):
     action: str | None = None
     pull_request: PullRequestRef | None = None
     issue: IssueRef | None = None
+    comment: Comment | None = None
+    review: Review | None = None
 
 
 class CheckRunEvent(_Base):

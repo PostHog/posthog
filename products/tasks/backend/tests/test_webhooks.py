@@ -5,6 +5,7 @@ from typing import ClassVar
 
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import TestCase
 
 from rest_framework.test import APIClient
@@ -443,6 +444,9 @@ class TestGitHubCommentWebhook(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        # Cache is process-wide; clear between tests so the resume-run cooldown
+        # in webhooks.py doesn't carry over and short-circuit the next test.
+        cache.clear()
 
     def _make_webhook_request(self, payload: dict, event_type: str = "issue_comment"):
         payload_bytes = json.dumps(payload).encode("utf-8")
@@ -519,13 +523,19 @@ class TestGitHubCommentWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         mock_signal.assert_called_once()
-        (signal_run,) = mock_signal.call_args[0]
+        signal_run = mock_signal.call_args[0][0]
+        signal_message = mock_signal.call_args[0][1]
         self.assertEqual(signal_run.id, task_run.id)
+        self.assertIn("[GitHub Comment from @reviewer]", signal_message)
+        self.assertIn("Fix this bug", signal_message)
 
+    @patch("products.tasks.backend.webhooks.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks._create_resume_run")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_issue_comment_creates_resume_run_for_terminal(self, mock_capture, mock_resume, mock_get_secret):
+    def test_issue_comment_creates_resume_run_for_terminal(
+        self, mock_capture, mock_resume, mock_get_secret, mock_feature_enabled
+    ):
         mock_get_secret.return_value = self.webhook_secret
         TaskRun.objects.create(
             task=self.task,
@@ -542,10 +552,13 @@ class TestGitHubCommentWebhook(TestCase):
         self.assertIn("Fix this bug", resume_message)
         self.assertEqual(resume_pr_url, self.PR_URL)
 
+    @patch("products.tasks.backend.webhooks.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks._signal_running_workflow")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_review_comment_includes_file_and_line_context(self, mock_capture, mock_signal, mock_get_secret):
+    def test_review_comment_includes_file_and_line_context(
+        self, mock_capture, mock_signal, mock_get_secret, mock_feature_enabled
+    ):
         mock_get_secret.return_value = self.webhook_secret
         TaskRun.objects.create(
             task=self.task,
@@ -561,7 +574,7 @@ class TestGitHubCommentWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
         mock_signal.assert_called_once()
-        _, signal_message = mock_signal.call_args[0]
+        signal_message = mock_signal.call_args[0][1]
         self.assertIn("[GitHub Review Comment from @reviewer on `src/app.py` (line 42)]", signal_message)
         self.assertIn("```diff", signal_message)
         self.assertIn("Needs refactor", signal_message)
@@ -618,12 +631,13 @@ class TestGitHubCommentWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_not_called()
 
+    @patch("products.tasks.backend.webhooks.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks._create_resume_run")
     @patch("products.tasks.backend.webhooks._signal_running_workflow", return_value=False)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_non_terminal_falls_through_to_resume_when_workflow_unreachable(
-        self, mock_capture, mock_signal, mock_resume, mock_get_secret
+        self, mock_capture, mock_signal, mock_resume, mock_get_secret, mock_feature_enabled
     ):
         # Regression for Josh's review note: TaskRun.is_terminal == False does not
         # imply a live workflow exists. When _signal_running_workflow reports the
@@ -643,10 +657,11 @@ class TestGitHubCommentWebhook(TestCase):
         mock_signal.assert_called_once()
         mock_resume.assert_called_once()
 
+    @patch("products.tasks.backend.webhooks.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_resume_includes_pr_context(self, mock_capture, mock_execute, mock_get_secret):
+    def test_resume_includes_pr_context(self, mock_capture, mock_execute, mock_get_secret, mock_feature_enabled):
         mock_get_secret.return_value = self.webhook_secret
         TaskRun.objects.create(
             task=self.task,
