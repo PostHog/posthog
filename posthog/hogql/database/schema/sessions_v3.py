@@ -182,7 +182,7 @@ def select_from_sessions_table_v3(
     requested_fields: dict[str, list[str | int]],
     node: ast.SelectQuery,
     context: HogQLContext,
-    join_or_table_to_add: Optional[LazyJoinToAdd | LazyTableToAdd] = None,
+    join_or_table_to_add: LazyJoinToAdd | LazyTableToAdd,
 ):
     from posthog.hogql import ast
 
@@ -401,11 +401,9 @@ def select_from_sessions_table_v3(
     # Push outer-WHERE predicates referencing session properties down as HAVING so
     # ClickHouse drops unmatched groups before the JOIN materializes them — otherwise
     # `$channel_type`'s per-session `multiIf` + dictionary lookups OOM on the unfiltered set.
-    having: Optional[ast.Expr] = None
-    if join_or_table_to_add is not None:
-        having_extractor = WhereClauseExtractor(context)
-        having_extractor.add_local_tables(join_or_table_to_add)
-        having = having_extractor.get_inner_where(node)
+    having_extractor = WhereClauseExtractor(context)
+    having_extractor.add_local_tables(join_or_table_to_add)
+    having = having_extractor.get_inner_where(node)
 
     return ast.SelectQuery(
         select=select_fields,
