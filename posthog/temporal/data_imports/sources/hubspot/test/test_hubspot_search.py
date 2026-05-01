@@ -228,7 +228,10 @@ class TestBatchReadAssociations:
                 {"results": [{"from": {"id": "1"}, "to": [{"toObjectId": 9, "associationTypes": [{"label": "x"}]}]}]},
             )
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(_post)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(_post)})(),
+        ):
             result = _batch_read_associations(
                 from_entity_plural="contacts",
                 to_entity_plural="deals",
@@ -253,7 +256,10 @@ class TestBatchReadAssociations:
         from posthog.temporal.data_imports.sources.hubspot.settings import ASSOCIATIONS_BATCH_SIZE
 
         ids = [str(i) for i in range(ASSOCIATIONS_BATCH_SIZE * 2 + 5)]
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(_post)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(_post)})(),
+        ):
             _batch_read_associations(
                 from_entity_plural="contacts",
                 to_entity_plural="deals",
@@ -364,7 +370,10 @@ class TestGetRowsViaSearch:
         rows = [_result("1", 1_799_000_000_000), _result("2", 1_799_500_000_000)]
         side_effect, captured = _setup_search_post([_make_response(200, _search_page(rows))])
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -399,7 +408,10 @@ class TestGetRowsViaSearch:
             + "Z"
         )
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -433,7 +445,10 @@ class TestGetRowsViaSearch:
         logger = MagicMock()
         side_effect, captured = _setup_search_post([_make_response(200, _search_page([]))])
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -458,7 +473,10 @@ class TestGetRowsViaSearch:
         logger = MagicMock()
         side_effect, captured = _setup_search_post([_make_response(200, _search_page([]))])
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -495,7 +513,10 @@ class TestGetRowsViaSearch:
             ]
         )
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -524,7 +545,10 @@ class TestGetRowsViaSearch:
             ]
         )
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -564,7 +588,10 @@ class TestGetRowsViaSearch:
         manager = _make_manager()
         logger = MagicMock()
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -603,7 +630,10 @@ class TestGetRowsViaSearch:
         manager = _make_manager()
         logger = MagicMock()
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             with pytest.raises(HubspotPathologicalWindowError):
                 # Force a narrow sync window so the identical cursors trigger the cap check.
                 list(
@@ -636,7 +666,10 @@ class TestGetRowsViaSearch:
             + "Z"
         )
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
             list(
                 get_rows_via_search(
                     api_key="k",
@@ -666,7 +699,10 @@ class TestGetRowsViaSearch:
         side_effect, _ = _setup_search_post(responses)
 
         with (
-            patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()),
+            patch(
+                "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+                new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+            ),
             patch(
                 "posthog.temporal.data_imports.sources.hubspot.hubspot.hubspot_refresh_access_token",
                 return_value="new-token",
@@ -701,7 +737,10 @@ class TestGetRowsViaSearch:
         )
 
         with (
-            patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()),
+            patch(
+                "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+                new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+            ),
             patch(
                 "posthog.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations",
                 return_value={"1": [{"id": "9", "type": "t"}]},
@@ -734,7 +773,10 @@ class TestGetRowsViaSearch:
         side_effect, _ = _setup_search_post([_make_response(200, _search_page([_result("1", 1_799_000_000_000)]))])
 
         with (
-            patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()),
+            patch(
+                "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+                new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+            ),
             patch("posthog.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations") as mock_batch,
         ):
             list(
@@ -758,7 +800,10 @@ class TestGetRowsViaSearch:
         side_effect, captured = _setup_search_post([_make_response(200, _search_page([]))])
 
         with (
-            patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})()),
+            patch(
+                "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+                new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+            ),
             patch(
                 "posthog.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations",
                 return_value={},
@@ -849,7 +894,10 @@ class TestGetRowsFullRefresh:
             captured_urls.append(url)
             return next(iter_resp)
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})(),
+        ):
             list(
                 get_rows(
                     api_key="k",
@@ -878,7 +926,10 @@ class TestGetRowsFullRefresh:
             captured_urls.append(url)
             return _make_response(200, {"results": [{"id": "5", "properties": {"hs_object_id": "5"}}]})
 
-        with patch("posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session", new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})()):
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})(),
+        ):
             list(
                 get_rows(
                     api_key="k",
