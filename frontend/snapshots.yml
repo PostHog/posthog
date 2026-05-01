@@ -424,6 +424,10 @@ snapshots:
         hash: v1.k794b7964.2590c767710f5896460119705f0703bc9cd21a20c8c126f4db366b61a5bcba28.u1i4S-zmIzVZld-cgvuMd17GRZxPmS3ViBkJIPAdeDg
     components-hedgehogmode--static-hedgehog--light:
         hash: v1.k794b7964.43d71f5c3ad02bd9e1fa87433d34df79e0de653c4b55004188bed5de78a2c3f5.i2ATBYyqY7uq7UxwlL2Rdte6AuMyySa8Jnbeb1VouoQ
+    components-hogcharts-barchart--stacked-mixed-sign--dark:
+        hash: v1.k794b7964.7b2c423832b7905806ed16876aacdd7ea4ec19d15c0f73b72059b1f310e0bac3.F7Y16r39vAX_WB-IAajDmLutSQNdMY-90TusfLyGNO4
+    components-hogcharts-barchart--stacked-mixed-sign--light:
+        hash: v1.k794b7964.520cec44a9bdf1647114354349bb796712202aa45e2c4f81994f334bce5bb685.ZQznGFg-M_qzXFfcfIabLDmIfGYMYYIp1fLKKMDzcnc
     components-hogcharts-linechart--combined-overlays--dark:
         hash: v1.k794b7964.7a5d75d739b30755468fe69e4b938e16d93630e7d2f444d2a76563563879a8f5.-qZogPFTjOPrh2r16ccI1VbZlTPiwhGHuF4WbzwpHT4
     components-hogcharts-linechart--combined-overlays--light:
