@@ -102,8 +102,6 @@ function BarChartInner<Meta = unknown>({
         }
     }, [config, barLayout])
 
-    // Keep a ref to the raw d3 scales so the draw callback can use them
-    // without exposing d3 types through the ChartScales abstraction
     const d3ScalesRef = useRef<BarScaleSet | null>(null)
 
     const createScales: CreateScalesFn = useCallback(
@@ -235,10 +233,7 @@ function BarChartInner<Meta = unknown>({
         if (!stackedData) {
             return undefined
         }
-        // Return the stacked top so the tooltip anchor lands at the visual top of each bar segment,
-        // not at the raw series value. This matches LineChart's behavior for stacked area charts —
-        // consumers wanting raw per-series values in the tooltip should override the tooltip render
-        // and look up `series.data[dataIndex]` themselves.
+        // Return the stacked top so the tooltip anchor lands at the visual top of each segment, not the raw series value.
         return (s: Series, dataIndex: number): number => {
             const stacked = stackedData.get(s.key)?.top[dataIndex]
             if (stacked != null && Number.isFinite(stacked)) {
@@ -249,8 +244,6 @@ function BarChartInner<Meta = unknown>({
         }
     }, [stackedData])
 
-    // Pass band-center coordinates through to the interaction layer.
-    // For horizontal layout, the interaction axis is y; otherwise x.
     const labelToCoord = useCallback((label: string): number | undefined => {
         const d3Scales = d3ScalesRef.current
         if (!d3Scales) {
