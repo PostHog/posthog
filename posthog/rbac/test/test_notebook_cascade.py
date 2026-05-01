@@ -14,9 +14,11 @@ from posthog.models.user import User
 from posthog.rbac.guest_grants import create_grant
 from posthog.rbac.notebook_cascade import (
     NOTEBOOK_NODE_CASCADE,
+    _resolve_to_ac_pk,
     cascade_grants_for_notebook,
     walk_notebook_content_for_grants,
 )
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.notebooks.backend.models import Notebook
 
@@ -64,7 +66,7 @@ class TestWalkNotebookContentForGrants(BaseTest):
                 {"type": "ph-experiment", "attrs": {"id": "9"}},
                 {"type": "ph-survey", "attrs": {"id": "uuid-1"}},
                 {"type": "ph-early-access-feature", "attrs": {"id": "uuid-2"}},
-                {"type": "ph-recording-playlist", "attrs": {"id": "11"}},
+                {"type": "ph-recording-playlist", "attrs": {"playlistShortId": "PLAY0001"}},
                 {"type": "ph-backlink", "attrs": {"id": "BACK0001"}},
             ],
         }
@@ -79,10 +81,36 @@ class TestWalkNotebookContentForGrants(BaseTest):
                     ("experiment", "9"),
                     ("survey", "uuid-1"),
                     ("early_access_feature", "uuid-2"),
-                    ("session_recording_playlist", "11"),
+                    ("session_recording_playlist", "PLAY0001"),
                     ("notebook", "BACK0001"),
                 ]
             ),
+        )
+
+    def test_recording_playlist_extractor_prefers_playlist_short_id_with_id_fallback(self) -> None:
+        # Real playlist nodes embed via `attrs.playlistShortId` (matching the URL form).
+        # Older content shapes may have stored it under `attrs.id` — keep fallback support.
+        prefer_playlist_short_id = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-recording-playlist",
+                    "attrs": {"playlistShortId": "PSI00001", "id": "should-be-ignored"},
+                }
+            ],
+        }
+        self.assertEqual(
+            walk_notebook_content_for_grants(prefer_playlist_short_id),
+            [("session_recording_playlist", "PSI00001")],
+        )
+
+        fallback_to_id = {
+            "type": "doc",
+            "content": [{"type": "ph-recording-playlist", "attrs": {"id": "ID000001"}}],
+        }
+        self.assertEqual(
+            walk_notebook_content_for_grants(fallback_to_id),
+            [("session_recording_playlist", "ID000001")],
         )
 
     def test_walker_recurses_into_nested_content(self) -> None:
@@ -151,26 +179,46 @@ class TestWalkNotebookContentForGrants(BaseTest):
                 {"type": "ph-usage-metrics", "attrs": {"id": "um-1"}},
                 {"type": "ph-zendesk-tickets", "attrs": {"id": "z-1"}},
                 {"type": "ph-support-tickets", "attrs": {"id": "s-1"}},
-                {"type": "ph-related-groups", "attrs": {"id": "g-1"}},
                 {"type": "ph-customer-journey", "attrs": {"id": "cj-1"}},
                 {"type": "ph-map", "attrs": {"id": "m-1"}},
                 {"type": "ph-replay-timestamp", "attrs": {"id": "ts-1"}},
-                # Person/group nodes don't grant access — guest's notebook AC row covers
-                # team-scoped person/group reads through the existing AC layer.
+                # Person nodes don't grant access — the guest's notebook AC row covers
+                # team-scoped person reads through the existing AC layer.
                 {"type": "ph-person", "attrs": {"id": "p-1"}},
-                {"type": "ph-group", "attrs": {"id": "gr-1"}},
                 {"type": "ph-person-feed", "attrs": {"id": "pf-1"}},
                 {"type": "ph-person-properties", "attrs": {"id": "pp-1"}},
-                {"type": "ph-group-properties", "attrs": {"id": "gp-1"}},
                 {"type": "mention", "attrs": {"id": "u-1"}},
             ],
+        }
+        self.assertEqual(walk_notebook_content_for_grants(content), [])
+
+    def test_group_nodes_emit_composite_grants(self) -> None:
+        # ph-group / ph-group-properties / ph-related-groups all carry
+        # { id: <group_key>, groupTypeIndex: <int> } and cascade as a composite
+        # `<group_type_index>:<group_key>` URL id. The resolver translates to the
+        # integer Group PK before writing the AC row.
+        content = {
+            "type": "doc",
+            "content": [
+                {"type": "ph-group", "attrs": {"id": "company-acme", "groupTypeIndex": 0}},
+                {"type": "ph-group-properties", "attrs": {"id": "company-acme", "groupTypeIndex": 0}},
+                {"type": "ph-related-groups", "attrs": {"id": "company-acme", "groupTypeIndex": 0}},
+            ],
+        }
+        self.assertEqual(walk_notebook_content_for_grants(content), [("group", "0:company-acme")])
+
+    def test_group_node_without_group_type_index_is_skipped(self) -> None:
+        # Defensive: missing groupTypeIndex means the embed isn't actionable.
+        content = {
+            "type": "doc",
+            "content": [{"type": "ph-group", "attrs": {"id": "company-acme"}}],
         }
         self.assertEqual(walk_notebook_content_for_grants(content), [])
 
     def test_cascade_table_size_pinned(self) -> None:
         # Regression guard: changing the cascade table size should be deliberate. Update
         # this number along with the entry. Counts every entry, not unique resource types.
-        self.assertEqual(len(NOTEBOOK_NODE_CASCADE), 10)
+        self.assertEqual(len(NOTEBOOK_NODE_CASCADE), 13)
 
 
 class TestCascadeGrantsForNotebook(BaseTest):
@@ -328,3 +376,203 @@ class TestCascadeGrantsForNotebook(BaseTest):
                 organization_member=self.guest_membership, resource="insight", resource_id=str(insight.pk)
             ).exists()
         )
+
+    def test_cascade_writes_uuid_id_for_survey_and_eaf(self) -> None:
+        # Survey + EAF use UUID PKs in URL form. The resolver must accept UUID-shaped
+        # values, not just digit-only ones — otherwise these embeds get silently dropped.
+        survey_uuid = "019ddd56-b432-0000-23d4-ea6314d06150"
+        eaf_uuid = "019c5642-b516-0000-6c72-20ada14284ad"
+        notebook = self._make_notebook(
+            {
+                "type": "doc",
+                "content": [
+                    {"type": "ph-survey", "attrs": {"id": survey_uuid}},
+                    {"type": "ph-early-access-feature", "attrs": {"id": eaf_uuid}},
+                ],
+            },
+            short_id="NBC00006",
+        )
+        cascade_grants_for_notebook(
+            notebook=notebook,
+            membership=self.guest_membership,
+            team=self.team,
+            created_by=self.user,
+        )
+        self.assertTrue(
+            AccessControl.objects.filter(
+                organization_member=self.guest_membership, resource="survey", resource_id=survey_uuid
+            ).exists()
+        )
+        self.assertTrue(
+            AccessControl.objects.filter(
+                organization_member=self.guest_membership,
+                resource="early_access_feature",
+                resource_id=eaf_uuid,
+            ).exists()
+        )
+
+    def test_cascade_writes_recording_pk_for_session_id_embed(self) -> None:
+        # SessionRecording URL form is `session_id`, but the AC layer addresses by
+        # the UUID PK. The cascade resolves session_id → PK before writing the AC row
+        # so the middleware's later lookup via `access_level_for_object` matches.
+        session_id = "0195b7c5-1c8a-7000-aaaa-aaaaaaaaaaaa"
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        rec = SessionRecording.objects.create(team=self.team, session_id=session_id)
+        notebook = self._make_notebook(
+            {
+                "type": "doc",
+                "content": [{"type": "ph-recording", "attrs": {"id": session_id}}],
+            },
+            short_id="NBC00007",
+        )
+        cascade_grants_for_notebook(
+            notebook=notebook,
+            membership=self.guest_membership,
+            team=self.team,
+            created_by=self.user,
+        )
+        self.assertTrue(
+            AccessControl.objects.filter(
+                organization_member=self.guest_membership,
+                resource="session_recording",
+                resource_id=str(rec.id),
+            ).exists()
+        )
+
+    def test_cascade_skips_recording_when_session_id_not_in_team(self) -> None:
+        # No recording row exists yet for this session_id (e.g. ingest hasn't fired).
+        # Skip the cascade write rather than fabricate a row — the recording API will
+        # 404 the guest until a recording materializes; that's the intended behavior.
+        notebook = self._make_notebook(
+            {
+                "type": "doc",
+                "content": [{"type": "ph-recording", "attrs": {"id": "0195b7c5-1c8a-7000-aaaa-cccccccccccc"}}],
+            },
+            short_id="NBC00010",
+        )
+        written = cascade_grants_for_notebook(
+            notebook=notebook,
+            membership=self.guest_membership,
+            team=self.team,
+            created_by=self.user,
+        )
+        self.assertEqual(written, 0)
+        self.assertFalse(
+            AccessControl.objects.filter(
+                organization_member=self.guest_membership, resource="session_recording"
+            ).exists()
+        )
+
+    def test_cascade_writes_group_ac_row(self) -> None:
+        # End-to-end: a notebook that embeds a group node writes a `(group, str(pk))`
+        # AC row so the AC layer's `has_any_specific_access_for_resource("group", ...)`
+        # returns true and the `groups/find` / `groups/related` resolvers stop 403'ing.
+        from posthog.models.group.group import Group
+
+        group = Group.objects.create(team=self.team, group_type_index=0, group_key="company-acme", version=1)
+        notebook = self._make_notebook(
+            {
+                "type": "doc",
+                "content": [{"type": "ph-group", "attrs": {"id": "company-acme", "groupTypeIndex": 0}}],
+            },
+            short_id="NBC00011",
+        )
+        cascade_grants_for_notebook(
+            notebook=notebook,
+            membership=self.guest_membership,
+            team=self.team,
+            created_by=self.user,
+        )
+        self.assertTrue(
+            AccessControl.objects.filter(
+                organization_member=self.guest_membership,
+                resource="group",
+                resource_id=str(group.pk),
+            ).exists()
+        )
+
+    def test_cascade_resolves_playlist_short_id_to_pk(self) -> None:
+        # Playlist node embeds the short_id; the resolver looks up the integer PK and
+        # writes that into the AC table (the AC layer addresses by PK, not short_id).
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, short_id="PSI00099", name="Test playlist")
+        notebook = self._make_notebook(
+            {
+                "type": "doc",
+                "content": [{"type": "ph-recording-playlist", "attrs": {"playlistShortId": "PSI00099"}}],
+            },
+            short_id="NBC00008",
+        )
+        cascade_grants_for_notebook(
+            notebook=notebook,
+            membership=self.guest_membership,
+            team=self.team,
+            created_by=self.user,
+        )
+        self.assertTrue(
+            AccessControl.objects.filter(
+                organization_member=self.guest_membership,
+                resource="session_recording_playlist",
+                resource_id=str(playlist.pk),
+            ).exists()
+        )
+
+
+class TestResolveToAcPk(BaseTest):
+    """Coverage for `_resolve_to_ac_pk` — the URL-id-to-PK shim that decides which
+    embedded references actually become AC rows. Important to keep tight: a too-loose
+    resolver would write garbage rows; a too-strict one silently drops valid embeds."""
+
+    def test_accepts_digit_url_id_for_generic_resources(self) -> None:
+        self.assertEqual(_resolve_to_ac_pk("cohort", "42", self.team.id), "42")
+        self.assertEqual(_resolve_to_ac_pk("feature_flag", "7", self.team.id), "7")
+        self.assertEqual(_resolve_to_ac_pk("experiment", "9", self.team.id), "9")
+
+    def test_accepts_uuid_url_id_for_generic_resources(self) -> None:
+        # Survey + EAF use UUID PKs in URL form. Without UUID acceptance the cascade
+        # silently dropped these embeds before — covered here.
+        survey_uuid = "019ddd56-b432-0000-23d4-ea6314d06150"
+        eaf_uuid = "019c5642-b516-0000-6c72-20ada14284ad"
+        self.assertEqual(_resolve_to_ac_pk("survey", survey_uuid, self.team.id), survey_uuid)
+        self.assertEqual(_resolve_to_ac_pk("early_access_feature", eaf_uuid, self.team.id), eaf_uuid)
+
+    def test_rejects_non_numeric_non_uuid_for_generic_resources(self) -> None:
+        # An unrecognized id shape stays unwritten rather than corrupting the AC table.
+        self.assertIsNone(_resolve_to_ac_pk("cohort", "not-a-real-id", self.team.id))
+        self.assertIsNone(_resolve_to_ac_pk("survey", "garbage", self.team.id))
+
+    def test_session_recording_resolves_session_id_to_pk(self) -> None:
+        # SessionRecording URL form is `session_id`; AC layer addresses by UUID PK.
+        # The resolver writes the PK so the middleware's later `access_level_for_object`
+        # lookup against `str(obj.id)` matches.
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        session_id = "0195b7c5-1c8a-7000-aaaa-aaaaaaaaaaaa"
+        rec = SessionRecording.objects.create(team=self.team, session_id=session_id)
+        self.assertEqual(
+            _resolve_to_ac_pk("session_recording", session_id, self.team.id),
+            str(rec.id),
+        )
+        self.assertIsNone(_resolve_to_ac_pk("session_recording", "0195b7c5-1c8a-7000-aaaa-deadbeefdead", self.team.id))
+
+    def test_session_recording_playlist_resolves_short_id_to_pk(self) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, short_id="PSI00077", name="X")
+        self.assertEqual(
+            _resolve_to_ac_pk("session_recording_playlist", "PSI00077", self.team.id),
+            str(playlist.pk),
+        )
+        self.assertIsNone(_resolve_to_ac_pk("session_recording_playlist", "DOES_NOT_EXIST", self.team.id))
+
+    def test_group_resolves_composite_id_to_pk(self) -> None:
+        # The walker emits `<group_type_index>:<group_key>`; the resolver looks up
+        # `(team, group_type_index, group_key)` and returns the integer Group PK.
+        from posthog.models.group.group import Group
+
+        group = Group.objects.create(team=self.team, group_type_index=0, group_key="company-acme", version=1)
+        self.assertEqual(_resolve_to_ac_pk("group", "0:company-acme", self.team.id), str(group.pk))
+        # Missing group → no AC row written.
+        self.assertIsNone(_resolve_to_ac_pk("group", "0:does-not-exist", self.team.id))
+        # Malformed composite id → defensively rejected (no colon, non-numeric index, empty key).
+        self.assertIsNone(_resolve_to_ac_pk("group", "company-acme", self.team.id))
+        self.assertIsNone(_resolve_to_ac_pk("group", "abc:company-acme", self.team.id))
+        self.assertIsNone(_resolve_to_ac_pk("group", "0:", self.team.id))

@@ -27,6 +27,7 @@ Scope/limitations (v1):
   walked.
 """
 
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -58,6 +59,19 @@ def _extract_id(attrs: NodeAttrs) -> str | None:
     return str(value) if value else None
 
 
+def _extract_group_composite_id(attrs: NodeAttrs) -> str | None:
+    """`ph-group` / `ph-group-properties` / `ph-related-groups` nodes carry
+    `{ id: <group_key>, groupTypeIndex: <int> }`. The Group model is keyed by
+    `(team, group_type_index, group_key)`; we encode the pair as a composite
+    string for the walker, then `_resolve_to_ac_pk` looks up the integer Group
+    PK and that's what lands in the AC table."""
+    group_key = attrs.get("id")
+    group_type_index = attrs.get("groupTypeIndex")
+    if not group_key or group_type_index is None:
+        return None
+    return f"{group_type_index}:{group_key}"
+
+
 def _extract_query_short_id(attrs: NodeAttrs) -> str | None:
     """`ph-query` nodes embed a SavedInsightNode by short_id under `attrs.query.shortId`.
     Inline queries (HogQLQuery, EventsQuery, etc.) carry no insight reference and
@@ -69,16 +83,32 @@ def _extract_query_short_id(attrs: NodeAttrs) -> str | None:
     return str(short_id) if short_id else None
 
 
+def _extract_playlist_short_id(attrs: NodeAttrs) -> str | None:
+    """`ph-recording-playlist` nodes carry the playlist short_id under
+    `attrs.playlistShortId` (matching the URL form). Fall back to `attrs.id` for
+    older content shapes that may have stored it there."""
+    value = attrs.get("playlistShortId") or attrs.get("id")
+    return str(value) if value else None
+
+
 NOTEBOOK_NODE_CASCADE: dict[str, tuple[str, IdExtractor]] = {
     "ph-query": ("insight", _extract_query_short_id),
     "ph-recording": ("session_recording", _extract_id),
-    "ph-recording-playlist": ("session_recording_playlist", _extract_id),
+    "ph-recording-playlist": ("session_recording_playlist", _extract_playlist_short_id),
     "ph-cohort": ("cohort", _extract_id),
     "ph-feature-flag": ("feature_flag", _extract_id),
     "ph-feature-flag-code-example": ("feature_flag", _extract_id),
     "ph-experiment": ("experiment", _extract_id),
     "ph-early-access-feature": ("early_access_feature", _extract_id),
     "ph-survey": ("survey", _extract_id),
+    # Group embeds — written as `(group, str(group.pk))` rows so the AC layer's
+    # `has_any_specific_access_for_resource("group", ...)` returns true and the
+    # `groups/find` / `groups/related` resolvers stop 403'ing on guests. The
+    # composite `<group_type_index>:<group_key>` URL id is resolved to the
+    # integer Group PK in `_resolve_to_ac_pk`.
+    "ph-group": ("group", _extract_group_composite_id),
+    "ph-group-properties": ("group", _extract_group_composite_id),
+    "ph-related-groups": ("group", _extract_group_composite_id),
     # Backlink to another notebook: shallow (1 hop) cascade.
     "ph-backlink": ("notebook", _extract_id),
 }
@@ -115,16 +145,40 @@ def walk_notebook_content_for_grants(content: Any) -> list[tuple[str, str]]:
     return sorted(seen)
 
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
 def _resolve_to_ac_pk(resource: str, url_id: str, team_id: int) -> str | None:
     """Translate a URL-style id (as found in node attrs) into the AC table's
     `resource_id` (which is always the model PK as a string).
 
     Returns None when the target doesn't exist in this team — the caller skips
     it (no AC row written for ghost references)."""
+    from posthog.models.group.group import Group
     from posthog.models.insight import Insight
+    from posthog.session_recordings.models.session_recording import SessionRecording
+    from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
     from products.notebooks.backend.models import Notebook
 
+    if resource == "group":
+        # Composite `<group_type_index>:<group_key>` from the walker → integer Group PK.
+        # Group_key may legitimately contain colons (e.g. urn-style ids), so split once.
+        if ":" not in url_id:
+            return None
+        group_type_index_str, group_key = url_id.split(":", 1)
+        if not group_type_index_str.isdigit() or not group_key:
+            return None
+        pk = (
+            Group.objects.filter(
+                team_id=team_id,
+                group_type_index=int(group_type_index_str),
+                group_key=group_key,
+            )
+            .values_list("id", flat=True)
+            .first()
+        )
+        return str(pk) if pk is not None else None
     if resource == "insight":
         pk = Insight.objects.filter(short_id=url_id, team_id=team_id).values_list("id", flat=True).first()
         if pk is None and url_id.isdigit():
@@ -134,10 +188,29 @@ def _resolve_to_ac_pk(resource: str, url_id: str, team_id: int) -> str | None:
         # Notebook PK is a UUID; URL form is short_id.
         pk = Notebook.objects.filter(short_id=url_id, team_id=team_id).values_list("id", flat=True).first()
         return str(pk) if pk is not None else None
-    # All other resources (recording, cohort, feature_flag, experiment, survey, ...)
-    # use the integer PK directly in URL form. Pass through if numeric, otherwise
-    # reject — we don't enumerate every model here.
-    return url_id if url_id.isdigit() else None
+    if resource == "session_recording_playlist":
+        # Playlist URL form is short_id; PK is the integer id we write to AC.
+        pk = (
+            SessionRecordingPlaylist.objects.filter(short_id=url_id, team_id=team_id)
+            .values_list("id", flat=True)
+            .first()
+        )
+        return str(pk) if pk is not None else None
+    if resource == "session_recording":
+        # SessionRecording URL form is `session_id`; the AC layer addresses by the
+        # UUID PK (`obj.id`), so resolve the embed's session_id to the recording's
+        # PK and write THAT into the AC table.
+        pk = SessionRecording.objects.filter(session_id=url_id, team_id=team_id).values_list("id", flat=True).first()
+        return str(pk) if pk is not None else None
+    # All other resources (cohort, feature_flag, experiment) use integer PKs in URL form.
+    # Survey / EAF use UUID PKs in URL form. Pass through numeric and UUID-shaped values;
+    # reject anything else (defensive — we don't enumerate every model here, so an
+    # unrecognized shape stays unwritten rather than corrupting the AC table).
+    if url_id.isdigit():
+        return url_id
+    if _UUID_RE.match(url_id):
+        return url_id
+    return None
 
 
 def cascade_grants_for_notebook(

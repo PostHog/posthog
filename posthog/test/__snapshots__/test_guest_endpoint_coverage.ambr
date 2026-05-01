@@ -4,33 +4,37 @@
   DELETE /_preflight/
   DELETE /api/login/
   DELETE /login
-  DELETE /logout
+  DELETE /logout/
   DELETE /reset
   GET /_preflight/
   GET /api/login/
   GET /login
-  GET /logout
+  GET /logout/
   GET /reset
   PATCH /_preflight/
   PATCH /api/login/
   PATCH /login
-  PATCH /logout
+  PATCH /logout/
   PATCH /reset
   POST /_preflight/
   POST /api/login/
   POST /login
-  POST /logout
+  POST /logout/
   POST /reset
   '''
 # ---
 # name: TestGuestEndpointCoverage.test_no_endpoint_leaks_to_no_grant_guest[skipped_patterns]
   '''
   .*
-  admin/(?P<app_label>auth|social_django|axes|mcp_store|posthog)/
+  admin/(?P<app_label>auth|social_django|axes|posthog)/
   admin/(?P<url>.*)
   api.+
+  api/environments/(?P<parent_lookup_team_id>[^/.]+)/llm_skills/name/(?P<skill_name>[^/]+)/files/(?P<file_path>.+)/?
+  api/environments/(?P<parent_lookup_team_id>[^/.]+)/llm_skills/name/(?P<skill_name>[^/]+)/files/(?P<file_path>.+)/?\.(?P<format>[a-z0-9]+)/?
   api/environments/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?
   api/environments/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?\.(?P<format>[a-z0-9]+)/?
+  api/projects/(?P<parent_lookup_project_id>[^/.]+)/visual_review/repos/(?P<pk>[^/.]+)/thumbnails/(?P<identifier>.+[^/])/?
+  api/projects/(?P<parent_lookup_project_id>[^/.]+)/visual_review/repos/(?P<pk>[^/.]+)/thumbnails/(?P<identifier>.+[^/])/?\.(?P<format>[a-z0-9]+)/?
   api/projects/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?
   api/projects/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?\.(?P<format>[a-z0-9]+)/?
   demo.*

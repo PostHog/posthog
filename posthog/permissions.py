@@ -699,6 +699,13 @@ class AccessControlPermission(ScopeBasePermission):
         if scope_object == "INTERNAL" or not required_level:
             return True
 
+        # If the guest deflection middleware matched a rule with `ac_pass_through=True`
+        # (e.g. `/query/upgrade/`), it stamps a flag on the request so the resource-level
+        # AC check is skipped here. The middleware rule is the single source of truth for
+        # which endpoints pass through both layers — see `posthog/middleware_guest.py`.
+        if getattr(request, "_guest_ac_pass_through", False):
+            return True
+
         # TODO: Scope object should probably be applied against the `required_scopes` attribute
         has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
         if has_access:
