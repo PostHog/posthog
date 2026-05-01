@@ -106,6 +106,38 @@ DASHBOARD_SHARED_FIELDS = [
 ]
 
 
+# Shared OpenAPI parameter definitions for the variables_override / filters_override
+# query params. These three semantics are easy to miss without reading
+# posthog/utils.py and posthog/api/insight_variable.py:
+#   1. Each variable entry needs `code_name` to match — `map_stale_to_latest` drops
+#      entries that lack it, so an override of `{"value": ...}` alone silently no-ops.
+#   2. Both helpers shallow-merge — top-level keys replace wholesale, nested values
+#      are not deep-merged.
+#   3. Both helpers ignore overrides when the request is authenticated via a
+#      dashboard sharing token, returning the persisted state with no error.
+VARIABLES_OVERRIDE_PARAM = OpenApiParameter(
+    "variables_override",
+    OpenApiTypes.STR,
+    description=(
+        "JSON object to override dashboard variables for this request only (not persisted). "
+        'Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. '
+        "Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call "
+        "`dashboard-get` first, copy the matching entry from the response's `variables` field, and mutate `value`. "
+        "Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a dashboard sharing token."
+    ),
+)
+FILTERS_OVERRIDE_PARAM = OpenApiParameter(
+    "filters_override",
+    OpenApiTypes.STR,
+    description=(
+        "JSON object to override dashboard filters for this request only (not persisted). "
+        "Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. "
+        "See the dashboard filters schema for available keys (e.g., `date_from`, `date_to`, `properties`). "
+        "Ignored when accessed via a dashboard sharing token."
+    ),
+)
+
+
 tracer = trace.get_tracer(__name__)
 
 
@@ -671,6 +703,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
+            # Will be migrated with the personhog write path
             group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
@@ -941,6 +974,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
+            # Used by the shared-insight force_blocking gate in `posthog/api/insight.py` to avoid an
+            # N+1 lookup of last_refresh per tile on shared dashboard renders.
+            "caching_states",
             Prefetch(
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),
@@ -1154,6 +1190,7 @@ class DashboardsViewSet(
 
         return results
 
+    @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM])
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
@@ -1227,6 +1264,21 @@ class DashboardsViewSet(
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
     # ******************************************
+    @extend_schema(
+        parameters=[
+            VARIABLES_OVERRIDE_PARAM,
+            FILTERS_OVERRIDE_PARAM,
+            OpenApiParameter(
+                "layoutSize",
+                OpenApiTypes.STR,
+                enum=["sm", "xs"],
+                description=(
+                    "Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. "
+                    "The snake_case alias `layout_size` is also accepted for backward compatibility."
+                ),
+            ),
+        ],
+    )
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
     def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
@@ -1494,6 +1546,8 @@ class DashboardsViewSet(
                     "'json' returns the raw query result objects."
                 ),
             ),
+            VARIABLES_OVERRIDE_PARAM,
+            FILTERS_OVERRIDE_PARAM,
         ],
         responses={200: RunInsightsResponseSerializer},
     )

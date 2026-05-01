@@ -731,13 +731,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
             },
             {
-                id: 'logs-sampling',
-                title: 'Sampling',
+                id: 'logs-drop-rules',
+                title: 'Drop rules',
                 description:
-                    'Configure head sampling and path drops before logs reach storage. Rules are evaluated in ingestion order.',
+                    'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
                 component: <LogsSamplingSection />,
-                flag: LogsFeatureFlagKeys.samplingRules,
-                keywords: ['sample', 'sampling', 'drop', 'volume', 'noise'],
+                flag: LogsFeatureFlagKeys.dropRules,
+                keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
                 id: 'logs-alerting',

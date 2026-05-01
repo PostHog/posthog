@@ -187,19 +187,19 @@ export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
     /**
-     * Human-readable name for this alert.
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
      * @maxLength 255
      */
-    name: string
+    name?: string
     /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
-    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
-    filters: unknown
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+    filters?: unknown
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
      * @minimum 1
      */
-    threshold_count: number
+    threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
 
 * `above` - Above
@@ -266,6 +266,11 @@ export interface LogsAlertConfigurationApi {
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at: string | null
     /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -289,16 +294,16 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id?: string
     /**
-     * Human-readable name for this alert.
+     * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
      * @maxLength 255
      */
     name?: string
     /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
     enabled?: boolean
-    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: unknown
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window.
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
      * @minimum 1
      */
     threshold_count?: number
@@ -368,6 +373,11 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
     readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
+    /**
+     * When the alert was first enabled. Null means the alert is still in draft state.
+     * @nullable
+     */
+    readonly first_enabled_at?: string | null
     /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi

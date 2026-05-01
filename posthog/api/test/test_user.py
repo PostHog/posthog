@@ -19,7 +19,9 @@ from django.utils.text import slugify
 
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -581,6 +583,122 @@ class TestUserAPI(APIBaseTest):
                 "alpha@example.com",
                 "beta@example.com",
             )
+
+    @parameterized.expand(
+        [
+            ("single_google", [("google-oauth2", "google-sub-1")]),
+            (
+                "multiple_providers",
+                [
+                    ("google-oauth2", "google-sub-1"),
+                    ("google-oauth2", "google-sub-2"),
+                    ("github", "octocat"),
+                    ("gitlab", "12345"),
+                ],
+            ),
+        ]
+    )
+    def test_verified_email_change_removes_social_auth_connections(self, _, social_auths: list[tuple[str, str]]):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        social_auth_ids = [
+            UserSocialAuth.objects.create(user=self.user, provider=provider, uid=uid).id
+            for provider, uid in social_auths
+        ]
+        other_user = User.objects.create_user("other@example.com", "pwd1234*", "Other")
+        other_user_social_auth_id = UserSocialAuth.objects.create(
+            user=other_user, provider="google-oauth2", uid="other-google-sub"
+        ).id
+
+        with (
+            patch("posthog.api.user.is_email_available", return_value=True) as mock_is_email_available,
+            patch("posthog.tasks.email.send_email_change_emails.delay") as mock_send_email_change_emails,
+            patch("posthog.api.email_verification.send_email_verification") as mock_send_email_verification,
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch(
+                    "/api/users/@me/",
+                    {
+                        "email": "beta@example.com",
+                    },
+                )
+
+            assert response.status_code == status.HTTP_200_OK
+            mock_is_email_available.assert_called_once()
+            mock_send_email_verification.assert_called_once()
+
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post(
+                "/api/users/verify_email/",
+                {"uuid": self.user.uuid, "token": token},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            self.user.refresh_from_db()
+            assert self.user.email == "beta@example.com"
+            assert self.user.pending_email is None
+            for social_auth_id in social_auth_ids:
+                assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
+            assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
+            mock_send_email_change_emails.assert_called_once_with(
+                ANY,
+                self.user.first_name,
+                "alpha@example.com",
+                "beta@example.com",
+            )
+
+    @parameterized.expand(
+        [
+            ("current_email_enforced", "alpha@example.com", "sso_enforced_current_email"),
+            ("new_email_enforced", "beta@example.com", "sso_enforced_new_email"),
+        ]
+    )
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_blocked_when_sso_is_enforced(
+        self,
+        _,
+        enforced_email: str,
+        expected_code: str,
+        mock_send_email_change_emails,
+        mock_is_email_available,
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == enforced_email else None,
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+        mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):
+        social_auth = UserSocialAuth.objects.create(
+            user=self.user,
+            provider="google-oauth2",
+            uid="google-sub-1",
+        )
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(
+            "/api/users/verify_email/",
+            {"uuid": self.user.uuid, "token": token},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
+        mock_send_email_change_emails.assert_not_called()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")

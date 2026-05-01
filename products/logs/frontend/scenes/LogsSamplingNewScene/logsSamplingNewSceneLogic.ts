@@ -1,9 +1,10 @@
 import { kea, path, selectors } from 'kea'
 
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+
+import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
 
 import type { logsSamplingNewSceneLogicType } from './logsSamplingNewSceneLogicType'
 
@@ -17,10 +18,10 @@ export const logsSamplingNewSceneLogic = kea<logsSamplingNewSceneLogicType>([
                 {
                     key: Scene.Logs,
                     name: 'Logs',
-                    path: `${urls.logs()}?activeTab=configuration&section=environment-logs&setting=logs-sampling`,
+                    path: logsDropRulesSettingsUrl(),
                     iconType: 'logs',
                 },
-                { key: Scene.LogsSamplingNew, name: 'New sampling rule', iconType: 'logs' },
+                { key: Scene.LogsSamplingNew, name: 'New drop rule', iconType: 'logs' },
             ],
         ],
     }),

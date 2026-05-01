@@ -38,6 +38,8 @@ LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS = (
     "logs_alerting_clickhouse_duration_ms",
     "logs_alerting_semaphore_wait_ms",
     "logs_alerting_alert_save_ms",
+    "logs_alerting_alert_event_create_ms",
+    "logs_alerting_alert_update_ms",
 )
 
 LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS = [
@@ -174,7 +176,23 @@ def record_semaphore_wait(wait_ms: int) -> None:
 def record_alert_save_duration(duration_ms: int) -> None:
     _record_histogram(
         "logs_alerting_alert_save_ms",
-        "Postgres write time for the per-eval alert state update",
+        "Postgres write time for the per-eval alert state update (full transaction)",
+        duration_ms,
+    )
+
+
+def record_alert_event_create_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_alert_event_create_ms",
+        "Postgres INSERT time for the per-eval LogsAlertEvent audit row (only on state change or error)",
+        duration_ms,
+    )
+
+
+def record_alert_update_duration(duration_ms: int) -> None:
+    _record_histogram(
+        "logs_alerting_alert_update_ms",
+        "Postgres UPDATE time for the alert configuration row (without surrounding transaction overhead)",
         duration_ms,
     )
 

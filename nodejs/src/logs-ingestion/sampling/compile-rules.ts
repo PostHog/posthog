@@ -78,6 +78,7 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
             }
         }
         let pathDropPatterns: RegExp[] | null = null
+        let pathDropMatchAttributeKey: string | null = null
         if (row.rule_type === 'path_drop') {
             const patterns = (row.config.patterns as unknown[]) || []
             pathDropPatterns = []
@@ -91,6 +92,11 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
                     /* skip invalid */
                 }
             }
+            const mak = row.config.match_attribute_key
+            if (typeof mak === 'string') {
+                const t = mak.trim()
+                pathDropMatchAttributeKey = t === '' ? null : t
+            }
         }
         const rt = row.rule_type as CompiledSamplingRule['ruleType']
         rules.push({
@@ -99,6 +105,7 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
             scopeService: row.scope_service,
             pathRegex,
             pathDropPatterns,
+            pathDropMatchAttributeKey,
             severityActions: parseSeverityActions(row.config),
             alwaysKeep: parseAlwaysKeep(row.config),
         })

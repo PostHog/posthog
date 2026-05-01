@@ -26,7 +26,7 @@ export function LogsSamplingDetailScene(): JSX.Element {
     if (!rule && !ruleLoading) {
         return (
             <SceneContent>
-                <div className="p-8 text-muted text-center">Sampling rule not found.</div>
+                <div className="p-8 text-muted text-center">Drop rule not found.</div>
             </SceneContent>
         )
     }
@@ -56,7 +56,7 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
 
     const confirmDelete = (): void => {
         LemonDialog.open({
-            title: 'Delete sampling rule?',
+            title: 'Delete drop rule?',
             description:
                 'This cannot be undone. In-flight ingestion workers may briefly still use a cached copy of the rule.',
             primaryButton: {
