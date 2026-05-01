@@ -69,6 +69,25 @@ describe('evaluateLogRecord', () => {
         expect(evaluateLogRecord(rules, rec2).decision).not.toBe(SAMPLING_DECISION_DROP)
     })
 
+    it('path_drop with match_attribute_key matches only that attribute', () => {
+        const rules = compileRuleSet([
+            {
+                id: 'p',
+                rule_type: 'path_drop',
+                scope_service: null,
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { patterns: ['^beta$'], match_attribute_key: 'ph.probe.suite' },
+            },
+        ])
+        const rec = baseRecord()
+        rec.attributes = { 'http.route': '/beta', 'ph.probe.suite': 'gamma' }
+        expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
+        const rec2 = baseRecord()
+        rec2.attributes = { 'http.route': '/other', 'ph.probe.suite': 'beta' }
+        expect(evaluateLogRecord(rules, rec2).decision).toBe(SAMPLING_DECISION_DROP)
+    })
+
     it('severity ordinal maps info', () => {
         const r = baseRecord()
         expect(severityOrdinalFromRecord(r)).toBe(1)

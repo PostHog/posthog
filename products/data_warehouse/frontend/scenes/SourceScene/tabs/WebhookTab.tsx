@@ -17,6 +17,7 @@ import {
     WebhookStatusTags,
     WebhookUrlDisplay,
 } from '../../../shared/components/forms/WebhookSetupForm'
+import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { webhookTabLogic } from './webhookTabLogic'
 
 const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed'] as const
@@ -199,7 +200,7 @@ function WebhookRecreateSection({
     sourceName: string
     sourceConfig: any
     webhookCreating: boolean
-    createWebhookResult: { success: boolean; webhook_url: string; error?: string } | null
+    createWebhookResult: WebhookCreateResult | null
     onCreateWebhook: () => void
 }): JSX.Element {
     return (

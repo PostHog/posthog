@@ -368,6 +368,110 @@ export function drawCrosshair(
     ctx.stroke()
 }
 
+export interface BarRoundedCorners {
+    topLeft?: boolean
+    topRight?: boolean
+    bottomLeft?: boolean
+    bottomRight?: boolean
+}
+
+/** Caller owns beginPath / fill / stroke; this only emits the path. */
+export function traceRoundedBarPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+    corners: BarRoundedCorners
+): void {
+    const r = Math.max(0, Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2))
+    const tl = corners.topLeft ? r : 0
+    const tr = corners.topRight ? r : 0
+    const br = corners.bottomRight ? r : 0
+    const bl = corners.bottomLeft ? r : 0
+    ctx.moveTo(x + tl, y)
+    ctx.lineTo(x + width - tr, y)
+    if (tr > 0) {
+        ctx.quadraticCurveTo(x + width, y, x + width, y + tr)
+    }
+    ctx.lineTo(x + width, y + height - br)
+    if (br > 0) {
+        ctx.quadraticCurveTo(x + width, y + height, x + width - br, y + height)
+    }
+    ctx.lineTo(x + bl, y + height)
+    if (bl > 0) {
+        ctx.quadraticCurveTo(x, y + height, x, y + height - bl)
+    }
+    ctx.lineTo(x, y + tl)
+    if (tl > 0) {
+        ctx.quadraticCurveTo(x, y, x + tl, y)
+    }
+    ctx.closePath()
+}
+
+export interface BarRect {
+    x: number
+    y: number
+    width: number
+    height: number
+    corners: BarRoundedCorners
+    /** Index into the original `series.data` — partial-dash hatch ranges resolve against the
+     *  source array, not against this bars[] which the caller may have pre-filtered. */
+    dataIndex: number
+}
+
+export const DEFAULT_BAR_CORNER_RADIUS = 4
+
+/** Hatch ranges (`series.stroke?.partial`) clamp against `series.data.length`; callers may
+ *  pre-filter `bars` without shifting the hatch boundary. */
+export function drawBars(
+    drawCtx: DrawContext,
+    series: ResolvedSeries,
+    bars: BarRect[],
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
+): void {
+    const { ctx } = drawCtx
+    if (bars.length === 0) {
+        return
+    }
+
+    const dataLength = series.data.length
+    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, dataLength)
+    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
+    const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
+
+    for (const bar of bars) {
+        if (bar.width <= 0 || bar.height <= 0) {
+            continue
+        }
+        const useHatch =
+            hatch !== null &&
+            ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
+        ctx.fillStyle = useHatch ? hatch : series.color
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+        ctx.fill()
+    }
+}
+
+export function drawBarHighlight(
+    ctx: CanvasRenderingContext2D,
+    bar: BarRect,
+    color: string,
+    cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
+): void {
+    if (bar.width <= 0 || bar.height <= 0) {
+        return
+    }
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.setLineDash([])
+    ctx.beginPath()
+    traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+    ctx.stroke()
+}
+
 export function drawHighlightPoint(
     ctx: CanvasRenderingContext2D,
     x: number,

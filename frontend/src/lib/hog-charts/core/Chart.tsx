@@ -70,6 +70,10 @@ export interface ChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
+    /** `data-attr` applied to the chart wrapper. Lets product-level tests
+     *  (`waitForSelector: '[data-attr=…] > canvas'`) target a chart instance
+     *  without having to know its className. */
+    dataAttr?: string
     children?: React.ReactNode
     /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
      *  Identity is read live for tooltip values and overlays, but the pinned-tooltip
@@ -95,6 +99,7 @@ export function Chart<Meta = unknown>({
     tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
+    dataAttr,
     children,
     resolveValue,
     labelToCoord,
@@ -223,6 +228,7 @@ export function Chart<Meta = unknown>({
                 <div
                     ref={wrapperRef}
                     className={className}
+                    data-attr={dataAttr}
                     style={wrapperStyle}
                     onMouseMove={handlers.onMouseMove}
                     onMouseLeave={handlers.onMouseLeave}
