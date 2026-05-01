@@ -5,6 +5,7 @@ import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } 
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
+    type BarScaleSet,
     computePercentStackData,
     computeStackData,
     createBarScales,
