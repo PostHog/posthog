@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 
 // See https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API
 const VISIBILITY_CHANGE_EVENT = 'visibilitychange'
@@ -32,7 +32,12 @@ function isPageVisible(): boolean {
  */
 export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void): void {
     const callbackRef = useRef(callback)
-    callbackRef.current = callback
+    // Update the ref in a commit-phase effect rather than during render so an
+    // aborted concurrent render cannot expose an uncommitted callback to the
+    // already-registered visibilitychange listener.
+    useLayoutEffect(() => {
+        callbackRef.current = callback
+    })
 
     useEffect(() => {
         const onVisibilityChange = (): void => {
