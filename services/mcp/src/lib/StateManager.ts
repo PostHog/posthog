@@ -175,6 +175,11 @@ export class StateManager {
      * back to the API key's default-org resolution, then derives the org from
      * the cached project (matches the team-scoped key path in
      * `_getDefaultOrganizationAndProject` which intentionally omits the org).
+     *
+     * The derived org id is written back to the cache so subsequent calls
+     * short-circuit on the first read — without this, every team-scoped tool
+     * invocation would re-hit `setDefaultOrganizationAndProject` plus a project
+     * fetch.
      */
     private async _resolveOrganizationId(): Promise<string | undefined> {
         const cached = await this._cache.get('orgId')
@@ -188,7 +193,11 @@ export class StateManager {
         }
 
         const project = await this.getCachedOrFetchProject().catch(() => undefined)
-        return project?.organization
+        const derived = project?.organization
+        if (derived) {
+            await this._cache.set('orgId', derived)
+        }
+        return derived
     }
 
     async getOrgID(): Promise<string> {

@@ -1034,28 +1034,22 @@ class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
         assert len(response.json()["success"]) == 1
         assert len(response.json()["failed"]) == 0
 
-    def test_rejects_personal_api_key_with_only_read_scope(self):
-        value = self._create_key(scopes=["feature_flag:read"])
-
-        response = self._post_with_key(value)
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "feature_flag:write" in response.json()["detail"]
-
-    def test_rejects_personal_api_key_with_wildcard_scope_on_internal_viewset(self):
-        # `*` consent intentionally does not satisfy INTERNAL viewsets even when the
-        # action declares explicit `required_scopes`. See posthog/permissions.py:498-499.
-        value = self._create_key(scopes=["*"])
-
-        response = self._post_with_key(value)
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_rejects_team_scoped_personal_api_key(self):
-        # Team-scoped keys cannot reach org-level endpoints. The user must use an
-        # org-scoped or unscoped key. Confirms `check_team_and_org_permissions` at
-        # posthog/permissions.py:541-552 still gates this behind explicit team membership.
-        value = self._create_key(scopes=["feature_flag:write"], scoped_teams=[self.team_1.id])
+    @parameterized.expand(
+        [
+            # Read scope cannot satisfy a write-scoped action.
+            ("read_scope_only", ["feature_flag:read"], False),
+            # `*` consent intentionally does not satisfy INTERNAL viewsets even when the
+            # action declares explicit `required_scopes`. See posthog/permissions.py:498-499.
+            ("wildcard_scope_on_internal_viewset", ["*"], False),
+            # Team-scoped keys cannot reach org-level endpoints. The user must use an
+            # org-scoped or unscoped key. Confirms `check_team_and_org_permissions` at
+            # posthog/permissions.py:541-552 still gates this behind explicit team membership.
+            ("team_scoped_key", ["feature_flag:write"], True),
+        ]
+    )
+    def test_rejects_insufficient_or_overly_scoped_key(self, _name, scopes, scoped_to_team):
+        scoped_teams = [self.team_1.id] if scoped_to_team else None
+        value = self._create_key(scopes=scopes, scoped_teams=scoped_teams)
 
         response = self._post_with_key(value)
 
