@@ -1,11 +1,11 @@
 import { render } from '@testing-library/react'
 
-import type { LineChartProps } from '../charts/LineChart'
-import type { ChartTheme, Series } from '../core/types'
+import type { ChartTheme, Series } from '../../core/types'
+import type { LineChartProps } from '../LineChart'
 
 const lineChartSpy = jest.fn()
 
-jest.mock('../charts/LineChart', () => ({
+jest.mock('../LineChart', () => ({
     LineChart: (props: LineChartProps) => {
         lineChartSpy(props)
         return <div data-attr="line-chart-mock" />

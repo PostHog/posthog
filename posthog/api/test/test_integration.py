@@ -2314,6 +2314,82 @@ class TestGitHubLinkExisting:
         assert "Failed to verify installation access" in response.json()["detail"]
         mock_from_install.assert_not_called()
 
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_disambiguates_multi_install_team_via_installation_id(
+        self, mock_from_install, mock_verify, client: HttpClient
+    ):
+        # Source team has multiple GitHub installations linked. Without installation_id
+        # the request was crashing on MultipleObjectsReturned; passing installation_id
+        # should pick exactly that row.
+        Integration.objects.create(
+            team=self.source_team,
+            kind="github",
+            integration_id="22222",
+            config={"installation_id": "22222", "account": {"type": "Organization", "name": "other"}},
+            sensitive_config={"access_token": "ghs_other"},
+            created_by=self.user,
+        )
+
+        cloned = Integration.objects.create(
+            team=self.dest_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_cloned"},
+            created_by=self.user,
+        )
+        mock_from_install.return_value = cloned
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": self.source_team.id, "installation_id": "12345"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_verify.assert_called_once_with("12345", "ghu_user")
+        mock_from_install.assert_called_once_with("12345", self.dest_team.pk, self.user)
+
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_matches_installation_id_stored_as_int(
+        self, mock_from_install, mock_verify, client: HttpClient
+    ):
+        # Some integrations have installation_id stored as a JSONB number rather than
+        # a string; the lookup must match either representation.
+        int_team = Team.objects.create(organization=self.organization, name="Int Team")
+        Integration.objects.create(
+            team=int_team,
+            kind="github",
+            integration_id="77777",
+            config={"installation_id": 77777, "account": {"type": "Organization", "name": "intacme"}},
+            sensitive_config={"access_token": "ghs_int"},
+            created_by=self.user,
+        )
+
+        cloned = Integration.objects.create(
+            team=self.dest_team,
+            kind="github",
+            integration_id="77777",
+            config={"installation_id": "77777"},
+            sensitive_config={"access_token": "ghs_cloned"},
+            created_by=self.user,
+        )
+        mock_from_install.return_value = cloned
+
+        client.force_login(self.user)
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"installation_id": "77777"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_verify.assert_called_once_with("77777", "ghu_user")
+        mock_from_install.assert_called_once_with("77777", self.dest_team.pk, self.user)
+
 
 class TestGitHubOAuthAuthorize:
     """Tests for POST /integrations/github/oauth_authorize/ — mints a User OAuth URL

@@ -48,6 +48,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models import DataWarehouseTable
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
@@ -365,7 +366,11 @@ async def _run(
 
         # Assert that app_metrics2 rows were emitted for the successful job — both
         # the success row and the rows_synced row (since a successful e2e run writes
-        # at least one row).
+        # at least one row). Pin both V3 (consumer-side) and NonDLT (workflow-side)
+        # paths so a regression in either gates here.
+        assert run.rows_synced is not None and run.rows_synced > 0, (
+            f"expected run.rows_synced to be a positive number, got {run.rows_synced}"
+        )
         produce_calls = mock_app_metrics_producer_cls.return_value.produce.call_args_list
         emitted_payloads = [call.kwargs["data"] for call in produce_calls]
         status_rows = [
@@ -378,10 +383,19 @@ async def _run(
         assert status_rows[0]["count"] == 1
         assert status_rows[0]["instance_id"] == str(schema.id)
         assert status_rows[0]["team_id"] == team.pk
+        assert status_rows[0]["timestamp"] == format_clickhouse_timestamp(run.finished_at)
         assert len(rows_rows) == 1, f"expected one rows_synced row, got {emitted_payloads}"
         assert rows_rows[0]["metric_name"] == "rows_synced"
-        assert rows_rows[0]["count"] == run.rows_synced
+        assert rows_rows[0]["count"] == run.rows_synced, (
+            f"rows_synced metric count should match run.rows_synced ({run.rows_synced}); "
+            f"got {rows_rows[0]['count']} — likely indicates rows_synced was clobbered by "
+            f"update_external_job_status's full-model save() racing with update_job_row_count"
+        )
+        assert rows_rows[0]["count"] > 0, f"rows_synced metric count should be positive, got {rows_rows[0]['count']}"
+        assert rows_rows[0]["app_source"] == "warehouse_source_sync"
+        assert rows_rows[0]["team_id"] == team.pk
         assert rows_rows[0]["instance_id"] == str(schema.id)
+        assert rows_rows[0]["timestamp"] == status_rows[0]["timestamp"]
 
         await sync_to_async(schema.refresh_from_db)()
 

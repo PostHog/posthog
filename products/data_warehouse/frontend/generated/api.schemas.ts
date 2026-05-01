@@ -404,6 +404,19 @@ export interface PatchedExternalDataSchemaApi {
 }
 
 /**
+ * * `web` - web
+ * `api` - api
+ * `mcp` - mcp
+ */
+export type CreatedViaEnumApi = (typeof CreatedViaEnumApi)[keyof typeof CreatedViaEnumApi]
+
+export const CreatedViaEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+} as const
+
+/**
  * * `Ashby` - Ashby
  * `Supabase` - Supabase
  * `CustomerIO` - CustomerIO
@@ -736,6 +749,12 @@ export interface ExternalDataSourceSerializersApi {
     readonly created_at: string
     /** @nullable */
     readonly created_by: string | null
+    /** How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+* `web` - web
+* `api` - api
+* `mcp` - mcp */
+    created_via?: CreatedViaEnumApi
     readonly status: string
     client_secret: string
     account_id: string
@@ -964,6 +983,12 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: string | null
+    /** How this source was created. Required on create. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.
+
+* `web` - web
+* `api` - api
+* `mcp` - mcp */
+    created_via?: CreatedViaEnumApi
     readonly status?: string
     client_secret?: string
     account_id?: string

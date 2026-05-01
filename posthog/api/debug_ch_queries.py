@@ -328,7 +328,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     cus.organization_id IN ({org_id_list})
                     AND iwa.type NOT LIKE '%upcoming%'
                     AND iwa.mrr > 0
-                    AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now())
+                    AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now() - INTERVAL 1 MONTH)
                 GROUP BY cus.organization_id
                 """,
                 team=team,

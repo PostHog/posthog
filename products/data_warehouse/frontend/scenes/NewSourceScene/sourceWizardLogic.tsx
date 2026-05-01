@@ -1198,6 +1198,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
                     source_type: values.selectedConnector.name,
+                    created_via: 'web',
                 })
 
                 actions.setSourceId(id)
