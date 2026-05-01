@@ -59,7 +59,7 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -1013,7 +1013,8 @@ class InsightSerializer(InsightBasicSerializer):
                     self.context["request"], dashboard_tile
                 )
 
-                if self.context.get("is_shared", False):
+                is_shared = self.context.get("is_shared", False)
+                if is_shared:
                     execution_mode = shared_insights_execution_mode(
                         execution_mode,
                         last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
@@ -1021,7 +1022,8 @@ class InsightSerializer(InsightBasicSerializer):
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
-                with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT):
+                shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
+                with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
