@@ -107,6 +107,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     LogsAlertNew: () => import('../../products/logs/frontend/scenes/LogsAlertNewScene/LogsAlertNewScene'),
     LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
+    LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
+    LogsSamplingDetail: () =>
+        import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
@@ -211,6 +214,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
+    '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
+    '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     '/metrics': ['Metrics', 'metrics'],
@@ -282,6 +287,10 @@ export const productRedirects: Record<
         combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
     '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
         combineUrl(urls.llmAnalyticsOfflineEvaluations(), searchParams, hashParams).url,
+    '/logs/sampling/new': (_params, searchParams, hashParams) =>
+        combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
+    '/logs/sampling/:id': (params, searchParams, hashParams) =>
+        combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -493,6 +502,18 @@ export const productConfiguration: Record<string, any> = {
     },
     LogsAlertNew: { projectBased: true, name: 'New alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
+    LogsSamplingNew: {
+        projectBased: true,
+        name: 'New drop rule',
+        activityScope: ActivityScope.LOG,
+        layout: 'app-container',
+    },
+    LogsSamplingDetail: {
+        projectBased: true,
+        name: 'Drop rule',
+        activityScope: ActivityScope.LOG,
+        layout: 'app-container',
+    },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
     Metrics: {
@@ -821,6 +842,8 @@ export const productUrls = {
     logsAlertNew: (): string => '/logs/alerts/new',
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
+    logsSamplingNew: (): string => '/logs/drop-rules/new',
+    logsSamplingDetail: (id: string): string => `/logs/drop-rules/${id}`,
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
@@ -1525,7 +1548,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
-        sceneKeys: ['Logs', 'LogsAlertNew', 'LogsAlertDetail'],
+        sceneKeys: ['Logs', 'LogsAlertNew', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
     },
     {
         path: 'Marketing analytics',

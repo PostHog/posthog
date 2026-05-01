@@ -138,11 +138,11 @@ def _emit_log(
         fields.update(ctx.as_log_fields())
 
     if record.error_class is not None:
-        logger.warning("data_imports.http.request", **fields)
+        logger.warning(f"data_imports.http.request {record.url}", **fields)
     elif record.status_code is not None and record.status_code >= 400:
-        logger.warning("data_imports.http.request", **fields)
+        logger.warning(f"data_imports.http.request {record.url}", **fields)
     else:
-        logger.debug("data_imports.http.request", **fields)
+        logger.debug(f"data_imports.http.request {record.url}", **fields)
 
 
 def _emit_metrics(record: RequestRecord, *, host: str, ctx: JobContext | None) -> None:
