@@ -73,7 +73,7 @@ pub async fn run(args: ChaosStatusArgs) -> Result<()> {
         for h in &handoffs {
             println!(
                 "    partition {}: {} -> {} ({:?})",
-                h.partition, h.old_owner, h.new_owner, h.phase
+                h.partition, h.old_owner.as_deref().unwrap_or("(none)"), h.new_owner, h.phase
             );
         }
     }
