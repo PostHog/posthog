@@ -24,7 +24,7 @@ from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, Ch
 from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     SessionMinTimestampWhereClauseExtractorV3,
-    SessionPropertyHavingExtractor,
+    WhereClauseExtractor,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -399,11 +399,19 @@ def select_from_sessions_table_v3(
     where = SessionMinTimestampWhereClauseExtractorV3(context).get_inner_where(node)
 
     # Push outer-WHERE predicates that reference session properties down as HAVING on
-    # this aggregation subquery, so unmatched groups are dropped before the JOIN
-    # materializes them. See SessionPropertyHavingExtractor for context.
+    # this aggregation subquery, so ClickHouse drops unmatched groups immediately after
+    # aggregation, before the JOIN materializes them. Without this, shapes like
+    # `unique_session` + a session-typed regex on `$entry_current_url` + a breakdown
+    # by the computed `$channel_type` size the aggregation hash table by every session
+    # in the date range — `$channel_type`'s `multiIf` + dictionary lookups materialize
+    # per-session and OOM in production.
+    #
+    # `WhereClauseExtractor` already strips field chains to alias names and tombstones
+    # anything it can't reason about, so the HAVING lines up against the inner SELECT's
+    # aliases by construction.
     having: Optional[ast.Expr] = None
     if join_or_table_to_add is not None:
-        having_extractor = SessionPropertyHavingExtractor(context)
+        having_extractor = WhereClauseExtractor(context)
         having_extractor.add_local_tables(join_or_table_to_add)
         having = having_extractor.get_inner_where(node)
 

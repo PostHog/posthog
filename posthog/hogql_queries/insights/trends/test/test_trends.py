@@ -1168,36 +1168,43 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "date_from": "-3d",
         }
 
-        with freeze_time("2020-01-04T13:00:01Z"):
-            response = self._run(
-                Filter(team=self.team, data=filter_data),
-                self.team,
-            )
+        # Both assertions below exercise the V3 sessions path explicitly — that's
+        # where the HAVING pushdown applies and where the production OOM was reported.
+        # We assert two complementary properties of the same V3 path:
+        #   1. behavioral correctness — the regex filter and breakdown still produce
+        #      the right per-session counts after the inner HAVING is added,
+        #   2. structural shape — the URL regex fragment appears at least twice in
+        #      the printed ClickHouse SQL (outer WHERE + inner HAVING), confirming
+        #      the pushdown is wired up.
+        flush_persons_and_events()
+        v3_modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
 
-        # Each matching session contributes exactly once. The blog session is
-        # excluded by the URL regex, so we should see only the two product-page
-        # sessions split across their channel types — not three. Specific
-        # channel-type values can vary across session table versions and ad
-        # ID lookups, so assert on totals/cardinality rather than exact labels.
-        assert len(response) == 2, response
-        total = sum(item["count"] for item in response)
-        assert total == 2, response
-        for item in response:
-            assert item["count"] == 1, response
-            # Multi-breakdown emits the breakdown value as a single-element array.
-            assert isinstance(item["breakdown_value"], list)
-            assert len(item["breakdown_value"]) == 1
-
-        # Verify the HAVING pushdown is wired up under sessionTableVersion=V3:
-        # the URL regex predicate must appear at least twice in the printed
-        # ClickHouse SQL — once in the outer WHERE on the lazy join, and once
-        # as HAVING on the inner aggregation subquery so the per-session
-        # ``$channel_type`` materialization isn't paid for every unfiltered
-        # session in the date range. Without the fix it appears exactly once.
         with freeze_time("2020-01-04T13:00:01Z"):
             trend_query = cast(TrendsQuery, filter_to_query(filter_data))
-            trend_query.modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3)
+            trend_query.modifiers = v3_modifiers
             runner = TrendsQueryRunner(team=self.team, query=trend_query)
+            response = runner.calculate().results
+
+            # 1. Behavioral correctness. Each matching session contributes exactly
+            # once. The blog session is excluded by the URL regex, so we should see
+            # only the two product-page sessions split across their channel types —
+            # not three. Specific channel-type values can vary across ad ID lookups,
+            # so assert on totals/cardinality rather than exact labels.
+            assert len(response) == 2, response
+            total = sum(item["count"] for item in response)
+            assert total == 2, response
+            for item in response:
+                assert item["count"] == 1, response
+                # Multi-breakdown emits the breakdown value as a single-element array.
+                assert isinstance(item["breakdown_value"], list)
+                assert len(item["breakdown_value"]) == 1
+
+            # 2. Structural HAVING-pushdown shape. The URL regex predicate must appear
+            # at least twice in the printed ClickHouse SQL — once in the outer WHERE
+            # on the lazy join, and once as HAVING on the inner aggregation subquery
+            # so the per-session ``$channel_type`` materialization isn't paid for
+            # every unfiltered session in the date range. Without the fix it appears
+            # exactly once.
             context = HogQLContext(
                 team_id=self.team.pk,
                 enable_select_queries=True,

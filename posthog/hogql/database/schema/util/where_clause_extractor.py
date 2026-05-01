@@ -255,29 +255,6 @@ class WhereClauseExtractor(CloningVisitor):
         return self.visit(node.expr)
 
 
-class SessionPropertyHavingExtractor(WhereClauseExtractor):
-    """Extract outer-WHERE predicates that reference the sessions lazy join/table so they
-    can be re-applied as a ``HAVING`` clause on the inner aggregation subquery.
-
-    The sessions lazy join aggregates every session in the broader date range first, then
-    the outer query filters by session properties. For shapes like ``unique_session`` math
-    + a session-typed regex on ``$entry_current_url`` + a breakdown by the computed
-    ``$channel_type``, the per-session column materialization (``multiIf`` + dictionary
-    lookups for ``$channel_type``) sizes the aggregation hash table by the unfiltered set
-    and OOMs in production.
-
-    Re-applying the same outer filter as ``HAVING`` lets ClickHouse drop unmatched groups
-    immediately after aggregation, before the JOIN materializes them.
-
-    Falls back safely: the base ``WhereClauseExtractor`` tombstones anything it can't
-    reason about and returns the surviving conjunction (or ``None`` if nothing pushes
-    down). The HAVING is applied against the inner ``SELECT``'s aliases, so chain stripping
-    in ``visit_field`` lines up by construction.
-    """
-
-    pass
-
-
 class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
     capture_timestamp_comparisons = True
     timestamp_field: ast.Expr
