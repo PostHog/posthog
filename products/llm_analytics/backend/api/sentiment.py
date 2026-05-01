@@ -49,8 +49,8 @@ from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 # Maximum rows returned from sentiment_generations.sql per call. Matches the
 # frontend's GENERATIONS_PAGE_SIZE so a single page request gets the full slice
-# in one round-trip. The SQL itself enforces this with `LIMIT 200`; this constant
-# documents the contract.
+# in one round-trip. Baked into `_SENTIMENT_GENERATIONS_SQL` at import time
+# below so this is the single source of truth.
 GENERATIONS_QUERY_LIMIT = 200
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +68,7 @@ class SentimentRequestSerializer(serializers.Serializer):
         min_length=1,
         max_length=BATCH_MAX_GENERATION_IDS,
         required=True,
+        help_text="Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).",
     )
     analysis_level = serializers.ChoiceField(
         choices=ANALYSIS_LEVEL_CHOICES,
@@ -101,7 +102,7 @@ class SentimentBatchResponseSerializer(serializers.Serializer):
 # `posthog.ai_events`; the resolver re-runs against `events.properties.$ai_input`
 # on the events fallback path. Both branches honour the team's
 # `ai-events-table-rollout` flag and emit `ai_query_source` tags for dashboards.
-_SENTIMENT_GENERATIONS_SQL = """
+_SENTIMENT_GENERATIONS_SQL = f"""
 SELECT
     argMax(uuid, ts) as uuid,
     trace_id,
@@ -122,11 +123,11 @@ FROM (
     WHERE event = '$ai_generation'
         AND length(coalesce(input, '')) > 0
         AND length(coalesce(trace_id, '')) > 0
-        AND {filters}
+        AND {{filters}}
 )
 GROUP BY trace_id
 ORDER BY timestamp DESC, trace_id DESC
-LIMIT 200
+LIMIT {GENERATIONS_QUERY_LIMIT}
 """
 
 
@@ -311,7 +312,10 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         try:
             filters = HogQLFilters.model_validate(filters_payload)
         except PydanticValidationError as e:
-            return Response({"filters": [str(e)]}, status=status.HTTP_400_BAD_REQUEST)
+            # `e.errors()` is a structured list of pydantic error dicts — safe to
+            # serialize and free of stack-trace context. `str(e)` would surface
+            # the full exception representation (CodeQL flagged it as info exposure).
+            return Response({"filters": e.errors()}, status=status.HTTP_400_BAD_REQUEST)
 
         query = parse_select(_SENTIMENT_GENERATIONS_SQL)
         # Apply dateRange / properties / filterTestAccounts via the standard

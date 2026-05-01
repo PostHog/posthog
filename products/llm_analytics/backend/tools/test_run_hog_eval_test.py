@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
+
 from products.llm_analytics.backend.tools.run_hog_eval_test import RunHogEvalTestTool
 
 
@@ -30,6 +32,7 @@ def _make_event(
             }
         ),
         "test-user",
+        *(None,) * len(HEAVY_COLUMN_NAMES),
     ]
 
 

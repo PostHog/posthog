@@ -86,15 +86,43 @@ def fetch_generations_by_uuid(
 
     Simpler than fetch_generations — no window function, no trace grouping.
     Returns a flat list of (uuid, ai_input) tuples.
+
+    Uses a two-query pattern: the `(team_id, trace_id, timestamp)` sorting
+    key + cityHash64 sharding key on `ai_events` mean a `WHERE uuid IN (...)`
+    fan-out reads heavy `input` on every shard. So we first resolve uuid →
+    trace_id off `events` (cheap small-column read using the events sorting
+    key) and pass the resulting trace_ids into the heavy fetch — keeping
+    the heavy read on a single shard.
     """
+    from datetime import UTC, datetime
+
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
     from posthog.hogql.parser import parse_select
 
     from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+    from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
     from posthog.models.team import Team
 
     team = Team.objects.get(id=team_id)
+
+    # `date_from` / `date_to` arrive as `%Y-%m-%d %H:%M:%S` strings (per
+    # `resolve_date_bounds`). Parse them to UTC datetimes so the trace-id
+    # resolver can serialize them through HogQL placeholder substitution.
+    ts_start = datetime.strptime(date_from, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    ts_end = datetime.strptime(date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+
+    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+        team=team,
+        generation_uuids=generation_ids,
+        ts_start=ts_start,
+        ts_end=ts_end,
+        query_type="SentimentTraceIdResolve",
+    )
+    trace_ids = sorted({tid for tid in trace_id_by_uuid.values() if tid})
+    if not trace_ids:
+        return [], 0
+
     query = parse_select(GENERATIONS_BY_UUID_QUERY)
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
         result = execute_with_ai_events_fallback(
@@ -103,6 +131,7 @@ def fetch_generations_by_uuid(
                 "date_from": ast.Constant(value=date_from),
                 "date_to": ast.Constant(value=date_to),
                 "uuids": ast.Tuple(exprs=[ast.Constant(value=uid) for uid in generation_ids]),
+                "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
             },
             team=team,
             query_type="SentimentOnDemandGeneration",

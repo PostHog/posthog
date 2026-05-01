@@ -96,9 +96,13 @@ class TestFetchGenerations:
             assert from_chain == ["posthog", "ai_events"]
 
 
+_TRACE_RESOLVE_PATH = "posthog.hogql_queries.ai.trace_id_resolver.resolve_trace_ids_for_generation_uuids"
+
+
 @pytest.mark.django_db
 class TestFetchGenerationsByUuid:
-    def test_returns_flat_list(self, team):
+    @patch(_TRACE_RESOLVE_PATH, return_value={"uuid-1": "trace-A", "uuid-2": "trace-B"})
+    def test_returns_flat_list(self, _mock_resolve, team):
         with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
             mock_resolver.return_value = _resolver_response(
                 [
@@ -115,7 +119,8 @@ class TestFetchGenerationsByUuid:
             assert len(rows) == 2
             assert total_bytes > 0
 
-    def test_skips_unparseable_input(self, team):
+    @patch(_TRACE_RESOLVE_PATH, return_value={"uuid-good": "trace-A", "uuid-bad": "trace-A"})
+    def test_skips_unparseable_input(self, _mock_resolve, team):
         with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
             mock_resolver.return_value = _resolver_response(
                 [
@@ -131,3 +136,36 @@ class TestFetchGenerationsByUuid:
             )
             assert len(rows) == 1
             assert rows[0][0] == "uuid-good"
+
+    @patch(_TRACE_RESOLVE_PATH, return_value={})
+    def test_no_trace_ids_resolved_skips_heavy_fetch(self, _mock_resolve, team):
+        """When the events preflight returns no trace_ids — uuids purged or
+        outside the window — skip the heavy ai_events fan-out entirely."""
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+            rows, total_bytes = fetch_generations_by_uuid(
+                team_id=team.id,
+                generation_ids=["uuid-1", "uuid-2"],
+                date_from="2026-04-27 07:00:00",
+                date_to="2026-04-27 08:00:00",
+            )
+            assert rows == []
+            assert total_bytes == 0
+            assert mock_resolver.call_count == 0
+
+    @patch(_TRACE_RESOLVE_PATH, return_value={"uuid-1": "trace-A", "uuid-2": "trace-B"})
+    def test_trace_ids_flow_into_heavy_query(self, _mock_resolve, team):
+        """The discovered trace_ids must land in the WHERE so the heavy fetch
+        hits the ai_events `(team_id, trace_id, timestamp)` sorting-key
+        prefix and single-shard via the cityHash64 sharding key."""
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+            mock_resolver.return_value = _resolver_response([])
+            fetch_generations_by_uuid(
+                team_id=team.id,
+                generation_ids=["uuid-1", "uuid-2"],
+                date_from="2026-04-27 07:00:00",
+                date_to="2026-04-27 08:00:00",
+            )
+            placeholders = mock_resolver.call_args.kwargs["placeholders"]
+            assert "trace_ids" in placeholders
+            values = sorted(c.value for c in placeholders["trace_ids"].exprs)
+            assert values == ["trace-A", "trace-B"]

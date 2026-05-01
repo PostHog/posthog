@@ -80,6 +80,7 @@ GENERATIONS_BY_UUID_QUERY = """
         input AS ai_input
     FROM posthog.ai_events AS ai_events
     WHERE event = '$ai_generation'
+      AND trace_id IN {trace_ids}
       AND timestamp >= toDateTime({date_from}, 'UTC')
       AND timestamp <= toDateTime({date_to}, 'UTC')
       AND uuid IN {uuids}

@@ -26,6 +26,8 @@ _VALID_GEN_ID_2 = "abcdefab-cdef-abcd-efab-cdefabcdefab"
 _sample_fn = sample_generation_details.func  # type: ignore[attr-defined]
 _get_detail_fn = get_generation_detail.func  # type: ignore[attr-defined]
 
+_RESOLVE_PATH = "posthog.hogql_queries.ai.trace_id_resolver.resolve_trace_ids_for_generation_uuids"
+
 
 def _state(team_id: int) -> dict:
     return {
@@ -46,7 +48,8 @@ def _resolver_response(rows: list[list]) -> MagicMock:
 
 class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
-    def test_routes_through_resolver_against_ai_events(self, mock_resolver):
+    @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
+    def test_routes_through_resolver_against_ai_events(self, _mock_lookup, mock_resolver):
         """The heavy-prop tool must hit the resolver, not raw `execute_hogql_query`."""
         mock_resolver.return_value = _resolver_response(
             [
@@ -79,12 +82,31 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
         # nosemgrep: hogql-no-string-table-chain
         assert from_chain == ["posthog", "ai_events"]
         assert kwargs["query_type"] == "EvalReportAgent"
+        placeholders = kwargs["placeholders"]
+        assert "trace_ids" in placeholders
+        trace_id_values = [const.value for const in placeholders["trace_ids"].exprs]
+        assert trace_id_values == ["trace-1"]
+        # Time bounds remain for partition pruning.
+        assert "ts_start" in placeholders
+        assert "ts_end" in placeholders
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch(_RESOLVE_PATH, return_value={})
+    def test_skips_heavy_fetch_when_no_trace_ids_resolved(self, _mock_lookup, mock_resolver):
+        """If the events preflight finds no rows (uuids purged or never existed),
+        skip the heavy ai_events query entirely — no point fanning out across
+        shards for a known-empty result."""
+        result = _sample_fn(state=_state(self.team.id), generation_ids=[_VALID_GEN_ID])
+
+        assert result == "[]"
+        assert mock_resolver.call_count == 0
 
 
 class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
     @patch("posthog.hogql.query.execute_hogql_query")
-    def test_main_query_uses_resolver_eval_query_uses_events(self, mock_events, mock_resolver):
+    @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
+    def test_main_query_uses_resolver_eval_query_uses_events(self, _mock_lookup, mock_events, mock_resolver):
         """Within `get_generation_detail`, the main generation lookup reads heavy
         columns and routes via the resolver. The eval-rows lookup reads only
         non-heavy fields (`$ai_evaluation_*`) and stays on `events` directly.
@@ -126,6 +148,21 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
         assert mock_resolver.call_count == 1
         # Non-heavy eval-rows query went through plain execute_hogql_query (events).
         assert mock_events.call_count == 1
+        # Heavy fetch carries the resolved trace_id — proves the two-query
+        # pattern wires through, not just that the WHERE has uuid.
+        kwargs = mock_resolver.call_args.kwargs
+        placeholders = kwargs["placeholders"]
+        assert "trace_id" in placeholders
+        assert placeholders["trace_id"].value == "trace-1"
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch(_RESOLVE_PATH, return_value={})
+    def test_returns_not_found_when_trace_id_lookup_misses(self, _mock_lookup, mock_resolver):
+        """If the events preflight can't find the generation, surface a not-found
+        error to the agent without paying for a heavy ai_events fan-out."""
+        result = _get_detail_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID)
+        assert "not found" in result.lower()
+        assert mock_resolver.call_count == 0
 
     def test_invalid_generation_id_returns_error_without_querying(self):
         with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:

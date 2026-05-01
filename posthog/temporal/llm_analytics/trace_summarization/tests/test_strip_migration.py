@@ -39,6 +39,7 @@ class TestFetchAndFormatGenerationStripMigration:
             mock_resolver.return_value = _resolver_response([])
             result = _fetch_and_format_generation(
                 "gen-uuid",
+                "trace-uuid",
                 team.id,
                 "2026-04-27T07:00:00+00:00",
                 "2026-04-27T08:00:00+00:00",
@@ -66,6 +67,7 @@ class TestFetchAndFormatGenerationStripMigration:
 
             result = _fetch_and_format_generation(
                 "gen-uuid",
+                "trace-uuid",
                 team.id,
                 "2026-04-27T07:00:00+00:00",
                 "2026-04-27T08:00:00+00:00",
@@ -89,6 +91,7 @@ class TestFetchAndFormatGenerationStripMigration:
 
             _fetch_and_format_generation(
                 "gen-uuid",
+                "trace-uuid",
                 team.id,
                 "2026-04-27T07:00:00+00:00",
                 "2026-04-27T08:00:00+00:00",
@@ -109,3 +112,9 @@ class TestFetchAndFormatGenerationStripMigration:
             )
             # query_type is set so observability dashboards can group by it.
             assert kwargs["query_type"] == "GenerationForSummarization"
+            # trace_id flows into the WHERE so the lookup hits the
+            # `(team_id, trace_id, timestamp)` sorting-key prefix instead of
+            # fanning out across every shard for the team.
+            placeholders = kwargs["placeholders"]
+            assert "trace_id" in placeholders
+            assert placeholders["trace_id"].value == "trace-uuid"

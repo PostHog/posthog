@@ -230,9 +230,9 @@ def get_generation_details(
 
     team = Team.objects.get(id=state["team_id"])
     generation_ids = [gen_id for _, gen_id in pairs]
-    # Pass the clustering-run window through so ClickHouse can prune date partitions
-    # on the `(team_id, toDate(timestamp))` primary index. Without bounds this would
-    # full-scan the team for a handful of UUIDs.
+    # The clustering-run window scopes both the trace_id resolver lookup
+    # (events sorting key) and the heavy ai_events fetch. Required — without
+    # it, the events scan would full-scan the team for a handful of UUIDs.
     from datetime import datetime
 
     def _parse(ts: str | None) -> datetime | None:
@@ -243,11 +243,17 @@ def get_generation_details(
         except ValueError:
             return None
 
+    window_start = _parse(state.get("window_start"))
+    window_end = _parse(state.get("window_end"))
+    if window_start is None or window_end is None:
+        # Defensive — shouldn't happen in production
+        return json.dumps({"error": "Clustering-run window missing from state"})
+
     fetched = fetch_generation_contents(
         team=team,
         generation_ids=generation_ids,
-        window_start=_parse(state.get("window_start")),
-        window_end=_parse(state.get("window_end")),
+        window_start=window_start,
+        window_end=window_end,
     )
 
     result = []
