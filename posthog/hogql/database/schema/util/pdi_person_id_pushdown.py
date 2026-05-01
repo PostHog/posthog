@@ -14,11 +14,6 @@ logger = structlog.get_logger(__name__)
 
 
 def build_distinct_id_pushdown(person_id_filter: ast.Expr) -> ast.CompareOperation:
-    """Build `distinct_id IN (SELECT distinct_id FROM raw_pdi WHERE <person_id_filter>)`.
-
-    Narrows on the GROUP BY key (distinct_id), so pre-argMax filtering stays
-    correct; the outer argMax still picks the current owner.
-    """
     inner = cast(
         ast.SelectQuery,
         parse_select("SELECT distinct_id FROM raw_person_distinct_ids AS pdi_pushdown_pdi"),
@@ -38,9 +33,6 @@ def derive_person_id_filter(
     context: HogQLContext,
     from_field_maps_to_person_id: bool,
 ) -> Optional[ast.Expr]:
-    # Fail-open envelope: this runs on every persons.pdi join in HogQL compilation.
-    # An exception here would break the query entirely; we'd rather skip the
-    # optimization. Catches RecursionError on pathological WHERE depth too.
     try:
         return _derive_person_id_filter_inner(
             node, join_to_add, context=context, from_field_maps_to_person_id=from_field_maps_to_person_id
