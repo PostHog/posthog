@@ -726,7 +726,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
     )
     created_via = serializers.ChoiceField(
         choices=ExternalDataSource.CreatedVia.values,
-        required=True,
+        required=False,
         default=ExternalDataSource.CreatedVia.API,
         help_text="Where the request came from",
     )
