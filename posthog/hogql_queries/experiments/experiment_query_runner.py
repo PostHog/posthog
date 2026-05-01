@@ -113,6 +113,13 @@ class ExperimentQueryRunner(QueryRunner):
         stats_config = self.experiment.stats_config or {}
         self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
 
+        if self.baseline_variant_key not in self.variants:
+            raise ValidationError(
+                f'The feature flag "{self.feature_flag.key}" does not have a "{self.baseline_variant_key}" variant. '
+                f"Available variants: {', '.join(self.variants)}. "
+                f"Please restore the \"{self.baseline_variant_key}\" variant on the feature flag to fix this experiment."
+            )
+
         self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,

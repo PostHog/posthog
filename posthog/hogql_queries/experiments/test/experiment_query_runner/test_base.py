@@ -2291,3 +2291,32 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both variants should have computed values (proves quantile worked)
         assert control_variant is not None
         assert test_variant is not None
+
+    def test_missing_control_variant_raises_validation_error(self):
+        from rest_framework.exceptions import ValidationError
+
+        ff = self.create_feature_flag(key="missing-control-flag")
+        experiment = self.create_experiment(name="missing-control", feature_flag=ff)
+
+        # Remove the "control" variant from the flag
+        ff.filters["multivariate"]["variants"] = [
+            {"key": "variant_a", "rollout_percentage": 50},
+            {"key": "variant_b", "rollout_percentage": 50},
+        ]
+        ff.save()
+
+        query = ExperimentQuery(
+            experiment_id=experiment.id,
+            metric=ExperimentMeanMetric(
+                metric_type="mean",
+                source=EventsNode(event="$pageview"),
+            ),
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentQueryRunner(query=query, team=self.team)
+
+        error_message = str(ctx.exception.detail)
+        self.assertIn("control", error_message)
+        self.assertIn("missing-control-flag", error_message)
+        self.assertIn("variant_a", error_message)
