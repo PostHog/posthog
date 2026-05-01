@@ -1,4 +1,9 @@
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from posthog.personhog_client.client import PersonHogClient
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import DatabaseError, models
@@ -100,14 +105,9 @@ def invalidate_group_types_cache(project_id: int) -> None:
     safe_cache_delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}")
 
 
-def _fetch_group_types_via_personhog(project_id: int) -> list[dict[str, Any]]:
-    from posthog.personhog_client.client import get_personhog_client
+def _fetch_group_types_via_personhog(client: PersonHogClient, project_id: int) -> list[dict[str, Any]]:
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
-
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
 
     resp = client.get_group_type_mappings_by_project_id(GetGroupTypeMappingsByProjectIdRequest(project_id=project_id))
     result = [proto_group_type_mapping_to_dict(m) for m in resp.mappings]
@@ -116,8 +116,8 @@ def _fetch_group_types_via_personhog(project_id: int) -> list[dict[str, Any]]:
 
 
 def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
-    """Fetch group types from cache, falling back to personhog/ORM, then stale cache, then empty list."""
-    from posthog.personhog_client.gate import use_personhog
+    """Fetch group types from cache, falling back to personhog then ORM, then stale cache, then empty list."""
+    from posthog.personhog_client.client import get_personhog_client
 
     cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
     stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}"
@@ -126,9 +126,10 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
     if cached is not None:
         return cached
 
-    if use_personhog():
+    client = get_personhog_client()
+    if client is not None:
         try:
-            result = _fetch_group_types_via_personhog(project_id)
+            result = _fetch_group_types_via_personhog(client, project_id)
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="get_group_types_for_project", source="personhog", client_name=get_client_name()
             ).inc()
@@ -146,7 +147,7 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
 
     try:
         result = list(
-            GroupTypeMapping.objects.filter(project_id=project_id)
+            GroupTypeMapping.objects.filter(project_id=project_id)  # nosemgrep: no-direct-persons-db-orm
             .order_by("group_type_index")
             .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
@@ -164,3 +165,105 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
             return stale
         safe_cache_set(cache_key, [], GROUP_TYPES_NEGATIVE_CACHE_TTL)
         return []
+
+
+def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: int) -> list[dict[str, Any]]:
+    from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+    from posthog.personhog_client.proto import GetGroupTypeMappingsByTeamIdRequest
+
+    resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team_id))
+    result = [proto_group_type_mapping_to_dict(m) for m in resp.mappings]
+    result.sort(key=lambda d: d["group_type_index"])
+    return result
+
+
+def get_group_types_for_team(team_id: int) -> list[dict[str, Any]]:
+    """Fetch group types for a team via personhog, falling back to ORM on error."""
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            result = _fetch_group_types_for_team_via_personhog(client, team_id)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_types_for_team", source="personhog", client_name=get_client_name()
+            ).inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_group_types_for_team",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_group_types_for_team_failure", team_id=team_id, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_group_types_for_team", source="django_orm", client_name=get_client_name()
+    ).inc()
+    try:
+        return list(
+            GroupTypeMapping.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
+    except DatabaseError:
+        logger.warning("persons_db_group_types_for_team_failure", team_id=team_id, exc_info=True)
+        return []
+
+
+def _fetch_group_types_for_projects_via_personhog(
+    client: PersonHogClient, project_ids: list[int]
+) -> dict[int, list[dict[str, Any]]]:
+    from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+    from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdsRequest
+
+    resp = client.get_group_type_mappings_by_project_ids(
+        GetGroupTypeMappingsByProjectIdsRequest(project_ids=project_ids)
+    )
+    result: dict[int, list[dict[str, Any]]] = {}
+    for batch in resp.results:
+        mappings = [proto_group_type_mapping_to_dict(m) for m in batch.mappings]
+        mappings.sort(key=lambda d: d["group_type_index"])
+        result[batch.key] = mappings
+    return result
+
+
+def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+    """Batch fetch group types for multiple projects via personhog, falling back to ORM on error."""
+    from posthog.personhog_client.client import get_personhog_client
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            result = _fetch_group_types_for_projects_via_personhog(client, project_ids)
+            for pid in project_ids:
+                result.setdefault(pid, [])
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_types_for_projects", source="personhog", client_name=get_client_name()
+            ).inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_group_types_for_projects",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning("personhog_group_types_for_projects_failure", project_ids=project_ids, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_group_types_for_projects", source="django_orm", client_name=get_client_name()
+    ).inc()
+    result = {pid: [] for pid in project_ids}
+    try:
+        for row in (
+            GroupTypeMapping.objects.filter(project_id__in=project_ids)  # nosemgrep: no-direct-persons-db-orm
+            .order_by("group_type_index")
+            .values("project_id", *GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        ):
+            pid = row.pop("project_id")
+            result.setdefault(pid, []).append(row)
+    except DatabaseError:
+        logger.warning("persons_db_group_types_for_projects_failure", project_ids=project_ids, exc_info=True)
+    return result

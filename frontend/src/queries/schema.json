@@ -10,6 +10,7 @@
                 "$ai_metric",
                 "$ai_feedback",
                 "$ai_evaluation",
+                "$ai_tag",
                 "$ai_trace_summary",
                 "$ai_generation_summary",
                 "$ai_trace_clusters",
@@ -3839,6 +3840,66 @@
             },
             "type": "object"
         },
+        "AssistantTrendsGroupNode": {
+            "additionalProperties": false,
+            "description": "Defines a series that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here. Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties` apply only to that node, so each event can carry its own filter.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType",
+                    "description": "Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes."
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "description": "Custom HogQL aggregation. When set, `math` must be `hogql`.",
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name for the combined series.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantTrendsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            }
+                        ]
+                    },
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "operator": {
+                    "const": "OR",
+                    "description": "Only `OR` is supported.",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "operator", "nodes"],
+            "type": "object"
+        },
         "AssistantTrendsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -3892,7 +3953,7 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events or actions to include. Prioritize the more popular and fresh events and actions.",
+                    "description": "Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating \"Pageview OR Pageleave\" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.",
                     "items": {
                         "anyOf": [
                             {
@@ -3900,6 +3961,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsGroupNode"
                             }
                         ]
                     },
@@ -18516,6 +18580,7 @@
                 "sdk_doctor",
                 "pipeline_status",
                 "llm_evaluations",
+                "llm_tags",
                 "llm_datasets",
                 "llm_playground",
                 "llm_prompts",
@@ -21625,6 +21690,7 @@
                 "google-sheets",
                 "linkedin-ads",
                 "snapchat",
+                "stripe",
                 "intercom",
                 "email",
                 "twilio",
@@ -22275,6 +22341,42 @@
             "enum": ["campaign_groups"],
             "type": "string"
         },
+        "LlmEvalReportSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "evaluation_description": {
+                    "type": "string"
+                },
+                "evaluation_id": {
+                    "type": "string"
+                },
+                "evaluation_name": {
+                    "type": "string"
+                },
+                "period_end": {
+                    "type": "string"
+                },
+                "period_start": {
+                    "type": "string"
+                },
+                "report_id": {
+                    "type": "string"
+                },
+                "report_run_id": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "evaluation_id",
+                "evaluation_name",
+                "evaluation_description",
+                "report_id",
+                "report_run_id",
+                "period_start",
+                "period_end"
+            ],
+            "type": "object"
+        },
         "LlmEvalSignalExtra": {
             "additionalProperties": false,
             "properties": {
@@ -22298,6 +22400,33 @@
                 }
             },
             "required": ["evaluation_id", "trace_id"],
+            "type": "object"
+        },
+        "LlmEvaluationReportSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LlmEvalReportSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "llm_analytics",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "evaluation_report",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "LlmEvaluationSignalInput": {
@@ -22342,6 +22471,29 @@
             "required": ["type", "artifact_id"],
             "type": "object"
         },
+        "LogAttributeResult": {
+            "additionalProperties": false,
+            "properties": {
+                "matchedOn": {
+                    "description": "Whether this row matched the search by attribute key or by attribute value.",
+                    "enum": ["key", "value"],
+                    "type": "string"
+                },
+                "matchedValue": {
+                    "description": "Sample value that matched the search — only set when matchedOn is 'value'.",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "propertyFilterType": {
+                    "description": "Either 'log_attribute' or 'log_resource_attribute'.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "propertyFilterType", "matchedOn"],
+            "type": "object"
+        },
         "LogAttributesQuery": {
             "additionalProperties": false,
             "properties": {
@@ -22373,6 +22525,10 @@
                 },
                 "search": {
                     "type": "string"
+                },
+                "searchValues": {
+                    "description": "When true, the search query also matches attribute values (not just keys).",
+                    "type": "boolean"
                 },
                 "serviceNames": {
                     "items": {
@@ -22425,7 +22581,7 @@
                 },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/LogAttributeResult"
                     },
                     "type": "array"
                 },
@@ -26484,6 +26640,7 @@
                 "error_tracking_docs_viewed",
                 "error_tracking_issue_explained",
                 "llm_analytics_viewed",
+                "llm_analytics_trace_viewed",
                 "llm_analytics_docs_viewed",
                 "llm_cluster_explored",
                 "llm_dataset_created",
@@ -30979,7 +31136,7 @@
                         },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/LogAttributeResult"
                             },
                             "type": "array"
                         },
@@ -34977,15 +35134,15 @@
             "type": "object"
         },
         "SignalInput": {
-            "discriminator": {
-                "propertyName": "source_product"
-            },
-            "oneOf": [
+            "anyOf": [
                 {
                     "$ref": "#/definitions/SessionProblemSignalInput"
                 },
                 {
                     "$ref": "#/definitions/LlmEvaluationSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LlmEvaluationReportSignalInput"
                 },
                 {
                     "$ref": "#/definitions/ZendeskTicketSignalInput"
@@ -35005,9 +35162,7 @@
                 {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 }
-            ],
-            "required": ["source_product"],
-            "type": "object"
+            ]
         },
         "SignalReviewerUserInfo": {
             "additionalProperties": false,
@@ -35049,6 +35204,7 @@
                 "session_analysis_cluster",
                 "session_problem",
                 "evaluation",
+                "evaluation_report",
                 "issue",
                 "ticket",
                 "issue_created",
@@ -35224,6 +35380,10 @@
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "webhookManualOnly": {
+                    "description": "If true, the source does not support automatic webhook registration via API (e.g. Slack — the user must paste the URL into the source's app settings). Adjusts the setup UI copy to avoid promising automatic registration.",
+                    "type": "boolean"
                 },
                 "webhookSetupCaption": {
                     "type": "string"

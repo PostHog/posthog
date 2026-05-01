@@ -43,10 +43,16 @@ from products.logs.backend.temporal.metrics import (
     increment_checks_total,
     increment_notification_failures,
     increment_state_transition,
+    record_alert_event_create_duration,
+    record_alert_save_duration,
+    record_alert_update_duration,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
+    record_clickhouse_duration,
+    record_pending_alerts,
     record_scheduler_lag,
+    record_semaphore_wait,
 )
 
 logger = structlog.get_logger(__name__)
@@ -102,8 +108,10 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     eval_async = database_sync_to_async_pool(_evaluate_single_alert)
 
     async def _bounded_eval(alert: LogsAlertConfiguration) -> dict[str, int]:
+        wait_start = time.perf_counter()
+        local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
         async with semaphore:
-            local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+            wait_ms = int((time.perf_counter() - wait_start) * 1000)
             try:
                 await eval_async(alert, now, local_stats, checkpoint=checkpoint)
             except Exception:
@@ -114,7 +122,11 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
                     team_id=alert.team_id,
                 )
                 local_stats["errored"] += 1
-            return local_stats
+        try:
+            record_semaphore_wait(wait_ms)
+        except Exception:
+            logger.exception("Failed to record semaphore_wait histogram")
+        return local_stats
 
     tasks: list[asyncio.Task[dict[str, int]]] = []
     async with asyncio.TaskGroup() as tg:
@@ -129,6 +141,12 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     if aggregated["checked"] > 0:
         logger.info("Alert check cycle complete", **aggregated)
 
+    try:
+        pending = await database_sync_to_async_pool(_count_pending_alerts)()
+        record_pending_alerts(pending)
+    except Exception:
+        logger.exception("Failed to record pending_alerts gauge")
+
     return CheckAlertsOutput(
         alerts_checked=aggregated["checked"],
         alerts_fired=aggregated["fired"],
@@ -137,19 +155,26 @@ async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
     )
 
 
-def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration], datetime | None]:
-    """Sync setup: pin `now`, load due alerts, fetch ingestion checkpoint, emit cycle metrics."""
-    now = datetime.now(UTC)
-
-    all_alerts = list(
+def _due_alerts_qs(now: datetime):
+    return (
         LogsAlertConfiguration.objects.filter(
             Q(enabled=True),
             Q(next_check_at__lte=now) | Q(next_check_at__isnull=True),
         )
-        .select_related("team")
         .exclude(state=LogsAlertConfiguration.State.SNOOZED, snooze_until__gt=now)
         .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
+
+
+def _count_pending_alerts() -> int:
+    return _due_alerts_qs(datetime.now(UTC)).count()
+
+
+def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration], datetime | None]:
+    """Sync setup: pin `now`, load due alerts, fetch ingestion checkpoint, emit cycle metrics."""
+    now = datetime.now(UTC)
+
+    all_alerts = list(_due_alerts_qs(now).select_related("team"))
 
     try:
         record_alerts_active(len(all_alerts))
@@ -338,11 +363,14 @@ def _evaluate_single_alert(
     state_before = alert.state
     state_changed = state_before != committed_state.value
     is_error = outcome.error_message is not None
+    save_start = time.perf_counter()
+    event_create_ms: int | None = None
     with transaction.atomic():
         # Stateless eval: write a CHECK row only on state transition or eval error.
         # Steady-state same-state evals don't write — the N-of-M evaluator gets its
         # window from the bucketed CH query, not from PG.
         if state_changed or is_error:
+            event_create_start = time.perf_counter()
             LogsAlertEvent.objects.create(
                 alert=alert,
                 result_count=check_result.result_count,
@@ -352,6 +380,7 @@ def _evaluate_single_alert(
                 error_message=outcome.error_message,
                 query_duration_ms=check_result.query_duration_ms,
             )
+            event_create_ms = int((time.perf_counter() - event_create_start) * 1000)
 
         # All state/consecutive_failures writes go through apply_outcome —
         # single source of truth, enforced by the semgrep rule.
@@ -368,7 +397,10 @@ def _evaluate_single_alert(
             alert.last_notified_at = now
             update_fields.append("last_notified_at")
 
+        update_start = time.perf_counter()
         alert.save(update_fields=update_fields)
+        update_ms = int((time.perf_counter() - update_start) * 1000)
+    save_ms = int((time.perf_counter() - save_start) * 1000)
 
     stats["checked"] += 1
 
@@ -379,6 +411,12 @@ def _evaluate_single_alert(
     try:
         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
         record_check_duration(elapsed_ms)
+        record_alert_save_duration(save_ms)
+        if event_create_ms is not None:
+            record_alert_event_create_duration(event_create_ms)
+        record_alert_update_duration(update_ms)
+        if check_result.query_duration_ms is not None:
+            record_clickhouse_duration(check_result.query_duration_ms)
         if original_next_check_at is not None:
             lag_ms = int((now - original_next_check_at).total_seconds() * 1000)
             if lag_ms > 0:

@@ -15,7 +15,8 @@ import {
 } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -27,7 +28,7 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { slugify } from 'lib/utils'
+import { objectsEqual, slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -336,27 +337,21 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
+// Reverse of `variantKeyToIndexFeatureFlagPayloads`: converts form-state payloads
+// (keyed by variant index) back to API-shape payloads (keyed by variant key).
+// Inputs MUST be index-keyed — passing variant-key-keyed payloads here will drop them.
+// This matters when variant keys are numeric strings (e.g. "0", "1"), which would
+// otherwise collide with index keys.
 export const convertIndexBasedPayloadsToVariantKeys = (
     variants: MultivariateFlagVariant[] = [],
-    payloads?: Record<string | number, JsonType>
+    payloads?: Record<number, JsonType>
 ): Record<string, JsonType> => {
     const newPayloads: Record<string, JsonType> = {}
-    const variantKeys = new Set(variants.map(({ key }) => key))
 
-    Object.entries(payloads || {}).forEach(([payloadKey, payloadValue]) => {
-        if (variantKeys.has(payloadKey)) {
-            newPayloads[payloadKey] = payloadValue
-            return
-        }
-
-        const payloadIndex = Number(payloadKey)
-        if (!Number.isInteger(payloadIndex) || String(payloadIndex) !== payloadKey) {
-            return
-        }
-
-        const variantKey = variants[payloadIndex]?.key
-        if (variantKey && newPayloads[variantKey] === undefined) {
-            newPayloads[variantKey] = payloadValue
+    variants.forEach((variant, index) => {
+        const payload = payloads?.[index]
+        if (payload !== undefined && variant.key) {
+            newPayloads[variant.key] = payload
         }
     })
 
@@ -2179,6 +2174,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        hasUnsavedChanges: [
+            (s) => [s.featureFlag, s.originalFeatureFlag],
+            (featureFlag, originalFeatureFlag): boolean => {
+                if (!originalFeatureFlag) {
+                    // New flag — compare against form defaults via featureFlagChanged instead
+                    return false
+                }
+                const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
+                return !objectsEqual(currentCleaned, originalFeatureFlag)
+            },
+        ],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         flagType: [
             (s) => [s.featureFlag],
@@ -2556,6 +2562,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
     })),
+
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            // For existing flags, compare against server state to avoid false positives.
+            // featureFlagChanged (from kea-forms) compares against form defaults (NEW_FLAG),
+            // which is always true for loaded flags.
+            const isDirty = logic.values.originalFeatureFlag
+                ? logic.values.hasUnsavedChanges
+                : logic.values.featureFlagChanged
+
+            if (!isDirty) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
+        message: 'Leave feature flag?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            logic.actions.resetFeatureFlag((logic.values.originalFeatureFlag as any) ?? undefined)
+        },
+    })),
+
     afterMount(({ props, actions }) => {
         // Open the History tab when deep-linking to a specific activity item on initial page load
         if (router.values.searchParams.activity != null) {

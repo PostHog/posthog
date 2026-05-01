@@ -5,7 +5,19 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '../../common/config'
+import {
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+} from '../../config/kafka-topics'
+import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../../ingestion/common/outputs'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
+
+/**
+ * Recording API only needs DEFAULT + WARPSTREAM producers — its outputs are
+ * ClickHouse-bound deletion tombstones, so the ingestion-internal cluster
+ * (INGESTION) is not a relevant target here.
+ */
+export type RecordingApiProducerName = DefaultProducer | WarpstreamProducer
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
@@ -50,6 +62,29 @@ export type RecordingApiConfig = Pick<
         | 'SESSION_RECORDING_V2_S3_BUCKET'
         | 'SESSION_RECORDING_V2_S3_PREFIX'
     >
+
+/**
+ * Recording API outputs — topic and producer routing per output. All keys
+ * follow the `RECORDING_API_OUTPUT_*` convention. Topic values default to
+ * the same Kafka topics the session-replay ingestion consumer writes to,
+ * since recording-api emits deletion tombstones into the same streams.
+ */
+export type RecordingApiOutputsConfig = {
+    RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: string
+    RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
+
+    RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: string
+    RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
+}
+
+export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
+    return {
+        RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+        RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: DEFAULT_PRODUCER,
+        RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: DEFAULT_PRODUCER,
+    }
+}
 
 export interface RecordingBlock {
     key: string

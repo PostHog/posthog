@@ -35,7 +35,9 @@ import type {
     PatchedCommentApi,
     PatchedOrganizationApi,
     PatchedOrganizationMemberApi,
+    PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PinnedSceneTabsApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
@@ -869,5 +871,39 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. Pass `@me` as the UUID.
+ */
+export const getUserHomeSettingsRetrieveUrl = (uuid: string) => {
+    return `/api/user_home_settings/${uuid}/`
+}
+
+export const userHomeSettingsRetrieve = async (uuid: string, options?: RequestInit): Promise<PinnedSceneTabsApi> => {
+    return apiMutator<PinnedSceneTabsApi>(getUserHomeSettingsRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
+ */
+export const getUserHomeSettingsPartialUpdateUrl = (uuid: string) => {
+    return `/api/user_home_settings/${uuid}/`
+}
+
+export const userHomeSettingsPartialUpdate = async (
+    uuid: string,
+    patchedPinnedSceneTabsApi: PatchedPinnedSceneTabsApi,
+    options?: RequestInit
+): Promise<PinnedSceneTabsApi> => {
+    return apiMutator<PinnedSceneTabsApi>(getUserHomeSettingsPartialUpdateUrl(uuid), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedPinnedSceneTabsApi),
     })
 }

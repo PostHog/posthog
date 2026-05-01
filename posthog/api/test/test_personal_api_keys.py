@@ -583,7 +583,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_special_handling_for_teams_still_forbids(self):
         response = self._do_request(f"/api/projects/{self.team.id}/")
@@ -660,7 +660,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_errors_for_action_without_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_forbids_action_with_other_scope(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/activity")
@@ -869,7 +869,7 @@ class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support Personal API Key access"
+        assert response.json()["detail"] == "This action does not support personal API key access"
 
     def test_denies_available_filters_with_unrelated_scope(self):
         self.key.scopes = ["feature_flag:read"]
@@ -998,7 +998,7 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
         # Should not be allowed to list with API key
         response = self.client.get(f"/api/personal_api_keys/", **self._get_auth_headers(self.api_key_value))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_retrieve_personal_api_key_with_bearer_auth(self):
         # Should be allowed to get current key
@@ -1018,19 +1018,19 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
             f"/api/personal_api_keys/", {"label": "New key"}, **self._get_auth_headers(self.api_key_value)
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_update_personal_api_key_with_bearer_auth(self):
         response = self.client.patch(
             f"/api/personal_api_keys/@current/", {"label": "Updated key"}, **self._get_auth_headers(self.api_key_value)
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_delete_personal_api_key_with_bearer_auth(self):
         response = self.client.delete(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
 
     def test_invalid_bearer_token(self):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))

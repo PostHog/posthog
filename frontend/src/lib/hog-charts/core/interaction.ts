@@ -1,7 +1,43 @@
 import { bisector } from 'd3'
 
-import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext, YAxisScale } from './types'
+import type {
+    ChartDimensions,
+    PointClickData,
+    ResolvedSeries,
+    ResolveValueFn,
+    TooltipContext,
+    YAxisScale,
+} from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
+
+export interface LabelPosition {
+    x: number
+    index: number
+}
+
+const positionBisector = bisector<LabelPosition, number>((d) => d.x).center
+
+/** Builds the (x, index) lookup table for hit-testing. O(N) — call once per (labels, xScale) change
+ *  and feed the result into {@link findNearestIndexFromPositions} on each mousemove. */
+export function buildLabelPositions(labels: string[], xScale: (label: string) => number | undefined): LabelPosition[] {
+    const positions: LabelPosition[] = []
+    for (let i = 0; i < labels.length; i++) {
+        const x = xScale(labels[i])
+        if (x != null && isFinite(x)) {
+            positions.push({ x, index: i })
+        }
+    }
+    return positions
+}
+
+/** Binary search over precomputed positions. O(log N) per call. */
+export function findNearestIndexFromPositions(mouseX: number, positions: LabelPosition[]): number {
+    if (positions.length === 0) {
+        return -1
+    }
+    const nearestIdx = positionBisector(positions, mouseX)
+    return positions[Math.max(0, Math.min(nearestIdx, positions.length - 1))].index
+}
 
 export function findNearestIndex(
     mouseX: number,
@@ -11,23 +47,7 @@ export function findNearestIndex(
     if (labels.length === 0) {
         return -1
     }
-
-    const positions: { x: number; index: number }[] = []
-    for (let i = 0; i < labels.length; i++) {
-        const x = xScale(labels[i])
-
-        if (x != null && isFinite(x)) {
-            positions.push({ x, index: i })
-        }
-    }
-
-    if (positions.length === 0) {
-        return -1
-    }
-
-    const bisect = bisector<{ x: number; index: number }, number>((d) => d.x).center
-    const nearestIdx = bisect(positions, mouseX)
-    return positions[Math.max(0, Math.min(nearestIdx, positions.length - 1))].index
+    return findNearestIndexFromPositions(mouseX, buildLabelPositions(labels, xScale))
 }
 
 export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDimensions): boolean {
@@ -41,26 +61,28 @@ export function isInPlotArea(mouseX: number, mouseY: number, dimensions: ChartDi
 
 export function buildTooltipContext<Meta = unknown>(
     dataIndex: number,
-    series: Series<Meta>[],
+    series: ResolvedSeries<Meta>[],
     labels: string[],
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
     resolveValue: ResolveValueFn,
-    yAxes?: Record<string, YAxisScale>
+    yAxes?: Record<string, YAxisScale>,
+    /** Returned `position.{x,y}` are canvas-pixel coordinates regardless of orientation. */
+    interactionAxis: 'x' | 'y' = 'x'
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
     }
 
     const label = labels[dataIndex]
-    const x = xScale(label)
-    if (x == null) {
+    const bandPixel = xScale(label)
+    if (bandPixel == null) {
         return null
     }
 
     const seriesData: TooltipContext<Meta>['seriesData'] = []
-    const yPixels: number[] = []
+    const valuePixels: number[] = []
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -69,20 +91,27 @@ export function buildTooltipContext<Meta = unknown>(
         if (!s.visibility?.fromTooltip) {
             seriesData.push({ series: s, value, color: s.color })
         }
-        const seriesYScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
-        const yVal = seriesYScale(value)
-        if (isFinite(yVal)) {
-            yPixels.push(yVal)
+        const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const px = seriesValueScale(value)
+        if (isFinite(px)) {
+            valuePixels.push(px)
         }
     }
 
-    const y = yPixels.length > 0 ? Math.min(...yPixels) : 0
+    // Anchor at the visual "tip" of the data column at this hover index — topmost in vertical
+    // mode, rightmost in horizontal mode.
+    let valueAnchor = 0
+    if (valuePixels.length > 0) {
+        valueAnchor = interactionAxis === 'y' ? Math.max(...valuePixels) : Math.min(...valuePixels)
+    }
+
+    const position = interactionAxis === 'y' ? { x: valueAnchor, y: bandPixel } : { x: bandPixel, y: valueAnchor }
 
     return {
         dataIndex,
         label,
         seriesData,
-        position: { x, y },
+        position,
         canvasBounds,
         isPinned: false,
     }
@@ -90,7 +119,7 @@ export function buildTooltipContext<Meta = unknown>(
 
 export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
-    series: Series<Meta>[],
+    series: ResolvedSeries<Meta>[],
     labels: string[],
     resolveValue: ResolveValueFn
 ): PointClickData<Meta> | null {

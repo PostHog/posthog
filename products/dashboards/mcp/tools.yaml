@@ -103,7 +103,9 @@ tools:
             Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and
             layout information. Insight results, filters, and query metadata are omitted to save context — use
             dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or
-            insight-query for a single insight.
+            insight-query for a single insight. Supports variables_override and filters_override query params; on this
+            endpoint they affect only the merged `filters` and `variables` fields in the response (preview). To execute
+            insights with the same overrides, pass the same query params to dashboard-insights-run.
         response:
             exclude:
                 - effective_restriction_level
@@ -155,7 +157,8 @@ tools:
         description: >
             Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set
             refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or
-            'json' for raw query results. Use this after dashboard-get to see the actual data behind each insight tile.
+            'json' for raw query results. Supports variables_override and filters_override query params to run insights
+            with one-off overrides without persisting; see the parameter descriptions for the exact JSON shape required.
     dashboard-reorder-tiles:
         operation: dashboards_reorder_tiles_create
         enabled: true

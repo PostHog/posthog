@@ -340,8 +340,14 @@ class ConversionGoalsAggregator:
 
         return columns
 
-    def get_coalesce_fallback_columns(self) -> dict[str, ast.Expr]:
-        """Get COALESCE columns that fall back to unified conversion goals for campaign/id/source"""
+    def get_coalesce_fallback_columns(self, campaign_costs_joined: bool = True) -> dict[str, ast.Expr]:
+        """Get COALESCE columns that fall back to unified conversion goals for campaign/id/source.
+
+        Args:
+            campaign_costs_joined: Whether the outer query joins with campaign_costs CTE.
+                When False (e.g. UTM levels that bypass campaign_costs), the COALESCE
+                only references the unified conversion goals side.
+        """
         level = self.config.drill_down_level
         group_by_fields = self.config.group_by_fields
 
@@ -363,23 +369,29 @@ class ConversionGoalsAggregator:
             }
             fallback = fallback_map[level]
             campaign_alias = self.config.get_campaign_column_alias()
-            campaign_args = [
-                ast.Call(
-                    name="nullif",
-                    args=[
-                        ast.Field(chain=self.config.get_campaign_cost_field_chain(campaign_field)),
-                        ast.Constant(value=""),
-                    ],
-                ),
-                ast.Call(
-                    name="nullif",
-                    args=[
-                        ast.Field(chain=self.config.get_unified_conversion_field_chain(campaign_field)),
-                        ast.Constant(value=""),
-                    ],
-                ),
-                ast.Constant(value=fallback),
-            ]
+            campaign_args: list[ast.Expr] = []
+            if campaign_costs_joined:
+                campaign_args.append(
+                    ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=self.config.get_campaign_cost_field_chain(campaign_field)),
+                            ast.Constant(value=""),
+                        ],
+                    )
+                )
+            campaign_args.extend(
+                [
+                    ast.Call(
+                        name="nullif",
+                        args=[
+                            ast.Field(chain=self.config.get_unified_conversion_field_chain(campaign_field)),
+                            ast.Constant(value=""),
+                        ],
+                    ),
+                    ast.Constant(value=fallback),
+                ]
+            )
             return {
                 campaign_alias: ast.Alias(alias=campaign_alias, expr=ast.Call(name="coalesce", args=campaign_args)),
             }

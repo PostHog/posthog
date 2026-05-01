@@ -24,6 +24,7 @@ import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/Le
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -36,6 +37,7 @@ import { urls } from 'scenes/urls'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
@@ -104,6 +106,15 @@ export const QueryDatabase = ({
         useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
+    // Project-wide warehouse write actions (Add join, Materialization) — gated at the
+    // resource level regardless of per-object creator bypass. Per-object actions like
+    // Edit view use the view's own user_access_level inline below.
+    const resourceLevelEditorDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor
+    )
+    const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
+    const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -517,10 +528,20 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
+                                    if (addJoinAccessDisabledReason) {
+                                        return
+                                    }
                                     selectSourceTable(item.name)
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
+                                <ButtonPrimitive
+                                    menuItem
+                                    disabledReasons={
+                                        addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                    }
+                                >
+                                    Add join
+                                </ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 asChild
@@ -652,6 +673,15 @@ export const QueryDatabase = ({
                         item.name,
                         item.record.type === 'endpoint' ? item.record.tableName : undefined
                     )
+                    // Edit view is per-object — creators can edit their own views.
+                    const editViewAccessDisabledReason =
+                        item.record.type !== 'endpoint'
+                            ? getAccessControlDisabledReason(
+                                  AccessControlResourceType.WarehouseObjects,
+                                  AccessControlLevel.Editor,
+                                  item.record.view?.user_access_level
+                              )
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -662,10 +692,21 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                if (editViewAccessDisabledReason) {
+                                                    return
+                                                }
                                                 openItemEditor(item)
                                             }}
                                         >
-                                            <ButtonPrimitive menuItem className="flex-1 rounded-r-none">
+                                            <ButtonPrimitive
+                                                menuItem
+                                                className="flex-1 rounded-r-none"
+                                                disabledReasons={
+                                                    editViewAccessDisabledReason
+                                                        ? { [editViewAccessDisabledReason]: true }
+                                                        : {}
+                                                }
+                                            >
                                                 {editLabel}
                                             </ButtonPrimitive>
                                         </DropdownMenuItem>
@@ -673,6 +714,9 @@ export const QueryDatabase = ({
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                if (editViewAccessDisabledReason) {
+                                                    return
+                                                }
                                                 openItemEditor(item, true)
                                             }}
                                         >
@@ -681,6 +725,11 @@ export const QueryDatabase = ({
                                                 className="px-2 rounded-l-none"
                                                 iconOnly
                                                 tooltip={editLabel}
+                                                disabledReasons={
+                                                    editViewAccessDisabledReason
+                                                        ? { [editViewAccessDisabledReason]: true }
+                                                        : {}
+                                                }
                                             >
                                                 <IconExternal />
                                             </ButtonPrimitive>
@@ -712,10 +761,20 @@ export const QueryDatabase = ({
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        if (addJoinAccessDisabledReason) {
+                                            return
+                                        }
                                         selectSourceTable(addJoinSourceTableName)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            addJoinAccessDisabledReason ? { [addJoinAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Add join
+                                    </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                             {item.record.type === 'view' ? (
@@ -723,10 +782,22 @@ export const QueryDatabase = ({
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
+                                        if (materializationAccessDisabledReason) {
+                                            return
+                                        }
                                         openMaterializationModal(item.record?.view)
                                     }}
                                 >
-                                    <ButtonPrimitive menuItem>Materialization</ButtonPrimitive>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            materializationAccessDisabledReason
+                                                ? { [materializationAccessDisabledReason]: true }
+                                                : {}
+                                        }
+                                    >
+                                        Materialization
+                                    </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                         </DropdownMenuGroup>

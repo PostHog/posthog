@@ -21,7 +21,7 @@ const sourceIcon = (src: string): JSX.Element => (
 
 export function ConnectionSelector(): JSX.Element | null {
     const { sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
-    const { connectionSelectOptions, connectionSelectorValue, isDirectQueryEnabled } = useValues(
+    const { connectionSelectOptions, connectionSelectorValue } = useValues(
         connectionSelectorLogic({ selectedConnectionId })
     )
     const { setSourceQuery, syncUrlWithQuery } = useActions(sqlEditorLogic)
@@ -30,10 +30,6 @@ export function ConnectionSelector(): JSX.Element | null {
         sourceQuery as typeof sourceQuery & {
             connectionId?: string
         }
-
-    if (!isDirectQueryEnabled) {
-        return null
-    }
 
     return (
         <LemonSelect

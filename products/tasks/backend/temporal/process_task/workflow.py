@@ -3,7 +3,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -73,7 +73,17 @@ class TaskEvent(StrEnum):
     CI_FOLLOW_UP = "ci_follow_up"
 
 
-INACTIVITY_TIMEOUT = timedelta(minutes=5)
+class CIFollowUpDecision(StrEnum):
+    FIRE = "fire"
+    SKIP = "skip"
+    NO_PR = "no_pr"
+
+
+# Default 5 min in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
+# for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
+# shutdown for resume-flow testing). When overridden, the CI follow-up floor
+# below is bypassed so the timer actually fires that fast.
+INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 300)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
@@ -161,6 +171,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
         )
 
+    @staticmethod
+    def _activity_error_properties(error: Exception) -> dict[str, Any]:
+        if not isinstance(error, temporalio.exceptions.ActivityError):
+            return {}
+
+        retry_state = error.retry_state
+        properties: dict[str, Any] = {
+            "temporal_activity_id": error.activity_id,
+            "temporal_activity_type": error.activity_type,
+            "temporal_activity_identity": error.identity,
+            "temporal_activity_retry_state": retry_state.name if retry_state else None,
+            "temporal_activity_scheduled_event_id": error.scheduled_event_id,
+            "temporal_activity_started_event_id": error.started_event_id,
+        }
+
+        if error.cause:
+            properties.update(
+                {
+                    "cause_error_type": type(error.cause).__name__,
+                    "cause_error_message": str(error.cause)[:500],
+                }
+            )
+
+        return properties
+
     async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
             lambda: self._task_completed or self._heartbeat_received or self._pending_followup is not None
@@ -194,12 +229,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
         )
-        # When a CI follow-up is scheduled, ensure the inactivity timer can't
-        # race ahead of it — otherwise the short inactivity window would always
-        # fire first and CI fixes would be silently skipped.
+        # When CI follow-up is scheduled, the inactivity timer must outlive
+        # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
+        # env var bypasses the floor, but only when explicitly set AND short —
+        # so a misconfigured large value still respects the CI floor.
+        ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
+        testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
+            INACTIVITY_TIMEOUT < ci_follow_up_floor
+        )
         inactivity_timeout = (
-            max(INACTIVITY_TIMEOUT, CI_FOLLOW_UP_DELAY + timedelta(minutes=1))
-            if ci_follow_up_scheduled
+            max(INACTIVITY_TIMEOUT, ci_follow_up_floor)
+            if ci_follow_up_scheduled and not testing_override_active
             else INACTIVITY_TIMEOUT
         )
         possible_events: list[asyncio.Task[TaskEvent]] = [
@@ -239,7 +279,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 return task_result
         raise RuntimeError("No event was completed successfully")
 
-    async def _should_run_ci_follow_up(self) -> Literal["fire", "skip", "no_pr"]:
+    async def _should_run_ci_follow_up(self) -> CIFollowUpDecision:
         """Check whether a CI follow-up message should be sent to the agent.
 
         Returns "fire" when the PR has changed and the agent should act,
@@ -264,7 +304,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "PR context is missing, stopping CI follow-up loop",
                 run_id=self.context.run_id,
             )
-            return "no_pr"
+            return CIFollowUpDecision.NO_PR
         if pr_context.pr_state == "closed":
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
@@ -272,7 +312,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_url=pr_context.pr_url,
                 pr_state=pr_context.pr_state,
             )
-            return "skip"
+            return CIFollowUpDecision.SKIP
         if self._pr_fingerprint != pr_context.fingerprint:
             workflow.logger.info(
                 "PR context has changed, running CI follow-up",
@@ -281,7 +321,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_state=pr_context.pr_state,
             )
             self._pr_fingerprint = pr_context.fingerprint
-            return "fire"
+            return CIFollowUpDecision.FIRE
         else:
             workflow.logger.info(
                 "PR context has not changed, skipping CI follow-up",
@@ -289,7 +329,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_url=pr_context.pr_url,
                 pr_state=pr_context.pr_state,
             )
-            return "skip"
+            return CIFollowUpDecision.SKIP
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
@@ -372,17 +412,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         )
                         _deprecate_ci_follow_up_pr_context_patch()
                         follow_up_result = await self._should_run_ci_follow_up()
-                        if follow_up_result == "fire":
-                            await self._dispatch_ci_follow_up()
-                        elif follow_up_result == "no_pr":
-                            # No PR will ever appear — stop the CI loop entirely.
-                            self._ci_repetitions = MAX_CI_REPETITIONS
-                        elif follow_up_result == "skip":
-                            # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
-                            # Without this, _wait_for_ci_follow_up returns immediately
-                            # whenever last_active_time is older than the delay, and the
-                            # workflow tight-loops calling GET /repos/.../pulls/{n}.
-                            self._last_active_time = workflow.now()
+                        match follow_up_result:
+                            case CIFollowUpDecision.FIRE:
+                                await self._dispatch_ci_follow_up()
+                            case CIFollowUpDecision.NO_PR:
+                                # No PR will ever appear — stop the CI loop entirely.
+                                self._ci_repetitions = MAX_CI_REPETITIONS
+                            case CIFollowUpDecision.SKIP:
+                                # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
+                                # Without this, _wait_for_ci_follow_up returns immediately
+                                # whenever last_active_time is older than the delay, and the
+                                # workflow tight-loops calling GET /repos/.../pulls/{n}.
+                                self._last_active_time = workflow.now()
+                            case _:
+                                raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(
@@ -453,7 +496,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "team_id": self.context.team_id,
                     },
                 )
-            await self._update_task_run_status("cancelled")
+            await self._update_task_run_status("cancelled", run_id=run_id)
             if current_sandbox_id:
                 await self._cleanup_sandbox(current_sandbox_id)
                 sandbox_id = None
@@ -478,26 +521,40 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     {
                         "run_id": run_id,
                         "task_id": self.context.task_id,
+                        "repository": self.context.repository,
+                        "origin_product": self.context.origin_product,
+                        "environment": self.context.environment,
+                        "mode": self.context.mode,
+                        "run_source": self.context.run_source,
+                        "runtime_adapter": self.context.runtime_adapter,
+                        "provider": self.context.provider,
+                        "model": self.context.model,
+                        "reasoning_effort": self.context.reasoning_effort,
                         "error_type": type(e).__name__,
                         "error_message": error_message,
                         "sandbox_id": current_sandbox_id,
+                        **self._activity_error_properties(e),
                     },
                 )
-                await self._update_task_run_status("failed", error_message=error_message)
+            await self._update_task_run_status("failed", error_message=error_message, run_id=run_id)
+            if self._context:
                 await self._post_slack_update()
 
             return ProcessTaskOutput(
                 success=False,
                 task_result=None,
-                error=str(e),
+                error=error_message,
                 sandbox_id=current_sandbox_id,
             )
 
         finally:
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
-                # Create a resume snapshot for interactive sandboxes before cleanup
-                if self._context and self._context.mode == "interactive":
+                # When `use_modal_resume_snapshots` is off, resume relies on the
+                # agent server's git-checkpoint mechanism instead. Read from
+                # context (captured at workflow start) so replay is deterministic
+                # against env-var flips.
+                if self._context and self._context.mode == "interactive" and self._context.use_modal_resume_snapshots:
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
                 await self._read_sandbox_logs(cleanup_sandbox_id)
@@ -558,7 +615,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
-        has_clone_credentials = self.context.github_integration_id is not None or can_clone_without_integration
+        has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
         will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
@@ -722,11 +779,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 error=str(e),
             )
 
-    async def _update_task_run_status(self, status: str, error_message: Optional[str] = None) -> None:
+    async def _update_task_run_status(
+        self, status: str, error_message: Optional[str] = None, run_id: Optional[str] = None
+    ) -> None:
         await workflow.execute_activity(
             update_task_run_status,
             UpdateTaskRunStatusInput(
-                run_id=self.context.run_id,
+                run_id=run_id if run_id is not None else self.context.run_id,
                 status=status,
                 error_message=error_message,
             ),

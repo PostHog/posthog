@@ -45,6 +45,15 @@ CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
 CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"
 
+# WarpStream-shared consumer groups (topics moved to warpstream-shared VC; coexist with MSK
+# groups during the cut-over so both Kafka tables can run in parallel until the MSK side is
+# dropped).
+CONSUMER_GROUP_DOCUMENT_EMBEDDINGS_WS = "clickhouse_document_embeddings_ws"
+CONSUMER_GROUP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS = (
+    "clickhouse_error_tracking_issue_fingerprint_overrides_ws"
+)
+CONSUMER_GROUP_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS = "clickhouse_error_tracking_fingerprint_issue_state_ws"
+
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
 KAFKA_ENGINE = "Kafka('{kafka_host}', '{topic}', '{group}', '{serialization}')"
