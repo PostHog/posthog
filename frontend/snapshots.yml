@@ -5362,6 +5362,10 @@ snapshots:
         hash: v1.k794b7964.5b1394c435bcf89375cb640c636affb9ddb03793164d1e8fc6d48fb093c89ae9.8BRyUbPkvGakI-WeUf7cqw81rv2p73uCJCYJ3ZaCCNo
     scenes-other-billing--billing-with-limit-and-100-percent-discount--light:
         hash: v1.k794b7964.c60133947fb5ef34eaf37fa21bb0390bccff77b1b5fe49e01e9f5a7b239a7c04.oIDvDkc41HCJUBwamg0ahQQYn3NNsIX7cLFMOTjk4VE
+    scenes-other-billing--billing-without-icon-keys--dark:
+        hash: v1.k794b7964.4374b8349aeb5ce08fadf66ecc0cde2cc5056eedc320baebf51809097ded6e52.6klYYV8rDqtNN1k6qBdXLtl3k9fohykw9SzD0D-xSuc
+    scenes-other-billing--billing-without-icon-keys--light:
+        hash: v1.k794b7964.0391c94a0f84dd417ee07c588a191aa2412d03aabb3c10966b9dbd7f5386bd99.PUyPkHTOACQB34E8e4CJU4hpcRfGwShmnj0Url8YIfo
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--dark:
         hash: v1.k794b7964.64ccfd0de013c474a9ac6fa2706aa85ae741306312d5b5b5fb3045bff60b9901.BMvWfPso4WjTHMAmPD7zddxGstkpvZEL89vmOB5hcJg
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--light:
