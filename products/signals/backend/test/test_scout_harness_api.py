@@ -18,7 +18,12 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import (
+    SignalProjectProfile,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalScratchpad,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 # Fresh RSA key so RS256 OAuth apps validate in tests (OIDC_RSA_PRIVATE_KEY is unset by
@@ -354,3 +359,65 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestAgentHarnessProjectProfileAPI(APIBaseTest):
+    """The project profile is the agent's orientation surface — read once at run start.
+
+    There's only one operation (`list` returns the singleton current profile), so the
+    surface is small. These tests cover lazy compute on first call, cache-hit reuse,
+    and team isolation.
+    """
+
+    def _list_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/project_profile/"
+
+    def test_lazy_computes_a_profile_when_none_exists(self) -> None:
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        # Response shape carries the cache metadata + the inventory payload.
+        assert "profile_id" in body
+        assert "computed_at" in body
+        assert "expires_at" in body
+        assert "source_version" in body
+        assert "inventory" in body["payload"]
+        # And a row was persisted as a side effect.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_returns_cached_profile_on_repeat_call(self) -> None:
+        first = self.client.get(self._list_url()).json()
+        second = self.client.get(self._list_url()).json()
+        assert first["profile_id"] == second["profile_id"]
+        # No second row written.
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+
+    def test_does_not_leak_other_teams_profile(self) -> None:
+        # Build a profile for another team in the same org and confirm we don't see it.
+        other = Team.objects.create(organization=self.organization, name="Other")
+        SignalProjectProfile.objects.create(
+            team=other,
+            expires_at=timezone.now() + timedelta(hours=24),
+            source_version="v1",
+            payload={"inventory": {}},
+        )
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        # Our team had no profile — the lazy compute path must have built a fresh one
+        # on this team, not surfaced the other team's row.
+        row = SignalProjectProfile.objects.get(id=body["profile_id"])
+        assert row.team_id == self.team.id
+
+    def test_inventory_payload_carries_expected_keys(self) -> None:
+        response = self.client.get(self._list_url())
+        inventory = response.json()["payload"]["inventory"]
+        assert set(inventory.keys()) == {
+            "products_in_use",
+            "product_intents",
+            "integrations",
+            "external_data_sources",
+            "signal_source_configs",
+            "existing_inbox_reports",
+        }

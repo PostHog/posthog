@@ -2,9 +2,9 @@
 
 These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
 (and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
-tools — `runs-list`, `runs-retrieve`, `emit-signal`, `scratchpad-search`,
-`scratchpad-remember`, and `scratchpad-forget` — over the standard PostHog MCP
-plumbing.
+tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
+`memory-create`, `memory-delete`, and `project-profile-get` — over the standard
+PostHog MCP plumbing.
 
 Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
 via the personal-API-key picker (so a team can introspect runs/scratchpad from
@@ -39,13 +39,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalProjectProfile, SignalScoutRun
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
     EvidenceEntrySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
+    ProjectProfileSerializer,
     RememberRequestSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
@@ -54,6 +55,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunSummarySerializer,
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
+from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -361,3 +363,45 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         removed = forget(team_id=_canonical_team_id(self), key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
+
+
+class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Project profile — deterministic snapshot of \"what's true about this project\".
+
+    Singleton per team — there's no list, retrieve, or write surface. The agent calls the
+    `list` action right after reading its skill to orient on this team's product mix,
+    integrations, signal coverage, and existing inbox surface in one tool call instead of
+    burning 4-5 discovery calls. Lazy-recomputes on cache miss / TTL expiry / source-version
+    bump; the response is always either the latest cached profile or a freshly-built one.
+    """
+
+    serializer_class = ProjectProfileSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout"
+    queryset = SignalProjectProfile.objects.all()
+    pagination_class = None
+
+    # The DRF default `list` operation_id would be `signals_scout_project_profile_list`,
+    # which renders as `signals-scout-project-profile-list` in the MCP. The agent-facing
+    # tool is semantically a "get the current profile" (singleton), not a "list" — override
+    # the id so it matches the tool name in tools.yaml and the scout's bootstrap step.
+    @extend_schema(
+        operation_id="signals_scout_project_profile_get",
+        responses={
+            200: OpenApiResponse(
+                response=ProjectProfileSerializer,
+                description="The team's current project profile (cached or freshly computed).",
+            ),
+        },
+        summary="Get the current project profile",
+        description=(
+            "Return the team's deterministic project profile. The response always reflects "
+            "either the newest non-expired cached row or a freshly-built one (lazy compute "
+            "on cache miss). Read this at the start of a run to orient on the team's product "
+            "mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+        ),
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        profile = get_project_profile(team_id=self.team_id)
+        return Response(ProjectProfileSerializer(profile.as_dict()).data)
