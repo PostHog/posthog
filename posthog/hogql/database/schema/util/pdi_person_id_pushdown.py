@@ -53,10 +53,6 @@ def _derive_person_id_filter_inner(
         return None
 
     if from_field_maps_to_person_id:
-        # By the time persons_pdi_join runs, the persons FROM has already been
-        # rewritten to a SelectQueryAliasType (see lazy_tables.py). Field
-        # references in node.where still carry the original PersonsTable
-        # instance, so we recover it from there to feed WhereClauseExtractor.
         persons_table = _find_persons_table(node)
         if persons_table is not None:
             extractor = WhereClauseExtractor(context)
