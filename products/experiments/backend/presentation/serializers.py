@@ -6,10 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from products.experiments.backend.facade.contracts import CreateExperimentInput
+from typing import Any
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
@@ -27,6 +24,7 @@ from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 
@@ -335,10 +333,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate_metrics_secondary(self, value):
         return self._validate_metrics_list(value)
 
-    def to_facade_dto(self) -> "CreateExperimentInput":
+    def to_facade_dto(self) -> CreateExperimentInput:
         """Convert validated request data to facade DTO."""
-        from products.experiments.backend.facade.contracts import CreateExperimentInput
-
         # Extract holdout ID if provided
         holdout_id = None
         if holdout := self.validated_data.get("holdout"):
