@@ -469,9 +469,8 @@ export const userLogic = kea<userLogicType>([
             const typeMap = { ...current[type], [String(teamId)]: !enabled }
             actions.updateUser({
                 notification_settings: {
-                    ...values.user.notification_settings,
                     realtime_notifications_disabled: { ...current, [type]: typeMap },
-                },
+                } as NotificationSettings,
             })
         },
         updateRealtimeNotificationForProject: ({ teamId, types, enabled }) => {
@@ -485,9 +484,8 @@ export const userLogic = kea<userLogicType>([
             }
             actions.updateUser({
                 notification_settings: {
-                    ...values.user.notification_settings,
                     realtime_notifications_disabled: next,
-                },
+                } as NotificationSettings,
             })
         },
         updateAllRealtimeNotifications: ({ teamIds, types, enabled }) => {
@@ -505,9 +503,8 @@ export const userLogic = kea<userLogicType>([
             }
             actions.updateUser({
                 notification_settings: {
-                    ...values.user.notification_settings,
                     realtime_notifications_disabled: next,
-                },
+                } as NotificationSettings,
             })
         },
         updateDataPipelineErrorThreshold: async ({ threshold }, breakpoint) => {
