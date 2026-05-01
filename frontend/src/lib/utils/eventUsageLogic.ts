@@ -453,6 +453,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
+        reportDashboardEditModeDiscardPrompt: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            action: 'shown' | 'discarded' | 'kept_editing'
+        ) => ({ dashboard, action }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1302,6 +1306,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
                 layout_zoom: layoutZoom,
                 source,
+            })
+        },
+        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
+            posthog.capture('dashboard edit mode discard prompt', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                action,
             })
         },
         reportDashboardRefreshed: async ({

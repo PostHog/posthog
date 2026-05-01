@@ -9,7 +9,7 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,8 +21,9 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export function EditModeActions(): JSX.Element {
-    const { dashboardLoading, canEditDashboard, hasUnsavedEditChanges } = useValues(dashboardLogic)
+    const { dashboard, dashboardLoading, canEditDashboard, hasUnsavedEditChanges } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
+    const { reportDashboardEditModeDiscardPrompt } = useActions(eventUsageLogic)
 
     const discardEditModeChanges = (): void => {
         setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
@@ -33,6 +34,7 @@ export function EditModeActions(): JSX.Element {
             discardEditModeChanges()
             return
         }
+        reportDashboardEditModeDiscardPrompt(dashboard, 'shown')
         LemonDialog.open({
             title: 'Discard unsaved changes?',
             description:
@@ -40,11 +42,17 @@ export function EditModeActions(): JSX.Element {
             primaryButton: {
                 children: 'Discard changes',
                 status: 'danger',
-                onClick: discardEditModeChanges,
+                onClick: () => {
+                    reportDashboardEditModeDiscardPrompt(dashboard, 'discarded')
+                    discardEditModeChanges()
+                },
                 'data-attr': 'dashboard-edit-mode-discard-confirm',
             },
             secondaryButton: {
                 children: 'Keep editing',
+                onClick: () => {
+                    reportDashboardEditModeDiscardPrompt(dashboard, 'kept_editing')
+                },
             },
         })
     }
