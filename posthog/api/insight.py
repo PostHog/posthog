@@ -1604,7 +1604,7 @@ class InsightViewSet(
                     | Q(derived_name__icontains=request.GET["search"])
                     | Q(tagged_items__tag__name__icontains=request.GET["search"])
                     | Q(description__icontains=request.GET["search"])
-                )
+                ).distinct()
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:

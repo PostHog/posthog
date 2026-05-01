@@ -720,6 +720,25 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"({unsaved_no_dashboard.short_id}) must be excluded."
         )
 
+    def test_search_filter_does_not_duplicate_insights_with_multiple_matching_tags(self) -> None:
+        from posthog.models.tag import Tag
+        from posthog.models.tagged_item import TaggedItem
+
+        insight = Insight.objects.create(
+            short_id="search-tg", name="needle", team=self.team, filters={"events": [{"id": "$pageview"}]}
+        )
+        for tag_name in ("needle-tag-a", "needle-tag-b", "needle-tag-c"):
+            tag = Tag.objects.create(name=tag_name, team=self.team)
+            TaggedItem.objects.create(insight=insight, tag=tag)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
+        assert response.status_code == status.HTTP_200_OK
+        matching_short_ids = [r["short_id"] for r in response.json()["results"] if r["short_id"] == insight.short_id]
+        assert len(matching_short_ids) == 1, (
+            f"search=needle must return the insight once even though three tags + the name match it; "
+            f"got {len(matching_short_ids)} copies."
+        )
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
