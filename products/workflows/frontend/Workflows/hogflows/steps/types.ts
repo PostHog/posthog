@@ -211,20 +211,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         ..._commonActionFields,
-        type: z.literal('wait_until_event'),
-        config: z.object({
-            events: z.array(
-                z.object({
-                    filters: ActionFiltersSchema.optional().nullable(),
-                    name: z.string().optional(),
-                })
-            ),
-            max_wait_duration: z.string(),
-        }),
-    }),
-
-    z.object({
-        ..._commonActionFields,
         type: z.literal('wait_until_time_window'),
         config: z.object({
             timezone: z.string().nullable(),

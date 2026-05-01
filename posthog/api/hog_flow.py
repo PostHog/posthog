@@ -182,13 +182,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                             serializer.is_valid(raise_exception=True)
                             condition["filters"] = serializer.validated_data
 
-        # Compile bytecode for event-based wait subscriptions on
-        # wait_until_event and the unified wait_until_condition (which now
-        # supports both property conditions and events). Each entry in
-        # config.events has its own filters (event name + property filters)
-        # which the subscription matcher consumer evaluates against incoming
-        # events to decide whether to wake the workflow.
-        if data.get("type") in ("wait_until_event", "wait_until_condition"):
+        # Compile bytecode for event-based wait subscriptions on wait_until_condition
+        # (which supports both property conditions and events). Each entry in
+        # config.events has its own filters (event name + property filters) which the
+        # subscription matcher consumer evaluates against incoming events to decide
+        # whether to wake the workflow.
+        if data.get("type") == "wait_until_condition":
             events = data.get("config", {}).get("events", [])
             if not isinstance(events, list):
                 if not is_draft:
@@ -426,8 +425,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 data["conversion"]["bytecode"] = []
 
             # Compile bytecode for event-based conversion goals.
-            # Same pattern as wait_until_event: each entry in conversion.events
-            # has its own filters which the cdp-events consumer evaluates.
+            # Same pattern as wait_until_condition events: each entry in
+            # conversion.events has its own filters which the matcher consumer evaluates.
             conversion_events = conversion.get("events", [])
             if isinstance(conversion_events, list):
                 is_draft = self.context.get("is_draft")

@@ -317,11 +317,8 @@ export type HogFlowInvocationContext = {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
-        // Set by the wait_until_event handler on first visit, used to distinguish
-        // re-entries (after wake or timeout) from the initial execution.
-        waitingForEvent?: boolean
-        // Set by the consumer when it wakes a job because a matching event
-        // arrived (as opposed to a scheduled timeout firing).
+        // Set by the subscription matcher consumer when it wakes a wait_until_condition
+        // job because a matching event arrived (as opposed to a scheduled timeout firing).
         eventMatched?: boolean
     }
     variables?: Record<string, any>

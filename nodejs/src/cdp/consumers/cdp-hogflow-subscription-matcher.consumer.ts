@@ -27,8 +27,7 @@ type ParkedJob = {
 
 /**
  * Dedicated consumer that matches incoming events against parked hogflow jobs
- * (wait_until_event, wait_until_condition, conversion goals) and wakes them
- * when conditions are met.
+ * (wait_until_condition, conversion goals) and wakes them when conditions are met.
  *
  * For each event batch, the consumer:
  * 1. Finds all parked hogflow jobs for the event's distinct_id via cyclotron_jobs
@@ -128,7 +127,7 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
             }
 
             // Only evaluate wait steps that are actively parked.
-            if (action.type !== 'wait_until_event' && action.type !== 'wait_until_condition') {
+            if (action.type !== 'wait_until_condition') {
                 continue
             }
 
@@ -171,37 +170,33 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
     }
 
     /**
-     * Evaluate a wait step's filters against the incoming event. Either an
-     * event match or a property condition match wakes the step.
+     * Evaluate a wait_until_condition step's filters against the incoming event.
+     * Either an event match or a property condition match wakes the step.
      */
     private async evaluateStepFilters(
-        action: Extract<HogFlowAction, { type: 'wait_until_event' | 'wait_until_condition' }>,
+        action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
         globals: HogFunctionInvocationGlobals
     ): Promise<boolean> {
         const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
-        const events = action.type === 'wait_until_event' ? action.config.events : ((action.config as any).events ?? [])
-
-        for (const eventConfig of events) {
+        for (const eventConfig of action.config.events ?? []) {
             if (await this.evaluateEventConfig(eventConfig, globals, filterGlobals, action.id)) {
                 return true
             }
         }
 
-        if (action.type === 'wait_until_condition') {
-            const bytecode = action.config.condition?.filters?.bytecode
-            if (Array.isArray(bytecode) && bytecode.length > 0) {
-                try {
-                    const result = await execHog(bytecode, { globals: filterGlobals })
-                    if (result.execResult?.result === true) {
-                        return true
-                    }
-                } catch (err) {
-                    logger.warn('Filter evaluation error for wait_until_condition', {
-                        actionId: action.id,
-                        error: String(err),
-                    })
+        const bytecode = action.config.condition?.filters?.bytecode
+        if (Array.isArray(bytecode) && bytecode.length > 0) {
+            try {
+                const result = await execHog(bytecode, { globals: filterGlobals })
+                if (result.execResult?.result === true) {
+                    return true
                 }
+            } catch (err) {
+                logger.warn('Filter evaluation error for wait_until_condition', {
+                    actionId: action.id,
+                    error: String(err),
+                })
             }
         }
 
