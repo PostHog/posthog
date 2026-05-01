@@ -43,8 +43,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading, isLifecycle, isStickiness } =
-        useValues(trendsDataLogic(insightProps))
+    const {
+        display,
+        series,
+        breakdownFilter,
+        trendsFilter,
+        hasBreakdownMore,
+        breakdownValuesLoading,
+        isLifecycle,
+        isStickiness,
+    } = useValues(trendsDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const commonProps = {
@@ -67,11 +75,17 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
+            // TrendsBarChart does not yet wire up showValuesOnSeries, goal lines, alert
+            // threshold overlays, or annotations. Narrow the gate around the two flags we
+            // can detect from trendsFilter so insights that opt into them stay on the
+            // legacy renderer; alerts and annotations are tracked as follow-ups.
+            const needsLegacyTrendsOverlay = trendsFilter?.showValuesOnSeries || !!trendsFilter?.goalLines?.length
             if (
                 featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS] &&
                 display === ChartDisplayType.ActionsBar &&
                 !isLifecycle &&
-                !isStickiness
+                !isStickiness &&
+                !needsLegacyTrendsOverlay
             ) {
                 return <TrendsBarChart context={context} />
             }

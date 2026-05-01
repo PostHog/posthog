@@ -77,4 +77,64 @@ describe('TrendsBarChart (ActionsBar)', () => {
         })
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
+
+    it('shows current and previous period rows in compare mode', async () => {
+        renderInsight({
+            query: trendsBar({ compareFilter: { compare: true } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await waitFor(() => {
+            expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+        })
+
+        const tooltip = await chart.hoverTooltip(2)
+
+        // Stacked bars surface stacked-top values in tooltip rows, not raw series values, so we
+        // only assert that both compare rows are present — the dimming is enforced by the
+        // transforms unit test.
+        expect(tooltip.row('Current')).toBeTruthy()
+        expect(tooltip.row('Previous')).toBeTruthy()
+    })
+
+    it('formats values as percentages in percent stack view', async () => {
+        renderInsight({
+            query: trendsBar({
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                ],
+                trendsFilter: { display: ChartDisplayType.ActionsBar, showPercentStackView: true },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        const tooltip = await chart.hoverTooltip(2)
+
+        expect(tooltip.row('Pageview')).toMatch(/%/)
+    })
+})
+
+describe('TrendsBarChart gate', () => {
+    it.each([
+        { name: 'showValuesOnSeries', filter: { display: ChartDisplayType.ActionsBar, showValuesOnSeries: true } },
+        {
+            name: 'goalLines',
+            filter: {
+                display: ChartDisplayType.ActionsBar,
+                goalLines: [{ label: 'Target', value: 150, displayIfCrossed: true }],
+            },
+        },
+    ])('falls back to the legacy renderer when the insight needs $name', async ({ filter }) => {
+        renderInsight({
+            query: buildTrendsQuery({ trendsFilter: filter }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        // Legacy ActionsLineGraph uses Chart.js, which test-helpers' setupJsdom does not stand up
+        // — the new BarGraph data attr is the cheapest signal for "did the new renderer mount?"
+        await waitFor(() => {
+            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+        })
+    })
 })
