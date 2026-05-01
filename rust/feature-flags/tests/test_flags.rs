@@ -410,7 +410,7 @@ async fn it_rejects_missing_distinct_id() -> Result<()> {
 
 #[rstest]
 #[case(json!({"distinct_id": "user1", "groups": {"group1": "group1"}}), "not_authenticated", "No API token provided.")]
-#[case(json!({"token": "invalid_token", "distinct_id": "user1", "groups": {"group1": "group1"}}), "authentication_failed", "Invalid API key.")]
+#[case(json!({"token": "invalid_token", "distinct_id": "user1", "groups": {"group1": "group1"}}), "authentication_failed", "Invalid or expired API key.")]
 #[tokio::test]
 async fn it_rejects_invalid_auth(
     #[case] payload: serde_json::Value,

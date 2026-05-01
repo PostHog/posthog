@@ -1335,9 +1335,11 @@ async fn test_invalid_project_api_key() {
         "Should return 401 for invalid token. Body: {body_text}"
     );
 
-    let body: Value = serde_json::from_str(&body_text).expect("Response should be JSON");
+    let body: Value = serde_json::from_str(&body_text)
+        .unwrap_or_else(|e| panic!("Response should be JSON, got: {body_text:?} ({e})"));
     assert_eq!(body["type"], "authentication_error");
     assert_eq!(body["code"], "authentication_failed");
+    assert_eq!(body["detail"], "Invalid or expired API key.")
 }
 
 #[tokio::test]

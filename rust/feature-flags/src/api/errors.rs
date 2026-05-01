@@ -32,6 +32,17 @@ pub struct AuthenticationErrorResponse {
     pub attr: Option<String>,
 }
 
+impl AuthenticationErrorResponse {
+    fn auth_error(code: &str, detail: &str) -> Self {
+        Self {
+            error_type: "authentication_error".to_string(),
+            code: code.to_string(),
+            detail: detail.to_string(),
+            attr: None,
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ClientFacingError {
     #[error("Invalid request: {0}")]
@@ -398,58 +409,22 @@ impl IntoResponse for FlagError {
                 (StatusCode::BAD_REQUEST, "The distinct_id field is missing from the request. Please include a valid identifier.".to_string())
             }
             FlagError::NoTokenError => {
-                let response = AuthenticationErrorResponse {
-                    error_type: "authentication_error".to_string(),
-                    code: "not_authenticated".to_string(),
-                    detail: "No API token provided.".to_string(),
-                    attr: None,
-                };
-                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+                return (StatusCode::UNAUTHORIZED, Json(AuthenticationErrorResponse::auth_error("not_authenticated", "No API token provided."))).into_response();
             }
             FlagError::TokenValidationError => {
-                let response = AuthenticationErrorResponse {
-                    error_type: "authentication_error".to_string(),
-                    code: "authentication_failed".to_string(),
-                    detail: "Invalid API key.".to_string(),
-                    attr: None,
-                };
-                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+                return (StatusCode::UNAUTHORIZED, Json(AuthenticationErrorResponse::auth_error("authentication_failed", "Invalid or expired API key."))).into_response();
             }
             FlagError::PersonalApiKeyInvalid => {
-                let response = AuthenticationErrorResponse {
-                    error_type: "authentication_error".to_string(),
-                    code: "authentication_failed".to_string(),
-                    detail: "Personal API key is invalid.".to_string(),
-                    attr: None,
-                };
-                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+                return (StatusCode::UNAUTHORIZED, Json(AuthenticationErrorResponse::auth_error("authentication_failed", "Personal API key is invalid."))).into_response();
             }
             FlagError::PersonalApiKeyInsufficientScopes => {
-                let response = AuthenticationErrorResponse {
-                    error_type: "authentication_error".to_string(),
-                    code: "permission_denied".to_string(),
-                    detail: "Personal API key lacks required scopes (feature_flag:read or feature_flag:write).".to_string(),
-                    attr: None,
-                };
-                return (StatusCode::FORBIDDEN, Json(response)).into_response();
+                return (StatusCode::FORBIDDEN, Json(AuthenticationErrorResponse::auth_error("permission_denied", "Personal API key lacks required scopes (feature_flag:read or feature_flag:write)."))).into_response();
             }
             FlagError::SecretApiTokenInvalid => {
-                let response = AuthenticationErrorResponse {
-                    error_type: "authentication_error".to_string(),
-                    code: "authentication_failed".to_string(),
-                    detail: "Secret API token is invalid.".to_string(),
-                    attr: None,
-                };
-                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+                return (StatusCode::UNAUTHORIZED, Json(AuthenticationErrorResponse::auth_error("authentication_failed", "Secret API token is invalid."))).into_response();
             }
             FlagError::NoAuthenticationProvided => {
-                let response = AuthenticationErrorResponse {
-                    error_type: "authentication_error".to_string(),
-                    code: "not_authenticated".to_string(),
-                    detail: "Authentication credentials were not provided.".to_string(),
-                    attr: None,
-                };
-                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
+                return (StatusCode::UNAUTHORIZED, Json(AuthenticationErrorResponse::auth_error("not_authenticated", "Authentication credentials were not provided."))).into_response();
             }
             FlagError::DataParsingErrorWithContext(ref details) => {
                 tracing::error!("Data parsing error: {}", details);
