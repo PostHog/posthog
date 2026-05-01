@@ -1556,6 +1556,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     try:
         label_prefix = _extract_label_prefix(request)
     except _InvalidLabelPrefixError as exc:
+        _capture_provisioning_event("credential_rotation", "error", error_code="invalid_label_prefix")
         return _error_response("invalid_label_prefix", str(exc), resource_id=resource_id)
 
     scoped_teams = access_token.scoped_teams or []
