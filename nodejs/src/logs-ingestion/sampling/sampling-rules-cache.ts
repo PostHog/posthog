@@ -5,7 +5,6 @@ import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 
 import { type SamplingRuleRow, compileRuleSet } from './compile-rules'
 import type { CompiledRuleSet } from './evaluate'
-import { logsSamplingDebugLog } from './sampling-debug-log'
 
 const REFRESH_MS = 30_000
 
@@ -38,11 +37,6 @@ export class SamplingRulesCache {
                         'logs.sampling.rule_count': existing.compiled.rules.length,
                         'logs.sampling.version_watermark': existing.versionWatermark,
                     })
-                    logsSamplingDebugLog('rules cache hit', {
-                        teamId,
-                        ruleCount: existing.compiled.rules.length,
-                        ageMs: now - existing.fetchedAtMs,
-                    })
                     return existing.compiled
                 }
                 const rows = await this.fetchRules(teamId)
@@ -54,17 +48,6 @@ export class SamplingRulesCache {
                     'logs.sampling.db_row_count': rows.length,
                     'logs.sampling.rule_count': compiled.rules.length,
                     'logs.sampling.version_watermark': vw,
-                })
-                logsSamplingDebugLog('rules cache miss → fetched', {
-                    teamId,
-                    rowCount: rows.length,
-                    rules: compiled.rules.map((r) => ({
-                        id: r.id,
-                        ruleType: r.ruleType,
-                        scopeService: r.scopeService,
-                        hasPathScopeRegex: Boolean(r.pathRegex),
-                        pathDropPatternCount: r.pathDropPatterns?.length ?? 0,
-                    })),
                 })
                 return compiled
             }

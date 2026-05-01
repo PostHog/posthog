@@ -22,7 +22,6 @@ import { processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { processBufferWithSampling } from './sampling/process-buffer-with-sampling'
-import { logsSamplingDebugLog } from './sampling/sampling-debug-log'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
@@ -211,24 +210,6 @@ export class LogsIngestionConsumer {
             'logs.sampling.pipeline': useSamplingPipeline
                 ? 'decode_sample_encode'
                 : 'passthrough_processLogMessageBuffer',
-        })
-
-        logsSamplingDebugLog('resolve buffer', {
-            teamId: message.teamId,
-            inboundBytes: message.message.value?.length ?? 0,
-            recordCountHint: message.recordCount,
-            flags: {
-                LOGS_SAMPLING_KILLSWITCH: this.samplingKillswitch,
-                LOGS_SAMPLING_ENABLED_TEAMS: this.samplingEnabledTeamsRaw,
-                samplingEvalEnabledForTeam: samplingEvalEnabled,
-                hasSamplingRulesCache: Boolean(samplingCache),
-            },
-            logsSettingsFlags: {
-                json_parse_logs: logsSettings.json_parse_logs ?? false,
-                pii_scrub_logs: logsSettings.pii_scrub_logs ?? false,
-            },
-            path: useSamplingPipeline ? 'sampling_pipeline' : 'passthrough_no_rules_or_sampling_off',
-            compiledRuleCount: ruleSet?.rules.length ?? 0,
         })
 
         if (useSamplingPipeline && ruleSet) {

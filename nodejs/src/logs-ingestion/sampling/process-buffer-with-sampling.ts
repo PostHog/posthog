@@ -12,7 +12,6 @@ import {
 } from '../log-record-avro'
 import type { CompiledRuleSet } from './evaluate'
 import { SAMPLING_DECISION_DROP, SAMPLING_DECISION_SAMPLE_DROPPED, evaluateLogRecord } from './evaluate'
-import { logsSamplingDebugLog } from './sampling-debug-log'
 
 const samplingProcessInstrumentOpts = { measureTime: false, sendException: false } as const
 
@@ -36,32 +35,11 @@ async function processBufferWithSamplingImpl(
     const pii = await transformDecodedLogRecordsInPlace(records, settings)
     const kept: LogRecord[] = []
     let recordsDropped = 0
-    const decisionCounts: Record<string, number> = {}
-    const dropByRuleId = new Map<string, number>()
-    const maxPerRecordDebugLines = 24
-    let perRecordLines = 0
 
     for (const record of records) {
-        const { decision, ruleId } = evaluateLogRecord(ruleSet, record)
-        decisionCounts[decision] = (decisionCounts[decision] ?? 0) + 1
+        const { decision } = evaluateLogRecord(ruleSet, record)
         if (decision === SAMPLING_DECISION_DROP || decision === SAMPLING_DECISION_SAMPLE_DROPPED) {
             recordsDropped++
-            if (ruleId) {
-                dropByRuleId.set(ruleId, (dropByRuleId.get(ruleId) ?? 0) + 1)
-            }
-            if (perRecordLines < maxPerRecordDebugLines) {
-                logsSamplingDebugLog('record dropped/sampled out', {
-                    decision,
-                    ruleId,
-                    service: record.service_name,
-                    route:
-                        record.attributes?.['http.route'] ??
-                        record.attributes?.['url.path'] ??
-                        record.attributes?.['path'],
-                    severity: record.severity_text,
-                })
-                perRecordLines++
-            }
             continue
         }
         kept.push(record)
@@ -74,18 +52,6 @@ async function processBufferWithSamplingImpl(
         'logs.sampling.all_dropped': kept.length === 0,
         'logs.sampling.json_parse_logs': Boolean(settings.json_parse_logs),
         'logs.sampling.pii_scrub_logs': Boolean(settings.pii_scrub_logs),
-    })
-
-    logsSamplingDebugLog('processBufferWithSampling done', {
-        inputRecords: records.length,
-        kept: kept.length,
-        dropped: recordsDropped,
-        decisionCounts,
-        dropByRuleId: Object.fromEntries(dropByRuleId),
-        settingsFlags: {
-            json_parse_logs: settings.json_parse_logs ?? false,
-            pii_scrub_logs: settings.pii_scrub_logs ?? false,
-        },
     })
 
     if (kept.length === 0) {
