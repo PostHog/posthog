@@ -59,8 +59,8 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                     const state = projectState(team.id)
                     const isOpen = expanded[team.id] ?? defaultExpanded
                     return (
-                        <div key={team.id} className="border rounded">
-                            <div className="flex items-center gap-2 p-2">
+                        <div key={team.id}>
+                            <div className="flex items-center gap-2">
                                 <LemonButton
                                     size="xsmall"
                                     type="tertiary"
@@ -83,7 +83,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                                 />
                             </div>
                             {isOpen && (
-                                <div className="ml-16 mb-2 mr-2 space-y-1">
+                                <div className="ml-16 mt-1 space-y-1">
                                     {activeTypes.map((type) => {
                                         const meta = REALTIME_NOTIFICATION_TYPE_META[type] ?? {
                                             label: type,
