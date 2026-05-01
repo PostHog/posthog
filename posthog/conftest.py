@@ -19,8 +19,10 @@ from posthog.clickhouse.client import sync_execute
 # Without this, the cost hides inside the setup phase of whichever test happens
 # to be collected first.
 #
-# Enable by setting `POSTHOG_DB_SETUP_TIMING=1`. When unset, behaviour is
-# unchanged: no monkey-patches, sentinel test is skipped, no extra reporting.
+# Enable by setting `POSTHOG_DB_SETUP_TIMING=1`. The instrumentation is purely
+# observational: it only times work that already happens. It never forces a
+# database to be set up that wouldn't have been set up otherwise. With the var
+# unset there is no monkey-patch, no timing, no extra reporting.
 _DB_SETUP_TIMING_ENABLED: bool = os.environ.get("POSTHOG_DB_SETUP_TIMING", "").lower() in {"1", "true", "yes"}
 
 # Per-migration timings captured via monkey-patch of MigrationExecutor.apply_migration.
@@ -509,23 +511,6 @@ def _install_migration_timing_patch() -> None:
     # about replacing a bound method with a plain function.
     setattr(MigrationExecutor, "apply_migration", timed_apply_migration)  # noqa: B010
     _MIGRATION_PATCH_INSTALLED = True
-
-
-def pytest_collection_modifyitems(config, items):
-    """Run the db-setup-timing sentinel first so the package-scoped django_db_setup
-    fixture's cost is attributed to it (and visible in --durations) rather than to
-    whichever test happened to be collected first.
-
-    Only runs when POSTHOG_DB_SETUP_TIMING is set; the sentinel itself is skipped
-    in that case (see posthog/test/test_db_setup_timing.py)."""
-    if not _DB_SETUP_TIMING_ENABLED:
-        return
-    sentinel_idx = next(
-        (i for i, item in enumerate(items) if "db_setup_timing" in item.keywords),
-        None,
-    )
-    if sentinel_idx is not None and sentinel_idx != 0:
-        items.insert(0, items.pop(sentinel_idx))
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
