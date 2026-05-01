@@ -622,12 +622,4 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
-    onboarding_skipped_reason: zod
-        .union([
-            zod
-                .enum(['delegated', 'later', 'other'])
-                .describe('* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other'),
-            zod.literal(null),
-        ])
-        .nullish(),
 })

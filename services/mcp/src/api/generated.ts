@@ -25973,7 +25973,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
-      onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
+      readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | NullEnum | null;
       /** @nullable */
       readonly onboarding_skipped_organization_id: string | null;
       /** @nullable */
@@ -31341,7 +31341,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
-      onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
+      readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | NullEnum | null;
       /** @nullable */
       readonly onboarding_skipped_organization_id?: string | null;
       /** @nullable */

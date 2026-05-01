@@ -568,9 +568,6 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.passkeys_enabled_for_2fa !== undefined) {
             body['passkeys_enabled_for_2fa'] = params.passkeys_enabled_for_2fa
         }
-        if (params.onboarding_skipped_reason !== undefined) {
-            body['onboarding_skipped_reason'] = params.onboarding_skipped_reason
-        }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
