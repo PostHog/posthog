@@ -742,12 +742,12 @@ export class ApiClient {
                 variables_override?: string
                 filters_override?: string
             }): Promise<Result<Schemas.Insight>> => {
-                const overrideParams = new URLSearchParams()
+                const params = new URLSearchParams()
                 if (variables_override) {
-                    overrideParams.set('variables_override', variables_override)
+                    params.set('variables_override', variables_override)
                 }
                 if (filters_override) {
-                    overrideParams.set('filters_override', filters_override)
+                    params.set('filters_override', filters_override)
                 }
 
                 // Check if insightId is a short_id (8 character alphanumeric string)
@@ -757,14 +757,8 @@ export class ApiClient {
                     // InsightSerializer.to_representation, which applies
                     // variables_override / filters_override from query_params. So
                     // short_id resolution + override application happen in one hop.
-                    const searchParams = new URLSearchParams({ short_id: insightId })
-                    if (variables_override) {
-                        searchParams.set('variables_override', variables_override)
-                    }
-                    if (filters_override) {
-                        searchParams.set('filters_override', filters_override)
-                    }
-                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${searchParams}`
+                    params.set('short_id', insightId)
+                    const url = `${this.baseUrl}/api/projects/${projectId}/insights/?${params}`
 
                     const result = await this.fetchJson<{ results: Schemas.Insight[] }>(url)
 
@@ -785,9 +779,9 @@ export class ApiClient {
                     return { success: true, data: insight }
                 }
 
-                const overrideQuery = overrideParams.toString() ? `?${overrideParams}` : ''
+                const queryString = params.toString() ? `?${params}` : ''
                 return this.fetchJson<Schemas.Insight>(
-                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${overrideQuery}`
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/${queryString}`
                 )
             },
 
