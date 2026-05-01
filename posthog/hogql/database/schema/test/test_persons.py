@@ -507,7 +507,6 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_pdi_subquery_pushdown_snapshot(self):
-        # Lock in the canonical generated SQL shape for the hot prod case.
         response = execute_hogql_query(
             parse_select(
                 "SELECT pdi.distinct_id, properties.name AS name FROM persons WHERE properties.name = 'alice'"
@@ -555,9 +554,6 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
                 ["alice_a", "alice_b", "bob_a"],
                 [],
             ),
-            # WhereClauseExtractor would flip is_join=True and tombstone NOT
-            # if next_join were set; revenue_analytics seeds next_join, so this
-            # case proves _strip_next_join works.
             (
                 "negation_with_outer_join",
                 "SELECT pdi.distinct_id, revenue_analytics.mrr FROM persons WHERE NOT (properties.name = 'bob')",
@@ -588,11 +584,6 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         assert "pdi_pushdown_pdi" not in response.clickhouse
 
     def test_pdi_subquery_correct_when_distinct_id_was_rebound(self):
-        # Rebind one of alice's distinct_ids to bob via a higher-version pdi row.
-        # Motivating correctness case for the distinct_id IN (subquery) shape:
-        # filtering raw pdi rows by person_id pre-argMax would return a stale
-        # mapping for "alice_b", but the outer argMax must report bob as the
-        # current owner.
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="alice_b",
@@ -615,9 +606,6 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][1] == ["alice_a"]
 
     def test_pdi_subquery_pushdown_fails_open_on_extractor_error(self):
-        # If the helper raises, the optimization must skip silently rather than
-        # break the query. Patching the inner function lets us verify the
-        # try/except envelope without contriving a real failure.
         with patch.object(pdi_person_id_pushdown, "_derive_person_id_filter_inner", side_effect=RuntimeError("boom")):
             response = execute_hogql_query(
                 parse_select("SELECT pdi.distinct_id FROM persons WHERE properties.name = 'alice'"),
