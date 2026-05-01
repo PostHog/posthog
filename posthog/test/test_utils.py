@@ -202,6 +202,22 @@ class TestGetJsUrl(TestCase):
                 False,
                 "http://localhost:8234",
             ),
+            (
+                "http_rewrites_ipv6_host",
+                True,
+                "http://localhost:8234",
+                "[::1]:8000",
+                False,
+                "http://[::1]:8234",
+            ),
+            (
+                "http_rewrites_host_without_port",
+                True,
+                "http://localhost:8234",
+                "dev-container",
+                False,
+                "http://dev-container:8234",
+            ),
         ]
     )
     def test_get_js_url(
