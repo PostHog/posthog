@@ -47,7 +47,6 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
-from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
@@ -209,12 +208,6 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
             )
-
-            try:
-                capture_ticket_created(ticket)
-            except Exception as e:
-                # Don't let analytics failures break the widget
-                capture_exception(e, {"ticket_id": str(ticket.id)})
 
             try:
                 report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})

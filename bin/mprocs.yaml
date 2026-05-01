@@ -151,6 +151,17 @@ procs:
             layer: Processing
             tech: Python
 
+    webhook-s3-sink:
+        shell: |-
+            uv sync --active && \
+            bin/wait-for-docker && \
+            python manage.py run_webhook_s3_sink --consumer-group dwh-webhook-sink-dev --health-port 8091
+        capability: warehouse_webhook_sink
+        ready_pattern: 'webhook_s3_sink_starting'
+        groups:
+            layer: Processing
+            tech: Python
+
     stripe-mock:
         shell: 'bin/start-stripe-mock'
         capability: stripe_mock

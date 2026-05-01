@@ -84,6 +84,7 @@ describe('SessionRecordingRestrictionHandler', () => {
                 distinct_id: 'user-1',
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
             expect(SessionRecordingIngesterMetrics.observeDroppedByRestrictions).not.toHaveBeenCalled()
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
@@ -297,6 +298,7 @@ describe('SessionRecordingRestrictionHandler', () => {
                 session_id: 'session-123',
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
         })
 
@@ -358,6 +360,7 @@ describe('SessionRecordingRestrictionHandler', () => {
                 session_id: 'session-123',
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
         })
 
@@ -385,6 +388,7 @@ describe('SessionRecordingRestrictionHandler', () => {
                 uuid: 'event-uuid-456',
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
         })
 

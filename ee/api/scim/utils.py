@@ -137,7 +137,7 @@ def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityPr
     """
     Detect identity provider from request User-Agent header.
     """
-    user_agent = request.META.get("HTTP_USER_AGENT", "").lower()
+    user_agent = request.headers.get("user-agent", "").lower()
 
     if "okta" in user_agent:
         return SCIMProvisionedUser.IdentityProvider.OKTA

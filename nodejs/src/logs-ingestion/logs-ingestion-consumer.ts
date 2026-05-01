@@ -1,28 +1,41 @@
 import { Message } from 'node-rdkafka'
+import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { KafkaProducerWrapper } from '~/kafka/producer'
+import { AppMetricsOutput } from '~/ingestion/common/outputs'
+import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 
-import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
-import { HealthCheckResult, PluginServerService, TimestampFormat } from '../types'
+import { HealthCheckResult, PluginServerService } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 import { TeamManager } from '../utils/team-manager'
-import { castTimestampOrNow } from '../utils/utils'
 import { LogsIngestionConsumerConfig } from './config'
+import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
+import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import type { CompiledRuleSet } from './sampling/evaluate'
+import { processBufferWithSampling } from './sampling/process-buffer-with-sampling'
+import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
-    kafkaProducer: KafkaProducerWrapper // Warpstream - for logs data
-    mskProducer: KafkaProducerWrapper // MSK - for app_metrics
+    /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
+    samplingRulesCache?: SamplingRulesCache
+    /**
+     * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
+     * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
+     * server via env vars — this consumer never touches a `KafkaProducerWrapper`
+     * directly.
+     */
+    outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
 }
 
 export type UsageStats = {
@@ -32,6 +45,7 @@ export type UsageStats = {
     recordsAllowed: number
     bytesDropped: number
     recordsDropped: number
+    piiReplacements: number
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -41,12 +55,16 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     recordsAllowed: 0,
     bytesDropped: 0,
     recordsDropped: 0,
+    piiReplacements: 0,
 }
 
 export type UsageStatsByTeam = Map<number, UsageStats>
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
+
+/** Cap concurrent per-message processing within a single kafka batch. */
+const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -92,19 +110,23 @@ export const logsRecordsDroppedCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+export const logsSamplingRecordsDroppedCounter = new Counter({
+    name: 'logs_ingestion_sampling_records_dropped_total',
+    help: 'Log records dropped by head sampling rules',
+    labelNames: ['team_id'],
+})
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
-    private kafkaProducer: KafkaProducerWrapper
-    private mskProducer: KafkaProducerWrapper
+    private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private readonly samplingEnabledTeamsRaw: string
+    private readonly samplingKillswitch: boolean
 
     protected groupId: string
     protected topic: string
-    protected clickhouseTopic: string
-    protected overflowTopic?: string
-    protected dlqTopic?: string
 
     constructor(
         config: LogsIngestionConsumerConfig,
@@ -114,14 +136,8 @@ export class LogsIngestionConsumer {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = overrides.LOGS_INGESTION_CONSUMER_GROUP_ID ?? config.LOGS_INGESTION_CONSUMER_GROUP_ID
         this.topic = overrides.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC ?? config.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC
-        this.clickhouseTopic =
-            overrides.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC ?? config.LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC
-        this.overflowTopic =
-            overrides.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC ?? config.LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = overrides.LOGS_INGESTION_CONSUMER_DLQ_TOPIC ?? config.LOGS_INGESTION_CONSUMER_DLQ_TOPIC
 
-        this.kafkaProducer = deps.kafkaProducer
-        this.mskProducer = deps.mskProducer
+        this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
@@ -141,6 +157,26 @@ export class LogsIngestionConsumer {
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(config, this.redis)
+        this.samplingEnabledTeamsRaw = overrides.LOGS_SAMPLING_ENABLED_TEAMS ?? config.LOGS_SAMPLING_ENABLED_TEAMS
+        this.samplingKillswitch = overrides.LOGS_SAMPLING_KILLSWITCH ?? config.LOGS_SAMPLING_KILLSWITCH
+    }
+
+    private isSamplingEvalEnabledForTeam(teamId: number): boolean {
+        if (this.samplingKillswitch) {
+            return false
+        }
+        const raw = (this.samplingEnabledTeamsRaw || '').trim()
+        if (!raw) {
+            return false
+        }
+        if (raw === '*') {
+            return true
+        }
+        return raw
+            .split(',')
+            .map((s) => parseInt(s.trim(), 10))
+            .filter((n) => !Number.isNaN(n))
+            .includes(teamId)
     }
 
     public get service(): PluginServerService {
@@ -170,11 +206,11 @@ export class LogsIngestionConsumer {
         ])
 
         return {
-            // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.all([
-                this.produceValidLogMessages(rateLimiterAllowedMessages),
-                this.emitUsageMetrics(usageStats),
-            ]),
+            // Produce first so PII replacement counts are folded into `usageStats` before MSK usage emit
+            backgroundTask: (async () => {
+                await this.processAndProduceLogMessages(rateLimiterAllowedMessages, usageStats)
+                await this.emitUsageMetrics(usageStats)
+            })(),
             messages: rateLimiterAllowedMessages,
         }
     }
@@ -235,6 +271,15 @@ export class LogsIngestionConsumer {
         return usageStats
     }
 
+    private addPiiStatsIntoUsage(usage: UsageStatsByTeam, teamId: number, delta: PiiScrubStats): void {
+        if (delta.piiReplacements === 0) {
+            return
+        }
+        const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
+        row.piiReplacements += delta.piiReplacements
+        usage.set(teamId, row)
+    }
+
     private async filterQuotaLimitedMessages(
         messages: LogsIngestionMessage[]
     ): Promise<{ quotaAllowedMessages: LogsIngestionMessage[]; quotaDroppedMessages: LogsIngestionMessage[] }> {
@@ -289,41 +334,83 @@ export class LogsIngestionConsumer {
         return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
     }
 
-    private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
+    private async processAndProduceLogMessages(
+        messages: LogsIngestionMessage[],
+        usageStats: UsageStatsByTeam
+    ): Promise<void> {
+        const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
         const results = await Promise.allSettled(
-            messages.map(async (message) => {
-                try {
-                    // Fetch team to get logs_settings
-                    const team = await this.deps.teamManager.getTeam(message.teamId)
-                    const logsSettings = team?.logs_settings || {}
+            messages.map((message) =>
+                limit(async () => {
+                    try {
+                        // Fetch team to get logs_settings
+                        const team = await this.deps.teamManager.getTeam(message.teamId)
+                        const logsSettings = team?.logs_settings || {}
 
-                    // Extract settings with defaults
-                    const jsonParse = logsSettings.json_parse_logs ?? false
-                    const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        // Extract settings with defaults
+                        const jsonParse = logsSettings.json_parse_logs ?? false
+                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
-                    // ignore empty messages
-                    if (message.message.value === null) {
-                        return Promise.resolve()
+                        // ignore empty messages
+                        if (message.message.value === null) {
+                            return Promise.resolve()
+                        }
+                        let processedValue: Buffer
+                        let pii: PiiScrubStats
+                        const samplingCache = this.deps.samplingRulesCache
+                        let ruleSet: CompiledRuleSet | null = null
+                        if (samplingCache && this.isSamplingEvalEnabledForTeam(message.teamId)) {
+                            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+                        }
+                        const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
+                        if (useSamplingPipeline && ruleSet) {
+                            const sampled = await processBufferWithSampling(
+                                message.message.value,
+                                logsSettings,
+                                ruleSet
+                            )
+                            pii = sampled.pii
+                            if (sampled.recordsDropped > 0) {
+                                logsSamplingRecordsDroppedCounter.inc(
+                                    { team_id: message.teamId.toString() },
+                                    sampled.recordsDropped
+                                )
+                            }
+                            if (sampled.allDropped) {
+                                logMessageDroppedCounter.inc(
+                                    { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
+                                    1
+                                )
+                                return Promise.resolve()
+                            }
+                            processedValue = sampled.value
+                        } else {
+                            const res = await processLogMessageBuffer(message.message.value, logsSettings)
+                            processedValue = res.value
+                            pii = res.pii
+                        }
+                        this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
+
+                        // Await so a rejection here lands in the catch and routes to the DLQ.
+                        await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                            {
+                                value: processedValue,
+                                key: null,
+                                headers: {
+                                    ...parseKafkaHeaders(message.message.headers),
+                                    token: message.token,
+                                    team_id: message.teamId.toString(),
+                                    'json-parse': jsonParse.toString(),
+                                    'retention-days': retentionDays.toString(),
+                                },
+                            },
+                        ])
+                    } catch (error) {
+                        await this.produceToDlq(message, error)
+                        throw error
                     }
-                    const processedValue = await processLogMessageBuffer(message.message.value, logsSettings)
-
-                    return this.kafkaProducer!.produce({
-                        topic: this.clickhouseTopic,
-                        value: processedValue,
-                        key: null,
-                        headers: {
-                            ...parseKafkaHeaders(message.message.headers),
-                            token: message.token,
-                            team_id: message.teamId.toString(),
-                            'json-parse': jsonParse.toString(),
-                            'retention-days': retentionDays.toString(),
-                        },
-                    })
-                } catch (error) {
-                    await this.produceToDlq(message, error)
-                    throw error
-                }
-            })
+                })
+            )
         )
 
         const failures = results.filter((r) => r.status === 'rejected')
@@ -336,29 +423,26 @@ export class LogsIngestionConsumer {
     }
 
     private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
-        if (!this.dlqTopic) {
-            return
-        }
-
         const errorMessage = error instanceof Error ? error.message : String(error)
         const errorName = error instanceof Error ? error.name : 'UnknownError'
 
         logMessageDlqCounter.inc({ reason: errorName, team_id: message.teamId.toString() })
 
         try {
-            await this.kafkaProducer!.produce({
-                topic: this.dlqTopic,
-                value: message.message.value,
-                key: null,
-                headers: {
-                    ...parseKafkaHeaders(message.message.headers),
-                    token: message.token,
-                    team_id: message.teamId.toString(),
-                    error_message: errorMessage,
-                    error_name: errorName,
-                    failed_at: new Date().toISOString(),
+            await this.deps.outputs.queueMessages(LOGS_DLQ_OUTPUT, [
+                {
+                    value: message.message.value,
+                    key: null,
+                    headers: {
+                        ...parseKafkaHeaders(message.message.headers),
+                        token: message.token,
+                        team_id: message.teamId.toString(),
+                        error_message: errorMessage,
+                        error_name: errorName,
+                        failed_at: new Date().toISOString(),
+                    },
                 },
-            })
+            ])
         } catch (dlqError) {
             logger.error('Failed to produce message to DLQ', {
                 error: dlqError,
@@ -372,51 +456,36 @@ export class LogsIngestionConsumer {
             return
         }
 
-        const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
-
-        const metricsPromises: Promise<void>[] = []
         for (const [teamId, stats] of usageStats) {
-            metricsPromises.push(
-                this.produceUsageMetric(teamId, 'bytes_received', stats.bytesReceived, timestamp),
-                this.produceUsageMetric(teamId, 'records_received', stats.recordsReceived, timestamp),
-                this.produceUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed, timestamp),
-                this.produceUsageMetric(teamId, 'records_ingested', stats.recordsAllowed, timestamp),
-                this.produceUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped, timestamp),
-                this.produceUsageMetric(teamId, 'records_dropped', stats.recordsDropped, timestamp)
-            )
+            this.queueUsageMetric(teamId, 'bytes_received', stats.bytesReceived)
+            this.queueUsageMetric(teamId, 'records_received', stats.recordsReceived)
+            this.queueUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed)
+            this.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
+            this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
+            this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
+            this.queueUsageMetric(teamId, 'pii_replacements', stats.piiReplacements)
         }
 
         // Best-effort: don't let metric failures block ingestion
-        const results = await Promise.allSettled(metricsPromises)
-        const failures = results.filter((r) => r.status === 'rejected')
-        if (failures.length > 0) {
-            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', {
-                failureCount: failures.length,
-                totalCount: metricsPromises.length,
-            })
+        try {
+            await this.appMetricsAggregator.flush()
+        } catch (error) {
+            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
         }
     }
 
-    private produceUsageMetric(teamId: number, metricName: string, count: number, timestamp: string): Promise<void> {
+    private queueUsageMetric(teamId: number, metricName: string, count: number): void {
         if (count === 0) {
-            return Promise.resolve()
+            return
         }
-        // Use MSK producer for app_metrics, not the Warpstream producer used for logs
-        return this.mskProducer!.produce({
-            topic: KAFKA_APP_METRICS_2,
-            value: Buffer.from(
-                JSON.stringify({
-                    team_id: teamId,
-                    timestamp,
-                    app_source: 'logs',
-                    app_source_id: '',
-                    instance_id: '',
-                    metric_kind: 'usage',
-                    metric_name: metricName,
-                    count,
-                })
-            ),
-            key: null,
+        this.appMetricsAggregator.queue({
+            team_id: teamId,
+            app_source: 'logs',
+            app_source_id: '',
+            instance_id: '',
+            metric_kind: 'usage',
+            metric_name: metricName,
+            count,
         })
     }
 

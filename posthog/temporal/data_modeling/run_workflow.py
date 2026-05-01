@@ -47,6 +47,10 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.data_modeling.activities.fail_materialization import (
+    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+    should_pause_schedule_for_timeout,
+)
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
 from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
@@ -637,15 +641,32 @@ async def materialize_model(
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
-        elif "Timeout exceeded" in error_message:
+        elif "Timeout exceeded" in error_message or "exceeded timeout" in error_message.lower():
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
-            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
-            await database_sync_to_async(saved_query.save)()
-            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
+
+            should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
+                saved_query.id, job.id
+            )
+            if should_pause:
+                saved_query.sync_frequency_interval = None
+                await database_sync_to_async(saved_query.save)()
+                await a_pause_saved_query_schedule(saved_query)
+                await logger.ainfo(
+                    "Paused temporal schedule for query due to %d consecutive timeouts: saved_query_id=%s",
+                    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+                    saved_query.id,
+                )
+            else:
+                await database_sync_to_async(saved_query.save)()
+                await logger.ainfo(
+                    "Timeout for query saved_query_id=%s - not pausing schedule (%d/%d consecutive timeouts)",
+                    saved_query.id,
+                    count,
+                    CONSECUTIVE_TIMEOUTS_TO_PAUSE,
+                )
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             sanitized_error = strip_hostname_from_error(error_message)
@@ -1637,14 +1658,14 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             cleanup_running_jobs_activity,
             CleanupRunningJobsActivityInputs(team_id=inputs.team_id, saved_query_ids=saved_query_ids),
-            start_to_close_timeout=dt.timedelta(minutes=20),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
         )
 
         job_id = await temporalio.workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),
-            start_to_close_timeout=dt.timedelta(minutes=20),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -1657,8 +1678,6 @@ class RunWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(minutes=20),
             heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
             ),
         )
@@ -1669,10 +1688,8 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             start_run_activity,
             start_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
             ),
         )
@@ -1683,10 +1700,10 @@ class RunWorkflow(PostHogWorkflow):
             results = await temporalio.workflow.execute_activity(
                 run_dag_activity,
                 run_model_activity_inputs,
-                start_to_close_timeout=dt.timedelta(hours=1),
+                start_to_close_timeout=dt.timedelta(minutes=30),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                    maximum_attempts=2, non_retryable_error_types=["NonRetryableException", "CancelledError"]
                 ),
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
@@ -1702,7 +1719,7 @@ class RunWorkflow(PostHogWorkflow):
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(
-                            maximum_attempts=3,
+                            maximum_attempts=2,
                         ),
                     )
                 except Exception as cancel_err:
@@ -1718,9 +1735,9 @@ class RunWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=20),
+                start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
+                    maximum_attempts=2,
                 ),
             )
             raise
@@ -1729,9 +1746,9 @@ class RunWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 fail_jobs_activity,
                 FailJobsActivityInputs(job_id=job_id, error=error_detail, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=20),
+                start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
+                    maximum_attempts=2,
                 ),
             )
             raise
@@ -1768,10 +1785,8 @@ class RunWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             finish_run_activity,
             finish_run_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=20),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=1,
             ),
         )

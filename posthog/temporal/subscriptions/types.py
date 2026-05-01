@@ -170,6 +170,7 @@ class UpdateDeliveryRecordInputs:
     exported_asset_ids: typing.Optional[list[int]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
     error: typing.Optional[dict[str, typing.Any]] = None
+    change_summary: typing.Optional[str] = None
     finished: bool = False
     # Deprecated (TODO slug: subscriptions-patched-cleanup) — see docstring
     # above and cleanup sequence at top of workflows.py. Remove in the second

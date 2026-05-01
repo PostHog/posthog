@@ -475,6 +475,7 @@ def configure_logger(
     cache_logger_on_first_use: bool = True,
     loop: asyncio.AbstractEventLoop | None = None,
     file: typing.TextIO | None = None,
+    raise_on_producer_error: bool = False,
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -501,6 +502,9 @@ def configure_logger(
         cache_logger_on_first_use: Set whether to cache logger for performance.
             Should always be `True` except in tests.
         loop: The loop where the aforementioned tasks will run on.
+        raise_on_producer_error: Raise any producer startup errors when `True`,
+            otherwise only log them. Set to `False` as in production environments, we
+            prefer only logging as most products can survive without logs.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -534,7 +538,9 @@ def configure_logger(
     else:
         try:
             log_producer = KafkaLogProducerFromQueueAsync(
-                queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
+                queue=log_queue,
+                topic=KAFKA_LOG_ENTRIES,
+                producer=producer,
             )
         except Exception as e:
             # Skip putting logs in queue if we don't have a producer that can consume the queue.
@@ -567,7 +573,10 @@ def configure_logger(
     )
 
     if log_producer is None:
-        if loop is not None:
+        if log_producer_error is not None:
+            if raise_on_producer_error:
+                raise log_producer_error
+
             logger = structlog.get_logger()
             logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
@@ -645,17 +654,20 @@ class KafkaLogProducerFromQueueAsync:
         self,
         queue: asyncio.Queue[bytes],
         topic: str = KAFKA_LOG_ENTRIES,
-        key: str | None = None,
         producer: "_AsyncKafkaProducer | None" = None,
-        loop: None | asyncio.AbstractEventLoop = None,
+        key: str | None = None,
     ):
-        from posthog.kafka_client.routing import new_async_producer
-
         self.queue = queue
         self.topic = topic
         self.key = key
-        self.producer = producer if producer is not None else new_async_producer(topic=topic)
+        self._producer = producer
         self.logger = structlog.get_logger("posthog.temporal.common.logger.KafkaLogProducerFromQueueAsync")
+
+    @property
+    def producer(self) -> "_AsyncKafkaProducer":
+        if self._producer is None:
+            raise ValueError("Producer not initialized")
+        return self._producer
 
     async def listen(self):
         """Listen to messages in queue and produce them to Kafka as they come.
@@ -663,6 +675,11 @@ class KafkaLogProducerFromQueueAsync:
         This is designed to be ran as an asyncio.Task, as it will wait forever for the queue
         to have messages.
         """
+        from posthog.kafka_client.routing import new_async_producer
+
+        if self._producer is None:
+            self._producer = await new_async_producer(topic=self.topic)
+
         try:
             while True:
                 msg = await self.queue.get()
@@ -675,24 +692,31 @@ class KafkaLogProducerFromQueueAsync:
     async def produce(self, msg: bytes):
         """Produce messages to configured topic and key.
 
-        We catch any exceptions so as to continue processing the queue even if the broker is unavailable
-        or we fail to produce for whatever other reason. We log the failure to not fail silently.
-        """
-        fut = await self.producer.produce(
-            topic=self.topic,
-            data=msg,
-            key=self.key,
-            value_serializer=lambda v: v,
-        )
-        fut.add_done_callback(self.mark_queue_done)
+        We catch any exceptions so as to continue processing the queue even if the
+        broker is unavailable we fail to produce for whatever other reason. We log the
+        failure to not fail silently.
 
+        Note that `self.producer.produce` may not immediately produce a message, nor do
+        we wait for the message to be fully produced here. Whether a message is produced
+        depends on the underlying producer's `batch_size` a `buffer_timeout`. To force a
+        message to be produced, call `flush()`.
+        """
         try:
-            await fut
+            fut = await self.producer.produce(
+                topic=self.topic,
+                data=msg,
+                key=self.key,
+                value_serializer=lambda v: v,
+            )
         except Exception:
+            self.mark_queue_done()
             self.logger.exception("Failed to produce log to Kafka topic %s", self.topic)
             self.logger.debug("Message that couldn't be produced to Kafka topic %s: %s", self.topic, msg)
+        else:
+            fut.add_done_callback(self.mark_queue_done)
 
     async def flush(self):
+        """Flush underlying producer, effectively producing any messages in the batch."""
         try:
             await self.producer.flush()
         except Exception:

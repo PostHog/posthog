@@ -16,6 +16,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
 from posthog.temporal.data_imports.sources.hubspot.helpers import BASE_URL, _get_headers, _get_property_names
@@ -192,7 +193,7 @@ def get_rows(
     def fetch_page(page_url: str) -> dict:
         nonlocal api_key, headers
 
-        response = requests.get(page_url, headers=headers, timeout=60)
+        response = make_tracked_session().get(page_url, headers=headers, timeout=60)
 
         if response.status_code == 401:
             api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)

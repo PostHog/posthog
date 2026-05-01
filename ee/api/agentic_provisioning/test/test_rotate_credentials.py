@@ -6,11 +6,11 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
+class TestProvisioningRotateCredentials(ProvisioningTestBase):
     def test_rotate_returns_new_access_configuration(self):
         token = self._get_bearer_token()
         original_api_token = self.team.api_token
@@ -94,6 +94,21 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
         assert res.status_code == 200
         personal_api_key = res.json()["complete"]["access_configuration"]["personal_api_key"]
         assert personal_api_key.startswith("phx_")
+
+    def test_rotate_pat_is_scoped_to_authorized_team(self):
+        token = self._get_bearer_token()
+        self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            token=token,
+        )
+        pat = (
+            PersonalAPIKey.objects.filter(user=self.user, label__startswith="Stripe Projects")
+            .order_by("-created_at")
+            .first()
+        )
+        assert pat is not None
+        assert pat.scoped_teams == [self.team.id]
+        assert pat.scoped_organizations == [str(self.team.organization_id)]
 
     def test_rotate_preserves_existing_pats(self):
         token = self._get_bearer_token()

@@ -11,24 +11,10 @@ import {
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
 } from '@/generated/replay/api'
+import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const SessionRecordingGetSchema = SessionRecordingsRetrieveParams.omit({ project_id: true })
-
-const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, Schemas.SessionRecording> => ({
-    name: 'session-recording-get',
-    schema: SessionRecordingGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SessionRecording>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
 
 const SessionRecordingDeleteSchema = SessionRecordingsDestroyParams.omit({ project_id: true })
 
@@ -45,47 +31,21 @@ const sessionRecordingDelete = (): ToolBase<typeof SessionRecordingDeleteSchema,
     },
 })
 
-const SessionRecordingPlaylistsListSchema = SessionRecordingPlaylistsListQueryParams
+const SessionRecordingGetSchema = SessionRecordingsRetrieveParams.omit({ project_id: true })
 
-const sessionRecordingPlaylistsList = (): ToolBase<
-    typeof SessionRecordingPlaylistsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSessionRecordingPlaylistList>
-> => ({
-    name: 'session-recording-playlists-list',
-    schema: SessionRecordingPlaylistsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSessionRecordingPlaylistList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
-            query: {
-                created_by: params.created_by,
-                limit: params.limit,
-                offset: params.offset,
-                short_id: params.short_id,
-            },
-        })
-        return await withPostHogUrl(context, result, '/replay')
-    },
-})
-
-const SessionRecordingPlaylistGetSchema = SessionRecordingPlaylistsRetrieveParams.omit({ project_id: true })
-
-const sessionRecordingPlaylistGet = (): ToolBase<
-    typeof SessionRecordingPlaylistGetSchema,
-    Schemas.SessionRecordingPlaylist
-> => ({
-    name: 'session-recording-playlist-get',
-    schema: SessionRecordingPlaylistGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
-        })
-        return result
-    },
-})
+const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithPostHogUrl<Schemas.SessionRecording>> =>
+    withUiApp('session-recording', {
+        name: 'session-recording-get',
+        schema: SessionRecordingGetSchema,
+        handler: async (context: Context, params: z.infer<typeof SessionRecordingGetSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SessionRecording>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
+            })
+            return await withPostHogUrl(context, result, `/replay/${result.id}`)
+        },
+    })
 
 const SessionRecordingPlaylistCreateSchema = SessionRecordingPlaylistsCreateBody
 
@@ -128,6 +88,24 @@ const sessionRecordingPlaylistCreate = (): ToolBase<
     },
 })
 
+const SessionRecordingPlaylistGetSchema = SessionRecordingPlaylistsRetrieveParams.omit({ project_id: true })
+
+const sessionRecordingPlaylistGet = (): ToolBase<
+    typeof SessionRecordingPlaylistGetSchema,
+    Schemas.SessionRecordingPlaylist
+> => ({
+    name: 'session-recording-playlist-get',
+    schema: SessionRecordingPlaylistGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
+    },
+})
+
 const SessionRecordingPlaylistUpdateSchema = SessionRecordingPlaylistsPartialUpdateParams.omit({
     project_id: true,
 }).extend(SessionRecordingPlaylistsPartialUpdateBody.shape)
@@ -165,6 +143,30 @@ const sessionRecordingPlaylistUpdate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const SessionRecordingPlaylistsListSchema = SessionRecordingPlaylistsListQueryParams
+
+const sessionRecordingPlaylistsList = (): ToolBase<
+    typeof SessionRecordingPlaylistsListSchema,
+    WithPostHogUrl<Schemas.PaginatedSessionRecordingPlaylistList>
+> => ({
+    name: 'session-recording-playlists-list',
+    schema: SessionRecordingPlaylistsListSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSessionRecordingPlaylistList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/`,
+            query: {
+                created_by: params.created_by,
+                limit: params.limit,
+                offset: params.offset,
+                short_id: params.short_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay')
     },
 })
 
@@ -600,15 +602,21 @@ const AssistantRecordingsQuery = z.object({
             'Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).\n- `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.'
         )
         .optional(),
+    session_ids: z
+        .array(z.string())
+        .describe(
+            'Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call.'
+        )
+        .optional(),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'session-recording-get': sessionRecordingGet,
     'session-recording-delete': sessionRecordingDelete,
-    'session-recording-playlists-list': sessionRecordingPlaylistsList,
-    'session-recording-playlist-get': sessionRecordingPlaylistGet,
+    'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,
+    'session-recording-playlist-get': sessionRecordingPlaylistGet,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
+    'session-recording-playlists-list': sessionRecordingPlaylistsList,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,

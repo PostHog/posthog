@@ -1479,3 +1479,41 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Paused views render the check glyph; non-paused render an em-dash.
         assert "&#10003;" in html
         assert "&#8212;" in html
+
+    @parameterized.expand(
+        [
+            ("over_limit", "A" * 500, "A" * 252 + "..."),
+            ("at_limit", "A" * 255, "A" * 255),
+            ("under_limit", "A" * 100, "A" * 100),
+        ]
+    )
+    def test_send_matview_failure_digest_truncates_long_errors(
+        self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
+    ) -> None:
+        from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        sq = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="long_error_view",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=sq,
+            status=DataModelingJob.Status.FAILED,
+            error=error,
+            last_run_at=timezone.now() - dt.timedelta(hours=1),
+        )
+
+        send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 1
+        rendered_error = mocked_email_messages[0].properties["views"][0]["error"]
+        assert rendered_error == expected_error
+        assert len(rendered_error) <= 255

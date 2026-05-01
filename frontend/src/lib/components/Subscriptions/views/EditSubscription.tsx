@@ -449,12 +449,18 @@ export function EditSubscription({
                             </LemonField>
 
                             {subscription.summary_enabled && (
-                                <LemonField name="summary_prompt_guide" label="Context for the AI summary" showOptional>
-                                    <LemonTextArea
-                                        placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
-                                        maxLength={500}
-                                    />
-                                </LemonField>
+                                <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
+                                    <LemonField
+                                        name="summary_prompt_guide"
+                                        label="Context for the AI summary"
+                                        showOptional
+                                    >
+                                        <LemonTextArea
+                                            placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                            maxLength={500}
+                                        />
+                                    </LemonField>
+                                </FlaggedFeature>
                             )}
                         </FlaggedFeature>
 

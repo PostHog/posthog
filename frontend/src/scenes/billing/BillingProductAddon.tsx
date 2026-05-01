@@ -5,7 +5,6 @@ import { ReactNode, useRef } from 'react'
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { humanFriendlyCurrency } from 'lib/utils'
 import { getProductIcon } from 'scenes/onboarding/utils'
 
@@ -16,12 +15,8 @@ import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
-import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
-import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { ProductPricingModal } from './ProductPricingModal'
-import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
-import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
@@ -39,7 +34,7 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, isDataPipelinesDeprecated } = useValues(
+    const { isPricingModalOpen, currentAndUpgradePlans, isDataPipelinesDeprecated } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
@@ -162,15 +157,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         : currentAndUpgradePlans?.upgradePlan?.plan_key
                 }
             />
-
-            {/* Unsubscribe survey modal */}
-            {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}
-            {/* Trial cancellation survey modal */}
-            {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
-            {/* Confirm platform addon subscription upgrade */}
-            <ConfirmUpgradeModal product={addon} />
-            {/* Confirm platform addon subscription downgrade */}
-            <ConfirmDowngradeModal product={addon} />
         </div>
     )
 }

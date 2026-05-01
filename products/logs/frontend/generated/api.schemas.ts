@@ -175,9 +175,10 @@ export interface LogsAlertStateIntervalApi {
  * * `slack` - slack
  * `webhook` - webhook
  */
-export type DestinationTypesEnumApi = (typeof DestinationTypesEnumApi)[keyof typeof DestinationTypesEnumApi]
+export type NotificationDestinationTypeEnumApi =
+    (typeof NotificationDestinationTypeEnumApi)[keyof typeof NotificationDestinationTypeEnumApi]
 
-export const DestinationTypesEnumApi = {
+export const NotificationDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
 } as const
@@ -264,7 +265,7 @@ export interface LogsAlertConfigurationApi {
     /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-    readonly destination_types: readonly DestinationTypesEnumApi[]
+    readonly destination_types: readonly NotificationDestinationTypeEnumApi[]
     /** When the alert was created. */
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -366,7 +367,7 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
     readonly state_timeline?: readonly LogsAlertStateIntervalApi[]
     /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-    readonly destination_types?: readonly DestinationTypesEnumApi[]
+    readonly destination_types?: readonly NotificationDestinationTypeEnumApi[]
     /** When the alert was created. */
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -377,23 +378,12 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
-/**
- * * `slack` - slack
- * `webhook` - webhook
- */
-export type TypeC34EnumApi = (typeof TypeC34EnumApi)[keyof typeof TypeC34EnumApi]
-
-export const TypeC34EnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-} as const
-
 export interface LogsAlertCreateDestinationApi {
     /** Destination type — slack or webhook.
 
 * `slack` - slack
 * `webhook` - webhook */
-    type: TypeC34EnumApi
+    type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */
@@ -617,10 +607,31 @@ export interface _LogPropertyFilterApi {
     value?: unknown | null
 }
 
+/**
+ * * `key` - key
+ * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
 export interface _LogAttributeEntryApi {
     name: string
     /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
     propertyFilterType: string
+    /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+* `key` - key
+* `value` - value */
+    matchedOn: MatchedOnEnumApi
+    /**
+     * Sample matching value — only set when matchedOn is "value".
+     * @nullable
+     */
+    matchedValue?: string | null
 }
 
 export interface _LogsAttributesResponseApi {
@@ -648,6 +659,69 @@ export const SeverityLevelsEnumApi = {
     Error: 'error',
     Fatal: 'fatal',
 } as const
+
+export interface _LogsCountBodyApi {
+    /** Date range for the count. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsCountRequestApi {
+    /** The count query to execute. */
+    query: _LogsCountBodyApi
+}
+
+export interface _LogsCountResponseApi {
+    /** Number of log entries matching the filters. */
+    count: number
+}
+
+export interface _LogsCountRangesBodyApi {
+    /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+    dateRange?: _DateRangeApi
+    /**
+     * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    targetBuckets?: number
+    /** Filter by log severity levels. Applied before bucketing. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. Applied before bucketing. */
+    serviceNames?: string[]
+    /** Full-text search across log bodies. Applied before bucketing. */
+    searchTerm?: string
+    /** Property filters applied before bucketing. Same shape as `query-logs`. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsCountRangesRequestApi {
+    /** The bucketed-count query to execute. */
+    query: _LogsCountRangesBodyApi
+}
+
+export interface _LogsCountRangeBucketApi {
+    /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+    date_from: string
+    /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+    date_to: string
+    /** Log entries matching the filters within this bucket. */
+    count: number
+}
+
+export interface _LogsCountRangesResponseApi {
+    /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+    ranges: _LogsCountRangeBucketApi[]
+    /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+    interval: string
+}
 
 /**
  * * `latest` - latest
@@ -745,6 +819,132 @@ export interface _LogsQueryResponseApi {
     maxExportableLogs: number
 }
 
+/**
+ * * `severity_sampling` - Severity sampling
+ * `path_drop` - Path drop
+ * `rate_limit` - Rate limit
+ */
+export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
+
+export const RuleTypeEnumApi = {
+    SeveritySampling: 'severity_sampling',
+    PathDrop: 'path_drop',
+    RateLimit: 'rate_limit',
+} as const
+
+export interface LogsSamplingRuleApi {
+    /** Unique identifier for this sampling rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+* `severity_sampling` - Severity sampling
+* `path_drop` - Path drop
+* `rate_limit` - Rate limit */
+    rule_type: RuleTypeEnumApi
+    /**
+     * If set, the rule applies only to this service name; null means all services.
+     * @maxLength 512
+     * @nullable
+     */
+    scope_service?: string | null
+    /**
+     * Optional regex matched against a path-like log attribute when present.
+     * @maxLength 1024
+     * @nullable
+     */
+    scope_path_pattern?: string | null
+    /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+    scope_attribute_filters?: unknown
+    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    config: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsSamplingRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsSamplingRuleApi[]
+}
+
+export interface PatchedLogsSamplingRuleApi {
+    /** Unique identifier for this sampling rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).
+
+* `severity_sampling` - Severity sampling
+* `path_drop` - Path drop
+* `rate_limit` - Rate limit */
+    rule_type?: RuleTypeEnumApi
+    /**
+     * If set, the rule applies only to this service name; null means all services.
+     * @maxLength 512
+     * @nullable
+     */
+    scope_service?: string | null
+    /**
+     * Optional regex matched against a path-like log attribute when present.
+     * @maxLength 1024
+     * @nullable
+     */
+    scope_path_pattern?: string | null
+    /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
+    scope_attribute_filters?: unknown
+    /** Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings). */
+    config?: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface LogsSamplingRuleSimulateResponseApi {
+    /** Rough percent of log volume this rule would drop (0–100). Stub until ClickHouse-backed estimate ships. */
+    estimated_reduction_pct: number
+    /** Human-readable caveats for the estimate. */
+    notes: string
+}
+
+export interface LogsSamplingRuleReorderApi {
+    /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+    ordered_ids: string[]
+}
+
 export interface _LogsServicesBodyApi {
     /** Date range for the services aggregation. Defaults to last hour. */
     dateRange?: _DateRangeApi
@@ -763,6 +963,19 @@ export interface _LogsServicesRequestApi {
     query: _LogsServicesBodyApi
 }
 
+export interface _LogsServiceSeverityBreakdownApi {
+    debug: number
+    info: number
+    warn: number
+    error: number
+}
+
+export interface _LogsServiceActiveRuleApi {
+    rule_id: string
+    rule_name: string
+    summary_string: string
+}
+
 export interface _LogsServiceAggregateApi {
     /** Service name, or "(no value)" / "(no service)" placeholder for unset entries. */
     service_name: string
@@ -772,6 +985,12 @@ export interface _LogsServiceAggregateApi {
     error_count: number
     /** Pre-computed error_count / log_count, rounded to 4 decimals. Useful for ranking noisy services. */
     error_rate: number
+    /** Share of total log volume in the window for this service (0–100). */
+    volume_share_pct?: number
+    /** Counts by coarse severity bucket (debug, info, warn, error+fatal). */
+    severity_breakdown?: _LogsServiceSeverityBreakdownApi
+    /** Enabled sampling rules whose scope includes this service. */
+    active_rules?: _LogsServiceActiveRuleApi[]
 }
 
 export interface _LogsServicesSparklineBucketApi {
@@ -781,11 +1000,20 @@ export interface _LogsServicesSparklineBucketApi {
     count: number
 }
 
+export interface _LogsServicesSummaryApi {
+    /** Number of top services included in the volume_share aggregate (up to 5). */
+    top_services_count: number
+    /** Combined volume share (percent) of the top services by log_count. */
+    top_services_volume_share_pct: number
+}
+
 export interface _LogsServicesResponseApi {
     /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
     services: _LogsServiceAggregateApi[]
     /** Time-bucketed counts broken down by service, for plotting volume over time. */
     sparkline: _LogsServicesSparklineBucketApi[]
+    /** Roll-up stats for the Services tab header. */
+    summary?: _LogsServicesSummaryApi
 }
 
 /**
@@ -969,6 +1197,10 @@ export type LogsAttributesRetrieveParams = {
      */
     search?: string
     /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean
+    /**
      * Filter attributes to those appearing in logs from these services.
      */
     serviceNames?: string[]
@@ -981,6 +1213,32 @@ export const LogsAttributesRetrieveAttributeType = {
     Log: 'log',
     Resource: 'resource',
 } as const
+
+export type LogsExportCreate201 = { [key: string]: unknown }
+
+export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
+
+export type LogsSamplingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LogsValuesRetrieveParams = {
     /**

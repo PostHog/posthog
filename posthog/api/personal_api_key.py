@@ -23,7 +23,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
-from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
+from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
@@ -84,6 +84,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             if (
                 len(scope_parts) != 2
                 or scope_parts[0] not in API_SCOPE_OBJECTS
+                or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
                 or scope_parts[1] not in API_SCOPE_ACTIONS
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
@@ -194,10 +195,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
-    Personal API Keys can only access their own key and only for retrieval
+    Personal API keys can only access their own key and only for retrieval
     """
 
-    message = "This action does not support Personal API Key access"
+    message = "This action does not support personal API key access"
 
     def has_permission(self, request, view) -> bool:
         # This permission check only applies to the personal api key

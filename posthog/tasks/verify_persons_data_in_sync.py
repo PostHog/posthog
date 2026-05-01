@@ -51,9 +51,14 @@ def verify_persons_data_in_sync(
 ) -> Counter:
     # :KLUDGE: Rather than filter on created_at directly which is unindexed, we look up the latest value in 'id' column
     #   and leverage that to narrow down filtering in an index-efficient way
-    max_pk = Person.objects.filter(created_at__lte=now() - period_start).latest("id").id
+    max_pk = (
+        # nosemgrep: no-direct-persons-db-orm
+        Person.objects.filter(created_at__lte=now() - period_start)
+        .latest("id")
+        .id  # nosemgrep: no-direct-persons-db-orm
+    )  # nosemgrep: no-direct-persons-db-orm
     person_data = list(
-        Person.objects.filter(
+        Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
             pk__lte=max_pk,
             pk__gte=max_pk - LIMIT * 5,
             created_at__gte=now() - period_end,
@@ -89,10 +94,17 @@ def _team_integrity_statistics(person_data: list[Any]) -> Counter:
     # :TRICKY: To speed up processing, we fetch all models in batch at once and store results in dictionary indexed by person uuid
     pg_persons = _index_by(
         list(
-            Person.objects.filter(id__in=person_ids, team_id__in=team_ids).prefetch_related(
+            Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                id__in=person_ids, team_id__in=team_ids
+            ).prefetch_related(  # nosemgrep: no-direct-persons-db-orm
                 Prefetch(
                     "persondistinctid_set",
-                    queryset=PersonDistinctId.objects.filter(team_id__in=team_ids).order_by("id"),
+                    # nosemgrep: no-direct-persons-db-orm
+                    queryset=PersonDistinctId.objects.filter(
+                        team_id__in=team_ids
+                    ).order_by(  # nosemgrep: no-direct-persons-db-orm
+                        "id"
+                    ),  # nosemgrep: no-direct-persons-db-orm
                     to_attr="distinct_ids_cache",
                 )
             )

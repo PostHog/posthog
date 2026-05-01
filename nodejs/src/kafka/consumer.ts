@@ -178,7 +178,7 @@ export class KafkaConsumer {
     private lastStatsEmitTime = 0
     private rebalanceCoordination: RebalanceCoordination = {
         isRebalancing: false,
-        rebalanceTimeoutMs: 20000,
+        rebalanceTimeoutMs: defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS,
         rebalanceStartTime: 0,
     }
     private consumerLogStatsLevel: LogLevel
@@ -905,6 +905,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const result: EventHeaders = {
         force_disable_person_processing: false,
         historical_migration: false,
+        skip_heatmap_processing: false,
     }
 
     headers?.forEach((header) => {
@@ -931,6 +932,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 }
             } else if (key === 'historical_migration') {
                 result.historical_migration = value === 'true'
+            } else if (key === 'skip_heatmap_processing') {
+                result.skip_heatmap_processing = value === 'true'
             }
         })
     })
@@ -946,6 +949,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
         'now',
         'force_disable_person_processing',
         'historical_migration',
+        'skip_heatmap_processing',
     ] as const
     trackedHeaders.forEach((header) => {
         const status = result[header] ? 'present' : 'absent'

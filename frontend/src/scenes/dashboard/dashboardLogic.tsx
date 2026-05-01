@@ -102,6 +102,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
+    scheduleSharedDashboardStaleAutoForceIfEligible,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -178,8 +179,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
     props({} as DashboardLogicProps),
 
     key((props) => {
-        if (typeof props.id !== 'number') {
-            throw Error('Must init dashboardLogic with a numeric ID key')
+        // `typeof NaN === 'number'` — check finiteness explicitly so a NaN id surfaces loudly
+        // instead of mounting a stuck-NotFound logic instance.
+        if (typeof props.id !== 'number' || !Number.isFinite(props.id)) {
+            throw Error(`dashboardLogic key() received non-finite id: ${String(props.id)}`)
         }
         return props.id
     }),
@@ -2169,6 +2172,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.setRefreshAnalysisCacheKey(null)
                     }
                 }
+            }
+
+            if (
+                isInitialLoad &&
+                !forceRefresh &&
+                tilesErroredCount === 0 &&
+                tilesAbortedCount === 0 &&
+                values.placement === DashboardPlacement.Public
+            ) {
+                scheduleSharedDashboardStaleAutoForceIfEligible({
+                    effectiveLastRefresh: values.effectiveLastRefresh,
+                    triggerDashboardRefresh: () => {
+                        void actions.triggerDashboardRefresh()
+                    },
+                })
             }
         },
         saveEditModeChanges: () => {

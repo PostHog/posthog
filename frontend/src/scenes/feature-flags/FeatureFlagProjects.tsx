@@ -139,9 +139,10 @@ function FeatureFlagCopySection(): JSX.Element {
         projectsWithCurrentFlag,
         featureFlagCopyLoading,
         copySchedule,
+        disableCopiedFlag,
         scheduledChanges,
     } = useValues(featureFlagLogic)
-    const { setCopyDestinationProject, copyFlag, setCopySchedule } = useActions(featureFlagLogic)
+    const { setCopyDestinationProject, copyFlag, setCopySchedule, setDisableCopiedFlag } = useActions(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
@@ -193,6 +194,15 @@ function FeatureFlagCopySection(): JSX.Element {
                         onChange={setCopySchedule}
                         disabled={scheduledChanges.length === 0}
                         label={scheduledChanges.length > 0 ? `${scheduledChanges.length} pending` : 'None available'}
+                        className="h-10 flex items-center"
+                    />
+                </div>
+                <div>
+                    <div className="font-semibold leading-6 h-6">Disable copied flag</div>
+                    <LemonCheckbox
+                        checked={disableCopiedFlag}
+                        onChange={setDisableCopiedFlag}
+                        label="Copy as disabled"
                         className="h-10 flex items-center"
                     />
                 </div>

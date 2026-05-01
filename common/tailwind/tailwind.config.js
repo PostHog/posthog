@@ -337,6 +337,10 @@ const config = {
         '../../products/**/frontend/**/*.{ts,tsx}',
         '../../products/**/mcp/apps/**/*.{ts,tsx}',
         '../../common/mosaic/src/**/*.{ts,tsx}',
+        // @posthog/quill ships BEM CSS for component look, but uses Tailwind
+        // utilities for layout/spacing in its compiled JS. Scan dist here so
+        // those utilities get compiled into this pre-built Tailwind bundle.
+        '../../packages/quill/packages/quill/dist/**/*.{js,cjs}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],

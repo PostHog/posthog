@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import {
-    LemonButton,
     LemonCalendarSelectInput,
     LemonDialog,
     LemonInput,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
@@ -16,7 +16,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 
 import {
-    buildDeliveryTargets,
     COOLDOWN_HOURS_MAX,
     COOLDOWN_HOURS_MIN,
     evaluationReportLogic,
@@ -258,35 +257,6 @@ function ReportFormFields({ evaluationId }: { evaluationId: string }): JSX.Eleme
     )
 }
 
-/** Save button for the edit path. Disabled based on draft dirtiness and target presence. */
-function SaveReportButton({ evaluationId }: { evaluationId: string }): JSX.Element {
-    const logic = evaluationReportLogic({ evaluationId })
-    const { configDraft, isConfigDirty, reportsLoading } = useValues(logic)
-    const { saveDraft } = useActions(logic)
-
-    const hasAnyTarget = buildDeliveryTargets(configDraft).length > 0
-
-    return (
-        <div className="flex justify-end">
-            <LemonButton
-                type="primary"
-                size="small"
-                loading={reportsLoading}
-                onClick={() => saveDraft()}
-                disabledReason={
-                    !isConfigDirty
-                        ? 'No changes to save'
-                        : !hasAnyTarget
-                          ? 'Add at least one delivery target'
-                          : undefined
-                }
-            >
-                Save changes
-            </LemonButton>
-        </div>
-    )
-}
-
 /** Inline config shown during new evaluation creation */
 function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const { configDraft } = useValues(evaluationReportLogic({ evaluationId }))
@@ -314,14 +284,18 @@ function PendingReportConfig({ evaluationId }: { evaluationId: string }): JSX.El
     )
 }
 
-/** Toggle-based report management for existing evaluations */
+/** Toggle-based report management for existing evaluations.
+ * The "Save changes" button at the top of the evaluation page persists any
+ * draft updates — see llmEvaluationLogic.saveEvaluation, which forwards
+ * the draft to persistReportDraft. Disabling the toggle with a saved report
+ * is still an immediate destructive action (handled via the dialog) rather
+ * than a staged save. */
 function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
-    const { activeReport, reportsLoading, configDraft } = useValues(logic)
-    const { deleteReport, saveDraft, setDraftEnabled } = useActions(logic)
+    const { activeReport, reportsLoading, configDraft, isConfigDirty } = useValues(logic)
+    const { deleteReport, setDraftEnabled } = useActions(logic)
 
     const isEnabled = !!activeReport || configDraft.enabled
-    const hasAnyTarget = buildDeliveryTargets(configDraft).length > 0
 
     const handleToggle = (checked: boolean): void => {
         if (checked) {
@@ -345,9 +319,12 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
     return (
         <div className="bg-bg-light border rounded p-6">
             <div className="flex items-center justify-between mb-4">
-                <div>
-                    <h3 className="text-lg font-semibold mb-1">Scheduled reports</h3>
-                    <p className="text-muted text-sm">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-semibold m-0">Scheduled reports</h3>
+                        {isConfigDirty && <LemonTag type="warning">Unsaved changes</LemonTag>}
+                    </div>
+                    <p className="text-muted text-sm m-0">
                         AI-generated analysis of evaluation results. Reports are always available in the Reports tab.
                         Optionally add email or Slack to get notified.
                     </p>
@@ -364,7 +341,6 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
             {activeReport ? (
                 <>
                     <ReportFormFields evaluationId={evaluationId} />
-                    <SaveReportButton evaluationId={evaluationId} />
                     {configDraft.frequency === 'every_n'
                         ? (() => {
                               const cooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
@@ -385,22 +361,7 @@ function ExistingReportConfig({ evaluationId }: { evaluationId: string }): JSX.E
                     <p className="text-xs text-muted m-0 mt-2">Generated reports appear in the Reports tab.</p>
                 </>
             ) : (
-                configDraft.enabled && (
-                    <>
-                        <ReportFormFields evaluationId={evaluationId} />
-                        <div className="flex justify-end mt-4">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => saveDraft()}
-                                loading={reportsLoading}
-                                disabledReason={!hasAnyTarget ? 'Add at least one delivery target' : undefined}
-                            >
-                                Save report schedule
-                            </LemonButton>
-                        </div>
-                    </>
-                )
+                configDraft.enabled && <ReportFormFields evaluationId={evaluationId} />
             )}
         </div>
     )

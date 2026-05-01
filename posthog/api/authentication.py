@@ -1,7 +1,7 @@
 import json
 import time
 import datetime
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -10,7 +10,6 @@ from django.contrib.auth import (
     authenticate,
     login,
     logout as auth_logout,
-    views as auth_views,
 )
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.signals import user_logged_in
@@ -24,9 +23,11 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_http_methods
 
 import structlog
+from axes.exceptions import AxesBackendPermissionDenied
+from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
@@ -113,7 +114,7 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
         check_and_cache_login_device(user.id, country, short_user_agent)
 
 
-@csrf_protect
+@require_http_methods(["POST"])
 def logout(request):
     clear_two_factor_session_flags(request)
 
@@ -124,13 +125,13 @@ def logout(request):
         restore_original_login(request)
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
-    # Preserve any safe `next` param
-    next_param = request.GET.get("next")
-    if next_param and url_has_allowed_host_and_scheme(next_param, allowed_hosts={request.get_host()}):
-        auth_logout(request)
-        return redirect_to_login(next_param, login_url=settings.LOGIN_URL)
+    auth_logout(request)
 
-    return auth_views.logout_then_login(request)
+    next_url = request.POST.get("next")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect_to_login(next_url, login_url=settings.LOGIN_URL)
+
+    return redirect(settings.LOGIN_URL)
 
 
 def axes_locked_out(*args, **kwargs):
@@ -153,11 +154,11 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # This is the default case - for regular login, we flush the session (log out)
         request.session.flush()
     else:
-        # For linking a social provider, we keep the session and set the next URL to the /account/social-connected page
-        # (see frontend AccountSocialConnected). QueryDict must be copied before mutation (GET is often immutable).
+        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+        # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
-            f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
+            f"/account-connected/github-login?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
         request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
@@ -192,6 +193,30 @@ class EmailMFARequired(APIException):
     def __init__(self, email: str | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
+
+
+def is_email_verified_for_login(user: User) -> bool:
+    """
+    Send a verification email when the login policy requires it.
+
+    Returns whether login may continue for this user. Legacy users with a null
+    verification state are still allowed to sign in.
+    """
+    if not is_email_available():
+        return True
+
+    if user.is_email_verified is True:
+        return True
+
+    if is_email_verification_disabled(user):
+        return True
+
+    EmailVerifier.create_token_and_send_email_verification(user)
+    if user.is_email_verified is False:
+        return False
+
+    # legacy None users are still allowed to log in
+    return True
 
 
 class LoginSerializer(serializers.Serializer):
@@ -273,9 +298,6 @@ class LoginSerializer(serializers.Serializer):
         )
 
         # Initialize axes handler via proxy so request metadata is populated consistently
-        from axes.exceptions import AxesBackendPermissionDenied
-        from axes.handlers.proxy import AxesProxyHandler
-
         handler = AxesProxyHandler
         axes_credentials = {"username": validated_data["email"]}
 
@@ -284,7 +306,7 @@ class LoginSerializer(serializers.Serializer):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
         user = cast(
-            Optional[User],
+            User | None,
             authenticate(
                 request,
                 email=validated_data["email"],
@@ -300,16 +322,11 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_email_available() and user.is_email_verified is not True and not is_email_verification_disabled(user):
-            EmailVerifier.create_token_and_send_email_verification(user)
-            # If it's None, we want to let them log in still since they are an existing user
-            # If it's False, we want to tell them to check their email
-            if user.is_email_verified is False:
-                raise serializers.ValidationError(
-                    "Your account is awaiting verification. Please check your email for a verification link.",
-                    code="not_verified",
-                )
+        if not is_email_verified_for_login(user):
+            raise serializers.ValidationError(
+                "Your account is awaiting verification. Please check your email for a verification link.",
+                code="not_verified",
+            )
 
         clear_two_factor_session_flags(request)
 
@@ -341,6 +358,9 @@ class LoginSerializer(serializers.Serializer):
                         pass
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+        # Log successful authentication with axes
+        handler.user_logged_in(None, user=user, request=axes_request)
 
         if not self._check_if_2fa_required(user):
             set_two_factor_verified_in_session(request)
@@ -981,7 +1001,7 @@ password_reset_token_generator = PasswordResetTokenGenerator()
 
 
 def social_login_notification(
-    strategy: DjangoStrategy, backend, user: Optional[User] = None, is_new: bool = False, **kwargs
+    strategy: DjangoStrategy, backend, user: User | None = None, is_new: bool = False, **kwargs
 ):
     """Final pipeline step to notify on OAuth/SAML login"""
     if not user:

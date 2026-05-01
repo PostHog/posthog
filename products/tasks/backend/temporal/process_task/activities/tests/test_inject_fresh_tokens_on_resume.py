@@ -3,10 +3,14 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 
+from posthog.models import OrganizationMembership, User
+
+from products.tasks.backend.models import SandboxEnvironment
 from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     InjectFreshTokensOnResumeInput,
+    _build_environment_variables,
     inject_fresh_tokens_on_resume,
 )
 
@@ -131,3 +135,47 @@ class TestInjectFreshTokensOnResumeActivity:
             )
 
         assert sandbox.write_file.call_count == 1
+
+    def test_build_environment_variables_ignores_other_users_private_sandbox_environment(
+        self, task_context, test_task, test_task_run
+    ):
+        other_user = User.objects.create_user(
+            email="victim@example.com",
+            first_name="Victim",
+            password="password",
+        )
+        OrganizationMembership.objects.create(
+            user=other_user,
+            organization_id=test_task.team.organization_id,
+        )
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=test_task.team,
+            created_by=other_user,
+            name="Victim's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+        state = {"sandbox_environment_id": str(sandbox_environment.id)}
+        test_task_run.state = state
+        test_task_run.save(update_fields=["state"])
+        task_context.state = state
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_api_url",
+                return_value="https://sandbox.example.com",
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_jwt_public_key",
+                return_value="jwt-public-key",
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_git_identity_env_vars",
+                return_value={},
+            ),
+        ):
+            environment_variables = _build_environment_variables(task_context, test_task, "", "oauth_new")
+
+        assert environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
+        assert environment_variables["POSTHOG_API_URL"] == "https://sandbox.example.com"
+        assert "SECRET_KEY" not in environment_variables

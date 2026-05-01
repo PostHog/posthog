@@ -1,6 +1,7 @@
 import { Separator as SeparatorPrimitive } from '@base-ui/react/separator'
 import * as React from 'react'
 
+import './separator.css'
 import { cn } from './lib/utils'
 
 function Separator({ className, orientation = 'horizontal', ...props }: SeparatorPrimitive.Props): React.ReactElement {
@@ -9,10 +10,7 @@ function Separator({ className, orientation = 'horizontal', ...props }: Separato
             data-quill
             data-slot="separator"
             orientation={orientation}
-            className={cn(
-                'shrink-0 bg-border data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch',
-                className
-            )}
+            className={cn('quill-separator shrink-0', className)}
             {...props}
         />
     )

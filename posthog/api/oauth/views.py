@@ -36,7 +36,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.oauth.cimd import (
-    CIMD_THROTTLES,
+    CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
     get_application_by_client_id,
@@ -449,7 +449,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
         if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
-            for throttle in CIMD_THROTTLES:
+            for throttle_cls in CIMD_THROTTLE_CLASSES:
+                throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
                     logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
                     return Response(

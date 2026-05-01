@@ -234,8 +234,10 @@ export interface SessionRecordingApi {
     person?: MinimalPersonApi
     /** @nullable */
     readonly retention_period_days: number | null
-    readonly expiry_time: string
-    readonly recording_ttl: string
+    /** @nullable */
+    readonly expiry_time: string | null
+    /** @nullable */
+    readonly recording_ttl: number | null
     /** @nullable */
     readonly snapshot_source: string | null
     /** @nullable */
@@ -292,8 +294,10 @@ export interface PatchedSessionRecordingApi {
     person?: MinimalPersonApi
     /** @nullable */
     readonly retention_period_days?: number | null
-    readonly expiry_time?: string
-    readonly recording_ttl?: string
+    /** @nullable */
+    readonly expiry_time?: string | null
+    /** @nullable */
+    readonly recording_ttl?: number | null
     /** @nullable */
     readonly snapshot_source?: string | null
     /** @nullable */

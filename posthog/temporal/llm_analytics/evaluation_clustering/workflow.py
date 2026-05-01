@@ -23,6 +23,11 @@ from posthog.temporal.llm_analytics.evaluation_clustering.models import (
     SamplerWorkflowResult,
 )
 from posthog.temporal.llm_analytics.evaluation_clustering.sampling import sample_and_embed_for_job_activity
+from posthog.temporal.llm_analytics.trace_clustering.metrics import (
+    record_clusters_generated,
+    record_items_analyzed,
+    record_noise_points,
+)
 
 
 @workflow.defn(name=SAMPLER_WORKFLOW_NAME)
@@ -192,6 +197,9 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
                 window_end=window_end,
             )
 
+        record_items_analyzed(len(compute_result.eval_ids), "evaluation")
+        record_noise_points(compute_result.num_noise_points, "evaluation")
+
         # 2. Metadata
         metadata_result = await workflow.execute_activity(
             fetch_evaluation_metadata_activity,
@@ -275,6 +283,8 @@ class LLMAEvaluationClusteringWorkflow(PostHogWorkflow):
             heartbeat_timeout=EMIT_HEARTBEAT_TIMEOUT,
             retry_policy=EMIT_ACTIVITY_RETRY_POLICY,
         )
+
+        record_clusters_generated(emit_result.metrics.num_clusters, "evaluation")
 
         return SamplerWorkflowResult(
             team_id=inputs.team_id,

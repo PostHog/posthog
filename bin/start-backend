@@ -5,6 +5,8 @@ export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
 trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
 export OBJECT_STORAGE_ENDPOINT=${OBJECT_STORAGE_ENDPOINT:-http://objectstorage:19000}
+# Browser-reachable host for presigned URLs (objectstorage:19000 only resolves inside Docker).
+export OBJECT_STORAGE_PUBLIC_ENDPOINT=${OBJECT_STORAGE_PUBLIC_ENDPOINT:-http://localhost:19000}
 export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
 
 export CLICKHOUSE_API_USER="api"

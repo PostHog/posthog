@@ -8,6 +8,18 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.models import LogsExclusionRule
+
+
+def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
+    if rule.rule_type == LogsExclusionRule.RuleType.PATH_DROP:
+        patterns = (rule.config or {}).get("patterns") or []
+        return f"Path drop ({len(patterns)} pattern(s))"
+    if rule.rule_type == LogsExclusionRule.RuleType.SEVERITY_SAMPLING:
+        return "Severity sampling"
+    if rule.rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
+        return "Rate limit (planned)"
+    return str(rule.rule_type)
 
 
 class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -39,20 +51,53 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             settings=self.settings,
         )
 
+        enabled_rules = list(
+            LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
+        )
+
         services = []
         for row in aggregates_response.results:
             service_name = row[0] if row[0] else "(no service)"
             log_count = row[1]
             error_count = row[2]
+            sev_debug = row[3]
+            sev_info = row[4]
+            sev_warn = row[5]
             error_rate = error_count / log_count if log_count > 0 else 0.0
+            active_rules = []
+            for rule in enabled_rules:
+                if rule.scope_service and rule.scope_service != service_name:
+                    continue
+                active_rules.append(
+                    {
+                        "rule_id": str(rule.id),
+                        "rule_name": rule.name,
+                        "summary_string": _sampling_rule_summary(rule),
+                    }
+                )
             services.append(
                 {
                     "service_name": service_name,
                     "log_count": log_count,
                     "error_count": error_count,
                     "error_rate": round(error_rate, 4),
+                    "severity_breakdown": {
+                        "debug": int(sev_debug),
+                        "info": int(sev_info),
+                        "warn": int(sev_warn),
+                        "error": int(error_count),
+                    },
+                    "active_rules": active_rules,
                 }
             )
+
+        total_logs = sum(int(s["log_count"]) for s in services) or 0
+        for s in services:
+            lc = int(s["log_count"])
+            s["volume_share_pct"] = round(100.0 * lc / total_logs, 2) if total_logs else 0.0
+
+        top_n = min(5, len(services))
+        top_share = round(sum(float(s["volume_share_pct"]) for s in services[:top_n]), 2) if services else 0.0
 
         sparkline = []
         for row in sparkline_response.results:
@@ -64,7 +109,16 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 }
             )
 
-        return LogsQueryResponse(results={"services": services, "sparkline": sparkline})
+        return LogsQueryResponse(
+            results={
+                "services": services,
+                "sparkline": sparkline,
+                "summary": {
+                    "top_services_count": top_n,
+                    "top_services_volume_share_pct": top_share,
+                },
+            }
+        )
 
     def to_query(self) -> ast.SelectQuery:
         return self._aggregates_query()
@@ -74,13 +128,16 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             """
             SELECT
                 service_name,
-                sum(_log_count) AS log_count,
-                sumIf(_log_count, in(severity_text, tuple('error', 'fatal'))) AS error_count
+                sum(cnt) AS log_count,
+                sumIf(cnt, in(severity_text, tuple('error', 'fatal'))) AS error_count,
+                sumIf(cnt, in(severity_text, tuple('trace', 'debug'))) AS severity_debug,
+                sumIf(cnt, severity_text = 'info') AS severity_info,
+                sumIf(cnt, in(severity_text, tuple('warn', 'warning'))) AS severity_warn
             FROM (
                 SELECT
                     service_name,
-                    count() AS _log_count,
-                    severity_text,
+                    lower(severity_text) AS severity_text,
+                    count() AS cnt,
                 FROM logs
                 WHERE {where}
                 GROUP BY service_name, severity_text

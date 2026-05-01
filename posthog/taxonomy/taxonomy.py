@@ -15,6 +15,7 @@ class CoreFilterDefinition(TypedDict):
     ignored_in_assistant: NotRequired[bool]
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
+    promoted_property: NotRequired[str]
 
 
 """
@@ -118,11 +119,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$pageview": {
             "label": "Pageview",
             "description": "When a user loads (or reloads) a page.",
+            "promoted_property": "$pathname",
         },
         "$pageleave": {
             "label": "Pageleave",
             "description": "When a user leaves a page.",
             "ignored_in_assistant": True,  # Pageleave confuses the LLM, it just can't use this event in a sensible way
+            "promoted_property": "$pathname",
         },
         "$autocapture": {
             "label": "Autocapture",
@@ -143,6 +146,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$screen": {
             "label": "Screen",
             "description": "When a user loads a screen in a mobile app.",
+            "promoted_property": "$screen_name",
         },
         "$set": {
             "label": "Set person properties",
@@ -161,6 +165,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
+            "promoted_property": "$feature_flag",
         },
         "$feature_view": {
             "label": "Feature view",
@@ -170,6 +175,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$feature_interaction": {
             "label": "Feature interaction",
             "description": "When a user interacts with a feature.",
+            "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
+        },
+        "$element_viewed": {
+            "label": "Element viewed",
+            "description": "When an element wrapped in `<PostHogCaptureOnViewed>` becomes visible in the viewport.",
             "ignored_in_assistant": True,  # Specific to posthog-js/react, niche
         },
         "$feature_enrollment_update": {
@@ -225,6 +235,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_evaluation": {
             "label": "AI evaluation (LLM)",
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
+        },
+        "$ai_tag": {
+            "label": "AI tag (LLM)",
+            "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
         },
         "$ai_metric": {
             "label": "AI metric (LLM)",
@@ -2083,6 +2097,46 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The runtime used to execute the evaluation (e.g., llm_judge for LLM-based, hog for code-based).",
             "examples": ["llm_judge", "hog"],
         },
+        "$ai_tagger_id": {
+            "label": "AI Tagger ID (LLM)",
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
+        "$ai_tagger_name": {
+            "label": "AI Tagger Name (LLM)",
+            "description": "The name of the tagger configuration used.",
+            "examples": ["Product feature tagger", "Intent classifier"],
+        },
+        "$ai_tags": {
+            "label": "AI Tags (LLM)",
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": ["billing", "feature-flags", "onboarding"],
+        },
+        "$ai_tag_count": {
+            "label": "AI Tag Count (LLM)",
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [1, 3],
+        },
+        "$ai_tag_reasoning": {
+            "label": "AI Tag Reasoning (LLM)",
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": ["The generation discussed billing and feature flag configuration"],
+        },
+        "$ai_tagger_start_time": {
+            "label": "AI Tagger Start Time (LLM)",
+            "description": "The timestamp when the tagger started executing.",
+            "examples": ["2025-01-15T10:30:00Z"],
+        },
+        "$ai_tagger_key_type": {
+            "label": "AI Tagger Key Type (LLM)",
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": ["byok", "posthog"],
+        },
+        "$ai_tagger_key_id": {
+            "label": "AI Tagger Key ID (LLM)",
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": ["550e8400-e29b-41d4-a716-446655440000"],
+        },
         "$ai_target_event_id": {
             "label": "AI Target Event ID (LLM)",
             "description": "The unique identifier of the event being evaluated.",
@@ -2389,6 +2443,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Bot name",
             "description": "Name of the detected bot or crawler.",
             "examples": ["Googlebot", "ChatGPT", "Claude", "curl"],
+            "type": "String",
+            "virtual": True,
+        },
+        "$virt_bot_operator": {
+            "label": "Bot operator",
+            "description": "Company or organization operating the bot.",
+            "examples": ["Google", "OpenAI", "Anthropic", "Microsoft"],
             "type": "String",
             "virtual": True,
         },

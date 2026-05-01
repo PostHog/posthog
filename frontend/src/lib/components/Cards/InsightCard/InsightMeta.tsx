@@ -25,7 +25,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -660,15 +659,10 @@ export function InsightMetaContent({
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
-                <Tooltip
-                    title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
-                    placement="top-end"
-                >
-                    <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
-                        <Spinner className="mr-1.5 text-base" textColored />
-                        {loading ? 'Loading' : 'Waiting to load'}
-                    </span>
-                </Tooltip>
+                <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
+                    <Spinner className="mr-1.5 text-base" textColored />
+                    {loading ? 'Loading' : 'Waiting to load'}
+                </span>
             )}
         </>
     )

@@ -387,9 +387,9 @@ export const ScheduleEnumApi = {
  * `person` - person
  * `group` - group
  */
-export type Type576EnumApi = (typeof Type576EnumApi)[keyof typeof Type576EnumApi]
+export type PropertyGroupTypeEnumApi = (typeof PropertyGroupTypeEnumApi)[keyof typeof PropertyGroupTypeEnumApi]
 
-export const Type576EnumApi = {
+export const PropertyGroupTypeEnumApi = {
     Cohort: 'cohort',
     Person: 'person',
     Group: 'group',
@@ -431,7 +431,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -463,9 +463,9 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type OperatorA04EnumApi = (typeof OperatorA04EnumApi)[keyof typeof OperatorA04EnumApi]
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
 
-export const OperatorA04EnumApi = {
+export const ExistenceOperatorEnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -478,7 +478,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -493,7 +493,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: OperatorA04EnumApi
+    operator: ExistenceOperatorEnumApi
     /** Optional value. Runtime behavior determines whether this is ignored. */
     value?: unknown
 }
@@ -503,9 +503,9 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
  * `is_date_before` - is_date_before
  * `is_date_after` - is_date_after
  */
-export type Operator382EnumApi = (typeof Operator382EnumApi)[keyof typeof Operator382EnumApi]
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
 
-export const Operator382EnumApi = {
+export const DateOperatorEnumApi = {
     IsDateExact: 'is_date_exact',
     IsDateBefore: 'is_date_before',
     IsDateAfter: 'is_date_after',
@@ -519,7 +519,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -535,7 +535,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `is_date_exact` - is_date_exact
 * `is_date_after` - is_date_after
 * `is_date_before` - is_date_before */
-    operator: Operator382EnumApi
+    operator: DateOperatorEnumApi
     /** Date value in ISO format or relative date expression. */
     value: string
 }
@@ -574,7 +574,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -621,7 +621,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type576EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -813,15 +813,15 @@ export const SurveyOpenQuestionSchemaTypeEnumApi = {
 } as const
 
 /**
- * * `text` - text
- * `html` - html
+ * * `html` - html
+ * `text` - text
  */
 export type DescriptionContentTypeEnumApi =
     (typeof DescriptionContentTypeEnumApi)[keyof typeof DescriptionContentTypeEnumApi]
 
 export const DescriptionContentTypeEnumApi = {
-    Text: 'text',
     Html: 'html',
+    Text: 'text',
 } as const
 
 export interface SurveyOpenQuestionSchemaApi {
@@ -1100,9 +1100,9 @@ export type SurveyQuestionInputSchemaApi =
  * `regex` - regex
  * `not_regex` - not_regex
  */
-export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
+export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
 
-export const DeviceTypesMatchTypeEnumApi = {
+export const StringMatchOperatorEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -1152,7 +1152,7 @@ export interface SurveyConditionsSchemaApi {
 * `is_not` - is_not
 * `icontains` - icontains
 * `not_icontains` - not_icontains */
-    urlMatchType?: DeviceTypesMatchTypeEnumApi
+    urlMatchType?: StringMatchOperatorEnumApi
     events?: SurveyEventsConditionSchemaApi
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
@@ -1164,22 +1164,10 @@ export interface SurveyConditionsSchemaApi {
 * `is_not` - is_not
 * `icontains` - icontains
 * `not_icontains` - not_icontains */
-    deviceTypesMatchType?: DeviceTypesMatchTypeEnumApi
+    deviceTypesMatchType?: StringMatchOperatorEnumApi
     /** The variant of the feature flag linked to this survey. */
     linkedFlagVariant?: string
 }
-
-/**
- * * `html` - html
- * `text` - text
- */
-export type ThankYouMessageDescriptionContentTypeEnumApi =
-    (typeof ThankYouMessageDescriptionContentTypeEnumApi)[keyof typeof ThankYouMessageDescriptionContentTypeEnumApi]
-
-export const ThankYouMessageDescriptionContentTypeEnumApi = {
-    Html: 'html',
-    Text: 'text',
-} as const
 
 /**
  * * `button` - button
@@ -1209,7 +1197,7 @@ export interface SurveyAppearanceSchemaApi {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
-    thankYouMessageDescriptionContentType?: ThankYouMessageDescriptionContentTypeEnumApi
+    thankYouMessageDescriptionContentType?: DescriptionContentTypeEnumApi
     thankYouMessageCloseButtonText?: string
     borderColor?: string
     placeholder?: string
@@ -1887,6 +1875,80 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
 }
 
 /**
+ * Optional translation-only draft survey payload to translate instead of the last saved survey.
+ */
+export type GenerateSurveyTranslationsRequestApiSurvey = { [key: string]: unknown | null }
+
+export interface GenerateSurveyTranslationsRequestApi {
+    /** Language code to generate translations for, for example pt-BR. */
+    target_language: string
+    /** Source language code for the existing survey copy. */
+    source_language?: string
+    /** Whether to overwrite existing translations for this language. */
+    overwrite?: boolean
+    /** Optional translation-only draft survey payload to translate instead of the last saved survey. */
+    survey?: GenerateSurveyTranslationsRequestApiSurvey
+}
+
+export interface GeneratedSurveyRootTranslationApi {
+    /** Translated survey name. */
+    name?: string
+    /** Translated thank-you header. */
+    thankYouMessageHeader?: string
+    /** Translated thank-you description. */
+    thankYouMessageDescription?: string
+    /** Translated thank-you close button text. */
+    thankYouMessageCloseButtonText?: string
+}
+
+/**
+ * Survey-level translation patch keyed by language.
+ */
+export type GenerateSurveyTranslationsResponseApiTranslations = { [key: string]: GeneratedSurveyRootTranslationApi }
+
+export interface GeneratedSurveyQuestionTranslationApi {
+    /** Translated question text. */
+    question?: string
+    /** Translated question description. */
+    description?: string
+    /** Translated submit button text. */
+    buttonText?: string
+    /** Translated choices in the same order as the source choices. */
+    choices?: string[]
+    /** Translated lower rating bound label. */
+    lowerBoundLabel?: string
+    /** Translated upper rating bound label. */
+    upperBoundLabel?: string
+    /** Translated link text or localized URL. */
+    link?: string
+}
+
+/**
+ * Question translation patch keyed by target language.
+ */
+export type GeneratedSurveyQuestionTranslationPatchApiTranslations = {
+    [key: string]: GeneratedSurveyQuestionTranslationApi
+}
+
+export interface GeneratedSurveyQuestionTranslationPatchApi {
+    /** Survey question id this patch applies to. */
+    id: string
+    /** Question translation patch keyed by target language. */
+    translations: GeneratedSurveyQuestionTranslationPatchApiTranslations
+}
+
+export interface GenerateSurveyTranslationsResponseApi {
+    /** Survey-level translation patch keyed by language. */
+    translations: GenerateSurveyTranslationsResponseApiTranslations
+    /** Question-level translation patches keyed by question id and language. */
+    questions: GeneratedSurveyQuestionTranslationPatchApi[]
+    /** Editor field paths generated by AI and safe to highlight as draft content. */
+    generated_field_paths: string[]
+    /** LLM trace id for debugging and feedback. */
+    trace_id: string
+}
+
+/**
  * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
  */
 export type SurveyStatsResponseApiStats = { [key: string]: unknown }
@@ -1948,7 +2010,7 @@ export type SurveysListParams = {
     search?: string
 }
 
-export type SurveysStatsRetrieve2Params = {
+export type SurveysStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */
@@ -1959,7 +2021,7 @@ export type SurveysStatsRetrieve2Params = {
     date_to?: string
 }
 
-export type SurveysStatsRetrieveParams = {
+export type SurveysGlobalStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */

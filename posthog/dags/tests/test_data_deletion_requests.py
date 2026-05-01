@@ -131,12 +131,14 @@ def test_load_deletion_request_rejects_property_removal():
     ],
 )
 def test_finalize_deletion_request_transitions_status(execution_mode, expected_status):
+    start_time = datetime.now() - timedelta(days=7)
+    end_time = datetime.now()
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
         request_type=RequestType.EVENT_REMOVAL,
         events=["$pageview"],
-        start_time=datetime.now() - timedelta(days=7),
-        end_time=datetime.now(),
+        start_time=start_time,
+        end_time=end_time,
         status=RequestStatus.IN_PROGRESS,
         execution_mode=execution_mode,
     )
@@ -144,8 +146,8 @@ def test_finalize_deletion_request_transitions_status(execution_mode, expected_s
     deletion_ctx = DeletionRequestContext(
         request_id=str(request.pk),
         team_id=TEAM_ID,
-        start_time=request.start_time,
-        end_time=request.end_time,
+        start_time=start_time,
+        end_time=end_time,
         events=["$pageview"],
         execution_mode=execution_mode.value,
     )

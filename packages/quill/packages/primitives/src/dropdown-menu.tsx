@@ -5,6 +5,7 @@ import * as React from 'react'
 import { Button } from './button'
 import { Checkbox } from './checkbox'
 import { cn } from './lib/utils'
+import './menu.css'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 
@@ -29,15 +30,13 @@ function DropdownMenuContent({
     anchor,
     ...props
 }: MenuPrimitive.Popup.Props &
-    Pick<
-        MenuPrimitive.Positioner.Props,
-        'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'
-    >): React.ReactElement {
+    Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'>): React.ReactElement {
     return (
         <MenuPrimitive.Portal>
             <MenuPrimitive.Positioner
                 data-quill
-                className="isolate z-50 outline-none"
+                data-quill-portal="popover"
+                className="isolate outline-none"
                 align={align}
                 alignOffset={alignOffset}
                 side={side}
@@ -47,7 +46,7 @@ function DropdownMenuContent({
                 <MenuPrimitive.Popup
                     data-slot="dropdown-menu-content"
                     className={cn(
-                        'z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-md bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-start-2 data-[side=inline-start]:slide-in-from-end-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-95',
+                        'quill-menu__content w-(--anchor-width)',
                         className
                     )}
                     {...props}
@@ -72,7 +71,7 @@ function DropdownMenuLabel({
         <MenuPrimitive.GroupLabel
             data-slot="dropdown-menu-label"
             data-inset={inset}
-            className={cn('data-inset:ps-7.5', className)}
+            className={cn(inset && 'quill-menu-item--inset', className)}
             render={<MenuLabel />}
             {...props}
         />
@@ -94,7 +93,8 @@ function DropdownMenuItem({
             data-inset={inset}
             data-variant={variant}
             className={cn(
-                "group/dropdown-menu-item relative flex cursor-default items-center text-xs/relaxed outline-hidden select-none data-inset:ps-7.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "group/dropdown-menu-item relative flex cursor-default items-center text-xs/relaxed outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                inset && 'quill-menu-item--inset',
                 className
             )}
             render={<Button variant={variant} className="w-full font-normal [&_kbd]:ml-auto" left />}
@@ -120,7 +120,8 @@ function DropdownMenuSubTrigger({
             data-slot="dropdown-menu-sub-trigger"
             data-inset={inset}
             className={cn(
-                "flex cursor-default items-center text-xs outline-hidden select-none data-inset:ps-7.5 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "flex cursor-default items-center text-xs outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                inset && 'quill-menu-item--inset',
                 className
             )}
             render={<Button className="w-full font-normal" left />}
@@ -144,7 +145,7 @@ function DropdownMenuSubContent({
         <DropdownMenuContent
             data-slot="dropdown-menu-sub-content"
             className={cn(
-                'w-auto min-w-32 rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+                'quill-menu__sub-content w-auto',
                 className
             )}
             align={align}
@@ -170,7 +171,7 @@ function DropdownMenuCheckboxItem({
             data-slot="dropdown-menu-checkbox-item"
             data-inset={inset}
             className={cn(
-                "relative flex cursor-default items-center ps-7.5 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             checked={checked}
@@ -208,7 +209,7 @@ function DropdownMenuRadioItem({
             data-slot="dropdown-menu-radio-item"
             data-inset={inset}
             className={cn(
-                "relative flex min-h-7 cursor-default items-center ps-7.5 pe-2 text-xs outline-hidden select-none data-inset:ps-7.5 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "quill-menu-item--inset relative flex min-h-7 cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
             render={<Button className="w-full font-normal" left />}
@@ -229,26 +230,11 @@ function DropdownMenuRadioItem({
 }
 
 function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props): React.ReactElement {
-    return (
-        <MenuPrimitive.Separator
-            data-slot="dropdown-menu-separator"
-            className={cn('-mx-1 my-1 h-px bg-border/50', className)}
-            {...props}
-        />
-    )
+    return <MenuPrimitive.Separator data-slot="dropdown-menu-separator" className={cn('quill-menu__separator', className)} {...props} />
 }
 
 function DropdownMenuShortcut({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return (
-        <span
-            data-slot="dropdown-menu-shortcut"
-            className={cn(
-                'ms-auto text-[0.625rem] tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground',
-                className
-            )}
-            {...props}
-        />
-    )
+    return <span data-slot="dropdown-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
 }
 
 export {

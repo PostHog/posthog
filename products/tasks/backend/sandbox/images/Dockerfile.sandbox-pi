@@ -20,20 +20,23 @@ RUN set -eux; \
     cp -r "$src/skills/autoresearch-finalize" /root/.pi/agent/skills/; \
     rm -rf "$src"
 
-# production_us is the canonical source; US/EU/oldest share the pin today but can diverge.
-# Fetching the exact SHA eliminates the tag-force-move TOCTOU window that --branch would have.
-COPY .github/clickhouse-versions.json /tmp/clickhouse-versions.json
+# The exact SHA doesn't matter — the autoresearch agent just needs reasonably recent
+# ClickHouse source to ground itself in, and version parity with our prod cluster isn't
+# worth the coupling. But we do need to pin to *something*: the cloned tree lands in
+# a context an LLM reads, so anyone who can force-push or rebase upstream's default
+# branch could slip prompt-injection payloads into the image. Fetch-by-SHA (not by
+# branch) means the server only returns the specified commit, so branch movement
+# cannot affect what lands here. Bump by hand when the source is too stale to be useful.
+ARG CLICKHOUSE_SRC_SHA=2cfc72ed95fd4594a38f5cba68d14dc20baf6951
 RUN set -eux; \
-    expected_sha=$(jq -r '.source_shas.production_us // empty' /tmp/clickhouse-versions.json); \
-    [ -n "$expected_sha" ] || { echo "source_shas.production_us missing"; exit 1; }; \
     dst=/opt/clickhouse; \
     git init -q "$dst"; \
     git -C "$dst" remote add origin https://github.com/ClickHouse/ClickHouse.git; \
-    git -C "$dst" -c protocol.version=2 fetch --depth 1 origin "$expected_sha"; \
+    git -C "$dst" -c protocol.version=2 fetch --depth 1 origin "$CLICKHOUSE_SRC_SHA"; \
     git -C "$dst" reset --hard FETCH_HEAD; \
     find "$dst" -maxdepth 2 -type d \
         \( -name tests -o -name docs -o -name website -o -name contrib \) \
         -prune -exec rm -rf {} +; \
-    rm -rf "$dst/.git" /tmp/clickhouse-versions.json
+    rm -rf "$dst/.git"
 
 CMD ["/bin/bash"]

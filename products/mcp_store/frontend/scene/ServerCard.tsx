@@ -46,7 +46,7 @@ export function ServerCard({ server }: Props): JSX.Element {
     return (
         <LemonCard hoverEffect className="cursor-pointer" onClick={openDetail}>
             <div className="flex gap-3 flex-row items-center">
-                <ServerIcon iconKey={server.icon_key} name={server.name} size={40} />
+                <ServerIcon iconKey={server.icon_key} size={40} />
                 <div className="flex-1 min-w-0">
                     <h3 className="mb-0 truncate">{server.name}</h3>
                     {server.description && (

@@ -1,0 +1,15 @@
+@layer components {
+    .quill-separator {
+        background-color: var(--border);
+    }
+
+    .quill-separator[data-orientation='horizontal'] {
+        width: 100%;
+        height: 1px;
+    }
+
+    .quill-separator[data-orientation='vertical'] {
+        align-self: stretch;
+        width: 1px;
+    }
+}
