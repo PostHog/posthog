@@ -13,7 +13,12 @@ const saveFeatureFlag = async (page: Page): Promise<void> => {
     )
     await saveButton.click()
     await responsePromise
+    const listResponsePromise = page.waitForResponse(
+        (resp) => /\/api\/projects\/\d+\/feature_flags\/?(\?|$)/.test(resp.url()) && resp.request().method() === 'GET'
+    )
     await page.goto(urls.featureFlags())
+    await listResponsePromise
+    await expect(page.locator('[data-attr="feature-flag-table"]')).toBeVisible()
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {
@@ -51,6 +56,7 @@ const addTwoVariants = async (page: Page): Promise<void> => {
 
 const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
     const row = page.locator(`[data-row-key="${name}"]`)
+    await row.scrollIntoViewIfNeeded()
     await expect(row).toBeVisible()
     await row.locator('[data-attr="more-button"]').click()
     await page.locator('[data-attr="create-survey"]').click()

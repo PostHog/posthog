@@ -185,8 +185,9 @@ test.describe('Workflows', () => {
         })
 
         test('invocations tab shows logs viewer', async ({ page }) => {
-            // Click on Invocations tab
-            await page.getByRole('tab', { name: /Invocations/ }).click()
+            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+
+            await sceneTabs.getByRole('tab', { name: /Invocations/ }).click()
             await page.waitForSelector('[data-attr="workflow-logs"]', { timeout: 10000 })
             // Wait for the loading spinner to disappear before taking a screenshot
             await expect(page.locator('[data-attr="workflow-logs"] svg.Spinner')).not.toBeVisible({ timeout: 10000 })
@@ -195,41 +196,41 @@ test.describe('Workflows', () => {
         })
 
         test('metrics tab shows metrics dashboard', async ({ page }) => {
-            // Click on Metrics tab
-            await page.getByRole('tab', { name: 'Metrics' }).click()
+            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+
+            await sceneTabs.getByRole('tab', { name: 'Metrics' }).click()
             await page.waitForSelector('[data-attr="workflow-metrics"]', { timeout: 10000 })
 
             await expect(page).toHaveScreenshot('workflow-view-metrics.png', { fullPage: true })
         })
 
         test('history tab shows activity log', async ({ page }) => {
-            // Click on History tab
-            await page.getByRole('tab', { name: 'History' }).click()
+            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+
+            await sceneTabs.getByRole('tab', { name: 'History' }).click()
             await page.waitForSelector('[data-attr="activity-log"]', { timeout: 10000 })
 
             await expect(page).toHaveScreenshot('workflow-view-history.png', { fullPage: true })
         })
 
         test('can navigate between all workflow tabs', async ({ page }) => {
+            const sceneTabs = page.getByTestId('workflow-scene-tabs')
+
             // Start on workflow tab
             await expect(page.locator('[data-attr="workflow-editor"]')).toBeVisible()
 
-            // Go to Invocations
-            await page.getByRole('tab', { name: /Invocations/ }).click()
+            await sceneTabs.getByRole('tab', { name: /Invocations/ }).click()
             await page.waitForSelector('[data-attr="workflow-logs"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/logs/)
 
-            // Go to Metrics
-            await page.getByRole('tab', { name: 'Metrics' }).click()
+            await sceneTabs.getByRole('tab', { name: 'Metrics' }).click()
             await page.waitForSelector('[data-attr="workflow-metrics"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/metrics/)
 
-            // Go to History
-            await page.getByRole('tab', { name: 'History' }).click()
+            await sceneTabs.getByRole('tab', { name: 'History' }).click()
             await expect(page).toHaveURL(/\/history/)
 
-            // Go back to Workflow
-            await page.getByRole('tab', { name: 'Workflow' }).click()
+            await sceneTabs.getByRole('tab', { name: 'Workflow' }).click()
             await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/workflow/)
         })

@@ -107,6 +107,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                         tabs={tabs}
                         sceneInset
+                        data-attr="workflow-scene-tabs"
                         className={clsx({
                             'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
                         })}
