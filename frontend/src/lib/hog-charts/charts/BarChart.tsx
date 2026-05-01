@@ -25,6 +25,11 @@ import type {
     TooltipContext,
 } from '../core/types'
 
+function bandCenter(scales: BarScaleSet, label: string): number | undefined {
+    const start = scales.band(label)
+    return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
 export interface BarChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
@@ -133,13 +138,7 @@ function BarChartInner<Meta = unknown>({
             // calls `scales.y(tick)` for x-pixel positioning of value ticks).
             // For vertical, `y` is the value scale on the y-axis.
             return {
-                x: (label: string) => {
-                    const start = d3Scales.band(label)
-                    if (start == null) {
-                        return undefined
-                    }
-                    return start + d3Scales.band.bandwidth() / 2
-                },
+                x: (label: string) => bandCenter(d3Scales, label),
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
             }
@@ -157,10 +156,7 @@ function BarChartInner<Meta = unknown>({
             const baseDrawCtx: DrawContext = {
                 ctx,
                 dimensions,
-                xScale: (label: string) => {
-                    const start = d3Scales.band(label)
-                    return start == null ? undefined : start + d3Scales.band.bandwidth() / 2
-                },
+                xScale: (label: string) => bandCenter(d3Scales, label),
                 yScale: d3Scales.value,
                 labels: drawLabels,
             }
@@ -246,11 +242,7 @@ function BarChartInner<Meta = unknown>({
 
     const labelToCoord = useCallback((label: string): number | undefined => {
         const d3Scales = d3ScalesRef.current
-        if (!d3Scales) {
-            return undefined
-        }
-        const start = d3Scales.band(label)
-        return start == null ? undefined : start + d3Scales.band.bandwidth() / 2
+        return d3Scales ? bandCenter(d3Scales, label) : undefined
     }, [])
 
     return (
