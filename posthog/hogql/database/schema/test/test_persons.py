@@ -572,16 +572,46 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][1] == ["alice_a"]
 
     def test_pdi_subquery_with_negated_persons_filter(self):
-        # WHERE NOT (...) on persons side. WhereClauseExtractor's join-aware
-        # tombstoning of NOT must not apply to the inner subquery context, so
-        # the filter should still narrow correctly.
         response = execute_hogql_query(
             parse_select("SELECT pdi.distinct_id FROM persons WHERE NOT (properties.name = 'bob')"),
             self.team,
         )
         assert response.clickhouse is not None
+        # Pushdown must actually fire AND must include the negation in the inner
+        # subquery. WhereClauseExtractor would tombstone NOT to True if is_join
+        # were set; we strip next_join before calling it to prevent that.
+        assert "pdi_pushdown_pdi" in response.clickhouse
+        assert "pdi_pushdown_persons" in response.clickhouse
+        assert "not(" in response.clickhouse or "notLike" in response.clickhouse
         distinct_ids = sorted(row[0] for row in response.results)
         assert distinct_ids == ["alice_a", "alice_b"]
+
+    def test_pdi_subquery_with_not_like(self):
+        response = execute_hogql_query(
+            parse_select("SELECT pdi.distinct_id FROM persons WHERE properties.name NOT LIKE 'bob'"),
+            self.team,
+        )
+        assert response.clickhouse is not None
+        assert "pdi_pushdown_pdi" in response.clickhouse
+        assert "notLike" in response.clickhouse
+        distinct_ids = sorted(row[0] for row in response.results)
+        assert distinct_ids == ["alice_a", "alice_b"]
+
+    def test_pdi_subquery_with_negation_and_outer_join(self):
+        # When the outer query has a JOIN already in select_from.next_join,
+        # WhereClauseExtractor.get_inner_where would normally flip is_join=True
+        # and tombstone the NOT predicate. _strip_next_join in the helper
+        # prevents that. Use revenue_analytics (a real LazyJoin) to seed
+        # next_join.
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT pdi.distinct_id, revenue_analytics.mrr FROM persons WHERE NOT (properties.name = 'bob')"
+            ),
+            self.team,
+        )
+        assert response.clickhouse is not None
+        assert "pdi_pushdown_pdi" in response.clickhouse
+        assert "not(" in response.clickhouse or "notLike" in response.clickhouse
 
     def test_pdi_subquery_with_or_persons_filter(self):
         # OR across persons-side predicates is safe to push down: both branches

@@ -71,13 +71,16 @@ def _derive_person_id_filter_inner(
         if persons_table is not None:
             extractor = WhereClauseExtractor(context)
             extractor.tracked_tables.append(persons_table)
-            # The pushed-down filter lives inside an independent subquery
-            # (SELECT id FROM raw_persons WHERE ...). The outer query's joins
-            # are not in scope there, so any tombstoning the join-aware path
-            # would do is unwarranted here. Force is_join=False so NOT and
-            # negated comparisons stay extractable.
-            extractor.is_join = False
-            persons_filter = extractor.get_inner_where(node)
+            # WhereClauseExtractor.get_inner_where unconditionally sets
+            # is_join=True when select_from.next_join is set, which would
+            # tombstone NOT/negated comparisons in the extracted filter.
+            # That tombstoning is correct for the original use case (a
+            # redundant outer-AND filter on the persons inner subquery)
+            # but unsafe here, where the result becomes the ONLY filter
+            # inside an independent SELECT against raw_persons. Hand the
+            # extractor a shallow copy with next_join stripped so the
+            # override never fires.
+            persons_filter = extractor.get_inner_where(_strip_next_join(node))
             if persons_filter is not None:
                 inner_persons = cast(
                     ast.SelectQuery,
@@ -123,6 +126,12 @@ class _FindPersonsTableVisitor(TraversingVisitor):
         table_type = _table_type_from_field(node)
         if isinstance(table_type, ast.LazyTableType) and isinstance(table_type.table, PersonsTable):
             self.found = table_type.table
+
+
+def _strip_next_join(node: ast.SelectQuery) -> ast.SelectQuery:
+    if node.select_from is None or node.select_from.next_join is None:
+        return node
+    return node.model_copy(update={"select_from": node.select_from.model_copy(update={"next_join": None})})
 
 
 def _find_persons_table(node: ast.SelectQuery):
