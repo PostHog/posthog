@@ -64,7 +64,8 @@ class TestDiscoverCanonicalSkills:
         skills = discover_canonical_skills(tmp_path)
         assert [s.name for s in skills] == ["signals-agent-foo"]
 
-    def test_parses_allowed_tools_when_present(self, tmp_path: Path) -> None:
+    def test_parses_allowed_tools_underscore_form(self, tmp_path: Path) -> None:
+        # Backwards-compat form. The spec uses `allowed-tools`; we accept this too.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-agent-bar",
@@ -82,7 +83,44 @@ class TestDiscoverCanonicalSkills:
         skills = discover_canonical_skills(tmp_path)
         assert skills[0].allowed_tools == ("remember", "search_memory")
 
-    def test_parses_bundled_files_under_references_and_scripts(self, tmp_path: Path) -> None:
+    def test_parses_allowed_tools_hyphen_form_per_agentskills_spec(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-agent-bar",
+            frontmatter="""
+                ---
+                name: signals-agent-bar
+                description: bar skill
+                allowed-tools:
+                  - remember
+                  - search_memory
+                ---
+            """,
+            body="# Bar\n",
+        )
+        skills = discover_canonical_skills(tmp_path)
+        assert skills[0].allowed_tools == ("remember", "search_memory")
+
+    def test_rejects_both_allowed_tools_keys_set(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-agent-bar",
+            frontmatter="""
+                ---
+                name: signals-agent-bar
+                description: bar skill
+                allowed-tools:
+                  - remember
+                allowed_tools:
+                  - search_memory
+                ---
+            """,
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="both 'allowed-tools' and 'allowed_tools'"):
+            discover_canonical_skills(tmp_path)
+
+    def test_parses_bundled_files_under_references_scripts_and_assets(self, tmp_path: Path) -> None:
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-agent-bar",
@@ -96,6 +134,7 @@ class TestDiscoverCanonicalSkills:
             bundled_files={
                 "references/playbook.md": "# Playbook\n",
                 "scripts/check.py": "print('hi')\n",
+                "assets/template.txt": "hello {{name}}\n",
             },
         )
         skills = discover_canonical_skills(tmp_path)
@@ -103,6 +142,8 @@ class TestDiscoverCanonicalSkills:
         assert "references/playbook.md" in files_by_path
         assert files_by_path["references/playbook.md"].content == "# Playbook\n"
         assert "scripts/check.py" in files_by_path
+        assert "assets/template.txt" in files_by_path
+        assert files_by_path["assets/template.txt"].content == "hello {{name}}\n"
 
     def test_missing_frontmatter_raises(self, tmp_path: Path) -> None:
         skill_dir = tmp_path / "signals-agent-foo"
