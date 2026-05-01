@@ -188,7 +188,6 @@ export enum Scene {
     LLMAnalyticsTrace = 'LLMAnalyticsTrace',
     LLMAnalyticsUsers = 'LLMAnalyticsUsers',
     Logs = 'Logs',
-    LogsAlertNew = 'LogsAlertNew',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsSamplingNew = 'LogsSamplingNew',
     LogsSamplingDetail = 'LogsSamplingDetail',

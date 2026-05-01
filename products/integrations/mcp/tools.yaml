@@ -147,8 +147,14 @@ tools:
     role-external-references-lookup-retrieve:
         operation: role_external_references_lookup_retrieve
         enabled: false
+    users-integrations-github-branches-retrieve:
+        operation: users_integrations_github_branches_retrieve
+        enabled: false
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
+        enabled: false
+    users-integrations-github-repos-refresh-create:
+        operation: users_integrations_github_repos_refresh_create
         enabled: false
     users-integrations-github-repos-retrieve:
         operation: users_integrations_github_repos_retrieve

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-30 20:21:05 UTC
+// Generated at: 2026-05-01 10:29:59 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -121,7 +121,6 @@ export type CanonicalProvider =
     | 'venice'
     | 'venice-beta'
     | 'venice-bf16'
-    | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'
     | 'venice-fp8'

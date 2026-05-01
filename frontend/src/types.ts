@@ -5068,6 +5068,7 @@ export const INTEGRATION_KINDS = [
     'google-sheets',
     'linkedin-ads',
     'snapchat',
+    'stripe',
     'intercom',
     'email',
     'twilio',
