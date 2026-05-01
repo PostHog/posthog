@@ -143,7 +143,7 @@ export function FeatureFlagReleaseConditions({
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
     const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } =
         useValues(featureFlagLogic)
-    const { setBucketingIdentifier } = useActions(featureFlagLogic)
+    const { setBucketingIdentifier, setFeatureFlag } = useActions(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -668,6 +668,30 @@ export function FeatureFlagReleaseConditions({
                                       ? 'device'
                                       : 'user'
 
+                            const applyChange = (): void => {
+                                if (value === 'user') {
+                                    setAggregationGroupTypeIndex(null)
+                                    setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                                } else if (value === 'device') {
+                                    setAggregationGroupTypeIndex(null)
+                                    setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                                    // Auto-disable persist across auth when switching to device ID
+                                    if (featureFlag.ensure_experience_continuity) {
+                                        setFeatureFlag({
+                                            ...featureFlag,
+                                            ensure_experience_continuity: false,
+                                        })
+                                    }
+                                } else if (value === 'group') {
+                                    // Default to first group type when selecting Group
+                                    const firstGroupType = Array.from(groupTypes.values())[0]
+                                    if (firstGroupType) {
+                                        setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+                                    }
+                                    setBucketingIdentifier(null)
+                                }
+                            }
+
                             // If changing from current value, show confirmation
                             if (value !== currentValue) {
                                 LemonDialog.open({
@@ -676,22 +700,7 @@ export function FeatureFlagReleaseConditions({
                                         'Changing the bucketing option will cause users to re-evaluate the flag and may cause changes in the evaluation results. Are you sure you want to continue?',
                                     primaryButton: {
                                         children: 'Continue',
-                                        onClick: () => {
-                                            if (value === 'user') {
-                                                setAggregationGroupTypeIndex(null)
-                                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-                                            } else if (value === 'device') {
-                                                setAggregationGroupTypeIndex(null)
-                                                setBucketingIdentifier(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                                            } else if (value === 'group') {
-                                                // Default to first group type when selecting Group
-                                                const firstGroupType = Array.from(groupTypes.values())[0]
-                                                if (firstGroupType) {
-                                                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
-                                                }
-                                                setBucketingIdentifier(null)
-                                            }
-                                        },
+                                        onClick: applyChange,
                                         size: 'small',
                                     },
                                     secondaryButton: {
@@ -700,6 +709,9 @@ export function FeatureFlagReleaseConditions({
                                         size: 'small',
                                     },
                                 })
+                            } else {
+                                // No change, just apply directly
+                                applyChange()
                             }
                         }}
                         options={[
