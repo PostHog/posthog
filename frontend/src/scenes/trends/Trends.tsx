@@ -73,7 +73,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 !isLifecycle &&
                 !isStickiness
             ) {
-                return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
+                return <TrendsBarChart context={context} />
             }
             return <ActionsLineGraph {...commonProps} />
         }

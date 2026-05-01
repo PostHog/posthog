@@ -27,7 +27,6 @@ import { buildTrendsBarTimeSeries } from './trendsBarChartTransforms'
 
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
-    inSharedMode?: boolean
 }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
