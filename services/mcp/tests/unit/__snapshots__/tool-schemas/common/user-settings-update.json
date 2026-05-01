@@ -75,26 +75,6 @@
             },
             "type": "object"
         },
-        "onboarding_skipped_reason": {
-            "anyOf": [
-                {
-                    "anyOf": [
-                        {
-                            "description": "* `delegated` - Delegated to teammate\n* `later` - Skipped for later\n* `other` - Other",
-                            "enum": ["delegated", "later", "other"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
-                },
-                {
-                    "type": "null"
-                }
-            ]
-        },
         "passkeys_enabled_for_2fa": {
             "anyOf": [
                 {
