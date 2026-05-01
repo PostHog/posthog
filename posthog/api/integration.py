@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -897,6 +898,18 @@ class IntegrationViewSet(
         source_team_id = request.data.get("source_team_id")
         installation_id_param = request.data.get("installation_id")
 
+        if installation_id_param and not re.fullmatch(r"\d{1,20}", str(installation_id_param)):
+            raise ValidationError("Invalid installation_id")
+
+        # installation_id is stored in JSONB and historically written as either a
+        # string or a number, so match both representations.
+        installation_id_match = (
+            Q(config__installation_id=str(installation_id_param))
+            | Q(config__installation_id=int(installation_id_param))
+            if installation_id_param
+            else None
+        )
+
         if source_team_id:
             try:
                 source_team_id_int = int(source_team_id)
@@ -906,20 +919,22 @@ class IntegrationViewSet(
             if not self.organization.teams.filter(id=source_team_id_int).exists():
                 raise ValidationError("Source team not found in your organization")
 
-            try:
-                source = Integration.objects.get(team_id=source_team_id_int, kind="github")
-            except Integration.DoesNotExist:
+            qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
+            # When the source team has multiple GitHub installations linked, the
+            # caller must pass installation_id to disambiguate.
+            if installation_id_match is not None:
+                qs = qs.filter(installation_id_match)
+
+            source = qs.order_by("id").first()
+            if source is None:
                 raise ValidationError("Source team does not have a GitHub integration")
         elif installation_id_param:
-            if not re.fullmatch(r"\d{1,20}", str(installation_id_param)):
-                raise ValidationError("Invalid installation_id")
-
             existing = (
                 Integration.objects.filter(
                     team__organization_id=self.organization_id,
                     kind="github",
-                    config__installation_id=str(installation_id_param),
                 )
+                .filter(installation_id_match)
                 .order_by("id")
                 .first()
             )
