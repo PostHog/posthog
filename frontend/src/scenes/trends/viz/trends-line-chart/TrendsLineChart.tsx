@@ -270,6 +270,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
             className="LineGraph"
+            dataAttr="trend-line-graph"
             onError={handleChartError}
         >
             <ReferenceLines lines={referenceLines} />
