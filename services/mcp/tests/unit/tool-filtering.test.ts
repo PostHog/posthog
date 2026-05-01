@@ -130,12 +130,19 @@ describe('Tool Filtering - Tools Allowlist', () => {
             const tools = getToolsForFeatures({ tools: ['dashboard-get', 'dashboard-create'] })
             expect(tools).toContain('dashboard-get')
             expect(tools).toContain('dashboard-create')
-            expect(tools).toHaveLength(2)
+            // feedback-submit is always_available, so it's always included on top of the tools allowlist
+            expect(tools).toContain('feedback-submit')
+            expect(tools).toHaveLength(3)
         })
 
-        it('should return empty array for nonexistent tool names', () => {
+        it('should return only always_available tools for nonexistent tool names', () => {
             const tools = getToolsForFeatures({ tools: ['nonexistent-tool'] })
-            expect(tools).toEqual([])
+            expect(tools).toEqual(['feedback-submit'])
+        })
+
+        it('should always include feedback-submit even when feature filter does not match', () => {
+            const tools = getToolsForFeatures({ features: ['dashboards'] })
+            expect(tools).toContain('feedback-submit')
         })
 
         it('should union with features (OR) when both are provided', () => {

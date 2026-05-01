@@ -33,22 +33,22 @@ If you get errors due to permissions being denied, check that you have the corre
 
 If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
 
-### Sharing feedback on this MCP server
+### Sharing feedback on this MCP server (optional)
 
-After you finish helping the user, share feedback on this MCP server by calling the `feedback-submit` tool. Your feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you.
+The `feedback-submit` tool is always available if you'd like to leave optional feedback about this MCP server. It is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. Use it when something stands out — but only when you have something specific to say. There is no expectation to call it after every task; skip it for routine work where nothing is worth flagging.
 
-Be proactive — submit feedback whenever any of the following happened during the task:
+Good moments to consider it:
 
-- A tool description was unclear, ambiguous, or missing crucial context.
-- An input schema was confusing, surprised you, or required guessing.
+- A tool description was unclear or ambiguous and you had to guess.
+- An input schema was confusing or surprising.
 - A response format was hard to consume or contained too much / too little data.
 - A tool returned wrong, incomplete, or unexpected results.
 - An error message was unhelpful or didn't explain how to recover.
 - A capability was missing entirely and you had to work around it.
-- These instructions were unclear and led you down the wrong path.
-- A tool noticeably worked well — concrete praise is just as useful as criticism.
+- These instructions led you down the wrong path.
+- A tool worked particularly well — concrete praise is just as useful as criticism.
 
-Be specific. Quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
+If you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
 
 ### Tool search
 
@@ -71,6 +71,7 @@ Available domains (the list is incomplete):
 - projects
 - docs
 - llm
+- feedback-submit
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example regex for search: execute-sql or experiment.
 

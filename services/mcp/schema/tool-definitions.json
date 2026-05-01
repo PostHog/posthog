@@ -15,13 +15,14 @@
         }
     },
     "feedback-submit": {
-        "description": "Submit structured feedback about your experience using this PostHog MCP server. Use this tool whenever you finish helping the user — especially when something was friction-y, surprising, missing, or particularly smooth. The feedback goes directly to the PostHog team and is the primary way we improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content.",
+        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content.",
         "category": "Feedback",
         "feature": "feedback",
-        "summary": "Submit feedback about the PostHog MCP server.",
+        "summary": "Optional: submit feedback about the PostHog MCP server.",
         "title": "Submit MCP feedback",
         "required_scopes": [],
         "new_mcp": true,
+        "always_available": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
