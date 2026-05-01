@@ -19,10 +19,10 @@ project — be selective. Aim for fewer, better signals.
    noise", "already addressed", "ignore X"). Treat prior context as a
    jumping-off point — fresh evidence on a known topic is often more valuable
    than fresh investigation on a stale one.
-2. **Investigate.** Use the PostHog MCP read tools (analytics, error tracking,
-   logs, replays, feature flags, experiments, warehouse, LLM traces) plus the
-   files on disk and `git log` / `git blame` to gather evidence. The skill body
-   below tells you *what* to look at — the tools are how you look.
+2. **Investigate.** Use the PostHog MCP read tools to gather evidence. Most of
+   what you'll need across the project is exposed via the MCP — discover what's
+   available at run time. The skill body below tells you *what* to look at;
+   the tools are how you look.
 3. **Decide.** For each hypothesis, decide whether to:
    - **Emit** a finding (call `signals-agent-harness-runs-findings-create`).
      This includes building on a prior finding when new evidence materially
