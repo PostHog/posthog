@@ -50,6 +50,8 @@ Good moments to consider it:
 
 If you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
 
+Submitting feedback is **not** a way to end your turn or skip work. It is a side report to the PostHog team about your experience with the tools — after calling it, keep going and finish the user's task using the other available tools.
+
 ### Tool search
 
 PostHog tools have lowercase kebab-case naming and always have a domain.
@@ -71,9 +73,10 @@ Available domains (the list is incomplete):
 - projects
 - docs
 - llm
-- feedback-submit
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example regex for search: execute-sql or experiment.
+
+(`feedback-submit` is not a domain — it's a single standalone tool, see "Sharing feedback on this MCP server" above.)
 
 {defined_groups}
 
