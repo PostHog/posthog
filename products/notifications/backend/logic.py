@@ -89,7 +89,6 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     if data.resource_type and str(data.resource_type) in AC_RESOURCE_TYPES:
         resolved_user_ids = resolver.filter_by_access_control(resolved_user_ids, str(data.resource_type), team)
 
-    pre_pref_count = len(resolved_user_ids)
     # Per-user pref filter must run AFTER AC — prefs cannot override access denials.
     resolved_user_ids = _filter_by_user_preferences(
         resolved_user_ids,
@@ -98,19 +97,11 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     )
 
     if not resolved_user_ids:
-        if pre_pref_count > 0:
-            logger.info(
-                "notifications.filtered_by_preferences",
-                target_type=data.target_type,
-                target_id=data.target_id,
-                pre_pref_count=pre_pref_count,
-            )
-        else:
-            logger.warning(
-                "notifications.no_recipients",
-                target_type=data.target_type,
-                target_id=data.target_id,
-            )
+        logger.warning(
+            "notifications.no_recipients",
+            target_type=data.target_type,
+            target_id=data.target_id,
+        )
         return None
 
     event = NotificationEvent.objects.create(
