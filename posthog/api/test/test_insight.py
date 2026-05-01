@@ -692,6 +692,34 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
+    def test_saved_filter_returns_saved_or_on_visible_dashboard(self) -> None:
+        default_dashboard = Dashboard.objects.create(name="d-default", team=self.team, creation_mode="default")
+        template_dashboard = Dashboard.objects.create(name="d-template", team=self.team, creation_mode="template")
+        unlisted_dashboard = Dashboard.objects.create(name="d-unlisted", team=self.team, creation_mode="unlisted")
+
+        filters = {"events": [{"id": "$pageview"}]}
+        saved_no_dashboard = Insight.objects.create(short_id="ins-sn", saved=True, team=self.team, filters=filters)
+        unsaved_on_default = Insight.objects.create(short_id="ins-ud", saved=False, team=self.team, filters=filters)
+        unsaved_on_template = Insight.objects.create(short_id="ins-ut", saved=False, team=self.team, filters=filters)
+        unsaved_on_unlisted = Insight.objects.create(short_id="ins-uu", saved=False, team=self.team, filters=filters)
+        unsaved_no_dashboard = Insight.objects.create(short_id="ins-un", saved=False, team=self.team, filters=filters)
+
+        DashboardTile.objects.create(insight=unsaved_on_default, dashboard=default_dashboard)
+        DashboardTile.objects.create(insight=unsaved_on_template, dashboard=template_dashboard)
+        DashboardTile.objects.create(insight=unsaved_on_unlisted, dashboard=unlisted_dashboard)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
+        assert response.status_code == status.HTTP_200_OK
+        returned = sorted(r["short_id"] for r in response.json()["results"])
+
+        assert returned == sorted(
+            [saved_no_dashboard.short_id, unsaved_on_default.short_id, unsaved_on_template.short_id]
+        ), (
+            f"`saved=true` must return saved insights and unsaved-on-non-unlisted-dashboard insights. "
+            f"unsaved-on-unlisted-dashboard ({unsaved_on_unlisted.short_id}) and unsaved-no-dashboard "
+            f"({unsaved_no_dashboard.short_id}) must be excluded."
+        )
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
