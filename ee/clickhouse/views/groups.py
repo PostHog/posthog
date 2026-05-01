@@ -908,7 +908,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
         team = self.context["get_team"]()
-        if not DataWarehouseTable.objects.filter(team=team, name=filters["table_name"], deleted=False).exists():
+        if not DataWarehouseTable.objects.filter(team=team, name=filters["table_name"]).exclude(deleted=True).exists():
             raise serializers.ValidationError(
                 {"filters": f"Data warehouse table {filters['table_name']!r} does not exist."}
             )

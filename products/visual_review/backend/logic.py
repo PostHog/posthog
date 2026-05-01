@@ -1817,8 +1817,8 @@ _DEFAULT_BRANCHES = ("master", "main")
 _SNAPSHOT_HISTORY_DEDUP_SQL = """
 WITH ordered AS (
     SELECT rs.id,
-           rs.current_artifact_id,
-           LAG(rs.current_artifact_id) OVER (ORDER BY r.created_at DESC) AS prev_artifact_id,
+           rs.baseline_artifact_id,
+           LAG(rs.baseline_artifact_id) OVER (ORDER BY r.created_at) AS prev_baseline_id,
            r.created_at
     FROM visual_review_runsnapshot rs
     JOIN visual_review_run r ON r.id = rs.run_id
@@ -1827,11 +1827,10 @@ WITH ordered AS (
       AND r.branch = ANY(%s)
       AND r.status = 'completed'
       AND rs.identifier = %s
-      AND rs.result IN ('changed', 'removed', 'new')
 )
 SELECT id
 FROM ordered
-WHERE prev_artifact_id IS DISTINCT FROM current_artifact_id
+WHERE prev_baseline_id IS DISTINCT FROM baseline_artifact_id
 ORDER BY created_at DESC
 """
 
@@ -1839,29 +1838,30 @@ ORDER BY created_at DESC
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[RunSnapshot]:
     """Baseline timeline for a snapshot identifier on the default branch.
 
-    Returns one entry per *baseline event* — i.e. each time the committed content
-    actually changed. Dedup happens server-side via a `LAG` window function over
-    runs ordered by `created_at DESC`: a row is kept only when its
-    `current_artifact_id` differs from its predecessor's. Plan stays the same as
-    the un-deduped query (verified on prod) — the WindowAgg piggybacks on the
-    sort already needed for ORDER BY, so the dedup is essentially free and we
-    avoid shipping the full raw history (often 100×–1000× larger) to Python.
+    Returns one entry per *baseline transition* — every time the committed
+    `.snapshots.yml` baseline actually moved. LAG-on-`baseline_artifact_id`
+    (over ASC ordering) keeps the FIRST run of each baseline period, so the
+    user sees the inception event plus every change since.
 
-    Filters applied at the DB level:
-      - branch ∈ master/main, run_type, repo: scope to default-branch runs of this kind
-      - status=completed: drop pre-classification rows. `result` defaults to NEW
-        on upload and is only finalised when the run completes; runs stuck in
-        pending/processing leave noise behind that isn't a real history event.
-      - result IN (changed, removed, new): only rows that move the baseline.
-        `unchanged` rows must be excluded *before* the LAG window — each capture
-        gets its own Artifact row even when the diff says the content matches
-        baseline (pixel jitter → different bytes → different content_hash), so
-        consecutive `unchanged` rows have differing `current_artifact_id`s and
-        would all slip past the dedup as fake "baseline events". For one prod
-        identifier we observed 99 fake events behind 2 real baselines.
-        Including `new` so first captures (the initial baseline event) appear
-        in history; `status=completed` already keeps pre-classification NEW
-        out.
+    Why LAG on `baseline_artifact_id` and not `current_artifact_id`:
+      - `current_artifact_id` is the bytes captured by THIS run. Pixel jitter
+        and tolerated drift produce different content_hash → different Artifact
+        rows even though the *baseline* didn't move. Keying on current_ caused
+        a prod regression (252 fake history events on a single tolerated-drift
+        story) because the artifact alternated between near-identical hashes
+        the matcher kept absorbing. LAG-on-current-with-result-filter (the
+        prior fix) hid those false events but also hid genuine first-appearance
+        rows whose `result=unchanged` against an existing YAML baseline.
+      - `baseline_artifact_id` reflects the YAML state at run time. It only
+        changes when a baseline-update PR merges. Pixel jitter and tolerated
+        drift leave it untouched, so LAG dedup naturally collapses noise while
+        catching every real baseline flip — without needing a `result` filter.
+
+    DB-level filters:
+      - branch ∈ master/main, run_type, repo: scope to default-branch runs of
+        this kind
+      - status=completed: drop pre-classification rows where the baseline FK
+        hasn't been hydrated yet (pending/processing leave NULL baseline_artifact)
     """
     with connections[READER_DB].cursor() as cursor:
         cursor.execute(
@@ -1909,15 +1909,21 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     # `recent_diff_avg`. `DAYS - 1` aligns with the day-key window.
     sparkline_cutoff = now - timedelta(days=BASELINE_SPARKLINE_DAYS - 1)
 
-    # 1. Find the latest non-superseded run on the default branch for every
-    # (repo, run_type). The partial unique index `unique_latest_run_per_group`
-    # ensures at most one row per group.
+    # 1. Find the latest *completed* run on the default branch per (repo,
+    # branch, run_type). Filtering on `superseded_by IS NULL` looks tempting
+    # but is wrong here: a freshly started PENDING/PROCESSING master run is
+    # un-superseded yet has zero (or sparse) RunSnapshots ingested, and would
+    # collapse the universe to whatever it has loaded so far. `status=completed`
+    # makes the universe fall through to the most recent fully-ingested run.
     universe_runs = list(
         Run.objects.filter(
             repo_id=repo_id,
             branch__in=_DEFAULT_BRANCHES,
-            superseded_by__isnull=True,
-        ).only("id", "run_type", "completed_at", "created_at")
+            status=RunStatus.COMPLETED,
+        )
+        .order_by("repo_id", "branch", "run_type", "-created_at")
+        .distinct("repo_id", "branch", "run_type")
+        .only("id", "run_type", "completed_at", "created_at")
     )
     universe_run_ids = [r.id for r in universe_runs]
     if not universe_run_ids:

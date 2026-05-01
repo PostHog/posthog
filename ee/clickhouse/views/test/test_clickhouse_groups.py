@@ -2013,6 +2013,45 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "filters")
 
+    def test_create_data_warehouse_metric_accepts_table_with_null_deleted(self):
+        table = self._create_dw_table()
+        table.deleted = None
+        table.save()
+
+        payload = {
+            "name": "DW signups",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+    def test_create_data_warehouse_metric_rejects_soft_deleted_table(self):
+        table = self._create_dw_table()
+        table.deleted = True
+        table.save()
+
+        payload = {
+            "name": "DW signups",
+            "filters": {
+                "source": "data_warehouse",
+                "table_name": "stripe_charges",
+                "timestamp_field": "created",
+                "key_field": "customer_id",
+            },
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "filters")
+
     def test_create_data_warehouse_sum_requires_math_property(self):
         self._create_dw_table()
         payload = {
