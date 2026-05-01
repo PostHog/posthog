@@ -1,5 +1,6 @@
 import random
 import string
+from collections.abc import Callable
 from datetime import datetime
 from typing import Optional, cast
 
@@ -621,7 +622,7 @@ def build_session_property_pre_aggregation_predicate(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
     requested_fields: dict[str, list[str | int]],
-    select_from_fn,
+    select_from_fn: Callable[[dict[str, list[str | int]], ast.SelectQuery, HogQLContext], ast.SelectQuery],
     session_id_v7_field: ast.Expr,
 ) -> Optional[ast.Expr]:
     """Build ``raw_sessions.session_id_v7 IN (SELECT session_id_v7 FROM <small inner> WHERE <session predicate>)``.
