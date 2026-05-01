@@ -32,9 +32,14 @@ _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
 CLAUDE_OAUTH_PARAMETER = "claude_oauth_token"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
+GIT_SIGNING_KEY_PARAMETER = "git_signing_key"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
+
+# 1Password SSH agent socket on macOS. Stable across versions and engineers
+# because it lives in the team's shared App Group container.
+ONE_PASSWORD_AGENT_SOCKET = "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 
 # Default values for all optional template parameters. Passing these explicitly
 # prevents the Coder CLI from prompting interactively for missing values.
@@ -43,6 +48,7 @@ _TEMPLATE_PARAMETER_DEFAULTS: dict[str, str] = {
     DOTFILES_URI_PARAMETER: "",
     DOTFILES_BRANCH_PARAMETER: "",
     JETBRAINS_IDES_PARAMETER: "[]",
+    GIT_SIGNING_KEY_PARAMETER: "",
 }
 
 _STEP_RE = re.compile(r"^==>.*?(\w[\w ]+)")
@@ -323,11 +329,21 @@ def ensure_coder_reachable() -> None:
 
 
 def _config_ssh_args() -> list[str]:
-    """Build the base args for ``coder config-ssh``, pinning the managed binary path."""
+    """Build the base args for ``coder config-ssh``, pinning the managed binary path.
+
+    Appends SSH options that wire up 1Password-backed commit signing inside
+    workspaces: ``ForwardAgent yes`` so the local SSH agent reaches the remote,
+    and on macOS ``IdentityAgent`` pointed at the 1Password app's socket so the
+    forwarded agent is the 1Password one. Both are emitted unconditionally;
+    they're harmless when signing isn't configured.
+    """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
+    args += ["--ssh-option", "ForwardAgent yes"]
+    if sys.platform == "darwin":
+        args += ["--ssh-option", f"IdentityAgent {ONE_PASSWORD_AGENT_SOCKET}"]
     return args
 
 
@@ -522,6 +538,7 @@ def print_setup_summary() -> None:
     click.echo()
     click.echo("To reconfigure later:")
     click.echo("  hogli devbox:setup --configure-git-identity")
+    click.echo("  hogli devbox:setup --configure-git-signing")
     click.echo("  hogli devbox:setup --configure-dotfiles")
     click.echo("  hogli devbox:setup --configure-claude")
 

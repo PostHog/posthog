@@ -23,6 +23,8 @@ from .coder import (
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
+    GIT_SIGNING_KEY_PARAMETER,
+    ONE_PASSWORD_AGENT_SOCKET,
     _fail,
     create_task,
     create_workspace,
@@ -62,7 +64,7 @@ from .coder import (
     update_workspace,
     update_workspace_parameters,
 )
-from .config import load_config, save_dotfiles_uri, save_git_identity
+from .config import load_config, save_dotfiles_uri, save_git_identity, save_git_signing_key
 
 _CLAUDE_TOKEN_SERVICE = "posthog-claude-oauth-token"
 
@@ -187,7 +189,7 @@ def _workspace_status_color(status: str) -> str:
 
 
 def _sync_workspace_parameters(name: str) -> None:
-    """Push local config (git identity, dotfiles) to workspace parameters before start."""
+    """Push local config (git identity, signing, dotfiles) to workspace parameters before start."""
     config = load_config()
     params: dict[str, str] = {}
 
@@ -200,6 +202,10 @@ def _sync_workspace_parameters(name: str) -> None:
     dotfiles_uri = config.get("dotfiles_uri")
     if dotfiles_uri:
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
+
+    git_signing_key = config.get("git_signing_key")
+    if git_signing_key:
+        params[GIT_SIGNING_KEY_PARAMETER] = git_signing_key
 
     if params:
         update_workspace_parameters(name, params)
@@ -332,6 +338,120 @@ def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
     click.echo(f"Saved Git identity for new workspaces: {git_name} <{git_email}>")
 
 
+def _list_one_password_ssh_keys() -> list[tuple[str, str]]:
+    """Return ``(public_key_line, comment)`` tuples loaded in the local 1Password SSH agent.
+
+    Returns an empty list when the agent socket is missing, the agent is locked,
+    or no keys are loaded. Calls ``ssh-add -L`` against the 1Password socket
+    rather than the user's default ``$SSH_AUTH_SOCK`` so we only see 1Password
+    keys, not whatever else they may have loaded into a separate agent.
+    """
+    socket_path = Path(os.path.expanduser(ONE_PASSWORD_AGENT_SOCKET))
+    if not socket_path.exists():
+        return []
+
+    env = {**os.environ, "SSH_AUTH_SOCK": str(socket_path)}
+    result = subprocess.run(
+        ["ssh-add", "-L"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+
+    keys: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Lines look like: "ssh-ed25519 AAAA... user@host"
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            continue
+        comment = parts[2] if len(parts) >= 3 else "(no comment)"
+        keys.append((line, comment))
+    return keys
+
+
+def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
+    """Optionally persist a 1Password-backed SSH signing key for new workspaces.
+
+    Stores the public key only -- the private key never leaves the user's
+    1Password agent. The workspace receives the public key via a Coder
+    template parameter and writes the matching gitconfig on every start; the
+    actual signing happens against the forwarded SSH agent at commit time.
+    """
+    config = load_config()
+    existing_key = config.get("git_signing_key")
+
+    if configure_git_signing is False:
+        if existing_key:
+            click.echo("Using saved Git signing key.")
+            click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
+        else:
+            click.echo("Skipping Git commit signing setup.")
+        return
+
+    # Already saved -- skip unless explicitly asked to reconfigure.
+    if configure_git_signing is None and existing_key:
+        click.echo("Git signing: configured (commits inside devbox will be signed).")
+        click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
+        return
+
+    if not keychain.is_supported():
+        # Non-macOS hosts: 1Password agent socket path is mac-specific.
+        click.echo("Skipping Git commit signing setup (1Password integration is macOS-only).")
+        return
+
+    keys = _list_one_password_ssh_keys()
+    if not keys:
+        click.echo()
+        click.echo(click.style("Git commit signing (skipped)", bold=True))
+        click.echo("  Could not reach the 1Password SSH agent.")
+        click.echo("  Enable it in 1Password -> Settings -> Developer -> 'Use the SSH agent',")
+        click.echo("  then re-run `hogli devbox:setup --configure-git-signing`.")
+        return
+
+    click.echo()
+    click.echo(click.style("Git commit signing (1Password)", bold=True))
+    click.echo("  Pick the SSH key to use for signing commits inside your devbox.")
+    click.echo("  The private key stays in 1Password; only the public key is sent to the workspace.")
+    click.echo()
+    for index, (_, comment) in enumerate(keys, start=1):
+        click.echo(f"  {index}. {comment}")
+    click.echo("  0. Skip (do not enable signing)")
+    click.echo()
+
+    while True:
+        raw = click.prompt("Choose a key", default="1").strip()
+        try:
+            choice = int(raw)
+        except ValueError:
+            click.echo("Enter a number from the list.")
+            continue
+        if choice == 0:
+            click.echo("Skipping Git commit signing setup.")
+            return
+        if 1 <= choice <= len(keys):
+            break
+        click.echo(f"Enter a number between 0 and {len(keys)}.")
+
+    public_key, comment = keys[choice - 1]
+    save_git_signing_key(public_key)
+    click.echo()
+    click.echo(f"Saved signing key for new workspaces: {comment}")
+    click.echo()
+    click.echo(click.style("Action required on GitHub:", bold=True))
+    click.echo("  1. Open https://github.com/settings/ssh/new")
+    click.echo("  2. Set 'Key type' to 'Signing Key' (this is per-key; auth keys do not sign).")
+    click.echo("  3. Paste this public key:")
+    click.echo()
+    click.echo(f"     {public_key}")
+    click.echo()
+    click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the new gitconfig.")
+
+
 def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     """Optionally persist a dotfiles repo URL for new workspaces."""
     config = load_config()
@@ -425,6 +545,11 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
     help="Prompt for Git name/email defaults for new Coder workspaces",
 )
 @click.option(
+    "--configure-git-signing/--skip-configure-git-signing",
+    default=None,
+    help="Pick a 1Password SSH key to sign commits inside Coder workspaces",
+)
+@click.option(
     "--configure-dotfiles/--skip-configure-dotfiles",
     default=None,
     help="Prompt for a dotfiles repo URL for new Coder workspaces",
@@ -439,6 +564,7 @@ def maybe_configure_claude_token(configure_claude: bool | None) -> None:
 def devbox_setup(
     configure_ssh: bool | None,
     configure_git_identity: bool | None,
+    configure_git_signing: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
     verbose: bool,
@@ -451,6 +577,7 @@ def devbox_setup(
     ensure_coder_authenticated()
     maybe_configure_ssh(configure_ssh=configure_ssh, verbose=verbose)
     maybe_configure_git_identity(configure_git_identity)
+    maybe_configure_git_signing(configure_git_signing)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_token(configure_claude_setup)
     print_setup_summary()

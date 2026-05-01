@@ -62,6 +62,17 @@ class TestDevboxConfig:
             "dotfiles_uri": "https://github.com/user/dotfiles",
         }
 
+    def test_save_git_signing_key_persists_value(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_signing_key("ssh-ed25519 AAAAC3 user@host")
+
+        assert devbox_config.load_config()["git_signing_key"] == "ssh-ed25519 AAAAC3 user@host"
+
+    def test_save_git_signing_key_empty_clears_value(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_signing_key("ssh-ed25519 AAAAC3 user@host")
+        devbox_config.save_git_signing_key("")
+
+        assert "git_signing_key" not in devbox_config.load_config()
+
 
 class TestResolveTailscale:
     """Test Tailscale CLI resolution with macOS app bundle fallback."""
@@ -554,6 +565,11 @@ class TestDevboxCommands:
         )
         monkeypatch.setattr(
             devbox_cli,
+            "maybe_configure_git_signing",
+            lambda configure_git_signing: calls.append(f"signing:{configure_git_signing}"),
+        )
+        monkeypatch.setattr(
+            devbox_cli,
             "maybe_configure_dotfiles",
             lambda configure_dotfiles: calls.append(f"dotfiles:{configure_dotfiles}"),
         )
@@ -570,6 +586,7 @@ class TestDevboxCommands:
                 "devbox:setup",
                 "--skip-configure-ssh",
                 "--skip-configure-git-identity",
+                "--skip-configure-git-signing",
                 "--skip-configure-dotfiles",
                 "--skip-configure-claude",
             ],
@@ -584,6 +601,7 @@ class TestDevboxCommands:
             "login",
             "ssh:False",
             "git:False",
+            "signing:False",
             "dotfiles:False",
             "claude:False",
             "summary",
@@ -600,6 +618,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -632,6 +651,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_token", lambda configure_claude: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
@@ -914,6 +934,35 @@ class TestStartExistingWorkspace:
                 "git_email": "test-user@example.com",
                 "dotfiles_uri": "https://github.com/user/dotfiles",
             },
+        }
+
+    def test_syncs_git_signing_key_when_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured_params: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "get_workspace_status", lambda ws: "stopped")
+        monkeypatch.setattr(
+            devbox_cli,
+            "load_config",
+            lambda: {
+                "git_name": "PostHog Engineer",
+                "git_email": "test-user@example.com",
+                "git_signing_key": "ssh-ed25519 AAAAC3 user@host",
+            },
+        )
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: captured_params.update(params),
+        )
+        monkeypatch.setattr(devbox_cli, "start_workspace", lambda name, verbose=False: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+
+        devbox_cli._start_existing_workspace("devbox-test-user", {"latest_build": {"status": "stopped"}}, verbose=False)
+
+        assert captured_params == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+            "git_signing_key": "ssh-ed25519 AAAAC3 user@host",
         }
 
     def test_skips_sync_when_no_git_identity_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:

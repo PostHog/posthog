@@ -11,6 +11,10 @@ class DevboxConfig(TypedDict, total=False):
     git_name: str
     git_email: str
     dotfiles_uri: str
+    git_signing_key: str
+
+
+_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "git_signing_key")
 
 
 def get_config_path() -> Path:
@@ -29,7 +33,7 @@ def load_config() -> DevboxConfig:
         return DevboxConfig()
 
     config = DevboxConfig()
-    for key in ("git_name", "git_email", "dotfiles_uri"):
+    for key in _PERSISTED_FIELDS:
         value = data.get(key)
         if isinstance(value, str):
             stripped_value = value.strip()
@@ -41,7 +45,7 @@ def load_config() -> DevboxConfig:
 def save_config(config: DevboxConfig) -> None:
     """Persist hogli devbox preferences to disk."""
     normalized = DevboxConfig()
-    for key in ("git_name", "git_email", "dotfiles_uri"):
+    for key in _PERSISTED_FIELDS:
         value = config.get(key)
         if isinstance(value, str):
             stripped_value = value.strip()
@@ -66,5 +70,13 @@ def save_dotfiles_uri(dotfiles_uri: str) -> DevboxConfig:
     """Persist dotfiles repo URL for new workspaces."""
     config = load_config()
     config["dotfiles_uri"] = dotfiles_uri
+    save_config(config)
+    return config
+
+
+def save_git_signing_key(git_signing_key: str) -> DevboxConfig:
+    """Persist Git SSH signing public key for new workspaces. Empty string clears."""
+    config = load_config()
+    config["git_signing_key"] = git_signing_key
     save_config(config)
     return config
