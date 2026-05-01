@@ -78,6 +78,10 @@ export interface ChartProps<Meta = unknown> {
      *  should ensure that toggle also updates `series` or the chart's scales — otherwise
      *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
+    /** Required for horizontal orientation — maps labels to the coordinate on the categorical
+     *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
+     *  invalidate the interaction memo on every render. */
+    labelToCoord?: (label: string) => number | undefined
 }
 
 export function Chart<Meta = unknown>({
@@ -93,6 +97,7 @@ export function Chart<Meta = unknown>({
     className,
     children,
     resolveValue,
+    labelToCoord,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -101,14 +106,24 @@ export function Chart<Meta = unknown>({
         hideYAxis = false,
         tooltip: tooltipConfig,
         showCrosshair = false,
+        axisOrientation = 'vertical',
     } = config ?? {}
+    const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
     } = tooltipConfig ?? {}
 
-    const margins = useChartMargins({ series, labels, hideXAxis, hideYAxis, xTickFormatter, yTickFormatter })
+    const margins = useChartMargins({
+        series,
+        labels,
+        hideXAxis,
+        hideYAxis,
+        xTickFormatter,
+        yTickFormatter,
+        axisOrientation,
+    })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
@@ -141,13 +156,21 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         onPointClick,
         resolveValue,
+        interactionAxis,
+        labelToCoord,
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useLatest(drawHover)
     const composedDrawHover = useMemo(
-        () => composeDrawHoverWithCrosshair(() => drawHoverRef.current, theme.crosshairColor, showCrosshair),
-        [showCrosshair, theme.crosshairColor]
+        () =>
+            composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+                crosshairColor: theme.crosshairColor,
+                showCrosshair,
+                axisOrientation,
+                labelToCoord,
+            }),
+        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord]
     )
 
     useChartDraw({
@@ -217,6 +240,8 @@ export function Chart<Meta = unknown>({
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
                                 axisColor={theme.axisColor}
+                                orientation={axisOrientation}
+                                labelToCoord={labelToCoord}
                             />
 
                             {children}

@@ -6,7 +6,7 @@ import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
     dimensions: ChartDimensions
-    xScale: d3.ScalePoint<string>
+    xScale: (label: string) => number | undefined
     yScale: d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
     labels: string[]
 }
@@ -290,17 +290,47 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
-export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } = {}): void {
+/** Draws the grid lines and the categorical-axis baseline.
+ *
+ * `orientation`:
+ *  - `'vertical'` (default): horizontal grid lines at value-axis (y) tick positions, vertical baseline on the left.
+ *  - `'horizontal'`: vertical grid lines at value-axis (x) tick positions, horizontal baseline on the top.
+ *
+ * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
+ * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
+ */
+export function drawGrid(
+    drawCtx: DrawContext,
+    options: { gridColor?: string; orientation?: 'vertical' | 'horizontal' } = {}
+): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
+    const orientation = options.orientation ?? 'vertical'
+    const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
 
-    const yTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(dimensions.plotHeight)) ?? []
+    const valueTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
-    for (const tick of yTicks) {
+    if (orientation === 'horizontal') {
+        for (const tick of valueTicks) {
+            const x = Math.round(yScale(tick)) + 0.5
+            ctx.beginPath()
+            ctx.moveTo(x, dimensions.plotTop)
+            ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
+            ctx.stroke()
+        }
+        const axisY = Math.round(dimensions.plotTop) + 0.5
+        ctx.beginPath()
+        ctx.moveTo(dimensions.plotLeft, axisY)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
+        ctx.stroke()
+        return
+    }
+
+    for (const tick of valueTicks) {
         const y = Math.round(yScale(tick)) + 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)
@@ -318,17 +348,23 @@ export function drawGrid(drawCtx: DrawContext, options: { gridColor?: string } =
 export function drawCrosshair(
     ctx: CanvasRenderingContext2D,
     dimensions: ChartDimensions,
-    x: number,
-    color: string
+    coord: number,
+    color: string,
+    orientation: 'vertical' | 'horizontal' = 'vertical'
 ): void {
     // 0.5 offset keeps the 1px line crisp on integer pixel boundaries.
-    const lineX = Math.round(x) + 0.5
+    const line = Math.round(coord) + 0.5
     ctx.strokeStyle = color
     ctx.lineWidth = 1
     ctx.setLineDash([])
     ctx.beginPath()
-    ctx.moveTo(lineX, dimensions.plotTop)
-    ctx.lineTo(lineX, dimensions.plotTop + dimensions.plotHeight)
+    if (orientation === 'vertical') {
+        ctx.moveTo(line, dimensions.plotTop)
+        ctx.lineTo(line, dimensions.plotTop + dimensions.plotHeight)
+    } else {
+        ctx.moveTo(dimensions.plotLeft, line)
+        ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, line)
+    }
     ctx.stroke()
 }
 
@@ -353,17 +389,25 @@ export function drawHighlightPoint(
 
 type DrawHoverFn = (args: ChartDrawArgs) => void
 
+interface ComposeDrawHoverOptions {
+    crosshairColor: string | undefined
+    showCrosshair: boolean
+    axisOrientation?: 'vertical' | 'horizontal'
+    labelToCoord?: (label: string) => number | undefined
+}
+
 // Crosshair drawn first so the chart-type's highlight rings render on top.
 export function composeDrawHoverWithCrosshair(
     getDrawHover: () => DrawHoverFn,
-    crosshairColor: string | undefined,
-    showCrosshair: boolean
+    options: ComposeDrawHoverOptions
 ): DrawHoverFn {
+    const { crosshairColor, showCrosshair, axisOrientation = 'vertical', labelToCoord } = options
     return (args) => {
         if (showCrosshair && crosshairColor && args.hoverIndex >= 0) {
-            const x = args.scales.x(args.labels[args.hoverIndex])
-            if (x != null && isFinite(x)) {
-                drawCrosshair(args.ctx, args.dimensions, x, crosshairColor)
+            const label = args.labels[args.hoverIndex]
+            const coord = labelToCoord ? labelToCoord(label) : args.scales.x(label)
+            if (coord != null && isFinite(coord)) {
+                drawCrosshair(args.ctx, args.dimensions, coord, crosshairColor, axisOrientation)
             }
         }
         getDrawHover()(args)
