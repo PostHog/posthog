@@ -224,8 +224,8 @@ function CloudflareOptInBanner({
                 <div className="font-semibold">Third-party processing (Cloudflare)</div>
                 <p className="text-sm">
                     This feature routes certain customer and customer end-user traffic through Cloudflare, a third-party
-                    infrastructure provider, for the purpose of delivering the managed proxy functionality. Cloudflare is
-                    listed as a{' '}
+                    infrastructure provider, for the purpose of delivering the managed proxy functionality. Cloudflare
+                    is listed as a{' '}
                     <Link to="https://posthog.com/subprocessors" target="_blank">
                         subprocessor
                     </Link>{' '}
