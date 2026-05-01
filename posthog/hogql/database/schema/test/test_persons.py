@@ -615,3 +615,18 @@ class TestPersonsPdiPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         assert "pdi_pushdown_pdi" not in response.clickhouse
         distinct_ids = sorted(row[0] for row in response.results)
         assert distinct_ids == ["alice_a", "alice_b"]
+
+    def test_events_pdi_pushdown_fires_on_explicit_person_id_filter(self):
+        _create_event(event="$pageview", distinct_id="alice_a", team=self.team)
+        _create_event(event="$pageview", distinct_id="alice_b", team=self.team)
+        _create_event(event="$pageview", distinct_id="bob_a", team=self.team)
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            parse_select("SELECT count() FROM events WHERE pdi.person_id IN ({alice_id})"),
+            self.team,
+            placeholders={"alice_id": ast.Constant(value=self.alice.uuid)},
+        )
+        assert response.clickhouse is not None
+        assert "pdi_pushdown_pdi" in response.clickhouse
+        assert response.results[0][0] == 2  # alice_a + alice_b events
