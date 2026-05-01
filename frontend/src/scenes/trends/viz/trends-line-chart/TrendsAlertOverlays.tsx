@@ -2,12 +2,14 @@ import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import { alertThresholdsToReferenceLines, AnomalyPointsLayer, ReferenceLines } from 'lib/hog-charts'
+import { ReferenceLines } from 'lib/hog-charts'
 
 import type { InsightLogicProps } from '~/types'
 
 import type { IndexedTrendResult } from '../../types'
 import { buildAnomalyMarkers } from './anomalyPointsAdapter'
+import { AnomalyPointsLayer } from './AnomalyPointsLayer'
+import { alertThresholdsToReferenceLines } from './goalLinesAdapter'
 
 interface TrendsAlertOverlaysProps {
     insightId: number

@@ -1,6 +1,7 @@
+import type { Series } from 'lib/hog-charts'
+
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
-import type { Series } from '../../../core/types'
 import { alertThresholdsToReferenceLines, computeSeriesNonZeroMax, goalLinesToReferenceLines } from './goalLinesAdapter'
 
 const makeSeries = (data: number[], overrides: Partial<Series> = {}): Series => ({

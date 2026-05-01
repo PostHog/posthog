@@ -1,14 +1,14 @@
+import { DEFAULT_Y_AXIS_ID, type Series } from 'lib/hog-charts'
 import { hexToRGBA } from 'lib/utils'
 
 import { ChartDisplayType } from '~/types'
 
-import { DEFAULT_Y_AXIS_ID, type Series } from '../../core/types'
 import {
     buildMainTrendsSeries,
     buildTrendsChartConfig,
     buildTrendsSeries,
     type TrendsResultLike,
-} from './derived-series'
+} from './trendsChartTransforms'
 
 const RED = '#ff0000'
 

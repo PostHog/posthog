@@ -55,27 +55,5 @@ export type { ValueLabelsProps } from './overlays/ValueLabels'
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'
 
-// Timeseries overlays
-export { AnnotationsLayer } from './overlays/AnnotationsLayer'
-export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
-
 // Timeseries utils
 export { createXAxisTickCallback, parseDateForAxis } from './charts/TimeSeriesLineChart/utils/dates'
-export {
-    alertThresholdsToReferenceLines,
-    computeSeriesNonZeroMax,
-    goalLinesToReferenceLines,
-} from './charts/TimeSeriesLineChart/utils/goalLinesAdapter'
-
-// Timeseries derived series
-export {
-    buildMainTrendsSeries,
-    buildTrendsChartConfig,
-    buildTrendsSeries,
-} from './charts/TimeSeriesLineChart/derived-series'
-export type {
-    BuildTrendsChartConfigOpts,
-    BuildTrendsSeriesOpts,
-    BuiltTrendsSeries,
-    TrendsResultLike,
-} from './charts/TimeSeriesLineChart/derived-series'

@@ -3,17 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import {
-    AnnotationsLayer,
-    buildTrendsChartConfig,
-    buildTrendsSeries,
-    createXAxisTickCallback,
-    DEFAULT_Y_AXIS_ID,
-    goalLinesToReferenceLines,
-    LineChart,
-    ReferenceLines,
-    ValueLabels,
-} from 'lib/hog-charts'
+import { createXAxisTickCallback, DEFAULT_Y_AXIS_ID, LineChart, ReferenceLines, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, PointClickData, Series, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -29,9 +19,12 @@ import { InsightEmptyState } from '../../../insights/EmptyStates'
 import { openPersonsModal } from '../../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
+import { AnnotationsLayer } from './AnnotationsLayer'
+import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
 import { TrendsAlertOverlays } from './TrendsAlertOverlays'
 import { buildTrendsYTickFormatter } from './trendsAxisFormat'
+import { buildTrendsChartConfig, buildTrendsSeries } from './trendsChartTransforms'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
