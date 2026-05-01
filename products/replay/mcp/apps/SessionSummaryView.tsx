@@ -60,50 +60,21 @@ interface SessionSummaryEntry {
     }> | null
 }
 
-interface RecordingMetadata {
-    id?: string
-    recording_duration?: number | null
-    active_seconds?: number | null
-    inactive_seconds?: number | null
-    click_count?: number | null
-    keypress_count?: number | null
-    mouse_activity_count?: number | null
-    console_error_count?: number | null
-    console_warn_count?: number | null
-    console_log_count?: number | null
-    activity_score?: number | null
-    start_time?: string | null
-    end_time?: string | null
-}
-
 export interface SessionSummaryData {
-    summaries?: Record<string, SessionSummaryEntry> | null
-    recordings?: Record<string, RecordingMetadata> | null
-    // Legacy format: direct session ID → summary mapping
     [key: string]: unknown
 }
 
-function parseSummaryData(data: SessionSummaryData): {
-    summaries: Record<string, SessionSummaryEntry>
-    recordings: Record<string, RecordingMetadata>
-} {
-    if (data.summaries && typeof data.summaries === 'object') {
-        return {
-            summaries: data.summaries as Record<string, SessionSummaryEntry>,
-            recordings: (data.recordings as Record<string, RecordingMetadata>) ?? {},
-        }
-    }
-    // Legacy format: top-level keys are session IDs
+function parseSummaries(data: SessionSummaryData): Record<string, SessionSummaryEntry> {
     const summaries: Record<string, SessionSummaryEntry> = {}
     for (const [key, value] of Object.entries(data)) {
-        if (key.startsWith('_') || key === 'summaries' || key === 'recordings') {
+        if (key.startsWith('_')) {
             continue
         }
         if (value && typeof value === 'object' && !Array.isArray(value)) {
             summaries[key] = value as SessionSummaryEntry
         }
     }
-    return { summaries, recordings: {} }
+    return summaries
 }
 
 function formatDuration(seconds?: number | null): string {
@@ -143,7 +114,7 @@ function SegmentTimelineBar({
 }: {
     offsetPercent: number
     widthPercent: number
-    success?: boolean | null
+    success?: boolean | null | undefined
 }): ReactElement {
     const barColor =
         success === false
@@ -190,19 +161,6 @@ function ChevronIcon({ expanded }: { expanded: boolean }): ReactElement {
     )
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }): ReactElement {
-    return (
-        <div
-            className="rounded-lg p-3 flex-1"
-            style={{ backgroundColor: 'var(--color-bg-secondary, #f5f5f5)', minWidth: '100px' }}
-        >
-            <div className="text-xs text-text-secondary">{label}</div>
-            <div className="text-lg font-semibold text-text-primary">{value}</div>
-            {sub && <div className="text-xs text-text-secondary">{sub}</div>}
-        </div>
-    )
-}
-
 function issueCount(segment: SessionSummarySegment): number {
     const meta = segment.meta
     if (!meta) {
@@ -217,7 +175,7 @@ function issueCount(segment: SessionSummarySegment): number {
 }
 
 export function SessionSummaryView({ data }: { data: SessionSummaryData }): ReactElement {
-    const { summaries, recordings } = parseSummaryData(data)
+    const summaries = parseSummaries(data)
     const sessionIds = Object.keys(summaries)
 
     if (sessionIds.length === 0) {
@@ -232,46 +190,9 @@ export function SessionSummaryView({ data }: { data: SessionSummaryData }): Reac
                     if (!summary) {
                         return null
                     }
-                    return (
-                        <SingleSessionSummary
-                            key={sessionId}
-                            sessionId={sessionId}
-                            summary={summary}
-                            recording={recordings[sessionId]}
-                        />
-                    )
+                    return <SingleSessionSummary key={sessionId} sessionId={sessionId} summary={summary} />
                 })}
             </Stack>
-        </div>
-    )
-}
-
-function RecordingStatsHeader({ recording }: { recording: RecordingMetadata }): ReactElement {
-    const duration = recording.recording_duration
-    const activeSeconds = recording.active_seconds
-
-    return (
-        <div className="flex gap-2 flex-wrap">
-            <StatCard
-                label="Duration"
-                value={formatDuration(duration)}
-                sub={activeSeconds != null ? `${formatDuration(activeSeconds)} active` : undefined}
-            />
-            <StatCard
-                label="Console errors"
-                value={String(recording.console_error_count ?? 0)}
-                sub={recording.console_warn_count ? `${recording.console_warn_count} warnings` : undefined}
-            />
-            <StatCard
-                label="Clicks"
-                value={String(recording.click_count ?? 0)}
-                sub={recording.mouse_activity_count ? `${recording.mouse_activity_count} mouse events` : undefined}
-            />
-            <StatCard
-                label="Keypresses"
-                value={String(recording.keypress_count ?? 0)}
-                sub={recording.activity_score != null ? `activity ${recording.activity_score.toFixed(1)}` : undefined}
-            />
         </div>
     )
 }
@@ -279,11 +200,9 @@ function RecordingStatsHeader({ recording }: { recording: RecordingMetadata }): 
 function SingleSessionSummary({
     sessionId,
     summary,
-    recording,
 }: {
     sessionId: string
     summary: SessionSummaryEntry
-    recording?: RecordingMetadata
 }): ReactElement {
     const outcome = summary.session_outcome
     const segments = summary.segments ?? []
@@ -292,6 +211,10 @@ function SingleSessionSummary({
 
     const outcomesByIndex = new Map(segmentOutcomes.map((o) => [o.segment_index, o]))
     const keyActionsByIndex = new Map(keyActions.map((ka) => [ka.segment_index, ka]))
+
+    // Compute total session duration from segments for timeline bar positioning
+    const totalDurationSec = segments.reduce((sum, s) => sum + (s.meta?.duration ?? 0), 0)
+    const totalDurationMs = totalDurationSec * 1000
 
     return (
         <Stack gap="md">
@@ -319,17 +242,21 @@ function SingleSessionSummary({
                 </div>
             )}
 
-            {recording && <RecordingStatsHeader recording={recording} />}
-
             <span className="text-sm font-semibold text-text-primary">Journey</span>
 
-            {segments.map((segment, i) => {
+            {segments.map((segment) => {
                 const segOutcome = outcomesByIndex.get(segment.index ?? -1)
                 const segActions = keyActionsByIndex.get(segment.index ?? -1)
-
-                const offsetPercent =
-                    segments.slice(0, i).reduce((sum, s) => sum + (s.meta?.duration_percentage ?? 0), 0) * 100
                 const widthPercent = (segment.meta?.duration_percentage ?? 0) * 100
+
+                // Use the first key action's absolute timestamp for bar offset.
+                // If that would overflow (offset + width > 100%), end-anchor it.
+                const firstEventMs = segActions?.events?.[0]?.milliseconds_since_start
+                let offsetPercent = 0
+                if (firstEventMs != null && totalDurationMs > 0) {
+                    const eventOffset = (firstEventMs / totalDurationMs) * 100
+                    offsetPercent = eventOffset + widthPercent > 100 ? 100 - widthPercent : eventOffset
+                }
 
                 return (
                     <SegmentCard
@@ -356,8 +283,8 @@ function SegmentCard({
     widthPercent,
 }: {
     segment: SessionSummarySegment
-    segOutcome?: SessionSummarySegmentOutcome
-    segActions?: { segment_index?: number | null; events?: KeyActionEvent[] | null }
+    segOutcome?: SessionSummarySegmentOutcome | undefined
+    segActions?: { segment_index?: number | null; events?: KeyActionEvent[] | null } | undefined
     offsetPercent: number
     widthPercent: number
 }): ReactElement {
@@ -377,7 +304,7 @@ function SegmentCard({
             <div
                 onClick={hasEvents ? () => setExpanded(!expanded) : undefined}
                 style={{
-                    borderLeft: `3px solid ${borderColor}`,
+                    borderLeft: `5px solid ${borderColor}`,
                     cursor: hasEvents ? 'pointer' : 'default',
                     padding: '12px',
                     paddingLeft: '15px',
@@ -426,7 +353,7 @@ function SegmentCard({
             {expanded && hasEvents && (
                 <div
                     style={{
-                        borderLeft: `3px solid ${borderColor}`,
+                        borderLeft: `5px solid ${borderColor}`,
                         borderTop: '1px solid var(--color-border-primary, #e5e7eb)',
                         padding: '8px 12px 12px 15px',
                     }}
