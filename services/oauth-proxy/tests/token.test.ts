@@ -182,7 +182,7 @@ describe('handleToken', () => {
         expect(data.error_description).toBe('Malformed JSON body')
     })
 
-    it('falls back to try-both for refresh_token grants', async () => {
+    it('falls back to try-both for refresh_token grants without mapping', async () => {
         mockKVGetValue(mockKV, null)
 
         vi.stubGlobal(
@@ -217,5 +217,78 @@ describe('handleToken', () => {
 
         expect(data.access_token).toBe('pha_eu_refreshed')
         expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+    })
+
+    it('uses client mapping for refresh_token when region KV has expired', async () => {
+        const clientHash = await hashKey('proxy_client_mapped')
+        mockKVGet(mockKV, (key: string, type?: unknown) => {
+            // Region KV has expired — return null
+            if (key === `region:${clientHash}`) {
+                return Promise.resolve(null)
+            }
+            // Client mapping is permanent — still available
+            if (key === 'client:proxy_client_mapped' && type === 'json') {
+                return Promise.resolve({
+                    us_client_id: 'proxy_client_mapped',
+                    eu_client_id: 'eu_real_id',
+                    us_client_secret: 'us_secret',
+                    eu_client_secret: 'eu_secret',
+                    created_at: Date.now(),
+                })
+            }
+            return Promise.resolve(null)
+        })
+
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                // US attempt fails — refresh token was issued by EU
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ error: 'invalid_grant' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' },
+                    })
+                )
+                // EU attempt succeeds with correctly rewritten client_id
+                .mockResolvedValueOnce(
+                    new Response(
+                        JSON.stringify({
+                            access_token: 'pha_eu_refreshed',
+                            token_type: 'bearer',
+                        }),
+                        { status: 200, headers: { 'Content-Type': 'application/json' } }
+                    )
+                )
+        )
+
+        const request = new Request('https://oauth.posthog.com/oauth/token/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'grant_type=refresh_token&refresh_token=rt_eu_token&client_id=proxy_client_mapped&client_secret=us_secret',
+        })
+
+        const response = await handleToken(request, mockKV)
+        const data = (await response.json()) as Record<string, unknown>
+
+        expect(response.status).toBe(200)
+        expect(data.access_token).toBe('pha_eu_refreshed')
+
+        // Verify US attempt used the US client_id (which is the proxy client_id)
+        const usCall = vi.mocked(fetch).mock.calls[0]!
+        const usBody = new URLSearchParams(usCall[1]!.body as string)
+        expect(String(usCall[0])).toMatch(/^https:\/\/us\.posthog\.com/)
+        expect(usBody.get('client_id')).toBe('proxy_client_mapped')
+        expect(usBody.get('client_secret')).toBe('us_secret')
+
+        // Verify EU attempt used the rewritten EU client_id and secret
+        const euCall = vi.mocked(fetch).mock.calls[1]!
+        const euBody = new URLSearchParams(euCall[1]!.body as string)
+        expect(String(euCall[0])).toMatch(/^https:\/\/eu\.posthog\.com/)
+        expect(euBody.get('client_id')).toBe('eu_real_id')
+        expect(euBody.get('client_secret')).toBe('eu_secret')
+
+        // Verify region was re-stored in KV for subsequent requests
+        expect(vi.mocked(mockKV.put)).toHaveBeenCalledWith(`region:${clientHash}`, 'eu', { expirationTtl: 3600 })
     })
 })

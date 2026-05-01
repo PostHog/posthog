@@ -1,5 +1,5 @@
 import type { Region } from '@/lib/constants'
-import { getCallbackRedirectUri, getClientMapping, getRegionSelection } from '@/lib/kv'
+import { getCallbackRedirectUri, getClientMapping, getRegionSelection, putRegionSelection } from '@/lib/kv'
 import { proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
 
 /**
@@ -102,6 +102,86 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         )
     }
 
+    // If the client was registered through the proxy, we have a permanent mapping
+    // of proxy client_id → regional client_ids. Try each region with the correctly
+    // rewritten client_id/secret so the regional server recognizes the client.
+    // Without this, tryBothRegions sends the proxy (US) client_id to both regions,
+    // and EU rejects it because it only knows its own EU client_id.
+    if (clientId) {
+        const mapping = await getClientMapping(kv, clientId)
+        if (mapping) {
+            for (const candidateRegion of ['us', 'eu'] as Region[]) {
+                const regionalClientId = candidateRegion === 'eu' ? mapping.eu_client_id : mapping.us_client_id
+                if (!regionalClientId) {
+                    continue
+                }
+
+                const proxySecret = mapping.us_client_secret
+                const regionalSecret = candidateRegion === 'eu' ? mapping.eu_client_secret : mapping.us_client_secret
+                let clientSecretRewrite: { from: string; to: string } | undefined
+                if (proxySecret && regionalSecret && proxySecret !== regionalSecret) {
+                    clientSecretRewrite = { from: proxySecret, to: regionalSecret }
+                }
+
+                console.info(
+                    JSON.stringify({
+                        handler: 'token',
+                        grant_type: grantType,
+                        client_id_prefix: clientIdPrefix,
+                        region_source: 'mapping_try_both',
+                        candidate_region: candidateRegion,
+                    })
+                )
+
+                const response = await proxyPostWithClientId(
+                    rebuild(),
+                    candidateRegion,
+                    '/oauth/token/',
+                    clientId,
+                    regionalClientId,
+                    undefined,
+                    clientSecretRewrite
+                )
+
+                if (response.ok) {
+                    // Re-store the region so subsequent refreshes take the fast path
+                    await putRegionSelection(kv, clientId, candidateRegion)
+
+                    console.info(
+                        JSON.stringify({
+                            handler: 'token',
+                            grant_type: grantType,
+                            client_id_prefix: clientIdPrefix,
+                            region_source: 'mapping_try_both',
+                            resolved_region: candidateRegion,
+                            status: response.status,
+                        })
+                    )
+                    return response
+                }
+            }
+
+            console.info(
+                JSON.stringify({
+                    handler: 'token',
+                    grant_type: grantType,
+                    client_id_prefix: clientIdPrefix,
+                    region_source: 'mapping_try_both',
+                    resolved_region: 'none',
+                })
+            )
+            return new Response(
+                JSON.stringify({
+                    error: 'invalid_request',
+                    error_description: 'Unable to determine region',
+                }),
+                { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+            )
+        }
+    }
+
+    // No mapping — client may have registered directly with a regional server.
+    // Try both regions with the raw request.
     console.info(
         JSON.stringify({
             handler: 'token',
