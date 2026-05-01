@@ -328,6 +328,25 @@ const signalsAgentHarnessMemoryCreate = (): ToolBase<
     },
 })
 
+const SignalsAgentHarnessProjectProfileGetSchema = z.object({})
+
+const signalsAgentHarnessProjectProfileGet = (): ToolBase<
+    typeof SignalsAgentHarnessProjectProfileGetSchema,
+    Schemas.ProjectProfile[]
+> => ({
+    name: 'signals-agent-harness-project-profile-get',
+    schema: SignalsAgentHarnessProjectProfileGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof SignalsAgentHarnessProjectProfileGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProjectProfile[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/agent_harness/project_profile/`,
+        })
+        return result
+    },
+})
+
 const SignalsAgentHarnessMemoryForgetCreateSchema = SignalsAgentHarnessMemoryForgetCreateBody
 
 const signalsAgentHarnessMemoryForgetCreate = (): ToolBase<
@@ -361,5 +380,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-agent-harness-runs-findings-create': signalsAgentHarnessRunsFindingsCreate,
     'signals-agent-harness-memory-list': signalsAgentHarnessMemoryList,
     'signals-agent-harness-memory-create': signalsAgentHarnessMemoryCreate,
+    'signals-agent-harness-project-profile-get': signalsAgentHarnessProjectProfileGet,
     'signals-agent-harness-memory-forget-create': signalsAgentHarnessMemoryForgetCreate,
 }

@@ -16448,6 +16448,26 @@ export namespace Schemas {
     }
 
     /**
+     * One bucket in `inventory.existing_inbox_reports.by_status`.
+     */
+    export interface InboxReportStatusBucket {
+      /** Report status (e.g. `potential`, `candidate`, `ready`). */
+      status: string;
+      /** Number of reports in this status (excludes deleted/suppressed). */
+      count: number;
+    }
+
+    /**
+     * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
+     */
+    export interface ExistingInboxReports {
+      /** Total non-deleted, non-suppressed reports for this team. */
+      total: number;
+      /** Per-status breakdown of inbox reports. */
+      by_status: InboxReportStatusBucket[];
+    }
+
+    /**
      * * `exit_on_conversion` - Conversion
     * `exit_on_trigger_not_matched` - Trigger Not Matched
     * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
@@ -17319,6 +17339,23 @@ export namespace Schemas {
     * `api` - api
     * `mcp` - mcp */
       created_via?: CreatedViaEnum;
+    }
+
+    /**
+     * One row in `inventory.external_data_sources`.
+     */
+    export interface ExternalDataSourceEntry {
+      /** Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`). */
+      source_type: string;
+      /** Current sync status (`Running`, `Failed`, `Paused`, etc.). */
+      status: string;
+      /** Schema prefix used by this source, if any. */
+      prefix: string;
+      /**
+       * ISO-8601 timestamp the source was connected.
+       * @nullable
+       */
+      created_at: string | null;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -20886,6 +20923,19 @@ export namespace Schemas {
       readonly display_name: string;
     }
 
+    /**
+     * One row in `inventory.integrations`. Sensitive config is intentionally excluded.
+     */
+    export interface IntegrationEntry {
+      /** Integration kind (e.g. `slack`, `github`, `linear`). */
+      kind: string;
+      /**
+       * ISO-8601 timestamp the integration was connected.
+       * @nullable
+       */
+      created_at: string | null;
+    }
+
     export interface InterestingNote {
       text: string;
       line_refs: string;
@@ -22107,7 +22157,7 @@ export namespace Schemas {
       key: string;
       /** Prose content for prompt injection. */
       content: string;
-      /** `agent_inference` (TTL'd, agent-writable) or `human_confirmed`. */
+      /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
       authority: string;
       /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
       tags: string[];
@@ -22122,7 +22172,7 @@ export namespace Schemas {
        */
       updated_at: string | null;
       /**
-       * ISO-8601 expiry; null only on `human_confirmed` entries.
+       * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
        * @nullable
        */
       expires_at: string | null;
@@ -31683,6 +31733,24 @@ export namespace Schemas {
     }
 
     /**
+     * One row in `inventory.product_intents`.
+     */
+    export interface ProductIntentEntry {
+      /** Product key the team signaled intent to use. */
+      product_type: string;
+      /**
+       * ISO-8601 timestamp the team activated the product, or null if intent only.
+       * @nullable
+       */
+      activated_at: string | null;
+      /**
+       * ISO-8601 timestamp the intent was first recorded.
+       * @nullable
+       */
+      created_at: string | null;
+    }
+
+    /**
      * Serializer for creating and updating ProductTour.
      */
     export interface ProductTourSerializerCreateUpdateOnly {
@@ -32506,6 +32574,79 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * One row in either bucket of `inventory.signal_source_configs`.
+     */
+    export interface SignalSourceConfigEntry {
+      /** Source product the config applies to. */
+      source_product: string;
+      /** Source type within the product. */
+      source_type: string;
+    }
+
+    /**
+     * `inventory.signal_source_configs` split into enabled and disabled buckets.
+     */
+    export interface SignalSourceConfigsBuckets {
+      /** Source configs the team has explicitly enabled. */
+      enabled: SignalSourceConfigEntry[];
+      /** Source configs the team has explicitly disabled (different from never wired up). */
+      disabled: SignalSourceConfigEntry[];
+    }
+
+    /**
+     * The deterministic inventory layer of a project profile.
+
+    Read this to orient on the team's product mix, integrations, warehouse sources, signal
+    coverage, and existing inbox surface in one tool call. Distinct from `SignalMemory`:
+    profile is ground truth from authoritative tables; memory is agent inference.
+     */
+    export interface ProjectProfileInventory {
+      /** Product keys this team has completed onboarding for, sorted alphabetically. */
+      products_in_use: string[];
+      /** Products the team signaled intent to use; useful for spotting stuck onboardings. */
+      product_intents: ProductIntentEntry[];
+      /** Connected integrations (kind + connection time only — config never surfaced). */
+      integrations: IntegrationEntry[];
+      /** Connected warehouse sources (excludes soft-deleted). */
+      external_data_sources: ExternalDataSourceEntry[];
+      /** Signal source configs split into enabled / disabled buckets. */
+      signal_source_configs: SignalSourceConfigsBuckets;
+      /** Counts of reports already in the inbox, grouped by status. */
+      existing_inbox_reports: ExistingInboxReports;
+    }
+
+    /**
+     * Top-level `payload` shape on a `SignalProjectProfile` row.
+
+    v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
+    `narrative` slots — they're absent (not null) in v1 responses.
+     */
+    export interface ProjectProfilePayload {
+      /** Deterministic snapshot of what's true about the project. */
+      inventory: ProjectProfileInventory;
+    }
+
+    /**
+     * Wire shape for the project profile returned by `signals-agent-harness-project-profile-list`.
+
+    Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
+    is per-team with a ~36h soft TTL; the response always reflects either the latest cached
+    profile or a freshly-built one if the cache was stale.
+     */
+    export interface ProjectProfile {
+      /** UUID of the `SignalProjectProfile` row. */
+      profile_id: string;
+      /** ISO-8601 timestamp the profile was built. */
+      computed_at: string;
+      /** ISO-8601 timestamp after which the profile is considered stale. */
+      expires_at: string;
+      /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
+      source_version: string;
+      /** Structured profile content. v1 has `inventory` only. */
+      payload: ProjectProfilePayload;
     }
 
     /**
@@ -35586,7 +35727,7 @@ export namespace Schemas {
        */
       ttl_days?: number;
       /**
-       * Run that authored this memory; persisted as `created_by_run_id` for lineage.
+       * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
        * @nullable
        */
       run_id?: string | null;

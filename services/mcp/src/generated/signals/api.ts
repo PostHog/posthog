@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -77,7 +77,9 @@ export const SignalsAgentHarnessMemoryCreateBody = /* @__PURE__ */ zod
         run_id: zod
             .string()
             .nullish()
-            .describe('Run that authored this memory; persisted as `created_by_run_id` for lineage.'),
+            .describe(
+                'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
+            ),
     })
     .describe('Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.')
 
@@ -100,6 +102,18 @@ export const SignalsAgentHarnessMemoryForgetCreateBody = /* @__PURE__ */ zod
         key: zod.string().max(signalsAgentHarnessMemoryForgetCreateBodyKeyMax).describe('Memory key to delete.'),
     })
     .describe('Request body for `forget`. Only `agent_inference` keys can be deleted.')
+
+/**
+ * Return the team's deterministic project profile. The response always reflects either the newest non-expired cached row or a freshly-built one (lazy compute on cache miss). Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
+ * @summary Get the current project profile
+ */
+export const SignalsAgentHarnessProjectProfileGetParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 /**
  * Return the most recent `SignalAgentRun` summaries for this project, newest first. Used by the headless agent to dedupe against work other runs already covered. ILIKE matches on `summary`; results are capped at 100.
