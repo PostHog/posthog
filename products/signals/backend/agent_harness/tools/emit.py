@@ -51,11 +51,19 @@ class EvidenceEntry:
 @dataclass(frozen=True)
 class EmitResult:
     """Outcome of an emit_finding call. `skipped_reason` distinguishes idempotent
-    no-ops from actual emits — useful for the runner's run-row finalization."""
+    no-ops from actual emits — useful for the runner's run-row finalization.
+
+    Possible `skipped_reason` values:
+      - None: emit fired and was accepted by the downstream pipeline
+      - "already_emitted": same `finding_id` was previously emitted (idempotent re-call)
+      - "shadow_mode": shadow_mode=True was requested
+      - "ai_processing_not_approved": team's organization has not approved AI processing
+      - "source_disabled": SignalSourceConfig disables the signals_agent source for this team
+    """
 
     finding_id: str
     emitted: bool
-    skipped_reason: str | None  # "shadow_mode" | "already_emitted" | None
+    skipped_reason: str | None
 
 
 async def emit_finding(
@@ -108,6 +116,10 @@ async def emit_finding(
 
     if shadow_mode:
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason="shadow_mode")
+
+    preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team)
+    if preflight is not None:
+        return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
 
     # Defer the import: products.signals.backend.api transitively imports temporal
     # workflows, which we don't want loaded at module import time inside the harness.
@@ -185,6 +197,10 @@ def emit_finding_sync(
 
     if shadow_mode:
         return EmitResult(finding_id=finding_id, emitted=False, skipped_reason="shadow_mode")
+
+    preflight = _preflight_emit_gates(team)
+    if preflight is not None:
+        return EmitResult(finding_id=finding_id, emitted=False, skipped_reason=preflight)
 
     from products.signals.backend.api import emit_signal
 
@@ -320,3 +336,23 @@ def _mark_finding_emitted(*, run_id: str, finding_id: str) -> None:
 
 def _new_finding_id() -> str:
     return str(uuid.uuid4())
+
+
+def _preflight_emit_gates(team: Team) -> str | None:
+    """Return the matching skipped_reason if a downstream gate would silently drop
+    the emit; otherwise return None.
+
+    `emit_signal()` returns silently when the team's organization has not approved
+    AI processing or when `SignalSourceConfig.is_source_enabled(...)` is False. Without
+    this preflight, the harness would mark the finding `emitted=True` even though
+    nothing entered the Signals pipeline. Mirror those gates here so the harness
+    surfaces the truth on the run row.
+    """
+    from products.signals.backend.models import SignalSourceConfig
+
+    organization = team.organization
+    if not organization.is_ai_data_processing_approved:
+        return "ai_processing_not_approved"
+    if not SignalSourceConfig.is_source_enabled(team.id, SOURCE_PRODUCT, SOURCE_TYPE):
+        return "source_disabled"
+    return None

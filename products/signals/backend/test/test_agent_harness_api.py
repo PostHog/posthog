@@ -93,6 +93,24 @@ class TestAgentHarnessRunsAPI(APIBaseTest):
 
 
 class TestAgentHarnessEmitFindingAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The harness preflight mirrors `emit_signal()`'s downstream gates: the org
+        # must have AI processing approved and the team must have an enabled
+        # SignalSourceConfig for the signals_agent source. Without this setup, the
+        # preflight short-circuits before `emit_signal` runs and the non-shadow
+        # tests assert against the wrong state.
+        from products.signals.backend.models import SignalSourceConfig
+
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        SignalSourceConfig.objects.get_or_create(
+            team=self.team,
+            source_product="signals_agent",
+            source_type="cross_source_issue",
+            defaults={"enabled": True},
+        )
+
     def _findings_url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/agent_harness/runs/{run_id}/findings/"
 
@@ -275,4 +293,49 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
         )
         response = self.client.post(self._forget_url(), data={"key": "locked"}, format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert SignalMemory.objects.filter(team=self.team, key="locked").exists()
+
+    def test_remember_accepts_run_id_belonging_to_same_team(self) -> None:
+        run = _make_run(self.team)
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "run_id": str(run.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalMemory.objects.get(team=self.team, key="k1")
+        assert str(row.created_by_run_id) == str(run.id)
+
+    def test_remember_rejects_run_id_from_another_team(self) -> None:
+        # A run UUID from another team must not create cross-team lineage on this
+        # team's memory row — the agent's MCP token is team-scoped, but `run_id`
+        # is a free body field and previously had no validation.
+        other = Team.objects.create(organization=self.organization, name="Other")
+        other_run = _make_run(other)
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "run_id": str(other_run.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "run_id"
+        assert not SignalMemory.objects.filter(team=self.team, key="k1").exists()
+
+    def test_remember_rejects_unknown_run_id(self) -> None:
+        # A well-formed UUID that doesn't reference any run row should also bounce —
+        # don't let a typo silently produce orphan lineage on the memory table.
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "run_id": "00000000-0000-0000-0000-000000000000"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json().get("attr") == "run_id"
+
+    def test_remember_rejects_malformed_run_id(self) -> None:
+        # UUIDField in the serializer rejects non-UUID strings before the view runs.
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "run_id": "not-a-uuid"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

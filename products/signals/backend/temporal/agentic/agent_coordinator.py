@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.llm_analytics.backend.models.skills import LLMSkill
+from products.signals.backend.agent_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.agent_harness.skill_loader import SIGNALS_AGENT_SKILL_PREFIX
 from products.signals.backend.models import SignalAgentConfig
 from products.signals.backend.temporal.agentic.agent_scheduler import (
@@ -96,7 +97,21 @@ def _collect_planned_runs() -> list[PlannedRun]:
     configs = list(SignalAgentConfig.objects.filter(enabled=True).select_related("team").order_by("team__id"))
     planned: list[PlannedRun] = []
     for config in configs:
-        team_id = config.team.id
+        team = config.team
+        team_id = team.id
+        # Lazy-seed canonical signals-agent-* skills before we resolve the skill list.
+        # Without this, a brand-new team with `enabled_skill_names=None` and zero
+        # LLMSkill rows would produce an empty planned set, no child runs would fan
+        # out, and the runner-level lazy seed would never be reached — the cadence
+        # path would silently never start. No-op when the team already has any
+        # signals-agent-* row. Failures don't abort the tick: log and continue.
+        try:
+            seed_canonical_skills(team)
+        except Exception:
+            logger.exception(
+                "signals_agent coordinator: lazy seed failed for team; continuing",
+                extra={"team_id": team_id},
+            )
         skill_names = _resolve_skill_names_for_config(config, team_id=team_id)
         for skill_name in skill_names:
             planned.append(

@@ -251,6 +251,14 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = request.validated_data
+        run_id = data.get("run_id") or None
+        # Verify the run is on this project before accepting cross-team lineage:
+        # the agent's MCP token already pins us to a team, but `run_id` is a free
+        # field on the request body and a foreign-team UUID would otherwise create
+        # a cross-team `created_by_run_id` reference on this team's memory row.
+        # Bad UUIDs are blocked by `UUIDField` in the serializer.
+        if run_id is not None and not SignalAgentRun.objects.filter(id=run_id, team_id=self.team_id).exists():
+            raise exceptions.ValidationError({"run_id": "run_id does not reference a run on this project"})
         try:
             entry = remember(
                 team_id=self.team_id,
@@ -258,7 +266,7 @@ class SignalMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 content=data["content"],
                 tags=list(data["tags"]) if data.get("tags") else None,
                 ttl_days=data.get("ttl_days") or 7,
-                run_id=data.get("run_id") or None,
+                run_id=str(run_id) if run_id is not None else None,
             )
         except InvalidMemoryError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
