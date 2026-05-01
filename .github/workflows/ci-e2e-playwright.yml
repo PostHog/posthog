@@ -32,6 +32,7 @@ env:
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
     PERSONS_DB_WRITER_URL: postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test
+    PERSONS_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test
     KAFKA_HOSTS: kafka:9092
     DISABLE_SECURE_SSL_REDIRECT: 1
     SECURE_COOKIES: 0
@@ -454,7 +455,6 @@ jobs:
                   python manage.py migrate --noinput
 
                   # Run Rust migrations for persons e2e test database
-                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 

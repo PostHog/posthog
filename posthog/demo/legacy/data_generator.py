@@ -79,7 +79,6 @@ class DataGenerator:
                     """,
                     distinct_id_rows,
                 )
-            conn.commit()
 
         from posthog.models.person.util import create_person, create_person_distinct_id
 
