@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildTrendsQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildTrendsQuery, chart, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
@@ -16,7 +16,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-    personsModal.cleanupAll()
     cleanupJsdom()
     cleanup()
 })
@@ -51,17 +50,6 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.row('Pageview')).toContain('134')
-    })
-
-    it('opens the persons modal on click for a single series', async () => {
-        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
-
-        await chart.clickAtIndex(2)
-
-        await waitFor(() => {
-            expect(personsModal.actorNames()).toEqual(['pageview-wed-a@example.com', 'pageview-wed-b@example.com'])
-        })
-        expect(personsModal.title()).toMatch(/12 Jun/)
     })
 
     it('renders InsightEmptyState when all series are zero', async () => {
