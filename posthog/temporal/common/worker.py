@@ -15,7 +15,6 @@ from temporalio.worker import Plugin, ResourceBasedSlotConfig, UnsandboxedWorkfl
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
-from posthog.temporal.common.db_connection_interceptor import DbConnectionInterceptor
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
@@ -116,7 +115,6 @@ SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
 
 
 ALL_INTERCEPTOR_CLASSES = [
-    DbConnectionInterceptor,
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
