@@ -22,6 +22,12 @@ from products.signals.backend.agent_harness.tools.memory import (
     remember,
     search_memory,
 )
+from products.signals.backend.agent_harness.tools.profile import (
+    PROFILE_TTL,
+    ProjectProfile,
+    compute_project_profile,
+    get_project_profile,
+)
 from products.signals.backend.agent_harness.tools.runs import (
     DEFAULT_RUN_SEARCH_LIMIT,
     MAX_RUN_SEARCH_LIMIT,
@@ -43,10 +49,14 @@ __all__ = [
     "MAX_MEMORY_TTL_DAYS",
     "MAX_RUN_SEARCH_LIMIT",
     "MemoryEntry",
+    "PROFILE_TTL",
+    "ProjectProfile",
     "RunDetail",
     "RunSummary",
+    "compute_project_profile",
     "emit_finding",
     "forget",
+    "get_project_profile",
     "get_run",
     "remember",
     "search_memory",

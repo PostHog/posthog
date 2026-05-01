@@ -480,3 +480,41 @@ class SignalMemory(UUIDModel):
             models.Index(fields=["team", "expires_at"], name="signal_memory_expiry_idx"),
             GinIndex(fields=["tags"], name="signal_memory_tags_gin"),
         ]
+
+
+class SignalProjectProfile(UUIDModel):
+    """Deterministic snapshot of "what's true about this project" — agent orientation surface.
+
+    One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
+    the previous row to populate `payload.deltas`. v1 (Phase 4a) writes inventory only;
+    Phase 7 layers on deltas, activity_notes, and an LLM narrative section.
+
+    Profile is the *deterministic ground truth* about a project (computed from authoritative
+    tables). Distinct from `SignalMemory`, which is the *agent's inferred learnings* (possibly
+    wrong, TTL'd). Profile feeds memory; memory does not update profile.
+    """
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_project_profiles",
+    )
+    computed_at = models.DateTimeField(auto_now_add=True)
+    # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
+    # ~36h gives a safety margin against the daily Temporal refresh in Phase 7.
+    expires_at = models.DateTimeField()
+    # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
+    # invalidate stale rows without a manual backfill.
+    source_version = models.CharField(max_length=40)
+    # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
+    # slots reserved for Phase 7. Inline jsonb is fine — even a rich profile is small.
+    payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "Signal project profile"
+        verbose_name_plural = "Signal project profiles"
+        indexes = [
+            # `get_project_profile` reads the newest non-expired row for a team — supports the
+            # ORDER BY computed_at DESC LIMIT 1 lookup pattern.
+            models.Index(fields=["team", "-computed_at"], name="signal_proj_profile_recent_idx"),
+        ]
