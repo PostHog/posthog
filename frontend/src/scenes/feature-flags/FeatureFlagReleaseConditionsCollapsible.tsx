@@ -965,8 +965,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
             }
         }
 
-        // If changing from current value, show confirmation
-        if (value !== currentSelected) {
+        // Only show confirmation for existing flags that are changing bucketing
+        const isExistingFlag = validFeatureFlag?.id != null
+        const isChangingValue = value !== currentSelected
+
+        if (isExistingFlag && isChangingValue) {
             LemonDialog.open({
                 title: 'Change bucketing option?',
                 description:
@@ -983,7 +986,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 },
             })
         } else {
-            // No change, just apply directly
+            // New flag or no change, just apply directly
             applyChange(value)
         }
     }
