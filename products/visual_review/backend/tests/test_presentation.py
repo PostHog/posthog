@@ -200,6 +200,7 @@ class TestRunViewSet(APIBaseTest):
         branch: str,
         content_hash: str,
         *,
+        baseline_content_hash: str | None = None,
         run_type: str = RunType.STORYBOOK,
         run_status: str = RunStatus.COMPLETED,
         result: str = SnapshotResult.UNCHANGED,
@@ -210,6 +211,15 @@ class TestRunViewSet(APIBaseTest):
             content_hash=content_hash,
             storage_path=f"visual_review/{content_hash}",
         )
+        # History dedup keys on `baseline_artifact_id`, so tests must seed it.
+        # Default to the same artifact as `current_` for trivial cases.
+        baseline_artifact = artifact
+        if baseline_content_hash is not None and baseline_content_hash != content_hash:
+            baseline_artifact, _ = logic.get_or_create_artifact(
+                repo_id=self.vr_project.id,
+                content_hash=baseline_content_hash,
+                storage_path=f"visual_review/{baseline_content_hash}",
+            )
         # Only one un-superseded run per (repo, branch, run_type) is allowed (partial unique
         # index). Supersede the prior latest with the new run's id before insert.
         new_id = uuid4()
@@ -231,6 +241,7 @@ class TestRunViewSet(APIBaseTest):
             identifier="Button",
             current_hash=content_hash,
             current_artifact=artifact,
+            baseline_artifact=baseline_artifact,
             result=result,
         )
 
@@ -241,42 +252,51 @@ class TestRunViewSet(APIBaseTest):
         )
 
     def test_snapshot_history(self):
-        """History returns one entry per distinct baseline (`current_artifact_id`),
-        scoped to default-branch + completed runs.
+        """History returns one entry per *baseline transition* — every time
+        the committed `.snapshots.yml` baseline actually moved.
 
-        Only rows that move the baseline (`result` ∈ changed/removed/new)
-        appear; `unchanged` rows are excluded outright. The LAG dedup then
-        collapses consecutive rows that share an artifact_id.
+        LAG-on-`baseline_artifact_id` (ASC) keeps the FIRST run of each
+        baseline period, so the user sees the inception event plus every
+        change since. Tolerated drift / pixel jitter (current_ flickers but
+        baseline_ stays put) collapse naturally — no `result` filter needed.
         """
-        # Two completed master runs share `hash-A` → same artifact → must collapse to one entry.
-        # Use CHANGED so they survive the filter; the dedup-on-artifact still has to fire.
-        self._seed_history_row(sha="aaa1111", branch="master", content_hash="hash-A", result=SnapshotResult.CHANGED)
-        self._seed_history_row(sha="aaa2222", branch="master", content_hash="hash-A", result=SnapshotResult.CHANGED)
-        # Then a more recent main run with a different content → distinct entry.
-        self._seed_history_row(sha="bbb1111", branch="main", content_hash="hash-B", result=SnapshotResult.CHANGED)
-
-        # Steady-state master run with `result=UNCHANGED` — must be filtered out outright,
-        # otherwise pixel-jitter on the captured artifact lets these slip past LAG dedup
-        # and pollutes the timeline (the prod bug this filter was added for).
-        self._seed_history_row(sha="ddd0000", branch="master", content_hash="hash-jitter")
-
-        # PR-branch run — must be filtered out by branch.
+        # Two master runs sharing baseline `base-1` — collapse; the older
+        # one is the inception event for that baseline period.
+        self._seed_history_row(sha="aaa1111", branch="master", content_hash="hash-A", baseline_content_hash="base-1")
+        self._seed_history_row(sha="aaa2222", branch="master", content_hash="hash-A", baseline_content_hash="base-1")
+        # New baseline on main — distinct entry (transition to base-2).
         self._seed_history_row(
-            sha="ddd1111", branch="feat/something", content_hash="hash-feat", result=SnapshotResult.CHANGED
+            sha="bbb1111",
+            branch="main",
+            content_hash="hash-B",
+            baseline_content_hash="base-2",
+            result=SnapshotResult.CHANGED,
         )
-        # Playwright run on master — must be filtered out by run_type.
+        # Tolerated drift on master: current_ flickers, baseline stays at
+        # base-2 — must NOT create a new entry (the prod bug behind 252
+        # fake events on a single tolerated-drift story).
+        self._seed_history_row(
+            sha="ddd0000", branch="master", content_hash="hash-jitter", baseline_content_hash="base-2"
+        )
+
+        # PR-branch run — filtered out by branch.
+        self._seed_history_row(
+            sha="ddd1111", branch="feat/something", content_hash="hash-feat", baseline_content_hash="base-3"
+        )
+        # Playwright run on master — filtered out by run_type.
         self._seed_history_row(
             sha="ccc1111",
             branch="master",
             content_hash="hash-pw",
+            baseline_content_hash="base-pw",
             run_type=RunType.PLAYWRIGHT,
-            result=SnapshotResult.CHANGED,
         )
-        # Pending master run — must be filtered out by status (result=NEW alone wouldn't filter it now).
+        # Pending master run — filtered out by status (no baseline_artifact yet).
         self._seed_history_row(
             sha="eee1111",
             branch="master",
             content_hash="hash-pending",
+            baseline_content_hash="base-pending",
             run_status=RunStatus.PENDING,
             result=SnapshotResult.NEW,
         )
@@ -286,11 +306,13 @@ class TestRunViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         results = body["results"]
-        # Two distinct baselines: hash-B (newest) and hash-A (collapsed from two master runs).
+        # Two baseline transitions: aaa1111 (inception, base-1) and bbb1111
+        # (transition to base-2). aaa2222 collapses into aaa1111's period;
+        # ddd0000 collapses into bbb1111's.
         self.assertEqual(body["count"], 2)
-        # Newest first; the dedup keeps the most recent run for each artifact.
+        # Output is newest-first.
         self.assertEqual(results[0]["commit_sha"], "bbb1111")
-        self.assertEqual(results[1]["commit_sha"], "aaa2222")
+        self.assertEqual(results[1]["commit_sha"], "aaa1111")
         for entry in results:
             self.assertIn("snapshot_id", entry)
             self.assertIn("review_state", entry)

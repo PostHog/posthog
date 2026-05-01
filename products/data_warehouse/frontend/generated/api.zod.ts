@@ -1572,22 +1572,26 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
 
 export const warehouseSavedQueryFoldersCreateBodyNameMax = 128
 
-export const WarehouseSavedQueryFoldersCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(warehouseSavedQueryFoldersCreateBodyNameMax)
-        .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
-})
+export const WarehouseSavedQueryFoldersCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(warehouseSavedQueryFoldersCreateBodyNameMax)
+            .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 export const warehouseSavedQueryFoldersPartialUpdateBodyNameMax = 128
 
-export const WarehouseSavedQueryFoldersPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(warehouseSavedQueryFoldersPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
-})
+export const WarehouseSavedQueryFoldersPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(warehouseSavedQueryFoldersPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Display name for the folder used to organize saved queries in the SQL editor sidebar.'),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
@@ -1608,53 +1612,55 @@ export const warehouseTablesCreateBodyCredentialAccessKeyMax = 500
 
 export const warehouseTablesCreateBodyCredentialAccessSecretMax = 500
 
-export const WarehouseTablesCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    name: zod.string().max(warehouseTablesCreateBodyNameMax),
-    format: zod
-        .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
-        .describe(
-            '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
-        ),
-    url_pattern: zod.string().max(warehouseTablesCreateBodyUrlPatternMax),
-    credential: zod.object({
-        id: zod.uuid(),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.uuid(),
-            distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-            email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
+export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
+    .object({
+        deleted: zod.boolean().nullish(),
+        name: zod.string().max(warehouseTablesCreateBodyNameMax),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod.string().max(warehouseTablesCreateBodyUrlPatternMax),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            }),
+            created_at: zod.iso.datetime({}),
+            access_key: zod.string().max(warehouseTablesCreateBodyCredentialAccessKeyMax),
+            access_secret: zod.string().max(warehouseTablesCreateBodyCredentialAccessSecretMax),
         }),
-        created_at: zod.iso.datetime({}),
-        access_key: zod.string().max(warehouseTablesCreateBodyCredentialAccessKeyMax),
-        access_secret: zod.string().max(warehouseTablesCreateBodyCredentialAccessSecretMax),
-    }),
-    options: zod.record(zod.string(), zod.unknown()).optional(),
-})
+        options: zod.record(zod.string(), zod.unknown()).optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete Warehouse Tables.
@@ -1675,53 +1681,61 @@ export const warehouseTablesFileCreateBodyCredentialAccessKeyMax = 500
 
 export const warehouseTablesFileCreateBodyCredentialAccessSecretMax = 500
 
-export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    name: zod.string().max(warehouseTablesFileCreateBodyNameMax),
-    format: zod
-        .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
-        .describe(
-            '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
-        ),
-    url_pattern: zod.string().max(warehouseTablesFileCreateBodyUrlPatternMax),
-    credential: zod.object({
-        id: zod.uuid(),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.uuid(),
-            distinct_id: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-            email: zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
+export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
+    .object({
+        deleted: zod.boolean().nullish(),
+        name: zod.string().max(warehouseTablesFileCreateBodyNameMax),
+        format: zod
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .describe(
+                '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
+            ),
+        url_pattern: zod.string().max(warehouseTablesFileCreateBodyUrlPatternMax),
+        credential: zod.object({
+            id: zod.uuid(),
+            created_by: zod.object({
+                id: zod.number(),
+                uuid: zod.uuid(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            }),
+            created_at: zod.iso.datetime({}),
+            access_key: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessKeyMax),
+            access_secret: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessSecretMax),
         }),
-        created_at: zod.iso.datetime({}),
-        access_key: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessKeyMax),
-        access_secret: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessSecretMax),
-    }),
-    options: zod.record(zod.string(), zod.unknown()).optional(),
-})
+        options: zod.record(zod.string(), zod.unknown()).optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create, Read, Update and Delete View Columns.
