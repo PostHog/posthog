@@ -24,7 +24,7 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.experiments({ projectId }).getMetricResults({
-        experimentId: params.experimentId,
+        experimentId: params.id,
         refresh: params.refresh,
     })
 
@@ -42,7 +42,7 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
             secondaryMetricsResults,
             exposures,
         }),
-        `/experiments/${params.experimentId}`
+        `/experiments/${params.id}`
     )
 }
 

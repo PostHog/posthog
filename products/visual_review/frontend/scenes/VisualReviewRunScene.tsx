@@ -1,20 +1,23 @@
 import { useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 
@@ -30,11 +33,17 @@ function SnapshotThumbnail({
     snapshot,
     isSelected,
     isQuarantined,
+    thumbnailSrc,
+    fallbackSrc,
+    onThumbnailFailed,
     onClick,
 }: {
     snapshot: SnapshotApi
     isSelected: boolean
     isQuarantined: boolean
+    thumbnailSrc: string | null
+    fallbackSrc: string | null
+    onThumbnailFailed: () => void
     onClick: () => void
 }): JSX.Element {
     const parts = snapshot.identifier.split('--')
@@ -42,15 +51,17 @@ function SnapshotThumbnail({
     const isTheme = theme === 'dark' || theme === 'light'
     const shortName = parts.length > 1 ? parts.slice(1, isTheme ? -1 : undefined).join(' · ') : snapshot.identifier
 
-    const [imageLoaded, setImageLoaded] = useState(false)
     const isReviewed = snapshot.review_state === 'approved' || snapshot.review_state === 'tolerated'
     const showBadge = isReviewed || isQuarantined
     const hasDiff = snapshot.diff_percentage != null && snapshot.diff_percentage > 0
+
+    const imgSrc = thumbnailSrc ?? fallbackSrc
 
     return (
         <button
             type="button"
             onClick={onClick}
+            data-attr="visual-review-snapshot-thumbnail"
             className="relative flex flex-col items-center gap-1 shrink-0 rounded overflow-hidden p-1.5 transition-colors"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -79,21 +90,17 @@ function SnapshotThumbnail({
                 </>
             )}
             <div className="w-[104px] h-[72px] rounded-sm overflow-hidden bg-bg-3000 relative">
-                {snapshot.current_artifact?.download_url ? (
-                    <>
-                        {!imageLoaded && <LemonSkeleton className="absolute inset-0" />}
-                        <img
-                            src={snapshot.current_artifact.download_url}
-                            alt=""
-                            width={104}
-                            height={72}
-                            loading="lazy"
-                            decoding="async"
-                            className={`w-full h-full object-contain transition-opacity duration-150 ${isQuarantined ? 'grayscale opacity-40' : imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-                            onLoad={() => setImageLoaded(true)}
-                            onError={() => setImageLoaded(true)}
-                        />
-                    </>
+                {imgSrc ? (
+                    <img
+                        src={imgSrc}
+                        alt=""
+                        width={104}
+                        height={72}
+                        loading="lazy"
+                        decoding="async"
+                        className={`w-full h-full object-contain ${isQuarantined ? 'grayscale opacity-40' : ''}`}
+                        onError={thumbnailSrc ? onThumbnailFailed : undefined}
+                    />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
                         <span className="text-[10px] text-muted">No image</span>
@@ -127,19 +134,46 @@ function SnapshotThumbnail({
     )
 }
 
-function RunInProgressEmptyState({ isProcessing }: { isProcessing: boolean }): JSX.Element {
-    const title = isProcessing ? 'Processing diffs' : 'Waiting for snapshots'
+const PENDING_STALE_THRESHOLD_MS = 15 * 60 * 1000
+
+function RunInProgressEmptyState({
+    isProcessing,
+    createdAt,
+    ciJobUrl,
+}: {
+    isProcessing: boolean
+    createdAt: string
+    ciJobUrl?: string
+}): JSX.Element {
+    const ageMs = Date.now() - new Date(createdAt).getTime()
+    const isStale = !isProcessing && ageMs > PENDING_STALE_THRESHOLD_MS
+
+    const title = isProcessing ? 'Processing diffs' : isStale ? 'Still waiting for snapshots' : 'Waiting for snapshots'
     const copy = isProcessing
         ? 'Snapshots are being compared against the baseline. This usually takes under a minute.'
-        : 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
+        : isStale
+          ? 'This run has been waiting for over 15 minutes. The CI job may have failed before uploading snapshots.'
+          : 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
 
     return (
         <PostHogCaptureOnViewed
             name="visual-review-run-in-progress-shown"
-            properties={{ is_processing: isProcessing }}
+            properties={{ is_processing: isProcessing, is_stale: isStale }}
             className="flex flex-col items-center justify-center text-center gap-3 py-12 px-6"
             data-attr="visual-review-run-in-progress"
         >
+            {isStale ? (
+                <LemonBanner type="warning" className="max-w-lg mb-4">
+                    The CI job hasn't reported back.{' '}
+                    {ciJobUrl ? (
+                        <Link to={ciJobUrl} target="_blank" className="font-semibold">
+                            Check CI logs
+                        </Link>
+                    ) : (
+                        'Check your CI logs to see if the job failed.'
+                    )}
+                </LemonBanner>
+            ) : null}
             <DetectiveHog className="w-32 h-32" />
             <h2 className="m-0">{title}</h2>
             <p className="max-w-md text-tertiary m-0">
@@ -153,13 +187,10 @@ function RunInProgressEmptyState({ isProcessing }: { isProcessing: boolean }): J
 export function VisualReviewRunScene(): JSX.Element {
     const {
         run,
-        runLoading,
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
         sortedChangedSnapshots,
-        snapshotHistory,
-        snapshotHistoryLoading,
         toleratedHashes,
         toleratedHashesLoading,
         quarantinedIdentifiers,
@@ -167,8 +198,11 @@ export function VisualReviewRunScene(): JSX.Element {
         repoFullName,
         isApproving,
         isApprovingSnapshot,
+        isRecomputing,
         isRunInProgress,
         isRunProcessing,
+        failedThumbnails,
+        thumbnailBasePath,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -177,9 +211,42 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        recomputeRun,
+        markThumbnailFailed,
     } = useActions(visualReviewRunSceneLogic)
 
-    if (runLoading || !run) {
+    // Navigation — use changed snapshots when there are changes, otherwise all snapshots
+    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
+    const currentIndex = selectedSnapshot
+        ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
+        : -1
+    const hasPrevious = currentIndex > 0
+    const hasNext = currentIndex >= 0 && currentIndex < navSnapshots.length - 1
+
+    const goToPrevious = (): void => {
+        if (hasPrevious) {
+            setSelectedSnapshotId(navSnapshots[currentIndex - 1].id)
+        }
+    }
+
+    const goToNext = (): void => {
+        if (hasNext) {
+            setSelectedSnapshotId(navSnapshots[currentIndex + 1].id)
+        }
+    }
+
+    useKeyboardHotkeys(
+        {
+            p: { action: goToPrevious, disabled: !hasPrevious },
+            n: { action: goToNext, disabled: !hasNext },
+        },
+        [currentIndex, navSnapshots.length]
+    )
+
+    // Show skeleton only on initial load — once `run` is populated, keep showing it
+    // even while a background refetch is in flight (e.g. after approve/tolerate),
+    // otherwise the whole scene flashes to skeleton on every mutation.
+    if (!run) {
         return (
             <SceneContent>
                 <div className="space-y-4 py-4">
@@ -200,7 +267,11 @@ export function VisualReviewRunScene(): JSX.Element {
         return (
             <SceneContent>
                 <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
-                <RunInProgressEmptyState isProcessing={isRunProcessing} />
+                <RunInProgressEmptyState
+                    isProcessing={isRunProcessing}
+                    createdAt={run.created_at}
+                    ciJobUrl={run.metadata?.ci_job_url as string | undefined}
+                />
             </SceneContent>
         )
     }
@@ -231,31 +302,25 @@ export function VisualReviewRunScene(): JSX.Element {
     const diffNew = run.summary.new
     const diffRemoved = run.summary.removed
     const diffTolerated = Math.max(0, (run.summary.tolerated_matched ?? 0) - reviewTolerated)
+    const hasChanges = diffChanged > 0 || diffNew > 0 || diffRemoved > 0
 
-    // If server counts are higher than loaded, show "+" to hint at pagination
-    const totalActionable = diffChanged + diffNew + diffRemoved
-    const loadedActionable = reviewPending + reviewApproved + reviewTolerated
-    const hasMore = totalActionable > loadedActionable
+    // Predict whether recompute would flip the gate — uses client-side quarantine set
+    // which updates immediately, unlike summary.unresolved which requires a recompute round-trip
+    const allChangesResolved =
+        run.status === 'completed' &&
+        !run.approved &&
+        !run.is_stale &&
+        hasChanges &&
+        snapshots
+            .filter((s: SnapshotApi) => s.result !== 'unchanged')
+            .every(
+                (s: SnapshotApi) =>
+                    quarantinedIdentifierSet.has(s.identifier) ||
+                    s.review_state === 'tolerated' ||
+                    s.review_state === 'approved'
+            )
 
-    // Navigation — use changed snapshots when there are changes, otherwise all snapshots
-    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
-    const currentIndex = selectedSnapshot
-        ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
-        : -1
-    const hasPrevious = currentIndex > 0
-    const hasNext = currentIndex >= 0 && currentIndex < navSnapshots.length - 1
-
-    const goToPrevious = (): void => {
-        if (hasPrevious) {
-            setSelectedSnapshotId(navSnapshots[currentIndex - 1].id)
-        }
-    }
-
-    const goToNext = (): void => {
-        if (hasNext) {
-            setSelectedSnapshotId(navSnapshots[currentIndex + 1].id)
-        }
-    }
+    const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {
@@ -272,12 +337,18 @@ export function VisualReviewRunScene(): JSX.Element {
                     !run.approved &&
                     !run.is_stale &&
                     (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
-                        <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
+                        <LemonButton
+                            type="primary"
+                            onClick={approveChanges}
+                            loading={isApproving}
+                            data-attr="visual-review-commit-baseline"
+                        >
                             {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
                         </LemonButton>
                     ) : undefined
                 }
             />
+            <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {run.is_stale && (
                 <LemonBanner type="warning" className="mb-4">
@@ -287,6 +358,21 @@ export function VisualReviewRunScene(): JSX.Element {
                             View latest run
                         </Link>
                     )}
+                </LemonBanner>
+            )}
+
+            {allChangesResolved && (
+                <LemonBanner
+                    type="info"
+                    className="mb-4"
+                    action={{
+                        children: 'Re-trigger CI',
+                        loading: isRecomputing,
+                        onClick: recomputeRun,
+                        'data-attr': 'visual-review-recompute-run',
+                    }}
+                >
+                    All changes are resolved — re-trigger to update the commit status and pass the gate.
                 </LemonBanner>
             )}
 
@@ -343,15 +429,25 @@ export function VisualReviewRunScene(): JSX.Element {
 
                     {navSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
-                            {navSnapshots.map((snapshot: SnapshotApi) => (
-                                <SnapshotThumbnail
-                                    key={snapshot.id}
-                                    snapshot={snapshot}
-                                    isSelected={selectedSnapshot?.id === snapshot.id}
-                                    isQuarantined={quarantinedIdentifierSet.has(snapshot.identifier)}
-                                    onClick={() => setSelectedSnapshotId(snapshot.id)}
-                                />
-                            ))}
+                            {navSnapshots.map((snapshot: SnapshotApi) => {
+                                const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
+                                return (
+                                    <SnapshotThumbnail
+                                        key={snapshot.id}
+                                        snapshot={snapshot}
+                                        isSelected={selectedSnapshot?.id === snapshot.id}
+                                        isQuarantined={quarantinedIdentifierSet.has(snapshot.identifier)}
+                                        thumbnailSrc={
+                                            hasThumbnail
+                                                ? `${thumbnailBasePath}/${encodeURIComponent(snapshot.identifier)}/`
+                                                : null
+                                        }
+                                        fallbackSrc={snapshot.current_artifact?.download_url ?? null}
+                                        onThumbnailFailed={() => markThumbnailFailed(snapshot.identifier)}
+                                        onClick={() => setSelectedSnapshotId(snapshot.id)}
+                                    />
+                                )
+                            })}
                         </div>
                     )}
 
@@ -361,8 +457,10 @@ export function VisualReviewRunScene(): JSX.Element {
                             <LemonButton
                                 size="xsmall"
                                 icon={<IconChevronLeft />}
+                                sideIcon={<KeyboardShortcut p />}
                                 onClick={goToPrevious}
                                 disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
+                                data-attr="visual-review-snapshot-previous"
                             >
                                 Previous
                             </LemonButton>
@@ -373,9 +471,11 @@ export function VisualReviewRunScene(): JSX.Element {
                             )}
                             <LemonButton
                                 size="xsmall"
+                                icon={<KeyboardShortcut n />}
                                 sideIcon={<IconChevronRight />}
                                 onClick={goToNext}
                                 disabledReason={!hasNext ? 'No next snapshot' : undefined}
+                                data-attr="visual-review-snapshot-next"
                             >
                                 Next
                             </LemonButton>
@@ -388,8 +488,6 @@ export function VisualReviewRunScene(): JSX.Element {
                     {selectedSnapshot ? (
                         <SnapshotDiffViewer
                             snapshot={selectedSnapshot}
-                            snapshotHistory={snapshotHistory}
-                            snapshotHistoryLoading={snapshotHistoryLoading}
                             toleratedHashes={toleratedHashes}
                             toleratedHashesLoading={toleratedHashesLoading}
                             onApprove={handleApproveSnapshot}
@@ -409,8 +507,17 @@ export function VisualReviewRunScene(): JSX.Element {
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
+                            repoId={run.repo_id}
                             repoFullName={repoFullName}
                             runType={run.run_type}
+                            githubRunId={(run.metadata?.github_run_id as string) || null}
+                            isRecomputing={isRecomputing}
+                            onRecompute={
+                                run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
+                            }
+                            recomputeDisabledReason={
+                                !allChangesResolved ? 'Re-trigger would not change the outcome' : undefined
+                            }
                         />
                     ) : snapshotsLoading ? (
                         <div className="space-y-3 py-4">

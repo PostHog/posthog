@@ -3,6 +3,8 @@ import asyncio
 import difflib
 from copy import copy
 
+from django.conf import settings
+
 import structlog
 from google import genai
 from google.genai.types import GenerateContentConfig
@@ -10,8 +12,6 @@ from rich.console import Console
 
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
-
-from products.llm_analytics.backend.providers.gemini import GeminiProvider
 
 from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_MODEL_TO_SUMMARIZE_STRINGIFIED_TRACES
 from ee.models.llm_traces_summaries import LLMTraceSummary
@@ -43,9 +43,11 @@ class LLMTraceSummarizerGenerator:
         self._team = team
         self._summary_type = summary_type
         self._model_id = model_id
-        self._provider = GeminiProvider(model_id=model_id)
-        # # Using default Google client as posthog wrapper doesn't support `aio` yet for async calls
-        self._client = genai.Client(api_key=self._provider.get_api_key())
+        api_key = settings.GEMINI_API_KEY
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is not set in environment or settings")
+        # Using default Google client as posthog wrapper doesn't support `aio` yet for async calls
+        self._client = genai.Client(api_key=api_key)
         # Remove excessive summary parts that add no value to concentrate the summary meaning programmatically
         # Parts that add no value and can't be safely removed
         self._no_value_parts = [
@@ -112,12 +114,10 @@ class LLMTraceSummarizerGenerator:
     async def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str | Exception:
         prompt = GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT.format(stringified_trace=stringified_trace)
         try:
-            self._provider.validate_model(self._model_id)
-            config_kwargs = self._provider.prepare_config_kwargs(system="")
             response = await self._client.aio.models.generate_content(
                 model=self._model_id,
                 contents=prompt,
-                config=GenerateContentConfig(**config_kwargs),
+                config=GenerateContentConfig(temperature=0),
             )
             if not response.text:
                 raise ValueError(f"No trace summary was generated for trace {trace_id} from team {self._team.id}")

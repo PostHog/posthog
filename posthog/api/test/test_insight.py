@@ -46,6 +46,7 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
+from posthog.api.insight import _last_refresh_for_shared_gate
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
@@ -533,6 +534,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
+                # The shared force_blocking gate downgrades to IF_STALE because the insight was
+                # just created — the InsightCachingState row's `created_at` is younger than
+                # `SHARED_FORCE_BLOCKING_MIN_AGE` and the throttle clock falls back to it.
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
@@ -541,6 +545,26 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 analytics_props=ANY,
             )
+
+    @parameterized.expand(
+        [
+            # When no caching state row exists, the gate falls back to insight.created_at so
+            # legitimate stale-refresh isn't silently blocked on insights without rows.
+            ("missing_row_falls_back_to_insight_created_at", True),
+            ("existing_row_used_when_present", False),
+        ]
+    )
+    def test_last_refresh_for_shared_gate_fallback(self, _name: str, delete_caching_state: bool) -> None:
+        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        if delete_caching_state:
+            InsightCachingState.objects.filter(insight=insight).delete()
+            self.assertIsNone(InsightCachingState.objects.filter(insight=insight).first())
+            expected = insight.created_at
+        else:
+            cs = InsightCachingState.objects.filter(insight=insight, dashboard_tile=None).first()
+            assert cs is not None  # narrows type for mypy
+            expected = cs.created_at  # last_refresh is null on a freshly created row
+        self.assertEqual(_last_refresh_for_shared_gate(insight, None), expected)
 
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -668,6 +692,53 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
 
+    def test_saved_filter_returns_saved_or_on_visible_dashboard(self) -> None:
+        default_dashboard = Dashboard.objects.create(name="d-default", team=self.team, creation_mode="default")
+        template_dashboard = Dashboard.objects.create(name="d-template", team=self.team, creation_mode="template")
+        unlisted_dashboard = Dashboard.objects.create(name="d-unlisted", team=self.team, creation_mode="unlisted")
+
+        filters = {"events": [{"id": "$pageview"}]}
+        saved_no_dashboard = Insight.objects.create(short_id="ins-sn", saved=True, team=self.team, filters=filters)
+        unsaved_on_default = Insight.objects.create(short_id="ins-ud", saved=False, team=self.team, filters=filters)
+        unsaved_on_template = Insight.objects.create(short_id="ins-ut", saved=False, team=self.team, filters=filters)
+        unsaved_on_unlisted = Insight.objects.create(short_id="ins-uu", saved=False, team=self.team, filters=filters)
+        unsaved_no_dashboard = Insight.objects.create(short_id="ins-un", saved=False, team=self.team, filters=filters)
+
+        DashboardTile.objects.create(insight=unsaved_on_default, dashboard=default_dashboard)
+        DashboardTile.objects.create(insight=unsaved_on_template, dashboard=template_dashboard)
+        DashboardTile.objects.create(insight=unsaved_on_unlisted, dashboard=unlisted_dashboard)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
+        assert response.status_code == status.HTTP_200_OK
+        returned = sorted(r["short_id"] for r in response.json()["results"])
+
+        assert returned == sorted(
+            [saved_no_dashboard.short_id, unsaved_on_default.short_id, unsaved_on_template.short_id]
+        ), (
+            f"`saved=true` must return saved insights and unsaved-on-non-unlisted-dashboard insights. "
+            f"unsaved-on-unlisted-dashboard ({unsaved_on_unlisted.short_id}) and unsaved-no-dashboard "
+            f"({unsaved_no_dashboard.short_id}) must be excluded."
+        )
+
+    def test_search_filter_does_not_duplicate_insights_with_multiple_matching_tags(self) -> None:
+        from posthog.models.tag import Tag
+        from posthog.models.tagged_item import TaggedItem
+
+        insight = Insight.objects.create(
+            short_id="search-tg", name="needle", team=self.team, filters={"events": [{"id": "$pageview"}]}
+        )
+        for tag_name in ("needle-tag-a", "needle-tag-b", "needle-tag-c"):
+            tag = Tag.objects.create(name=tag_name, team=self.team)
+            TaggedItem.objects.create(insight=insight, tag=tag)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
+        assert response.status_code == status.HTTP_200_OK
+        matching_short_ids = [r["short_id"] for r in response.json()["results"] if r["short_id"] == insight.short_id]
+        assert len(matching_short_ids) == 1, (
+            f"search=needle must return the insight once even though three tags + the name match it; "
+            f"got {len(matching_short_ids)} copies."
+        )
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
@@ -701,10 +772,67 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [15, 15, 15, 15, 15],
+            [13, 13, 13, 13, 13],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
+
+    @parameterized.expand([("basic_path", "&basic=true"), ("full_path", "")])
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_listing_insights_with_many_dashboards_per_insight_does_not_nplus1(
+        self, _name: str, basic_query_param: str
+    ) -> None:
+        dashboards = [Dashboard.objects.create(name=f"dashboard {n}", team=self.team) for n in range(3)]
+
+        def _create_insight_with_many_dashboards(short_id: str) -> int:
+            insight_id, _ = self.dashboard_api.create_insight(
+                data={
+                    "short_id": short_id,
+                    "dashboards": [d.pk for d in dashboards],
+                    "filters": {"events": [{"id": "$pageview"}]},
+                }
+            )
+            soft_deleted_dashboard = Dashboard.objects.create(name=f"deleted dashboard for {short_id}", team=self.team)
+            DashboardTile.objects_including_soft_deleted.create(
+                dashboard=soft_deleted_dashboard,
+                insight_id=insight_id,
+                deleted=True,
+            )
+            return insight_id
+
+        url = f"/api/projects/{self.team.id}/insights/?saved=true&order=-last_modified_at&limit=30{basic_query_param}"
+
+        _create_insight_with_many_dashboards("first")
+        with capture_db_queries() as ctx:
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+            assert len(response.json()["results"]) == 1
+        baseline_query_count = len(ctx.captured_queries)
+
+        for n in range(2, 6):
+            _create_insight_with_many_dashboards(f"insight-{n}")
+            with capture_db_queries() as ctx:
+                response = self.client.get(url)
+                assert response.status_code == status.HTTP_200_OK
+                assert len(response.json()["results"]) == n
+
+            per_insight_m2m_lookups = [
+                q
+                for q in ctx.captured_queries
+                if 'FROM "posthog_dashboardtile"' in q["sql"]
+                and 'INNER JOIN "posthog_dashboard"' in q["sql"]
+                and '"posthog_dashboardtile"."insight_id" =' in q["sql"]
+            ]
+            assert per_insight_m2m_lookups == [], (
+                f"found {len(per_insight_m2m_lookups)} per-instance M2M `Insight.dashboards` lookups when serialising insights; "
+                f"the `dashboards` payload should derive from the prefetched `dashboard_tiles`. SQL samples:\n"
+                + "\n".join(q["sql"][:300] for q in per_insight_m2m_lookups[:3])
+            )
+
+            assert len(ctx.captured_queries) == baseline_query_count, (
+                f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline_query_count}; "
+                f"adding insights should not grow the per-request query count."
+            )
 
     def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
         self.dashboard_api.create_insight(

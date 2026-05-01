@@ -154,7 +154,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self._proxy_url(installation.id),
             data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
             format="json",
-            HTTP_MCP_SESSION_ID="client-session-xyz",
+            headers={"mcp-session-id": "client-session-xyz"},
         )
 
         assert response.status_code == 200

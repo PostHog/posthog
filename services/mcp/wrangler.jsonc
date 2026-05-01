@@ -40,7 +40,7 @@
         "logs": {
             "enabled": true,
             "destinations": ["posthog"],
-            "head_sampling_rate": 1.0, // Collect all logs for now
+            "head_sampling_rate": 0.1,
             "persist": true, // Keep showing logs in Cloudflare dashboard
         },
     },

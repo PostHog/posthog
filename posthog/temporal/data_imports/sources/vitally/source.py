@@ -104,6 +104,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="region",
@@ -124,6 +125,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="",
+                                            secret=False,
                                         )
                                     ],
                                 ),

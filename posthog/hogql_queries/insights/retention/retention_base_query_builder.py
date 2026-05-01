@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.hogql import ast
@@ -47,6 +48,13 @@ class RetentionBaseQueryBuilder(ABC):
     def start_entity_expr(self) -> ast.Expr:
         return self.runner.start_entity_expr
 
+    @cached_property
+    def start_entity_expr_no_props(self) -> ast.Expr:
+        # Start-event matcher with property filters stripped — used to anchor "first ever" against the unfiltered stream.
+        clean_start_event = self.start_event.model_copy(deep=True)
+        clean_start_event.properties = []
+        return entity_to_expr(clean_start_event, self.team)
+
     @property
     def return_entity_expr(self) -> ast.Expr:
         return self.runner.return_entity_expr
@@ -64,10 +72,6 @@ class RetentionBaseQueryBuilder(ABC):
         return self.runner.global_event_filters
 
     @property
-    def events_timestamp_filter(self) -> ast.Expr:
-        return self.runner.events_timestamp_filter
-
-    @property
     def is_first_ever_occurrence(self) -> bool:
         return self.runner.is_first_ever_occurrence
 
@@ -78,6 +82,10 @@ class RetentionBaseQueryBuilder(ABC):
     @property
     def is_custom_bracket_retention(self) -> bool:
         return self.runner.is_custom_bracket_retention
+
+    @property
+    def minimum_occurrences(self) -> int:
+        return self.query.retentionFilter.minimumOccurrences or 1
 
     def build(
         self,
@@ -128,24 +136,39 @@ class RetentionBaseQueryBuilder(ABC):
                 self.query.breakdownFilter.breakdown_group_type_index,
             )
 
-        if breakdown_expr:
+        if breakdown_expr is None:
+            return
+
+        if self.is_first_ever_occurrence:
+            # Bucket each user by the breakdown value on their absolute-first
+            # start event. Adding breakdown_value to GROUP BY (the else branch)
+            # would split each user into one partition per breakdown value they
+            # ever had, and the per-partition "first ever" check would silently
+            # become "first ever with this value" — letting one user populate
+            # multiple buckets. argMinIf reads the breakdown property off the
+            # user's earliest start-event row; missing values fall into the
+            # empty-string bucket via breakdown_extract_expr's ifNull wrap.
+            breakdown_value_expr: ast.Expr = parse_expr(
+                "argMinIf({breakdown}, events.timestamp, {entity})",
+                {"breakdown": breakdown_expr, "entity": self.start_entity_expr_no_props},
+            )
+            base_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_value_expr))
+        else:
             base_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
             cast(list[ast.Expr], base_query.group_by).append(ast.Field(chain=["breakdown_value"]))
+
+    def events_timestamp_filter(self, field: ast.Expr | None = None) -> ast.Expr:
+        return self.runner.events_timestamp_filter(field=field)
 
     def get_first_time_anchor_expr(self) -> ast.Expr:
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
             start_entity_with_properties_expr = entity_to_expr(self.start_event, self.team)
 
             if self.is_first_ever_occurrence:
-                # Create a clean entity without properties to find the true first-ever event
-                clean_start_event = self.start_event.model_copy(deep=True)
-                clean_start_event.properties = []
-                start_entity_expr_no_props = entity_to_expr(clean_start_event, self.team)
-
                 # First-ever occurrence of the target event, then check filters.
                 # We find the timestamp of the first event of this type, and the first event of this type that also matches properties.
                 # If they are the same, this is the user's cohorting event.
-                min_ts_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": start_entity_expr_no_props})
+                min_ts_expr = parse_expr("minIf(events.timestamp, {expr})", {"expr": self.start_entity_expr_no_props})
                 min_ts_with_props_expr = parse_expr(
                     "minIf(events.timestamp, {expr})", {"expr": start_entity_with_properties_expr}
                 )

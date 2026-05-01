@@ -19,7 +19,7 @@ def _make_activity(
     activity_type: str = "message",
     channel_id: str = "19:ch@thread.tacv2",
     tenant_id: str = "tenant-abc",
-    text: str = "Hello",
+    text: str = "I have an issue",
 ) -> dict[str, Any]:
     return {
         "type": activity_type,
@@ -85,6 +85,114 @@ class TestTeamsEventHandler(BaseTest):
         response = self._post(_make_activity(activity_type="conversationUpdate"))
 
         assert response.status_code == 200
+
+    @patch("products.conversations.backend.api.teams_events.send_teams_help")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_conversation_update_with_bot_added_enqueues_welcome(self, mock_validate, mock_help):
+        """Cert 11.4.4.3: bot must send a proactive welcome on install."""
+        mock_validate.return_value = {}
+        activity = _make_activity(activity_type="conversationUpdate")
+        bot_id = "28:bot-app-id"
+        activity["recipient"] = {"id": bot_id, "name": "SupportHog"}
+        activity["membersAdded"] = [{"id": bot_id}]
+
+        response = self._post(activity)
+
+        assert response.status_code == 200
+        mock_help.delay.assert_called_once()
+        call_kwargs = mock_help.delay.call_args.kwargs
+        assert call_kwargs["activity"]["type"] == "conversationUpdate"
+        assert call_kwargs["reply"] is False
+
+    @patch("products.conversations.backend.api.teams_events.send_teams_help")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_conversation_update_with_other_member_does_not_welcome(self, mock_validate, mock_help):
+        """A non-bot member joining must not trigger the welcome card."""
+        mock_validate.return_value = {}
+        activity = _make_activity(activity_type="conversationUpdate")
+        activity["recipient"] = {"id": "28:bot-app-id", "name": "SupportHog"}
+        activity["membersAdded"] = [{"id": "29:some-other-user"}]
+
+        response = self._post(activity)
+
+        assert response.status_code == 200
+        mock_help.delay.assert_not_called()
+
+    @patch("products.conversations.backend.api.teams_events.process_teams_event")
+    @patch("products.conversations.backend.api.teams_events.send_teams_help")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_generic_command_replies_with_help_card_without_oauth(self, mock_validate, mock_help, mock_process):
+        """Cert 11.4.4.3: bot must respond to "Hi" / "Hello" / "Help" even
+        before OAuth — AppSource validators run against an unconnected tenant."""
+        mock_validate.return_value = {}
+        # tenant we have no PostHog config for — simulates the validator's tenant.
+        activity = _make_activity(text="Hi", tenant_id="unknown-tenant")
+
+        response = self._post(activity)
+
+        assert response.status_code == 202
+        mock_help.delay.assert_called_once()
+        call_kwargs = mock_help.delay.call_args.kwargs
+        assert call_kwargs["reply"] is True
+        # Crucially, do NOT also try to create a ticket.
+        mock_process.delay.assert_not_called()
+
+    @patch("products.conversations.backend.api.teams_events.process_teams_event")
+    @patch("products.conversations.backend.api.teams_events.send_teams_help")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_non_command_message_does_not_hit_help_path(self, mock_validate, mock_help, mock_process):
+        mock_validate.return_value = {}
+
+        self._post(_make_activity(text="I have an issue"))
+
+        mock_help.delay.assert_not_called()
+        mock_process.delay.assert_called_once()
+
+    @patch("products.conversations.backend.api.teams_events.send_teams_help")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_command_message_deduplicated_on_retry(self, mock_validate, mock_help):
+        """Bot Framework retries on 5xx for ~10 mins with the same activity.id —
+        we must not post the help card twice."""
+        mock_validate.return_value = {}
+        activity = _make_activity(text="Hi")
+
+        first = self._post(activity)
+        second = self._post(activity)
+
+        assert first.status_code == 202
+        assert second.status_code == 202
+        mock_help.delay.assert_called_once()
+
+    @patch("products.conversations.backend.api.teams_events.send_teams_help")
+    @patch("products.conversations.backend.api.teams_events.get_bot_from_id", return_value="28:bot-app-id")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_command_message_from_bot_self_id_suppressed(self, mock_validate, _mock_bot_id, mock_help):
+        """Defense-in-depth: a spoofed activity claiming from.id == bot must
+        not loop us into replying. (Bot Framework doesn't echo, but a valid
+        JWT replay shouldn't bypass that.)"""
+        mock_validate.return_value = {}
+        activity = _make_activity(text="Hi")
+        activity["from"] = {"id": "28:bot-app-id", "aadObjectId": "aad-bot", "role": "bot"}
+
+        response = self._post(activity)
+
+        assert response.status_code == 200
+        mock_help.delay.assert_not_called()
+
+    @patch("products.conversations.backend.api.teams_events.send_teams_help")
+    @patch("products.conversations.backend.api.teams_events.validate_teams_request")
+    def test_welcome_deduplicated_on_retry(self, mock_validate, mock_help):
+        """Same idempotency guarantee for the bot-added conversationUpdate."""
+        mock_validate.return_value = {}
+        activity = _make_activity(activity_type="conversationUpdate")
+        bot_id = "28:bot-app-id"
+        activity["recipient"] = {"id": bot_id, "name": "SupportHog"}
+        activity["membersAdded"] = [{"id": bot_id}]
+
+        self._post(activity)
+        self._post(activity)
+
+        mock_help.delay.assert_called_once()
 
     @patch("products.conversations.backend.api.teams_events.validate_teams_request")
     def test_get_method_returns_405(self, mock_validate):

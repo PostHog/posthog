@@ -2,14 +2,17 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
+    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
     TableNode,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_expr
@@ -170,7 +173,14 @@ insights: PostgresTable = PostgresTable(
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "_saved": BooleanDatabaseField(name="saved", hidden=True),
         "saved": ExpressionField(name="saved", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_saved"])])),
+        "_favorited": BooleanDatabaseField(name="favorited", hidden=True),
+        "favorited": ExpressionField(
+            name="favorited", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_favorited"])])
+        ),
         "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+        "last_modified_by_id": IntegerDatabaseField(name="last_modified_by_id", nullable=True),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
@@ -309,7 +319,7 @@ endpoint_versions: PostgresTable = PostgresTable(
         "version": IntegerDatabaseField(name="version"),
         "description": StringDatabaseField(name="description"),
         "query": StringJSONDatabaseField(name="query"),
-        "cache_age_seconds": IntegerDatabaseField(name="cache_age_seconds"),
+        "data_freshness_seconds": IntegerDatabaseField(name="data_freshness_seconds"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
         "is_active": ExpressionField(
@@ -816,6 +826,81 @@ support_tickets: PostgresTable = PostgresTable(
     },
 )
 
+review_queues: PostgresTable = PostgresTable(
+    name="review_queues",
+    postgres_table_name="llm_analytics_reviewqueue",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+review_queue_items: PostgresTable = PostgresTable(
+    name="review_queue_items",
+    postgres_table_name="llm_analytics_reviewqueueitem",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "queue_id": UUIDDatabaseField(name="queue_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_reviews: PostgresTable = PostgresTable(
+    name="trace_reviews",
+    postgres_table_name="llm_analytics_tracereview",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "reviewed_by_id": IntegerDatabaseField(name="reviewed_by_id", nullable=True),
+        "comment": StringDatabaseField(name="comment", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_review_scores: PostgresTable = PostgresTable(
+    name="trace_review_scores",
+    postgres_table_name="llm_analytics_tracereviewscore",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "review_id": UUIDDatabaseField(name="review_id"),
+        "definition_id": UUIDDatabaseField(name="definition_id"),
+        "definition_version": UUIDDatabaseField(name="definition_version"),
+        "definition_version_number": IntegerDatabaseField(name="definition_version_number"),
+        "definition_config": StringJSONDatabaseField(name="definition_config"),
+        "categorical_values": StringArrayDatabaseField(name="categorical_values", nullable=True),
+        "numeric_value": DecimalDatabaseField(name="numeric_value", nullable=True),
+        "boolean_value": BooleanDatabaseField(name="boolean_value", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
 early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
@@ -829,6 +914,113 @@ early_access_features: PostgresTable = PostgresTable(
         "stage": StringDatabaseField(name="stage"),
         "documentation_url": StringDatabaseField(name="documentation_url"),
         "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
+usage_metrics: PostgresTable = PostgresTable(
+    name="usage_metrics",
+    postgres_table_name="posthog_groupusagemetric",
+    access_scope="usage_metric",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "group_type_index": IntegerDatabaseField(name="group_type_index"),
+        "name": StringDatabaseField(name="name"),
+        "format": StringDatabaseField(name="format"),
+        "interval": IntegerDatabaseField(name="interval"),
+        "display": StringDatabaseField(name="display"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "math": StringDatabaseField(name="math"),
+        "math_property": StringDatabaseField(name="math_property", nullable=True),
+    },
+)
+
+
+tasks: PostgresTable = PostgresTable(
+    name="tasks",
+    postgres_table_name="posthog_task",
+    access_scope="task",
+    # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
+    # exposed to end users. They are excluded entirely from HogQL.
+    predicates=[parse_expr("internal != true")],
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "github_integration_id": IntegerDatabaseField(name="github_integration_id", nullable=True),
+        "task_number": IntegerDatabaseField(name="task_number", nullable=True),
+        "title": StringDatabaseField(name="title"),
+        "_title_manually_set": BooleanDatabaseField(name="title_manually_set", hidden=True),
+        "title_manually_set": ExpressionField(
+            name="title_manually_set",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_title_manually_set"])]),
+        ),
+        "description": StringDatabaseField(name="description"),
+        "origin_product": StringDatabaseField(name="origin_product"),
+        "repository": StringDatabaseField(name="repository", nullable=True),
+        "json_schema": StringJSONDatabaseField(name="json_schema", nullable=True),
+        "_internal": BooleanDatabaseField(name="internal", hidden=True),
+        "internal": ExpressionField(
+            name="internal", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])])
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+task_runs: PostgresTable = PostgresTable(
+    name="task_runs",
+    postgres_table_name="posthog_task_run",
+    access_scope="task",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "task_id": StringDatabaseField(name="task_id"),
+        "branch": StringDatabaseField(name="branch", nullable=True),
+        "environment": StringDatabaseField(name="environment"),
+        "stage": StringDatabaseField(name="stage", nullable=True),
+        "status": StringDatabaseField(name="status"),
+        "error_message": StringDatabaseField(name="error_message", nullable=True),
+        "output": StringJSONDatabaseField(name="output", nullable=True),
+        "artifacts": StringJSONDatabaseField(name="artifacts"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "completed_at": DateTimeDatabaseField(name="completed_at", nullable=True),
+    },
+)
+
+sandbox_environments: PostgresTable = PostgresTable(
+    name="sandbox_environments",
+    postgres_table_name="posthog_sandbox_environment",
+    access_scope="task",
+    # Mirror the REST API's default filters:
+    # - private envs are only visible to their creator (no per-user context here, so excluded entirely)
+    # - internal envs (signals pipeline, etc.) are not exposed to end users
+    predicates=[parse_expr("private != true"), parse_expr("internal != true")],
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "name": StringDatabaseField(name="name"),
+        "network_access_level": StringDatabaseField(name="network_access_level"),
+        "allowed_domains": StringArrayDatabaseField(name="allowed_domains"),
+        "_include_default_domains": BooleanDatabaseField(name="include_default_domains", hidden=True),
+        "include_default_domains": ExpressionField(
+            name="include_default_domains",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_include_default_domains"])]),
+        ),
+        "repositories": StringArrayDatabaseField(name="repositories"),
+        "_private": BooleanDatabaseField(name="private", hidden=True),
+        "private": ExpressionField(name="private", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_private"])])),
+        "_internal": BooleanDatabaseField(name="internal", hidden=True),
+        "internal": ExpressionField(
+            name="internal", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])])
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
 
@@ -880,11 +1072,19 @@ class SystemTables(TableNode):
         "logs_views": TableNode(name="logs_views", table=logs_views),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
+        "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
+        "review_queues": TableNode(name="review_queues", table=review_queues),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
+        "task_runs": TableNode(name="task_runs", table=task_runs),
+        "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
+        "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
+        "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
+        "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
     }

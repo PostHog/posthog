@@ -48,6 +48,7 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="pdl_live_...",
+                        secret=True,
                     ),
                 ],
             ),

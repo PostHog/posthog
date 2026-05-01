@@ -283,16 +283,18 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ),
             model: zod.string().describe('LLM model identifier to run in the Claude runtime.'),
             reasoning_effort: zod
-                .enum(['low', 'medium', 'high', 'max'])
-                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+                .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max')
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max'
                 ),
             github_user_token: zod
                 .string()
                 .optional()
-                .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
+                .describe(
+                    'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+                ),
             initial_permission_mode: zod
                 .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
                 .describe(
@@ -360,16 +362,18 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ),
             model: zod.string().describe('LLM model identifier to run in the Codex runtime.'),
             reasoning_effort: zod
-                .enum(['low', 'medium', 'high', 'max'])
-                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+                .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max')
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                    'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max'
                 ),
             github_user_token: zod
                 .string()
                 .optional()
-                .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
+                .describe(
+                    'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+                ),
             initial_permission_mode: zod
                 .enum(['auto', 'read-only', 'full-access'])
                 .describe('* `auto` - auto\n* `read-only` - read-only\n* `full-access` - full-access')
@@ -425,7 +429,9 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
         github_user_token: zod
             .string()
             .optional()
-            .describe('Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.'),
+            .describe(
+                'Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens.'
+            ),
     }),
 ])
 
@@ -587,11 +593,11 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ),
         model: zod.string().optional().describe('LLM model identifier to run in the selected runtime.'),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'max'])
-            .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max')
+            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+            .describe('* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max')
             .optional()
             .describe(
-                'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `max` - max'
+                'Reasoning effort to request for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max'
             ),
         github_user_token: zod
             .string()

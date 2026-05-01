@@ -97,20 +97,27 @@ function EndpointHogQLQuery({
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: query.query,
+                    filters: query.filters,
                     variables: query.variables,
                 },
                 display: ChartDisplayType.ActionsLineGraph,
             })
             runQuery(query.query)
         }
-    }, [query.query, query.variables, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [query.query, query.variables, query.filters, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
+        if (queryInput === null) {
+            return
+        }
+
         const sourceVariables = isHogQLQuery(sourceQuery.source) ? sourceQuery.source.variables : undefined
+        const sourceFilters = isHogQLQuery(sourceQuery.source) ? sourceQuery.source.filters : undefined
         const hasQueryChanges = queryInput !== query.query
         const hasVariableChanges = !equal(sourceVariables || {}, query.variables || {})
+        const hasFilterChanges = !equal(sourceFilters || {}, query.filters || {})
 
-        if (!hasQueryChanges && !hasVariableChanges) {
+        if (!hasQueryChanges && !hasVariableChanges && !hasFilterChanges) {
             setLocalQuery(null)
             return
         }
@@ -118,9 +125,10 @@ function EndpointHogQLQuery({
         setLocalQuery({
             kind: NodeKind.HogQLQuery,
             query: queryInput,
+            filters: sourceFilters,
             variables: sourceVariables,
         } as HogQLQuery)
-    }, [query.query, query.variables, queryInput, sourceQuery.source]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [query.query, query.variables, query.filters, queryInput, sourceQuery.source]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex min-w-0 gap-4">

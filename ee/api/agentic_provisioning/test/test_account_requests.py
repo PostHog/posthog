@@ -177,7 +177,7 @@ class TestAccountRequests(ProvisioningTestBase):
             "/api/agentic/provisioning/account_requests",
             data=payload,
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -197,7 +197,9 @@ class TestAccountRequests(ProvisioningTestBase):
         payload = self._account_request_payload(email="orgname@example.com", configuration=config)
         self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         user = User.objects.get(email="orgname@example.com")
-        assert user.organization.name == expected_org_name
+        org = user.organization
+        assert org is not None
+        assert org.name == expected_org_name
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")

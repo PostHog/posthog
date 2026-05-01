@@ -2,7 +2,7 @@
     .quill-drawer__backdrop {
         position: fixed;
         inset: 0;
-        z-index: 50;
+        z-index: var(--quill-z-overlay, 50);
         background-color: rgb(0 0 0 / 40%);
         transition: opacity 250ms cubic-bezier(0.215, 0.61, 0.355, 1);
     }
@@ -15,7 +15,7 @@
     .quill-drawer__viewport {
         position: fixed;
         inset: 0;
-        z-index: 50;
+        z-index: var(--quill-z-modal, 50);
         display: flex;
         pointer-events: none;
     }

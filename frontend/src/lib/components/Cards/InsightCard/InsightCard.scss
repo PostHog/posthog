@@ -42,6 +42,13 @@
         padding: 0.5rem;
     }
 
+    // Hog-charts doesn't need the legacy padding compensation — its canvas is
+    // absolutely positioned, so the inherited overlay padding pushes badges
+    // below the x-axis instead of aligning them.
+    .HogChartsAnnotationsLayer .AnnotationsOverlay {
+        padding: 0;
+    }
+
     .LemonTable {
         background: none;
         border: none;

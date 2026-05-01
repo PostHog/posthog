@@ -30,11 +30,12 @@ function TooltipContent({
         <TooltipPrimitive.Portal>
             <TooltipPrimitive.Positioner
                 data-quill
+                data-quill-portal="tooltip"
                 align={align}
                 alignOffset={alignOffset}
                 side={side}
                 sideOffset={sideOffset}
-                className="isolate z-50"
+                className="isolate"
             >
                 <TooltipPrimitive.Popup
                     data-slot="tooltip-content"

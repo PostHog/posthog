@@ -1,9 +1,8 @@
 """
-Diff processing and two-tier classification for visual review.
+Diff processing and classification for visual review.
 
-Orchestrates pixel-level diff (pixelhog) and structural similarity (SSIM)
-to classify snapshots as genuinely changed or rendering noise. Stores
-diff artifacts and updates snapshot state.
+Uses pixelhog.compare() for single-pass pixelmatch + SSIM + thumbnail.
+Classifies snapshots as genuinely changed or rendering noise.
 
 Called by the Celery task; all business logic lives here.
 """
@@ -11,11 +10,12 @@ Called by the Celery task; all business logic lives here.
 from uuid import UUID
 
 import structlog
+from blake3 import blake3
+from pixelhog import thumbnail as pixelhog_thumbnail
 
-from .diff import compute_diff
+from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
 from .facade.enums import ClassificationReason, SnapshotResult, ToleratedReason
 from .models import RunSnapshot, ToleratedHash
-from .ssim import compute_ssim
 
 logger = structlog.get_logger(__name__)
 
@@ -32,9 +32,35 @@ PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
 SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 
 
-def _store_diff(snapshot: RunSnapshot, result, *, ssim_score: float | None = None) -> None:
+def _store_thumbnail(snapshot: RunSnapshot, result: CompareResult) -> None:
+    """Store the thumbnail artifact and link it to the current artifact."""
+    from . import logic
+
+    artifact = snapshot.current_artifact
+    if artifact is None or artifact.thumbnail_id is not None:
+        return
+    if not result.thumbnail:
+        return
+
+    thumb_artifact = logic.write_artifact_bytes(
+        repo_id=snapshot.run.repo_id,
+        content_hash=result.thumbnail_hash,
+        content=result.thumbnail,
+        width=THUMB_WIDTH,
+        height=THUMB_HEIGHT,
+        team_id=snapshot.team_id,
+    )
+
+    artifact.thumbnail = thumb_artifact
+    artifact.save(update_fields=["thumbnail"])
+
+
+def _store_diff(snapshot: RunSnapshot, result: CompareResult) -> None:
     """Upload diff artifact and update snapshot metrics."""
     from . import logic
+
+    if not result.diff_image:
+        return
 
     diff_artifact = logic.write_artifact_bytes(
         repo_id=snapshot.run.repo_id,
@@ -59,20 +85,18 @@ def _store_diff(snapshot: RunSnapshot, result, *, ssim_score: float | None = Non
         identifier=snapshot.identifier,
         diff_percentage=result.diff_percentage,
         diff_pixel_count=result.diff_pixel_count,
-        ssim_score=ssim_score,
+        ssim_score=result.ssim_score,
     )
 
 
 def _diff_snapshot(snapshot: RunSnapshot) -> None:
     """
-    Compute diff between baseline and current artifact.
+    Compare snapshot against baseline using single-pass pixelhog.compare().
 
-    Two-tier classification:
-    1. Pixel diff ratio above threshold → CHANGED (skip SSIM).
-    2. Below pixel threshold → run SSIM. Above SSIM threshold → CHANGED
-       (tall-page dilution case). Below both → UNCHANGED (noise).
-
-    Pixel diff always runs to produce the diff visualization image.
+    Classification:
+    1. Pixel diff above threshold -> CHANGED
+    2. SSIM dissimilarity above threshold -> CHANGED (tall-page dilution)
+    3. Both below -> UNCHANGED (noise), auto-populate tolerance cache
     """
     from . import logic
 
@@ -93,23 +117,20 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
         )
         return
 
-    result = compute_diff(baseline_bytes, current_bytes)
+    result = compare_images(baseline_bytes, current_bytes)
+
+    _store_thumbnail(snapshot, result)
 
     if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
         _store_diff(snapshot, result)
         return
 
-    # Pixel diff says below threshold — check SSIM for tall-page dilution
-    ssim_score = compute_ssim(baseline_bytes, current_bytes)
-    ssim_dissimilarity = 1.0 - ssim_score
+    ssim_dissimilarity = 1.0 - result.ssim_score
 
     if ssim_dissimilarity >= SSIM_DISSIMILARITY_THRESHOLD:
-        # Store SSIM dissimilarity as the diff percentage — it's the metric
-        # that decided this snapshot is changed, so it's more meaningful
-        # than the diluted pixel ratio.
         result.diff_percentage = round(ssim_dissimilarity * 100, 4)
         result.diff_pixel_count = 0
-        _store_diff(snapshot, result, ssim_score=ssim_score)
+        _store_diff(snapshot, result)
         logger.info(
             "visual_review.diff_caught_by_ssim",
             snapshot_id=str(snapshot.id),
@@ -148,18 +169,57 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     )
 
 
+def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
+    """Generate thumbnail for NEW snapshots (no baseline to compare against)."""
+    from . import logic
+
+    artifact = snapshot.current_artifact
+    if artifact is None or artifact.thumbnail_id is not None:
+        return
+
+    current_bytes = logic.read_artifact_bytes(snapshot.run.repo_id, artifact.content_hash)
+    if not current_bytes:
+        return
+
+    try:
+        webp_bytes = pixelhog_thumbnail(current_bytes, width=THUMB_WIDTH, height=THUMB_HEIGHT)
+    except Exception:
+        logger.warning(
+            "visual_review.thumbnail_generation_failed",
+            snapshot_id=str(snapshot.id),
+            identifier=snapshot.identifier,
+        )
+        return
+
+    thumb_hash = blake3(webp_bytes).hexdigest()
+    thumb_artifact = logic.write_artifact_bytes(
+        repo_id=snapshot.run.repo_id,
+        content_hash=thumb_hash,
+        content=webp_bytes,
+        width=THUMB_WIDTH,
+        height=THUMB_HEIGHT,
+        team_id=snapshot.team_id,
+    )
+
+    artifact.thumbnail = thumb_artifact
+    artifact.save(update_fields=["thumbnail"])
+
+
 def process_diffs(run_id: UUID) -> None:
     """
     Process diffs for all changed snapshots in a run.
 
-    Uses two-tier classification (pixel diff + SSIM) to decide whether
-    each snapshot is a real change or rendering noise.
+    Uses single-pass comparison (pixelmatch + SSIM + thumbnail) to classify
+    each snapshot and generate thumbnails for the grid view.
     """
     from . import logic
 
     snapshots = logic.get_run_snapshots(run_id)
 
     for snapshot in snapshots:
+        if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
+            _generate_thumbnail_for_new(snapshot)
+
         if snapshot.result != SnapshotResult.CHANGED:
             continue
 

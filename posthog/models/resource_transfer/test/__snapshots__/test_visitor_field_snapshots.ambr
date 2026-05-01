@@ -637,6 +637,7 @@
     'id',
     'is_draft',
     'is_launched',
+    'is_paused',
     'is_running',
     'is_stopped',
     'save',
