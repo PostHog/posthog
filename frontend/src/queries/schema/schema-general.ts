@@ -2916,14 +2916,26 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     limit?: integer
     offset?: integer
     search?: string
+    /** When true, the search query also matches attribute values (not just keys). */
+    searchValues?: boolean
     severityLevels?: LogSeverityLevel[]
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
 }
 
+export interface LogAttributeResult {
+    name: string
+    /** Either 'log_attribute' or 'log_resource_attribute'. */
+    propertyFilterType: string
+    /** Whether this row matched the search by attribute key or by attribute value. */
+    matchedOn: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn is 'value'. */
+    matchedValue?: string
+}
+
 export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
-    results: Record<string, any>[]
+    results: LogAttributeResult[]
     count: number
 }
 
@@ -3123,6 +3135,7 @@ export type FileSystemIconType =
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
+    | 'llm_tags'
     | 'llm_datasets'
     | 'llm_playground'
     | 'llm_prompts'
@@ -4557,6 +4570,7 @@ export type AIEventType =
     | '$ai_metric'
     | '$ai_feedback'
     | '$ai_evaluation'
+    | '$ai_tag'
     | '$ai_trace_summary'
     | '$ai_generation_summary'
     | '$ai_trace_clusters'
@@ -5484,6 +5498,12 @@ export interface SourceConfig {
     iconClassName?: string
     webhookSetupCaption?: string
     webhookFields?: SourceFieldConfig[]
+    /**
+     * If true, the source does not support automatic webhook registration via API
+     * (e.g. Slack — the user must paste the URL into the source's app settings).
+     * Adjusts the setup UI copy to avoid promising automatic registration.
+     */
+    webhookManualOnly?: boolean
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why

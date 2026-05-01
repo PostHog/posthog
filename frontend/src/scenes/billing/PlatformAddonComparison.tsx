@@ -68,6 +68,33 @@ type ComparisonFeature = {
     includedIn: Map<string, BillingFeatureType>
 }
 
+const PlanPrice = ({
+    addon,
+    unit_amount_usd,
+    unit_label,
+}: {
+    addon: BillingProductV2AddonType
+    unit_amount_usd: string | null
+    unit_label: string | null
+}): JSX.Element => {
+    // When the customer is subscribed to a price lower than the product's default price,
+    // show the default price as a strikethrough
+    const showDiscount = addon.subscribed && addon.default_unit_amount_usd != null && addon.unit_amount_usd != null
+    const mainPrice = showDiscount ? addon.unit_amount_usd : unit_amount_usd
+
+    return (
+        <div className="flex items-start gap-x-1 mt-1">
+            <span className="font-bold text-3xl leading-none">{humanFriendlyCurrency(Number(mainPrice), 0)}</span>
+            {showDiscount && (
+                <span className="text-secondary line-through self-baseline">
+                    {humanFriendlyCurrency(Number(addon.default_unit_amount_usd), 0)}
+                </span>
+            )}
+            {unit_label && <span className="text-secondary self-baseline">/ {unit_label}</span>}
+        </div>
+    )
+}
+
 const PlanCard = ({
     addon,
     onExpandCompare,
@@ -125,12 +152,7 @@ const PlanCard = ({
                 </div>
             )}
             {pricedPlan?.flat_rate && (
-                <div className="flex items-baseline gap-x-1 mt-1">
-                    <span className="font-bold text-3xl leading-none">
-                        {humanFriendlyCurrency(Number(pricedPlan.unit_amount_usd), 0)}
-                    </span>
-                    {pricedPlan.unit && <span className="text-secondary">/ {pricedPlan.unit}</span>}
-                </div>
+                <PlanPrice addon={addon} unit_amount_usd={pricedPlan.unit_amount_usd} unit_label={pricedPlan.unit} />
             )}
             <div className="-mt-2">
                 <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
@@ -159,12 +181,11 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-center">
                     {pricedPlan?.flat_rate && (
-                        <div className="flex items-baseline gap-x-1">
-                            <span className="font-bold text-3xl leading-none">
-                                {humanFriendlyCurrency(Number(pricedPlan.unit_amount_usd), 0)}
-                            </span>
-                            {pricedPlan.unit && <span className="text-secondary">/ {pricedPlan.unit}</span>}
-                        </div>
+                        <PlanPrice
+                            addon={addon}
+                            unit_amount_usd={pricedPlan.unit_amount_usd}
+                            unit_label={pricedPlan.unit}
+                        />
                     )}
                     <More
                         overlay={

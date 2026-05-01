@@ -37,17 +37,15 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
-import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiSection'
-import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
+import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
+import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
-import { TeamsSection } from 'products/conversations/frontend/scenes/settings/TeamsSection'
-import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
-import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -146,6 +144,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { PersonalIntegrations } from './user/PersonalIntegrations'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -407,63 +406,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Collect Content Security Policy violation reports to monitor and debug CSP issues on your site.',
                 component: <CSPReportingSettings />,
                 keywords: ['content security policy', 'csp', 'violation', 'security'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-conversations',
-        title: 'Conversations',
-        group: 'Products',
-        flag: 'PRODUCT_SUPPORT',
-        settings: [
-            {
-                id: 'conversations-api',
-                title: 'Conversations',
-                component: <ApiSection />,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-notifications',
-                title: 'Notifications',
-                component: <NotificationsSection />,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-widget',
-                title: 'In-app widget',
-                component: <WidgetSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-email',
-                title: 'Email channel',
-                component: <EmailSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-slack',
-                title: 'Slack channel',
-                component: <SlackSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-teams',
-                title: 'Microsoft Teams',
-                component: <TeamsSection />,
-                flag: 'PRODUCT_SUPPORT_TEAMS_ENABLED',
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support', 'teams', 'microsoft'],
-            },
-            {
-                id: 'conversations-workflows',
-                title: 'Workflows',
-                component: <WorkflowsSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
             },
         ],
     },
@@ -789,6 +731,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
             },
             {
+                id: 'logs-drop-rules',
+                title: 'Drop rules',
+                description:
+                    'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
+                component: <LogsSamplingSection />,
+                flag: LogsFeatureFlagKeys.dropRules,
+                keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
+            },
+            {
                 id: 'logs-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when log volumes breach thresholds.',
@@ -1093,6 +1044,68 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <SessionSummariesSettings />,
                 flag: 'REPLAY_VIDEO_BASED_SUMMARIZATION',
                 keywords: ['ai', 'summary', 'summaries', 'prompt', 'context', 'llm'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-conversations',
+        title: 'Support',
+        group: 'Products',
+        flag: 'PRODUCT_SUPPORT',
+        settings: [
+            {
+                id: 'conversations-general',
+                title: 'General',
+                component: <GeneralSection />,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'general',
+                    'api',
+                    'domain',
+                    'identity',
+                    'secret',
+                ],
+            },
+            {
+                id: 'conversations-channels',
+                title: 'Channels',
+                description: 'Choose where customers can reach you. Each channel can be configured independently.',
+                component: <ChannelsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'channel',
+                    'widget',
+                    'email',
+                    'slack',
+                    'teams',
+                    'microsoft',
+                ],
+            },
+            {
+                id: 'conversations-notifications',
+                title: 'Notifications',
+                description:
+                    'We recommend setting up a workflow for fine-grained automation — Slack pings, SLA escalations, auto-tagging. For the basics, configure email or browser notifications.',
+                component: <NotificationsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'notification',
+                    'workflow',
+                    'email',
+                    'browser',
+                ],
             },
         ],
     },
@@ -1748,6 +1761,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Get notified when upcoming features are ready for preview.',
                 component: <FeaturePreviewsComingSoon />,
                 keywords: ['upcoming', 'notify', 'concept', 'future'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-personal-integrations',
+        title: 'Personal integrations',
+        settings: [
+            {
+                id: 'personal-integrations',
+                title: 'Personal integrations',
+                description:
+                    'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
+                component: <PersonalIntegrations />,
+                keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
             },
         ],
     },

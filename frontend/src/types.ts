@@ -194,7 +194,6 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
-    PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     APPROVALS = 'approvals',
@@ -966,6 +965,7 @@ export enum ProgressStatus {
 export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
+    Paused = 'paused',
     Stopped = 'stopped',
 }
 
@@ -2101,6 +2101,7 @@ export interface BillingProductV2AddonType {
     display_decimals: number | null // Decimal places in display (e.g., 2 for "27.65 GB")
     display_divisor: number | null // Divide raw value by this for display (e.g., 1000 for MB->GB)
     unit_amount_usd: string | null
+    default_unit_amount_usd?: string | null // Product's default (undiscounted) unit price
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
@@ -5314,6 +5315,7 @@ export type APIScopeObject =
     | 'task'
     | 'ticket'
     | 'uploaded_media'
+    | 'usage_metric'
     | 'user'
     | 'visual_review'
     | 'warehouse_table'
@@ -5803,10 +5805,12 @@ export interface IncrementalField {
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
+    is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
 }
 
 export interface ExternalDataSourceSyncSchema {
     table: string
+    label?: string | null
     rows?: number | null
     should_sync: boolean
     sync_time_of_day: string | null

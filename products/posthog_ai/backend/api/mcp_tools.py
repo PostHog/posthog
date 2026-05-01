@@ -16,6 +16,7 @@ from structlog import get_logger
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
@@ -77,7 +78,12 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
 
         try:
-            content = async_to_sync(tool.execute)(validated_args)
+
+            async def execute_tool() -> str:
+                with tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id):
+                    return await tool.execute(validated_args)
+
+            content = async_to_sync(execute_tool)()
         except MaxToolError as e:
             return Response(
                 {

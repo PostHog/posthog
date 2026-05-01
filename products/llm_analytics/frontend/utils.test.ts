@@ -8,12 +8,14 @@ import {
     getSessionID,
     getSessionStartTimestamp,
     hasCostBreakdown,
+    isEmptyJSONStructure,
     isLangChainMessage,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
     parseOpenAIToolCalls,
     parsePartialJSON,
+    parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
@@ -1914,6 +1916,65 @@ describe('LLM Analytics utils', () => {
 
         it('returns true when inputCost is zero (zero is still a valid breakdown)', () => {
             expect(hasCostBreakdown({ totalCost: 0, inputCost: 0 })).toBe(true)
+        })
+    })
+
+    describe('isEmptyJSONStructure', () => {
+        it.each<[string, unknown, boolean]>([
+            ['empty object', {}, true],
+            ['empty array', [], true],
+            ['non-empty object', { a: 1 }, false],
+            ['non-empty array', [1], false],
+            ['string', 'hi', false],
+            ['number', 0, false],
+            ['null', null, false],
+            ['undefined', undefined, false],
+        ])('returns %s -> %s', (_label, value, expected) => {
+            expect(isEmptyJSONStructure(value)).toBe(expected)
+        })
+    })
+
+    describe('parseToolArgumentsForDisplay', () => {
+        it('returns empty for null, undefined, and empty string', () => {
+            expect(parseToolArgumentsForDisplay(null)).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay(undefined)).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay('')).toEqual({ kind: 'empty' })
+        })
+
+        it('returns empty for empty object and empty array (object form)', () => {
+            expect(parseToolArgumentsForDisplay({})).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay([])).toEqual({ kind: 'empty' })
+        })
+
+        it('returns empty for stringified empty object/array', () => {
+            expect(parseToolArgumentsForDisplay('{}')).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay('[]')).toEqual({ kind: 'empty' })
+        })
+
+        it('returns parsed object for an object input', () => {
+            expect(parseToolArgumentsForDisplay({ location: 'SF' })).toEqual({
+                kind: 'parsed',
+                value: { location: 'SF' },
+            })
+        })
+
+        it('returns parsed object for stringified JSON object', () => {
+            expect(parseToolArgumentsForDisplay('{"location": "Berlin"}')).toEqual({
+                kind: 'parsed',
+                value: { location: 'Berlin' },
+            })
+        })
+
+        it('returns raw string when JSON is unparseable', () => {
+            expect(parseToolArgumentsForDisplay('{not valid json')).toEqual({
+                kind: 'raw',
+                value: '{not valid json',
+            })
+        })
+
+        it('returns raw string when stringified value parses to a non-object scalar', () => {
+            // partial-json may parse `"hello"` to the string "hello" — that's not a structured arg payload, fall back.
+            expect(parseToolArgumentsForDisplay('"hello"')).toEqual({ kind: 'raw', value: '"hello"' })
         })
     })
 })

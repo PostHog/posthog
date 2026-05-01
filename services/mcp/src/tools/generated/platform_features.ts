@@ -19,6 +19,9 @@ import {
     RolesRetrieveParams,
     RolesRoleMembershipsListParams,
     RolesRoleMembershipsListQueryParams,
+    UserHomeSettingsPartialUpdateBody,
+    UserHomeSettingsPartialUpdateParams,
+    UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -422,6 +425,52 @@ const rolesList = (): ToolBase<typeof RolesListSchema, Schemas.PaginatedRoleList
     },
 })
 
+const UserHomeSettingsGetSchema = UserHomeSettingsRetrieveParams.extend({
+    uuid: UserHomeSettingsRetrieveParams.shape['uuid'].describe(
+        'User UUID, or `@me` to target the authenticated user.'
+    ),
+})
+
+const userHomeSettingsGet = (): ToolBase<typeof UserHomeSettingsGetSchema, Schemas.PinnedSceneTabs> => ({
+    name: 'user-home-settings-get',
+    schema: UserHomeSettingsGetSchema,
+    handler: async (context: Context, params: z.infer<typeof UserHomeSettingsGetSchema>) => {
+        const result = await context.api.request<Schemas.PinnedSceneTabs>({
+            method: 'GET',
+            path: `/api/user_home_settings/${encodeURIComponent(String(params.uuid))}/`,
+        })
+        return result
+    },
+})
+
+const UserHomeSettingsUpdateSchema = UserHomeSettingsPartialUpdateParams.extend(
+    UserHomeSettingsPartialUpdateBody.shape
+).extend({
+    uuid: UserHomeSettingsPartialUpdateParams.shape['uuid'].describe(
+        'User UUID, or `@me` to target the authenticated user.'
+    ),
+})
+
+const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema, Schemas.PinnedSceneTabs> => ({
+    name: 'user-home-settings-update',
+    schema: UserHomeSettingsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof UserHomeSettingsUpdateSchema>) => {
+        const body: Record<string, unknown> = {}
+        if (params.tabs !== undefined) {
+            body['tabs'] = params.tabs
+        }
+        if (params.homepage !== undefined) {
+            body['homepage'] = params.homepage
+        }
+        const result = await context.api.request<Schemas.PinnedSceneTabs>({
+            method: 'PATCH',
+            path: `/api/user_home_settings/${encodeURIComponent(String(params.uuid))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-log-list': activityLogList,
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
@@ -440,4 +489,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'role-get': roleGet,
     'role-members-list': roleMembersList,
     'roles-list': rolesList,
+    'user-home-settings-get': userHomeSettingsGet,
+    'user-home-settings-update': userHomeSettingsUpdate,
 }

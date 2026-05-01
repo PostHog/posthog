@@ -1392,10 +1392,10 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
     message = EmailMessage(
         use_http=True,
         campaign_key=f"personal-api-key-exposed-{user.uuid}-{timezone.now().timestamp()}",
-        subject="Personal API Key has been deactivated",
+        subject="Personal API key has been deactivated",
         template_name="personal_api_key_exposed",
         template_context={
-            "preheader": "Personal API Key has been deactivated",
+            "preheader": "Personal API key has been deactivated",
             "label": personal_api_key.label,
             "more_info": more_info,
             "mask_value": old_mask_value,

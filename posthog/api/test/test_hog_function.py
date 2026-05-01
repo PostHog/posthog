@@ -1745,6 +1745,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert function.filters.get("filter_test_accounts", None) is None
         assert function.filters.get("bytecode") is not None
 
+    def test_transformation_rejects_inputs_referencing_unavailable_globals(self):
+        # Realtime transformations only have project, event, and inputs in scope
+        # (HogTransformerService.createInvocationGlobals). Saving an input template
+        # that references person/groups/source must fail validation rather than
+        # crash ingestion at runtime.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Bad transformation",
+                "type": "transformation",
+                "hog": "return event",
+                "enabled": False,
+                "inputs_schema": [{"key": "pid", "type": "string", "required": False}],
+                "inputs": {"pid": {"value": "person_id = {person?.id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "attr": "inputs__pid",
+            "detail": (
+                "Invalid template: Variable not available in transformations: person. "
+                "Transformations only have access to project, event, and inputs."
+            ),
+        }
+
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
         # 1. Create several disabled transformations (more than the limit)

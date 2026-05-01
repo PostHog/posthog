@@ -1,4 +1,8 @@
 from posthog.temporal import ai
+from posthog.temporal.llm_analytics import (
+    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
+)
 from posthog.temporal.session_replay import session_summary
 from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
@@ -258,3 +262,79 @@ class TestSignalsProductModuleIntegrity:
             assert expected in actual_activity_names, (
                 f"Activity '{expected}' is missing from SIGNALS_PRODUCT_ACTIVITIES."
             )
+
+
+class TestLLMAnalyticsModuleIntegrity:
+    def test_workflows_remain_unchanged(self):
+        """Ensure all expected LLMA-worker workflows are present."""
+        expected_workflows = [
+            "BatchTraceSummarizationWorkflow",
+            "BatchTraceSummarizationCoordinatorWorkflow",
+            "DailyTraceClusteringWorkflow",
+            "TraceClusteringCoordinatorWorkflow",
+            "ScheduleAllEvalReportsWorkflow",
+            "CheckCountTriggeredReportsWorkflow",
+            "GenerateAndDeliverEvalReportWorkflow",
+            "EmitEvalReportSignalWorkflow",
+            "LLMAEvaluationSamplerCoordinatorWorkflow",
+            "LLMAEvaluationSamplerWorkflow",
+            "LLMAEvaluationClusteringCoordinatorWorkflow",
+            "LLMAEvaluationClusteringWorkflow",
+            "ClassifySentimentWorkflow",
+            "RunEvaluationWorkflow",
+        ]
+        actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
+        assert len(actual_workflow_names) == len(expected_workflows), (
+            f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
+            "If you're adding/removing workflows, update this test accordingly."
+        )
+        for expected in expected_workflows:
+            assert expected in actual_workflow_names, f"Workflow '{expected}' is missing from LLM_ANALYTICS_WORKFLOWS."
+
+    def test_activities_remain_unchanged(self):
+        """Ensure all expected LLMA-worker activities are present."""
+        expected_activities = [
+            "get_team_ids_for_llm_analytics",
+            "sample_items_in_window_activity",
+            "fetch_and_format_activity",
+            "summarize_and_save_activity",
+            "fetch_all_clustering_filters_activity",
+            "fetch_all_clustering_jobs_activity",
+            "perform_clustering_compute_activity",
+            "generate_cluster_labels_activity",
+            "compute_cluster_aggregates_activity",
+            "emit_cluster_events_activity",
+            "fetch_due_eval_reports_activity",
+            "fetch_count_triggered_eval_reports_activity",
+            "prepare_report_context_activity",
+            "run_eval_report_agent_activity",
+            "store_report_run_activity",
+            "deliver_report_activity",
+            "update_next_delivery_date_activity",
+            "emit_eval_report_signal_activity",
+            "sample_and_embed_for_job_activity",
+            "perform_evaluation_clustering_compute_activity",
+            "fetch_evaluation_metadata_activity",
+            "generate_evaluation_cluster_labels_activity",
+            "compute_evaluation_cluster_aggregates_activity",
+            "emit_evaluation_cluster_events_activity",
+            "classify_sentiment_activity",
+            "fetch_evaluation_activity",
+            "increment_trial_eval_count_activity",
+            "disable_evaluation_activity",
+            "send_trial_usage_email_activity",
+            "send_evaluation_disabled_email_activity",
+            "update_key_state_activity",
+            "execute_llm_judge_activity",
+            "execute_hog_eval_activity",
+            "emit_evaluation_event_activity",
+            "emit_internal_telemetry_activity",
+            "emit_eval_signal_activity",
+        ]
+        actual_activity_names = [a.__name__ for a in LLM_ANALYTICS_ACTIVITIES]
+        assert len(actual_activity_names) == len(expected_activities), (
+            f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
+            "If you're adding/removing activities, update this test accordingly."
+        )
+        for expected in expected_activities:
+            assert expected in actual_activity_names, f"Activity '{expected}' is missing from LLM_ANALYTICS_ACTIVITIES."

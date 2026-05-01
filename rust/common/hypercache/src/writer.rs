@@ -8,10 +8,9 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
-use crate::{HyperCacheConfig, HyperCacheError, KeyType, HYPER_CACHE_EMPTY_VALUE};
+use crate::{HyperCacheConfig, HyperCacheError, KeyType, ETAG_KEY_SUFFIX, HYPER_CACHE_EMPTY_VALUE};
 
 const HYPERCACHE_OPERATION_COUNTER_NAME: &str = "posthog_hypercache_operation";
-const ETAG_KEY_SUFFIX: &str = ":etag";
 /// HyperCache always writes Redis values in Pickle format for Django compatibility.
 const REDIS_FORMAT: RedisValueFormat = RedisValueFormat::Pickle;
 

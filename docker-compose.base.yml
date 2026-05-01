@@ -605,6 +605,48 @@ services:
             <<: *worker_env
             TEMPORAL_HOST: temporal
 
+    # OpenSearch (LLM trace reverse index)
+    opensearch:
+        image: opensearchproject/opensearch:2.13.0
+        environment:
+            - cluster.name=opensearch-cluster
+            - node.name=opensearch-node-1
+            - discovery.type=single-node
+            - DISABLE_SECURITY_PLUGIN=true
+            - DISABLE_INSTALL_DEMO_CONFIG=true
+            - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+        ulimits:
+            memlock:
+                soft: -1
+                hard: -1
+            nofile:
+                soft: 65536
+                hard: 65536
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'curl -s http://localhost:9200/_cluster/health | grep -qE "\"status\":\"(green|yellow)\""',
+                ]
+            interval: 10s
+            timeout: 10s
+            retries: 30
+            start_period: 60s
+        expose:
+            - 9200
+        volumes:
+            - /usr/share/opensearch/data
+    opensearch-dashboards:
+        image: opensearchproject/opensearch-dashboards:2.13.0
+        environment:
+            - OPENSEARCH_HOSTS=http://opensearch:9200
+            - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+        expose:
+            - 5601
+        depends_on:
+            opensearch:
+                condition: service_healthy
+
     cyclotron-janitor:
         image: ghcr.io/posthog/posthog/cyclotron-janitor:master
         build:

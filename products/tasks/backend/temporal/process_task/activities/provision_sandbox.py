@@ -257,9 +257,36 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
         run_state = parse_run_state(ctx.state)
-        resume_snapshot_external_id = run_state.snapshot_external_id
+        # When Modal resume snapshots are disabled, ignore any snapshot_external_id
+        # baked into TaskRun state — resume falls back to the agent server's
+        # git-checkpoint flow (POSTHOG_RESUME_RUN_ID continues to be set above).
+        resume_snapshot_external_id = (
+            run_state.snapshot_external_id if settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS else None
+        )
         if resume_snapshot_external_id:
             used_snapshot = True
+
+        activity.logger.info(
+            "resume_decision",
+            extra={
+                "run_id": ctx.run_id,
+                "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+                "state_snapshot_external_id": run_state.snapshot_external_id,
+                "effective_snapshot_external_id": resume_snapshot_external_id,
+                "handoff_resumed": run_state.handoff_resumed,
+                "resume_from_run_id": run_state.resume_from_run_id,
+                "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
+                "used_snapshot": used_snapshot,
+            },
+        )
+        if run_state.handoff_resumed or run_state.resume_from_run_id:
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Resume mode: handoff_resumed={run_state.handoff_resumed}, "
+                f"resume_from_run_id={run_state.resume_from_run_id}, "
+                f"using_modal_snapshot={resume_snapshot_external_id is not None}",
+            )
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source, image_source_label = _get_image_source_label(

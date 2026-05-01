@@ -153,7 +153,7 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
                 </div>
                 <div className="flex items-center gap-4">
                     <div className="flex gap-2">
-                        <LemonButton size="small" icon={<IconPencil />} onClick={onEdit}>
+                        <LemonButton size="small" icon={<IconPencil />} onClick={onEdit} data-attr="trigger-group-edit">
                             Edit
                         </LemonButton>
                         <LemonButton
@@ -162,6 +162,7 @@ export function TriggerGroupCard({ group, onEdit, onDelete }: TriggerGroupCardPr
                             status="danger"
                             onClick={onDelete ? () => onDelete(id) : undefined}
                             disabledReason={!onDelete ? 'Delete not yet implemented' : undefined}
+                            data-attr="trigger-group-delete"
                         >
                             Delete
                         </LemonButton>

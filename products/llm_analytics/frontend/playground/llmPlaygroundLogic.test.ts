@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic } from './llmPlaygroundRunLogic'
 
 const MOCK_MODEL_OPTIONS: ModelOption[] = [
@@ -601,6 +601,60 @@ describe('llmPlaygroundLogic', () => {
 
             llmPlaygroundPromptsLogic.actions.updateMessage(10, { content: 'Should not update' })
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual(originalMessages)
+        })
+
+        it('should append a result as an assistant message and start the next user turn', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Hello' }])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Hi there!')
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+                { role: 'user', content: '' },
+            ])
+        })
+
+        it('should append a result to the targeted prompt without changing other prompt columns', () => {
+            llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+                createPromptConfig({
+                    id: 'prompt-one',
+                    messages: [{ role: 'user', content: 'First prompt' }],
+                }),
+                createPromptConfig({
+                    id: 'prompt-two',
+                    messages: [{ role: 'user', content: 'Second prompt' }],
+                }),
+            ])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', 'prompt-two')
+
+            expect(llmPlaygroundPromptsLogic.values.promptConfigs).toMatchObject([
+                {
+                    id: 'prompt-one',
+                    messages: [{ role: 'user', content: 'First prompt' }],
+                },
+                {
+                    id: 'prompt-two',
+                    messages: [
+                        { role: 'user', content: 'Second prompt' },
+                        { role: 'assistant', content: 'Second response' },
+                        { role: 'user', content: '' },
+                    ],
+                },
+            ])
+        })
+
+        it.each([
+            ['empty string', ''],
+            ['whitespace only', '   \n  '],
+        ])('should ignore %s responses so the action cannot add blank assistant turns', (_, response) => {
+            const original = [{ role: 'user' as const, content: 'Hello' }]
+            llmPlaygroundPromptsLogic.actions.setMessages(original)
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation(response)
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual(original)
         })
     })
 

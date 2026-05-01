@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogPermissionError } from '@/lib/errors'
+import { ErrorCode, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -86,13 +86,7 @@ export class ApiClient {
         // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
-            // The consumer self-identifier (`mcpConsumer`) is folded into the User-Agent as
-            // `<consumer>/<wrapped-client>` rather than forwarded as a separate header.
-            'User-Agent': getUserAgent({
-                clientUserAgent: this.config.clientUserAgent,
-                mcpConsumer: this.config.mcpConsumer,
-                mcpClientName: this.config.mcpClientName,
-            }),
+            'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
             ...(this.config.clientUserAgent
                 ? {
                       // Forward the originating client's User-Agent as a custom header so the
@@ -107,6 +101,7 @@ export class ApiClient {
             ...(this.config.mcpProtocolVersion
                 ? { 'x-posthog-mcp-protocol-version': this.config.mcpProtocolVersion }
                 : {}),
+            ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
             ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
             'X-PostHog-Client': 'mcp',
         }
@@ -249,9 +244,16 @@ export class ApiClient {
 
                     if (errorData.type === 'validation_error') {
                         const detail = errorData.detail || errorData.code || 'unknown'
-                        const attr = errorData.attr ? ` (field: ${errorData.attr})` : ''
-                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attr}`)
-                        throw new Error(`Validation error: ${detail}${attr}`)
+                        const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
+                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
+                        throw new PostHogValidationError({
+                            detail,
+                            attr: errorData.attr ?? undefined,
+                            code: errorData.code ?? undefined,
+                            extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
+                            url,
+                            method,
+                        })
                     }
 
                     if (response.status === 404) {
@@ -846,6 +848,41 @@ export class ApiClient {
                 return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
+                })
+            },
+
+            validate: async ({
+                query,
+                language,
+                connectionId,
+            }: {
+                query: string
+                language: 'hogQL' | 'hogQLExpr' | 'hog' | 'hogTemplate'
+                connectionId?: string
+            }): Promise<
+                Result<{
+                    isValid: boolean
+                    query: string
+                    errors: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    warnings: Array<{
+                        message: string
+                        start?: number | null
+                        end?: number | null
+                        fix?: string | null
+                    }>
+                    notices: Array<{ message: string; start?: number | null; end?: number | null; fix?: string | null }>
+                    table_names: string[]
+                    ch_table_names?: string[] | null
+                }>
+            > => {
+                const url = `${this.baseUrl}/api/environments/${projectId}/query/`
+                const queryBody: Record<string, unknown> = { kind: 'HogQLMetadata', language, query }
+                if (connectionId) {
+                    queryBody.connectionId = connectionId
+                }
+                return this.fetchJson(url, {
+                    method: 'POST',
+                    body: JSON.stringify({ query: queryBody }),
                 })
             },
 

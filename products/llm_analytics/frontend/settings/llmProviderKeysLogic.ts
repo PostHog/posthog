@@ -8,7 +8,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks' | 'azure_openai'
+export type LLMProvider =
+    | 'openai'
+    | 'anthropic'
+    | 'gemini'
+    | 'openrouter'
+    | 'fireworks'
+    | 'azure_openai'
+    | 'together_ai'
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -20,6 +27,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openrouter: 'OpenRouter',
     fireworks: 'Fireworks',
     azure_openai: 'Azure OpenAI',
+    together_ai: 'Together AI',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -58,6 +66,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
     if (normalized === 'azure_openai' || normalized === 'azure-openai' || normalized === 'azure openai') {
         return 'azure_openai'
+    }
+    if (normalized === 'together' || normalized === 'together ai' || normalized === 'together-ai') {
+        return 'together_ai'
     }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null

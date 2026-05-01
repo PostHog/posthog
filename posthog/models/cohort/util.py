@@ -636,7 +636,9 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int, using_database: str | None = None) -> int:
-    qs = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id)
+    qs = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+        cohort_id=cohort_id, person__team_id=team_id
+    )  # nosemgrep: no-direct-persons-db-orm
     if using_database:
         qs = qs.using(using_database)
     return qs.count()

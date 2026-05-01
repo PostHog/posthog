@@ -88,6 +88,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    opensearch_search:
+        description: 'OpenSearch reverse index for LLM trace search'
+        requires: [core_infra]
+        docker_profiles: [opensearch]
+
     llm_analytics_sentiment:
         description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
         requires: [temporal_workflows]
@@ -275,7 +280,15 @@ intents:
 
     ai_features:
         description: 'AI features'
-        capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions, temporal_workflows]
+        capabilities:
+            [
+                event_ingestion,
+                llm_gateway,
+                embedding_service,
+                opensearch_search,
+                property_definitions,
+                temporal_workflows,
+            ]
 
     logs:
         description: 'Log aggregation and viewing'
