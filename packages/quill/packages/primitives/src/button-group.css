@@ -1,0 +1,107 @@
+@layer components {
+    .quill-button-group {
+        display: flex;
+        align-items: stretch;
+        width: fit-content;
+    }
+
+    .quill-button-group > :focus-visible {
+        position: relative;
+        z-index: 10;
+    }
+
+    /* Nested button-groups get a gap between each other */
+    .quill-button-group:has(> [data-slot='button-group']) {
+        gap: 0.5rem;
+    }
+
+    /* When the last child is a hidden select, make the preceding trigger full rounded on end */
+    .quill-button-group:has(select[aria-hidden='true']:last-child) > [data-slot='select-trigger']:last-of-type {
+        border-start-end-radius: var(--radius-md);
+        border-end-end-radius: var(--radius-md);
+    }
+
+    .quill-button-group > [data-slot='select-trigger']:not([class*='w-']) {
+        width: fit-content;
+    }
+
+    .quill-button-group > input {
+        flex: 1 1 auto;
+    }
+
+    /* ----- Orientation: horizontal ----- */
+    .quill-button-group[data-orientation='horizontal'] > [data-slot] {
+        border-start-end-radius: 0;
+        border-end-end-radius: 0;
+    }
+
+    .quill-button-group[data-orientation='horizontal'] > [data-slot]:not(:has(~ [data-slot])) {
+        border-start-end-radius: var(--radius-sm) !important;
+        border-end-end-radius: var(--radius-sm) !important;
+    }
+
+    .quill-button-group[data-orientation='horizontal'] > [data-slot] ~ [data-slot] {
+        border-inline-start: 0;
+        border-start-start-radius: 0;
+        border-end-start-radius: 0;
+    }
+
+    /* ----- Orientation: vertical ----- */
+    .quill-button-group[data-orientation='vertical'] {
+        flex-direction: column;
+    }
+
+    .quill-button-group[data-orientation='vertical'] > [data-slot] {
+        border-end-start-radius: 0;
+        border-end-end-radius: 0;
+    }
+
+    .quill-button-group[data-orientation='vertical'] > [data-slot]:not(:has(~ [data-slot])) {
+        border-end-start-radius: var(--radius-sm) !important;
+        border-end-end-radius: var(--radius-sm) !important;
+    }
+
+    .quill-button-group[data-orientation='vertical'] > [data-slot] ~ [data-slot] {
+        border-block-start: 0;
+        border-start-start-radius: 0;
+        border-start-end-radius: 0;
+    }
+
+    /* =========================================================================
+       ButtonGroupText — inline label-like child
+       ========================================================================= */
+    .quill-button-group__text {
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.625;
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-button-group__text svg {
+        pointer-events: none;
+    }
+
+    .quill-button-group__text svg:not([class*='size-']) {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    /* =========================================================================
+       ButtonGroupSeparator — inline divider inside a group
+       ========================================================================= */
+    .quill-button-group__separator {
+        position: relative;
+        align-self: stretch;
+        background-color: var(--border);
+    }
+
+    .quill-button-group__separator[data-orientation='horizontal'] {
+        width: auto;
+        margin-inline: 1px;
+    }
+
+    .quill-button-group__separator[data-orientation='vertical'] {
+        height: auto;
+        margin-block: 1px;
+    }
+}

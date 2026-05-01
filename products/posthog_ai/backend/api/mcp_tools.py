@@ -4,6 +4,8 @@ from django.views.generic import View
 
 import pydantic
 from asgiref.sync import async_to_sync
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from posthoganalytics import capture_exception
 from rest_framework import status
 from rest_framework.decorators import action
@@ -12,7 +14,9 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 from structlog import get_logger
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
@@ -24,6 +28,7 @@ logger = get_logger(__name__)
 
 class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "project"
+    serializer_class = _FallbackSerializer
 
     renderer_classes = [SafeJSONRenderer]
 
@@ -34,6 +39,10 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return scopes or None
         return None
 
+    @extend_schema(
+        parameters=[OpenApiParameter("tool_name", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     @action(
         detail=False,
         methods=["POST"],
@@ -69,7 +78,12 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
 
         try:
-            content = async_to_sync(tool.execute)(validated_args)
+
+            async def execute_tool() -> str:
+                with tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id):
+                    return await tool.execute(validated_args)
+
+            content = async_to_sync(execute_tool)()
         except MaxToolError as e:
             return Response(
                 {

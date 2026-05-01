@@ -423,49 +423,57 @@ export const LineGraph = ({
                             showTooltip()
 
                             if (tooltip.body) {
-                                const referenceDataPoint = tooltip.dataPoints[0]
+                                const { dataIndex, datasetIndex } = tooltip.dataPoints[0]
 
-                                // Filter series data based on highlight mode
-                                let filteredSeriesData = isHighlightBarMode
-                                    ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
-                                    : ySeriesData
                                 const stackedSeriesTotalAtIndex =
                                     isStackedBarChart && chartSettings.stackBars100
-                                        ? ySeriesData.reduce(
-                                              (acc, series) => acc + (series.data[referenceDataPoint.dataIndex] ?? 0),
-                                              0
-                                          )
+                                        ? ySeriesData.reduce((acc, series) => acc + (series.data[dataIndex] ?? 0), 0)
                                         : null
 
-                                filteredSeriesData = filteredSeriesData.filter(
-                                    (series) => series.data[referenceDataPoint.dataIndex] !== null
-                                )
+                                // Iterate ySeriesData directly so seriesIndex stays as the original index —
+                                // bar colors are derived from it, so the tooltip ribbon must match.
+                                const tooltipData: {
+                                    series: string
+                                    data: ReturnType<typeof formatDataWithSettings>
+                                    rawData: number
+                                    dataIndex: number
+                                    seriesIndex: number
+                                    stackedSeriesTotalAtIndex: number | null
+                                }[] = []
 
-                                const tooltipData = filteredSeriesData
-                                    .map((series, index) => {
-                                        const seriesName =
-                                            series?.settings?.display?.label ||
-                                            ('column' in series ? series.column.name : series.name)
-                                        const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
-                                        return {
-                                            series: seriesName,
-                                            data: formatDataWithSettings(
-                                                series.data[referenceDataPoint.dataIndex],
-                                                series.settings
-                                            ),
-                                            rawData: series.data[referenceDataPoint.dataIndex],
-                                            dataIndex: referenceDataPoint.dataIndex,
-                                            seriesIndex: seriesIndex,
-                                            stackedSeriesTotalAtIndex,
-                                        }
+                                for (let seriesIndex = 0; seriesIndex < ySeriesData.length; seriesIndex++) {
+                                    if (isHighlightBarMode && seriesIndex !== datasetIndex) {
+                                        continue
+                                    }
+
+                                    const series = ySeriesData[seriesIndex]
+                                    const rawData = series.data[dataIndex]
+                                    if (rawData == null) {
+                                        continue
+                                    }
+
+                                    const settings = series.settings
+                                    const seriesName =
+                                        settings?.display?.label ||
+                                        ('column' in series ? series.column.name : series.name)
+
+                                    tooltipData.push({
+                                        series: seriesName,
+                                        data: formatDataWithSettings(rawData, settings),
+                                        rawData,
+                                        dataIndex,
+                                        seriesIndex,
+                                        stackedSeriesTotalAtIndex,
                                     })
-                                    .sort((a, b) => b.rawData! - a.rawData!)
+                                }
+
+                                if (tooltipData.length > 1 && !isHighlightBarMode) {
+                                    tooltipData.sort((a, b) => b.rawData - a.rawData)
+                                }
 
                                 let totalLabel: string | null = null
                                 const tooltipTotalData = ySeriesData.filter(
-                                    (n) =>
-                                        n.settings?.formatting?.style !== 'percent' &&
-                                        n.data[referenceDataPoint.dataIndex] !== null
+                                    (n) => n.settings?.formatting?.style !== 'percent' && n.data[dataIndex] !== null
                                 )
                                 if (
                                     tooltipTotalData.length > 1 &&
@@ -473,7 +481,7 @@ export const LineGraph = ({
                                     !isHighlightBarMode
                                 ) {
                                     const totalRawData = tooltipTotalData.reduce((acc, cur) => {
-                                        acc += cur.data[referenceDataPoint.dataIndex] ?? 0
+                                        acc += cur.data[dataIndex] ?? 0
                                         return acc
                                     }, 0)
                                     const firstSeriesSettings = tooltipTotalData[0]?.settings
@@ -485,7 +493,7 @@ export const LineGraph = ({
                                 tooltipRoot.render(
                                     <div className="InsightTooltip">
                                         <div className="flex items-center justify-between pl-5 pr-2 py-2 text-xs font-semibold border-b border-primary">
-                                            <span>{xSeriesData.data[referenceDataPoint.dataIndex]}</span>
+                                            <span>{xSeriesData.data[dataIndex]}</span>
                                             {pinTooltip && (
                                                 <button
                                                     type="button"

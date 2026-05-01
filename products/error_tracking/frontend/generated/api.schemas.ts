@@ -488,9 +488,9 @@ export interface PropertyGroupFilterValueApi {
  * * `user` - user
  * `role` - role
  */
-export type TypeDe9EnumApi = (typeof TypeDe9EnumApi)[keyof typeof TypeDe9EnumApi]
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
 
-export const TypeDe9EnumApi = {
+export const AssigneeTypeEnumApi = {
     User: 'user',
     Role: 'role',
 } as const
@@ -500,7 +500,7 @@ export interface ErrorTrackingAssignmentRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: TypeDe9EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -643,7 +643,7 @@ export interface ErrorTrackingGroupingRuleAssigneeRequestApi {
 
 * `user` - user
 * `role` - role */
-    type: TypeDe9EnumApi
+    type: AssigneeTypeEnumApi
     /** User ID when `type` is `user`, or role UUID when `type` is `role`. */
     id: number | string
 }
@@ -826,33 +826,40 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown | null
-    version: string
-    project: string
+export interface ErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold: number
 }
 
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
-}
-
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown | null
-    version?: string
-    project?: string
+export interface PatchedErrorTrackingSpikeDetectionConfigApi {
+    /**
+     * Time to wait before alerting again for the same issue after a spike is detected.
+     * @minimum 1
+     */
+    snooze_duration_minutes?: number
+    /**
+     * The factor by which the current exception count must exceed the baseline to be considered a spike.
+     * @minimum 1
+     */
+    multiplier?: number
+    /**
+     * The minimum number of exceptions required in a 5-minute window before a spike can be detected.
+     * @minimum 1
+     */
+    threshold?: number
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {
@@ -878,6 +885,16 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     /** @nullable */
     previous?: string | null
     results: ErrorTrackingSpikeEventApi[]
+}
+
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown | null
+    version: string
+    project: string
 }
 
 export interface ErrorTrackingStackFrameApi {
@@ -949,6 +966,25 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly updated_at?: string
 }
 
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown | null
+    version?: string
+    project?: string
+}
+
 /**
  * Release associated with this symbol set
  * @nullable
@@ -1004,6 +1040,11 @@ export interface PatchedErrorTrackingSymbolSetApi {
      * @nullable
      */
     readonly release?: PatchedErrorTrackingSymbolSetApiRelease
+}
+
+export interface _SymbolSetDownloadResponseApi {
+    /** Presigned URL to download the source map file */
+    url: string
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
@@ -1107,17 +1148,6 @@ export type ErrorTrackingRecommendationsListParams = {
     offset?: number
 }
 
-export type ErrorTrackingReleasesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -1151,6 +1181,17 @@ export type ErrorTrackingSuppressionRulesListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
@@ -1161,35 +1202,3 @@ export type ErrorTrackingSymbolSetsListParams = {
      */
     offset?: number
 }
-
-/**
- * Unspecified response body
- */
-export type ErrorTrackingSymbolSetsDownloadRetrieve200 = { [key: string]: unknown }
-
-export type ErrorTrackingReleasesList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingSymbolSetsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-/**
- * Unspecified response body
- */
-export type ErrorTrackingSymbolSetsDownloadRetrieve2200 = { [key: string]: unknown }

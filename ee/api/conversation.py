@@ -11,7 +11,8 @@ from django.http import StreamingHttpResponse
 import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
@@ -527,6 +528,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         return self._queue_response(queue_store, queue)
 
+    @extend_schema(parameters=[OpenApiParameter("queue_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(detail=True, methods=["PATCH", "DELETE"], url_path=r"queue/(?P<queue_id>[^/.]+)")
     def queue_item(self, request: Request, queue_id: str, *args, **kwargs):
         conversation_id = self._queue_conversation_id()

@@ -15,6 +15,7 @@ class SingleSessionSummaryInputs:
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
+    product_context: str | None = None
     local_reads_prod: bool = False
     video_based: bool = False
     trigger_session_id: str | None = None

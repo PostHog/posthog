@@ -58,6 +58,7 @@ class ProvisioningTestBase(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
+                "provisioning_can_issue_deep_links": True,
             },
         )
 
@@ -137,7 +138,6 @@ class ProvisioningTestBase(APIBaseTest):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         return res.json()["access_token"]

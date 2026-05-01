@@ -146,7 +146,9 @@ class FlagsMatcherCache:
             raise DatabaseError("Failed to fetch group type mapping previously, not trying again.")
         try:
             with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS, READ_ONLY_DATABASE_FOR_PERSONS):
-                group_type_mapping_rows = GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+                group_type_mapping_rows = GroupTypeMapping.objects.db_manager(  # nosemgrep: no-direct-persons-db-orm
+                    READ_ONLY_DATABASE_FOR_PERSONS
+                ).filter(  # nosemgrep: no-direct-persons-db-orm
                     project_id=self.project_id
                 )
                 return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
@@ -498,12 +500,16 @@ class FeatureFlagMatcher:
                 # Some extra wiggle room here for timeouts because this depends on the number of flags as well,
                 # and not just the database query.
                 all_conditions: dict = {}
-                person_query: QuerySet = Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+                person_query: QuerySet = Person.objects.db_manager(  # nosemgrep: no-direct-persons-db-orm
+                    READ_ONLY_DATABASE_FOR_PERSONS
+                ).filter(  # nosemgrep: no-direct-persons-db-orm
                     team_id=self.team_id,
                     persondistinctid__distinct_id=self.distinct_id,
                     persondistinctid__team_id=self.team_id,
                 )
-                basic_group_query: QuerySet = Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+                basic_group_query: QuerySet = Group.objects.db_manager(  # nosemgrep: no-direct-persons-db-orm
+                    READ_ONLY_DATABASE_FOR_PERSONS
+                ).filter(  # nosemgrep: no-direct-persons-db-orm
                     team_id=self.team_id
                 )
                 group_query_per_group_type_mapping: dict[GroupTypeIndex, tuple[QuerySet, list[str]]] = {}
@@ -793,7 +799,7 @@ def get_feature_flag_hash_key_overrides(
 
     if not person_id_to_distinct_id_mapping:
         person_and_distinct_ids = list(
-            PersonDistinctId.objects.db_manager(using_database)
+            PersonDistinctId.objects.db_manager(using_database)  # nosemgrep: no-direct-persons-db-orm
             .filter(distinct_id__in=distinct_ids, team_id=team_id)
             .values_list("person_id", "distinct_id")
         )
@@ -804,7 +810,7 @@ def get_feature_flag_hash_key_overrides(
     person_ids = list(person_id_to_distinct_id.keys())
 
     for feature_flag, override, _ in sorted(
-        FeatureFlagHashKeyOverride.objects.db_manager(using_database)
+        FeatureFlagHashKeyOverride.objects.db_manager(using_database)  # nosemgrep: no-direct-persons-db-orm
         .filter(person_id__in=person_ids, team_id=team_id)
         .values_list("feature_flag_key", "hash_key", "person_id"),
         key=lambda x: 1 if person_id_to_distinct_id.get(x[2], "") == distinct_ids[0] else -1,
@@ -1273,9 +1279,11 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, p
     group_type_index = feature_flag.aggregation_group_type_index
 
     base_query: QuerySet = (
-        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team_id=team_id)
+        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(  # nosemgrep: no-direct-persons-db-orm
+            team_id=team_id
+        )  # nosemgrep: no-direct-persons-db-orm
         if group_type_index is None
-        else Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
+        else Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(  # nosemgrep: no-direct-persons-db-orm
             team_id=team_id, group_type_index=group_type_index
         )
     )

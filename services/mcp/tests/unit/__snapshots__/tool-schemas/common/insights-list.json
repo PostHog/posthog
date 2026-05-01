@@ -1,6 +1,47 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "created_by": {
+            "description": "JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.",
+            "type": "string"
+        },
+        "created_date_from": {
+            "description": "Filter by `created_at > created_date_from`. Accepts absolute or relative dates.",
+            "type": "string"
+        },
+        "created_date_to": {
+            "description": "Filter by `created_at < created_date_to`. Accepts absolute or relative dates.",
+            "type": "string"
+        },
+        "dashboards": {
+            "description": "JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).",
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.",
+            "type": "string"
+        },
+        "favorited": {
+            "description": "Include this parameter (any value) to restrict results to insights marked as favorited.",
+            "type": "boolean"
+        },
+        "insight": {
+            "description": "Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
+            "enum": ["FUNNELS", "JSON", "LIFECYCLE", "PATHS", "RETENTION", "SQL", "STICKINESS", "TRENDS"],
+            "type": "string"
+        },
+        "last_viewed_date_from": {
+            "description": "Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.",
+            "type": "string"
+        },
+        "last_viewed_date_to": {
+            "description": "Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -9,8 +50,24 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "saved": {
+            "description": "When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.",
+            "type": "boolean"
+        },
+        "search": {
+            "description": "Case-insensitive substring match across name, derived_name, description, and tag names.",
+            "type": "string"
+        },
         "short_id": {
             "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded array of tag names. Returns insights with any of the listed tags.",
+            "type": "string"
+        },
+        "user": {
+            "description": "Include this parameter (any value) to restrict results to insights created by the authenticated user.",
+            "type": "boolean"
         }
     },
     "type": "object"

@@ -1,7 +1,7 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
-import { DEFAULT_MARGINS } from './core/Chart'
-import type { ChartDimensions, Series } from './core/types'
+import { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
+import type { ChartDimensions, ResolvedSeries, Series } from './core/types'
 
 export const dimensions: ChartDimensions = {
     width: 800,
@@ -24,7 +24,7 @@ export const mockRect: DOMRect = {
     toJSON: () => ({}),
 }
 
-export function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): Series {
+export function makeSeries(overrides: Partial<Series> & { key: string; data: number[] }): ResolvedSeries {
     return { label: overrides.key, color: '#000', ...overrides }
 }
 
@@ -57,10 +57,13 @@ export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLab
     hoverAtIndex(wrapper, index, totalLabels)
     // Wait for the hover state to flush — onClick reads tooltipCtx synchronously
     // to decide between pinning and onPointClick, and a stale null takes the wrong branch.
-    await waitFor(() => {
-        if (!document.querySelector('[data-hog-charts-tooltip]')) {
-            throw new Error('tooltip not yet rendered')
-        }
-    })
+    await waitFor(
+        () => {
+            if (!document.querySelector('[data-hog-charts-tooltip]')) {
+                throw new Error('tooltip not yet rendered')
+            }
+        },
+        { timeout: 3000 }
+    )
     fireEvent.click(wrapper)
 }

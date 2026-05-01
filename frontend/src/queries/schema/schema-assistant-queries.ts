@@ -1356,6 +1356,8 @@ export interface AssistantRecordingsQuery {
     after?: string
     /** Filter recordings to a specific person by their UUID. */
     person_uuid?: string
+    /** Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call. */
+    session_ids?: string[]
 }
 
 export interface AssistantInsightVizNode {

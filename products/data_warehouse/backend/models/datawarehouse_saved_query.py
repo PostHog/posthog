@@ -83,7 +83,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     external_tables = models.JSONField(default=list, null=True, blank=True, help_text="List of all external tables")
     query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query")
     status = models.CharField(
-        null=True, choices=Status.choices, max_length=64, help_text="The status of when this SavedQuery last ran."
+        null=True, choices=Status, max_length=64, help_text="The status of when this SavedQuery last ran."
     )
     last_run_at = models.DateTimeField(
         null=True,
@@ -116,7 +116,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     )
 
     origin = models.CharField(
-        choices=Origin.choices, help_text="Where this SavedQuery is created.", default=None, null=True, blank=True
+        choices=Origin, help_text="Where this SavedQuery is created.", default=None, null=True, blank=True
     )
 
     is_test = models.BooleanField(

@@ -4,20 +4,31 @@ import * as React from 'react'
 
 import { Button, type buttonVariants } from './button'
 import { ButtonGroup, type buttonGroupVariants } from './button-group'
+import './chip.css'
 import { cn } from './lib/utils'
 
-type ChipProps = React.ComponentProps<typeof Button> & VariantProps<typeof buttonVariants>
+type ChipProps = Omit<React.ComponentProps<typeof Button>, 'variant'> &
+    Omit<VariantProps<typeof buttonVariants>, 'variant'>
 
-const Chip = React.forwardRef<HTMLButtonElement, ChipProps>(
-    ({ className, size = 'sm', variant = 'outline', children, ...props }, ref) => {
+/*
+ * Chip renders a <div>, not a <button>. A Chip commonly contains a nested
+ * ChipClose (which IS a button), and <button> inside <button> is invalid HTML —
+ * browsers reparent the inner button outside the outer one, which also breaks
+ * `.quill-chip:has([data-slot='chip-close'])` because chip-close is no longer
+ * a descendant. Styling still flows through `.quill-button` variants because
+ * those rules are tag-agnostic (class-based).
+ */
+const Chip = React.forwardRef<HTMLDivElement, ChipProps>(
+    ({ className, size = 'sm', children, ...props }, ref) => {
         return (
             <Button
-                ref={ref}
+                ref={ref as React.Ref<HTMLButtonElement>}
+                render={<div />}
                 data-quill
                 data-slot="chip"
                 size={size}
-                variant={variant}
-                className={cn('gap-1 rounded-sm has-data-[slot=chip-close]:pe-0 bg-background max-w-full focus-visible:border-ring/50 focus-visible:ring-3', className)}
+                variant="outline"
+                className={cn('quill-chip gap-1', className)}
                 {...props}
             >
                 {children}
@@ -34,7 +45,7 @@ const ChipClose = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeo
                 ref={ref}
                 data-slot="chip-close"
                 size="icon-xs"
-                className={cn('opacity-50 hover:opacity-100', className)}
+                className={cn('quill-chip-close rounded-xs', className)}
                 {...props}
             >
                 {children ?? <XIcon />}

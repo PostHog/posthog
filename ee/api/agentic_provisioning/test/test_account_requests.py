@@ -177,7 +177,7 @@ class TestAccountRequests(ProvisioningTestBase):
             "/api/agentic/provisioning/account_requests",
             data=payload,
             content_type="application/json",
-            HTTP_API_VERSION="0.1d",
+            headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
 
@@ -197,7 +197,9 @@ class TestAccountRequests(ProvisioningTestBase):
         payload = self._account_request_payload(email="orgname@example.com", configuration=config)
         self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
         user = User.objects.get(email="orgname@example.com")
-        assert user.organization.name == expected_org_name
+        org = user.organization
+        assert org is not None
+        assert org.name == expected_org_name
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("ee.api.agentic_provisioning.region_proxy._proxy_to_region")
@@ -340,6 +342,21 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         data = res.json()
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
+
+    def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
+        self.pkce_partner.provisioning_skip_existing_user_consent = True
+        self.pkce_partner.save()
+        User.objects.create_and_join(
+            organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
+        )
+        payload = self._account_request_payload()
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+        # Consent path would return a requires_auth payload with redirect URL; absence proves consent was skipped.
+        assert "requires_auth" not in data
 
     def test_pkce_partner_missing_code_challenge_returns_400(self):
         User.objects.create_and_join(

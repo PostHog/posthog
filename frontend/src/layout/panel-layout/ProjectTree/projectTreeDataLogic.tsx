@@ -49,6 +49,16 @@ const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 export const PAGINATION_LIMIT = 100
 
+// Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
+// `orderedIds` is appended at the end so a partial input never silently drops items.
+function applyOrder(shortcuts: FileSystemEntry[], orderedIds: string[]): FileSystemEntry[] {
+    const byId = new Map(shortcuts.map((s) => [s.id, s]))
+    const reordered = orderedIds.map((id) => byId.get(id)).filter((s): s is FileSystemEntry => !!s)
+    const referenced = new Set(orderedIds)
+    const trailing = shortcuts.filter((s) => s.id && !referenced.has(s.id))
+    return [...reordered, ...trailing]
+}
+
 type DeleteFolderDialogContentProps = {
     folderName: string
     folderPath: string
@@ -200,6 +210,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
+        reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
+        // Resolves a sibling drag ('before' / 'after' a target row) into a new ordered list and
+        // dispatches `reorderShortcuts`. Lives here so the component stays free of business logic.
+        reorderShortcutByDrag: (activeTreeId: string, overTreeId: string, position: 'before' | 'after') => ({
+            activeTreeId,
+            overTreeId,
+            position,
+        }),
 
         pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
@@ -479,9 +497,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             },
                         },
                     })
-                    return [...values.shortcutData, response].sort((a, b) =>
-                        a.path.toLowerCase().localeCompare(b.path.toLowerCase())
-                    )
+                    return [...values.shortcutData, response]
+                },
+                reorderShortcuts: async ({ orderedIds }) => {
+                    try {
+                        await api.fileSystemShortcuts.reorder(orderedIds)
+                    } catch (error) {
+                        lemonToast.error('Could not save starred order')
+                        throw error
+                    }
+                    // Optimistic reducer below already applied the new order; return the live
+                    // current state so concurrent mutations during the request aren't clobbered
+                    // when kea-loaders' success handler sets `shortcutData` to the resolved value.
+                    return values.shortcutData
                 },
                 deleteShortcut: async ({ id }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
@@ -683,6 +711,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         return item
                     })
                 },
+                // Apply reorder optimistically so the UI updates immediately while the API call is in flight.
+                reorderShortcuts: (state, { orderedIds }) => applyOrder(state, orderedIds),
             },
         ],
         shortcutDataHasLoaded: [
@@ -698,6 +728,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.folders],
             (folders): FileSystemEntry[] =>
                 Object.entries(folders).reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[]),
+        ],
+        // Maps each top-level Starred row's tree id to the underlying FileSystemEntry id, so the
+        // drag handler can resolve sibling drops without rebuilding the lookup on every render.
+        // Children inside an expanded folder-shortcut use the `project://` protocol and are
+        // intentionally excluded.
+        shortcutEntryIdMap: [
+            (s) => [s.shortcutData],
+            (shortcutData): Map<string, string> => {
+                const map = new Map<string, string>()
+                for (const shortcut of shortcutData) {
+                    if (!shortcut.id) {
+                        continue
+                    }
+                    const treeId =
+                        shortcut.type === 'folder' ? `shortcuts://${shortcut.path}` : `shortcuts/${shortcut.id}`
+                    map.set(treeId, shortcut.id)
+                }
+                return map
+            },
         ],
         savedItemsLoading: [
             (s) => [s.folderStates],
@@ -1135,6 +1184,36 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
+            const map = values.shortcutEntryIdMap
+            const activeEntryId = map.get(activeTreeId)
+            const overEntryId = map.get(overTreeId)
+            if (!activeEntryId || !overEntryId || activeEntryId === overEntryId) {
+                return
+            }
+            const currentIds = values.shortcutData.map((s) => s.id).filter((id): id is string => !!id)
+            const fromIndex = currentIds.indexOf(activeEntryId)
+            const targetIndex = currentIds.indexOf(overEntryId)
+            if (fromIndex < 0 || targetIndex < 0) {
+                return
+            }
+            // Insert above (`before`) or below (`after`) the target, then compensate for the
+            // index shift caused by removing the moved entry from its old position.
+            const insertAt = position === 'after' ? targetIndex + 1 : targetIndex
+            const next = [...currentIds]
+            next.splice(fromIndex, 1)
+            next.splice(fromIndex < insertAt ? insertAt - 1 : insertAt, 0, activeEntryId)
+            actions.reorderShortcuts(next)
+        },
+        reorderShortcutsSuccess: ({ shortcutData }) => {
+            eventUsageLogic.actions.reportNavbarStarredItemsReordered(
+                shortcutData.length,
+                !!values.featureFlags[FEATURE_FLAGS.AI_FIRST]
+            )
+        },
+        reorderShortcutsFailure: () => {
+            actions.loadShortcuts()
+        },
         loadFolder: async ({ folder, forceReload }) => {
             const currentState = values.folderStates[folder]
             if (!forceReload && (currentState === 'loading' || currentState === 'loaded')) {

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-23 20:17:10 UTC
+// Generated at: 2026-04-30 20:21:05 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -7,6 +7,7 @@ export type CanonicalProvider =
     | 'aion-labs'
     | 'aion-labs-bf16'
     | 'akashml-fp8'
+    | 'akashml-int4'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -22,15 +23,13 @@ export type CanonicalProvider =
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
-    | 'chutes-bf16'
+    | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'clarifai-bf16'
-    | 'clarifai-fp4'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -46,6 +45,7 @@ export type CanonicalProvider =
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-vertex'
+    | 'google-vertex-eu'
     | 'google-vertex-europe'
     | 'google-vertex-global'
     | 'google-vertex-us'
@@ -58,7 +58,6 @@ export type CanonicalProvider =
     | 'inflection'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-bf16'
     | 'ionstream-fp8'
@@ -96,6 +95,7 @@ export type CanonicalProvider =
     | 'parasail-int8'
     | 'perplexity'
     | 'phala'
+    | 'poolside-fp8'
     | 'reka-bf16'
     | 'reka-fp8'
     | 'relace-bf16'
@@ -109,6 +109,7 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
+    | 'stealth-int8'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'switchpoint'

@@ -96,10 +96,10 @@ MODAL_TOKEN_ID=<token_id>
 MODAL_TOKEN_SECRET=<token_secret>
 ```
 
-### Tunnel gateway and API
+### Tunnel gateway, API, and MCP
 
 Since Modal sandboxes run in the cloud and can't reach `localhost` directly,
-you'll need to expose the Django API and LLM gateway via a tunnel (e.g. ngrok or Cloudflare Tunnel).
+you'll need to expose the Django API, LLM gateway, and MCP server via a tunnel (e.g. ngrok or Cloudflare Tunnel).
 
 With ngrok, add tunnels to your ngrok config, `~/.config/ngrok/ngrok.yml` (Linux) or `~/Library/Application Support/ngrok/ngrok.yml` (MacOS):
 
@@ -111,6 +111,9 @@ tunnels:
   gateway:
     proto: http
     addr: 3308
+  mcp:
+    proto: http
+    addr: 8787
 ```
 
 **IMPORTANT:** The free version of Ngrok includes on `dev` domain, that will try to cover both tunnels, and it won't work. Use Cloudflare (free). If you want to use ngrok, upgrade to `Hobbyist` plan, create custom domans, and add them to config:
@@ -125,6 +128,10 @@ tunnels:
     proto: http
     addr: 3308
     domain: alexl-llmg.ngrok.dev
+  mcp:
+    proto: http
+    addr: 8787
+    domain: alexl-mcp.ngrok.dev
 agent:
   authtoken: ...
 ```
@@ -142,7 +149,20 @@ Set the resulting URLs in your `.env`:
 ```bash
 SANDBOX_API_URL=https://<django-8000-subdomain>.ngrok-free.app
 SANDBOX_LLM_GATEWAY_URL=https://<gateway-3308-subdomain>.ngrok-free.app
+SANDBOX_MCP_URL=https://<mcp-8787-subdomain>.ngrok-free.app/mcp
 ```
+
+`SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
+
+### MCP server `.dev.vars`
+
+`MODAL_DOCKER` (and the local Docker provider) both depend on the MCP Worker running at `localhost:8787`. The Worker reads its config from `services/mcp/.dev.vars` — without it, things like `POSTHOG_API_BASE_URL`, the UI-apps token, and analytics keys are missing and the Worker will either refuse to start or return broken responses to the sandbox.
+
+```bash
+cd services/mcp && cp .dev.vars.example .dev.vars
+```
+
+Then fill in the secrets. `INKEEP_API_KEY` (for the `docs-search` tool) lives in 1Password under **"Inkeep API key - mcp"**. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.dev.vars`.
 
 ### Local agent packages
 

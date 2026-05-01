@@ -34,7 +34,7 @@ class GitHubSyncPlan(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     status = models.CharField(
         max_length=16,
-        choices=GitHubSyncPlanStatus.choices,
+        choices=GitHubSyncPlanStatus,
         default=GitHubSyncPlanStatus.PENDING,
     )
     applied_at = models.DateTimeField(null=True, blank=True, help_text="When this plan was applied on merge")

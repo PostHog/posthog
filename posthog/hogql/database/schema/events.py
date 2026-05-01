@@ -146,6 +146,7 @@ class EventsTable(Table):
             "$virt_traffic_type",
             "$virt_traffic_category",
             "$virt_bot_name",
+            "$virt_bot_operator",
         ]
 
 

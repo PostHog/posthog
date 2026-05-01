@@ -1,0 +1,146 @@
+@layer components {
+    .quill-dialog__overlay {
+        position: fixed;
+        inset: 0;
+        min-height: 100dvh;
+        background-color: black;
+        opacity: 0.2;
+
+        /* 200ms ease-out — dialog is a larger surface; paired with content. */
+        transition: opacity 200ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
+
+    .quill-dialog__overlay[data-starting-style],
+    .quill-dialog__overlay[data-ending-style] {
+        opacity: 0;
+    }
+
+    :is(.dark, [theme='dark']) .quill-dialog__overlay {
+        opacity: 0.7;
+    }
+
+    .quill-dialog__content {
+        position: fixed;
+        inset-inline-start: 50%;
+        top: calc(max(1rem, 10vh + 1.25rem * var(--nested-dialogs, 0)));
+        width: 100%;
+        max-width: calc(100vw - 3rem);
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        background-color: var(--background);
+        border-radius: var(--radius-xl);
+        outline: none;
+        box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
+
+        /*
+         * 200ms ease-out — dialog is larger than a tooltip/menu so a touch
+         * longer feels right. Paired with overlay (same curve/duration) so
+         * they read as one unit. Start scale kept at 0.95 (not 0.9) to stay
+         * subtle and avoid drawing too much attention each time.
+         */
+        transition:
+            opacity 200ms cubic-bezier(0.215, 0.61, 0.355, 1),
+            scale 200ms cubic-bezier(0.215, 0.61, 0.355, 1);
+        scale: calc(1 - 0.1 * var(--nested-dialogs, 0));
+        translate: -50% 0;
+    }
+
+    [dir='rtl'] .quill-dialog__content {
+        translate: 50% 0;
+    }
+
+    .quill-dialog__content[data-starting-style],
+    .quill-dialog__content[data-ending-style] {
+        opacity: 0;
+        scale: 0.95;
+    }
+
+    .quill-dialog__content[data-nested-dialog-open]::after {
+        position: absolute;
+        inset: 0;
+        content: '';
+        background-color: rgb(0 0 0 / 5%);
+        border-radius: inherit;
+    }
+
+    .quill-dialog__header {
+        padding-inline: 1rem;
+        padding-top: 1rem;
+    }
+
+    .quill-dialog__header:has(~ [data-slot='dialog-body']) {
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .quill-dialog__footer {
+        padding-block: 1rem;
+        padding-inline: 1rem;
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent);
+        border-top: 1px solid var(--border);
+    }
+
+    .quill-dialog__body {
+        padding-inline: 1rem;
+    }
+
+    .quill-dialog__body[data-component='scroll-area'] {
+        margin-block: -1rem;
+    }
+
+    .quill-dialog__body[data-component='scroll-area'] > [data-slot='scroll-area-viewport'] {
+        padding-block: 1rem;
+    }
+
+    .quill-dialog__title {
+        font-size: var(--text-sm, 0.875rem);
+        font-weight: 500;
+        line-height: var(--text-sm--line-height, 1.25rem);
+    }
+
+    .quill-dialog__description {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--muted-foreground);
+    }
+
+    .quill-dialog__description a {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .quill-dialog__description a:hover {
+        color: var(--foreground);
+    }
+
+    @supports (-webkit-touch-callout: none) {
+        .quill-dialog__overlay {
+            position: absolute;
+        }
+    }
+
+    @media (min-width: 640px) {
+        .quill-dialog__content {
+            max-width: 24rem;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-dialog__overlay,
+        .quill-dialog__overlay[data-starting-style],
+        .quill-dialog__overlay[data-ending-style],
+        .quill-dialog__content,
+        .quill-dialog__content[data-starting-style],
+        .quill-dialog__content[data-ending-style] {
+            transition: none;
+            scale: 1;
+        }
+
+        .quill-dialog__overlay[data-starting-style],
+        .quill-dialog__overlay[data-ending-style],
+        .quill-dialog__content[data-starting-style],
+        .quill-dialog__content[data-ending-style] {
+            opacity: initial;
+        }
+    }
+}

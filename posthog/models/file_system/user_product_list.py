@@ -80,7 +80,7 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 
     # When the system suggests a product to the user, we store the reason why we suggested it in here
     # And and optional freeform text field to be displayed to the user on hover
-    reason: models.CharField = models.CharField(max_length=32, choices=Reason.choices, null=True)
+    reason: models.CharField = models.CharField(max_length=32, choices=Reason, null=True)
     reason_text: models.TextField = models.TextField(null=True)
 
     # There's a difference between the `UserProductList` not existing and it being disabled

@@ -26,6 +26,7 @@ import type {
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
     PaginatedDataModelingJobListApi,
@@ -81,12 +82,28 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getFixHogqlRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/fix_hogql/`
+export const getFixHogqlListUrl = (projectId: string, params?: FixHogqlListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/fix_hogql/?${stringifiedParams}`
+        : `/api/environments/${projectId}/fix_hogql/`
 }
 
-export const fixHogqlRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFixHogqlRetrieveUrl(projectId), {
+export const fixHogqlList = async (
+    projectId: string,
+    params?: FixHogqlListParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFixHogqlListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1457,12 +1474,12 @@ export const queryTabStateUserRetrieve = async (
 /**
  * Return this team's DAG as a set of edges and nodes
  */
-export const getWarehouseDagRetrieveUrl = (projectId: string) => {
+export const getWarehouseDagListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_dag/`
 }
 
-export const warehouseDagRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getWarehouseDagRetrieveUrl(projectId), {
+export const warehouseDagList = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getWarehouseDagListUrl(projectId), {
         ...options,
         method: 'GET',
     })

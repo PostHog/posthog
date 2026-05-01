@@ -447,6 +447,16 @@ services:
             - db
             - redis7
 
+    hypercache-server:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: hypercache-server
+        logging: *default-logging
+        depends_on:
+            - redis7
+
     kafka-init:
         image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
         entrypoint: /bin/sh

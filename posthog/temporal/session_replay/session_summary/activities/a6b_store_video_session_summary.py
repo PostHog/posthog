@@ -10,6 +10,7 @@ import structlog
 import temporalio
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.session_replay.session_summary.events import capture_session_summary_ready
 from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -21,7 +22,6 @@ from posthog.temporal.session_replay.session_summary.types.video import (
 )
 from posthog.temporal.session_replay.session_summary.utils import parse_str_timestamp_to_ms
 
-from ee.hogai.session_summaries.events import capture_session_summary_ready
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import (
     calculate_time_since_start,
@@ -39,6 +39,7 @@ logger = structlog.get_logger(__name__)
 async def store_video_session_summary_activity(
     inputs: VideoSummarySingleSessionInputs,
     analysis: ConsolidatedVideoAnalysis,
+    team_api_token: str,
 ) -> None:
     """Convert video segments to session summary format and store in database
 
@@ -52,7 +53,6 @@ async def store_video_session_summary_activity(
     try:
         from dateutil import parser as dateutil_parser
 
-        from posthog.models.team import Team
         from posthog.models.user import User
 
         from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
@@ -133,14 +133,9 @@ async def store_video_session_summary_activity(
             distinct_id=distinct_id,
             created_by=user,
         )
-        team_api_token = await database_sync_to_async(
-            lambda: Team.objects.only("api_token").get(id=inputs.team_id).api_token,
-            thread_sensitive=False,
-        )()
         await asyncio.to_thread(
             capture_session_summary_ready,
             stored_summary,
-            summary_origin="single",
             team_api_token=team_api_token,
         )
         logger.debug(

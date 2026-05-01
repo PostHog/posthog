@@ -150,6 +150,7 @@
           ExternalDataSourceType.RECURLY: RecurlySourceConfig,
           ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
           ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+          ExternalDataSourceType.RESEND: ResendSourceConfig,
           ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
           ExternalDataSourceType.RINGCENTRAL: RingCentralSourceConfig,
           ExternalDataSourceType.SFTP: SFTPSourceConfig,

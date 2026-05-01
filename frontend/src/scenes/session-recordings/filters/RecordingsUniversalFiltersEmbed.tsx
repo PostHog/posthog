@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import {
     IconAsterisk,
@@ -31,7 +31,14 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CategoryDropdown } from 'lib/components/TaxonomicFilter/CategoryDropdown'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import {
+    CategoryDropdownVariant,
+    resolveCategoryDropdownVariant,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+} from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
@@ -69,6 +76,7 @@ import {
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
+import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -486,6 +494,91 @@ function SavedFilterNameEditor({
     )
 }
 
+function RecordingsUniversalFilterAddFilterPopover({
+    categoryDropdownVariant,
+    taxonomicGroupTypes,
+}: {
+    categoryDropdownVariant: CategoryDropdownVariant
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+}): JSX.Element {
+    const [isPopoverVisible, setIsPopoverVisible] = useState(false)
+    const [addFilterSearchQuery, setAddFilterSearchQuery] = useState('')
+
+    const inputRef = useRef<HTMLInputElement | null>(null)
+    const focusInput = (): void => inputRef.current?.focus()
+
+    const taxonomicFilterLogicKey = `session-recordings-add-filter-${useId()}`
+
+    const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
+        taxonomicFilterLogicKey,
+        taxonomicGroupTypes,
+    }
+
+    const suffix =
+        categoryDropdownVariant === 'control' ? undefined : (
+            <CategoryDropdown variant={categoryDropdownVariant} onAfterChange={focusInput} />
+        )
+
+    const popover = (
+        <Popover
+            overlay={
+                <UniversalFilters.PureTaxonomicFilter
+                    fullWidth={false}
+                    onChange={() => {
+                        setIsPopoverVisible(false)
+                        setAddFilterSearchQuery('')
+                    }}
+                    searchQuery={addFilterSearchQuery}
+                    hideSearchInput
+                    taxonomicFilterLogicKey={taxonomicFilterLogicKey}
+                />
+            }
+            placement="bottom-start"
+            visible={isPopoverVisible}
+            onClickOutside={() => {
+                setIsPopoverVisible(false)
+                setAddFilterSearchQuery('')
+            }}
+        >
+            <div className="w-full max-w-[600px] shrink grow-0">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    fullWidth
+                    data-attr="replay-filters-add-filter-input"
+                    inputRef={inputRef}
+                    prefix={<IconSearch />}
+                    placeholder="Search suggested filters, URLs, email addresses, recent, pinned..."
+                    value={addFilterSearchQuery}
+                    onChange={(value) => {
+                        setAddFilterSearchQuery(value)
+                        if (!isPopoverVisible) {
+                            setIsPopoverVisible(true)
+                        }
+                    }}
+                    onFocus={() => setIsPopoverVisible(true)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                            setIsPopoverVisible(false)
+                            setAddFilterSearchQuery('')
+                            e.preventDefault()
+                        }
+                    }}
+                    suffix={suffix}
+                />
+            </div>
+        </Popover>
+    )
+
+    return suffix ? (
+        <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
+            {popover}
+        </BindLogic>
+    ) : (
+        popover
+    )
+}
+
 const ReplayFiltersTab = ({
     filters,
     setFilters,
@@ -497,8 +590,10 @@ const ReplayFiltersTab = ({
 }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
-    const [isPopoverVisible, setIsPopoverVisible] = useState(false)
-    const [addFilterSearchQuery, setAddFilterSearchQuery] = useState('')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const categoryDropdownVariant = resolveCategoryDropdownVariant(
+        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+    )
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -576,6 +671,7 @@ const ReplayFiltersTab = ({
 
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
+            <ProductAnalyticsOverLimitBanner />
             {appliedSavedFilter && (
                 <div className="border-b px-2 py-3 flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1 basis-3/5">
@@ -684,51 +780,10 @@ const ReplayFiltersTab = ({
                                     setFilters({ filter_group: newFilterGroup })
                                 }}
                             >
-                                <Popover
-                                    overlay={
-                                        <UniversalFilters.PureTaxonomicFilter
-                                            fullWidth={false}
-                                            onChange={() => {
-                                                setIsPopoverVisible(false)
-                                                setAddFilterSearchQuery('')
-                                            }}
-                                            searchQuery={addFilterSearchQuery}
-                                            hideSearchInput
-                                        />
-                                    }
-                                    placement="bottom-start"
-                                    visible={isPopoverVisible}
-                                    onClickOutside={() => {
-                                        setIsPopoverVisible(false)
-                                        setAddFilterSearchQuery('')
-                                    }}
-                                >
-                                    <div className="w-full max-w-[600px] shrink grow-0">
-                                        <LemonInput
-                                            type="search"
-                                            size="small"
-                                            fullWidth
-                                            data-attr="replay-filters-add-filter-input"
-                                            prefix={<IconSearch />}
-                                            placeholder="Search suggested filters, URLs, email addresses, recent, pinned..."
-                                            value={addFilterSearchQuery}
-                                            onChange={(value) => {
-                                                setAddFilterSearchQuery(value)
-                                                if (!isPopoverVisible) {
-                                                    setIsPopoverVisible(true)
-                                                }
-                                            }}
-                                            onFocus={() => setIsPopoverVisible(true)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Escape') {
-                                                    setIsPopoverVisible(false)
-                                                    setAddFilterSearchQuery('')
-                                                    e.preventDefault()
-                                                }
-                                            }}
-                                        />
-                                    </div>
-                                </Popover>
+                                <RecordingsUniversalFilterAddFilterPopover
+                                    categoryDropdownVariant={categoryDropdownVariant}
+                                    taxonomicGroupTypes={taxonomicGroupTypes}
+                                />
                             </UniversalFilters>
                         )}
                 </div>

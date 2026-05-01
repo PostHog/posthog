@@ -7,8 +7,8 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     const installSteps = getIOSStepsPA(ctx, {
-        minVersionPod: '3.50',
-        minVersionSPM: '3.50.0',
+        minVersionPod: '3.56',
+        minVersionSPM: '3.56.0',
     })
 
     const exceptionAutocaptureStep: StepDefinition = {
@@ -49,7 +49,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                               import PostHog
 
                               let config = PostHogConfig(
-                                  apiKey: "<ph_project_token>",
+                                  projectToken: "<ph_project_token>",
                                   host: "<ph_client_api_host>"
                               )
                               config.errorTrackingConfig.autoCapture = true
@@ -182,7 +182,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                               import PostHog
 
                               let config = PostHogConfig(
-                                  apiKey: "<ph_project_token>",
+                                  projectToken: "<ph_project_token>",
                                   host: "<ph_client_api_host>"
                               )
                               

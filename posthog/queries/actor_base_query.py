@@ -260,7 +260,7 @@ def get_groups(
     value_per_actor_id: Optional[dict[str, float]] = None,
 ) -> tuple[QuerySet[Group], list[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
-    groups: QuerySet[Group] = Group.objects.filter(
+    groups: QuerySet[Group] = Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
         team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
     )
     return groups, serialize_groups(groups, value_per_actor_id)
@@ -324,18 +324,23 @@ def get_people(
             logger.warning("personhog_get_people_failure", team_id=team.pk, exc_info=True)
 
     distinct_id_subquery = Subquery(
-        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
         .filter(team_id=team.pk, person_id=OuterRef("person_id"))
         .values_list("id", flat=True)[:distinct_id_limit]
     )
     persons_qs: QuerySet[Person] = (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+        Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
         .filter(team_id=team.pk, uuid__in=people_ids)
         .prefetch_related(
             Prefetch(
                 "persondistinctid_set",
                 to_attr="distinct_ids_cache",
-                queryset=PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS).filter(id__in=distinct_id_subquery),
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.db_manager(
+                    READ_DB_FOR_PERSONS
+                ).filter(  # nosemgrep: no-direct-persons-db-orm
+                    id__in=distinct_id_subquery
+                ),  # nosemgrep: no-direct-persons-db-orm
             )
         )
         .order_by("-created_at", "uuid")

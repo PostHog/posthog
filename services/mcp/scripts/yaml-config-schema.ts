@@ -192,6 +192,8 @@ const DetailUiAppSchema = z
         data_type: z.string().optional(),
         /** React component name that renders the detail view. Default: PascalCase(key) + "View". */
         view_component: z.string().optional(),
+        /** Prop name to bind the host's `openLink(url)` callback to. Omit if the view has no inline external links. */
+        link_prop: z.string().optional(),
     })
     .strict()
 
@@ -262,6 +264,7 @@ export interface ResolvedDetailUiApp {
     component_import: string
     data_type: string
     view_component: string
+    link_prop?: string
 }
 
 /** List config with all fields resolved (after convention defaults are applied). */

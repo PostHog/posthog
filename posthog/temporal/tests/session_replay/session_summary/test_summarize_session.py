@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pytest_mock import MockerFixture
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
 from posthog.models.user import User
@@ -16,7 +17,10 @@ from posthog.temporal.session_replay.session_summary.state import (
     get_data_class_from_redis,
 )
 from posthog.temporal.session_replay.session_summary.summarize_session import (
+    _execute_single_session_summary_workflow,
     _set_phase,
+    _start_video_summary_workflow,
+    execute_summarize_session,
     execute_summarize_session_video_stream,
     fetch_session_data_activity,
 )
@@ -506,3 +510,163 @@ class TestExecuteSummarizeSessionVideoStream:
             event_data=json.dumps(mock_enriched_llm_json_response),
         )
         assert handle.query.call_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "force_restart,expected_conflict_policy",
+        [
+            (False, WorkflowIDConflictPolicy.USE_EXISTING),
+            (True, WorkflowIDConflictPolicy.TERMINATE_EXISTING),
+        ],
+    )
+    async def test_video_stream_threads_force_restart_into_start_workflow(
+        self,
+        force_restart: bool,
+        expected_conflict_policy: WorkflowIDConflictPolicy,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        """``force_restart`` is forwarded so the conflict policy matches the user
+        intent (attach-to-existing vs. preempt-and-restart)."""
+        handle = self._make_handle([(WorkflowExecutionStatus.COMPLETED, None)])
+        completed_summary = MagicMock()
+        completed_summary.summary = mock_enriched_llm_json_response
+
+        with (
+            patch.object(
+                SingleSessionSummary.objects,
+                "get_summary",
+                MagicMock(side_effect=[None, completed_summary]),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.summarize_session._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.summarize_session._start_video_summary_workflow",
+                AsyncMock(return_value=handle),
+            ) as mock_start,
+            patch(
+                "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+        ):
+            await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                    force_restart=force_restart,
+                )
+            )
+
+        mock_start.assert_awaited_once()
+        assert mock_start.call_args.kwargs["force_restart"] is force_restart
+
+        # Drive _start_video_summary_workflow itself once with the same flag and
+        # confirm it picks the matching conflict policy when calling Temporal —
+        # this keeps the test honest about the contract instead of just
+        # checking pass-through.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=handle)
+        with patch(
+            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            AsyncMock(return_value=client),
+        ):
+            await _start_video_summary_workflow(
+                inputs=MagicMock(team_id=321),
+                workflow_id="wfid",
+                force_restart=force_restart,
+            )
+        kwargs = client.start_workflow.call_args.kwargs
+        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        assert kwargs["id_conflict_policy"] == expected_conflict_policy
+
+
+class TestStartVideoSummaryWorkflow:
+    @pytest.mark.asyncio
+    async def test_default_uses_use_existing_so_concurrent_clicks_attach(self) -> None:
+        """Without ``force_restart`` we must not kill an in-flight workflow that
+        another tab/user is already watching — the contract is dedup, not preempt."""
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=MagicMock())
+        with patch(
+            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            AsyncMock(return_value=client),
+        ):
+            await _start_video_summary_workflow(
+                inputs=MagicMock(team_id=321),
+                workflow_id="wfid",
+            )
+        kwargs = client.start_workflow.call_args.kwargs
+        assert kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
+        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+
+    @pytest.mark.asyncio
+    async def test_force_restart_uses_terminate_existing(self) -> None:
+        """Retry-after-cancel must atomically preempt the previous workflow,
+        even if it's still in the CANCEL_REQUESTED → CANCELLED window."""
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=MagicMock())
+        with patch(
+            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            AsyncMock(return_value=client),
+        ):
+            await _start_video_summary_workflow(
+                inputs=MagicMock(team_id=321),
+                workflow_id="wfid",
+                force_restart=True,
+            )
+        kwargs = client.start_workflow.call_args.kwargs
+        assert kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.TERMINATE_EXISTING
+        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+
+
+class TestExecuteSingleSessionSummaryWorkflow:
+    @pytest.mark.asyncio
+    async def test_uses_allow_duplicate_and_use_existing(self) -> None:
+        """The AI-tool path must be compatible with workflow ids the UI just
+        cancelled: USE_EXISTING attaches to a running workflow instead of
+        raising, and ALLOW_DUPLICATE permits a fresh start once the previous
+        run reaches any terminal state (including CANCELLED)."""
+        client = MagicMock()
+        client.execute_workflow = AsyncMock(return_value=None)
+        with patch(
+            "posthog.temporal.session_replay.session_summary.summarize_session.async_connect",
+            AsyncMock(return_value=client),
+        ):
+            await _execute_single_session_summary_workflow(
+                inputs=MagicMock(team_id=321),
+                workflow_id="wfid",
+            )
+        kwargs = client.execute_workflow.call_args.kwargs
+        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        assert kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
+
+
+class TestExecuteSummarizeSession:
+    @pytest.mark.asyncio
+    async def test_returns_existing_summary_without_starting_workflow(
+        self,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ) -> None:
+        cached = MagicMock()
+        cached.summary = mock_enriched_llm_json_response
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=cached)),
+            patch(
+                "posthog.temporal.session_replay.session_summary.summarize_session._execute_single_session_summary_workflow"
+            ) as mock_execute,
+        ):
+            result = await execute_summarize_session(
+                session_id=mock_session_id,
+                user=mock_user,
+                team=mock_team,
+            )
+        assert result == mock_enriched_llm_json_response
+        mock_execute.assert_not_called()

@@ -29,6 +29,7 @@ from .process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from .process_task.activities.get_pr_context import get_pr_context
 from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
@@ -60,6 +61,7 @@ ACTIVITIES = [
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
+    get_pr_context,
     relay_slack_message,
     run_task_automation_activity,
     # create_snapshot activities

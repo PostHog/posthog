@@ -6,10 +6,13 @@ from django.conf import settings
 
 import pydantic
 import tiktoken
+import structlog
 import temporalio
+import posthoganalytics
 
 from posthog.schema import SignalInput
 
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -18,6 +21,8 @@ from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
+
+logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
@@ -126,6 +131,29 @@ async def emit_signal(
         }
     )
 
+    # Fire a "started" marker so direct callers (error tracking, LLM analytics evals, etc.)
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The
+    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    try:
+        posthoganalytics.capture(
+            event="signal_emission_started",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emission_started event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )
+
     client = await async_connect()
 
     signal_input = EmitSignalInputs(
@@ -159,3 +187,25 @@ async def emit_signal(
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         run_timeout=timedelta(minutes=10),
     )
+
+    # Fire the analytics event only after the signal is definitively queued so
+    # Temporal/connection failures don't inflate the "signals emitted" metric.
+    try:
+        posthoganalytics.capture(
+            event="signal_emitted",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emitted event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )

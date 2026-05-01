@@ -1,0 +1,118 @@
+/* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/field) fall outside strict BEM */
+@layer components {
+    /* =========================================================================
+       Checkbox root — the interactive square
+       ========================================================================= */
+    .quill-checkbox {
+        position: relative;
+        border: 1px solid var(--input);
+        outline: none;
+        transition: box-shadow 0.15s ease;
+    }
+
+    /* Expanded click target */
+    .quill-checkbox::after {
+        position: absolute;
+        inset-block: -0.5rem;
+        inset-inline: -0.75rem;
+        content: '';
+    }
+
+    :is(.dark, [theme='dark']) .quill-checkbox {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    .quill-checkbox:not(:disabled) {
+        cursor: pointer;
+    }
+
+    .quill-checkbox:hover {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+    }
+
+    .quill-checkbox:focus-visible {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-checkbox:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .group\/field:has(:disabled) .quill-checkbox {
+        opacity: 0.5;
+    }
+
+    .quill-checkbox[aria-invalid='true'] {
+        border-color: var(--destructive);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 20%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) .quill-checkbox[aria-invalid='true'] {
+        border-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 40%, transparent);
+    }
+
+    .quill-checkbox[aria-invalid='true'][aria-checked='true'] {
+        border-color: var(--primary);
+    }
+
+    .quill-checkbox[data-checked] {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    :is(.dark, [theme='dark']) .quill-checkbox[data-checked] {
+        background-color: var(--primary);
+    }
+
+    /* Sizes */
+    .quill-checkbox--size-default {
+        width: 1rem;
+        height: 1rem;
+        border-radius: 4px;
+    }
+
+    .quill-checkbox--size-sm {
+        width: 0.875rem;
+        height: 0.875rem;
+        border-radius: 3px;
+    }
+
+    /* =========================================================================
+       Checkbox indicator — standalone visual (inside Field/Item rows)
+       ========================================================================= */
+    .quill-checkbox-indicator {
+        border: 1px solid var(--accent);
+    }
+
+    .quill-checkbox-indicator--checked {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    .quill-checkbox-indicator--size-default {
+        width: 1rem;
+        height: 1rem;
+        border-radius: 4px;
+    }
+
+    .quill-checkbox-indicator--size-sm {
+        width: 0.875rem;
+        height: 0.875rem;
+        border-radius: 3px;
+    }
+
+    .quill-checkbox-icon--size-default {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    .quill-checkbox-icon--size-sm {
+        width: 0.625rem;
+        height: 0.625rem;
+    }
+}

@@ -1,6 +1,7 @@
 import { CODES, Message, MessageHeader, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
 import { defaultConfig } from '~/config/config'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
 import { delay } from '../utils/utils'
 import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from './consumer'
@@ -544,42 +545,30 @@ describe('parseKafkaHeaders', () => {
 describe('parseEventHeaders', () => {
     it('should return empty object when headers is undefined', () => {
         const result = parseEventHeaders(undefined)
-        expect(result).toEqual({ force_disable_person_processing: false, historical_migration: false })
+        expect(result).toEqual(createTestEventHeaders())
     })
 
     it('should return empty object when headers is empty array', () => {
         const result = parseEventHeaders([])
-        expect(result).toEqual({ force_disable_person_processing: false, historical_migration: false })
+        expect(result).toEqual(createTestEventHeaders())
     })
 
     it('should parse token header only', () => {
         const headers: MessageHeader[] = [{ token: Buffer.from('test-token') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token' }))
     })
 
     it('should parse distinct_id header only', () => {
         const headers: MessageHeader[] = [{ distinct_id: Buffer.from('user-123') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            distinct_id: 'user-123',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ distinct_id: 'user-123' }))
     })
 
     it('should parse timestamp header only', () => {
         const headers: MessageHeader[] = [{ timestamp: Buffer.from('1234567890') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ timestamp: '1234567890' }))
     })
 
     it('should parse all supported headers', () => {
@@ -591,13 +580,9 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({ token: 'test-token', distinct_id: 'user-123', timestamp: '1234567890' })
+        )
     })
 
     it('should parse supported headers from multiple objects', () => {
@@ -607,13 +592,9 @@ describe('parseEventHeaders', () => {
             { timestamp: Buffer.from('1234567890') },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({ token: 'test-token', distinct_id: 'user-123', timestamp: '1234567890' })
+        )
     })
 
     it('should ignore unsupported headers', () => {
@@ -626,12 +607,7 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', distinct_id: 'user-123' }))
     })
 
     it('should handle empty buffer values', () => {
@@ -643,13 +619,7 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: '',
-            distinct_id: '',
-            timestamp: '',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: '', distinct_id: '', timestamp: '' }))
     })
 
     it('should handle duplicate keys by overwriting', () => {
@@ -660,12 +630,7 @@ describe('parseEventHeaders', () => {
             { distinct_id: Buffer.from('second-id') },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'second-token',
-            distinct_id: 'second-id',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'second-token', distinct_id: 'second-id' }))
     })
 
     it('should handle mixed supported and unsupported headers', () => {
@@ -677,12 +642,7 @@ describe('parseEventHeaders', () => {
             { unsupported3: Buffer.from('still-ignored') },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', timestamp: '1234567890' }))
     })
 
     it('should handle partial header sets', () => {
@@ -694,32 +654,19 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', timestamp: '1234567890' }))
     })
 
     it('should parse event header', () => {
         const headers: MessageHeader[] = [{ event: Buffer.from('$pageview') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            event: '$pageview',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ event: '$pageview' }))
     })
 
     it('should parse uuid header', () => {
         const headers: MessageHeader[] = [{ uuid: Buffer.from('123e4567-e89b-12d3-a456-426614174000') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            uuid: '123e4567-e89b-12d3-a456-426614174000',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ uuid: '123e4567-e89b-12d3-a456-426614174000' }))
     })
 
     it('should parse all headers including new event and uuid', () => {
@@ -733,15 +680,15 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            timestamp: '1234567890',
-            event: '$pageview',
-            uuid: '123e4567-e89b-12d3-a456-426614174000',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({
+                token: 'test-token',
+                distinct_id: 'user-123',
+                timestamp: '1234567890',
+                event: '$pageview',
+                uuid: '123e4567-e89b-12d3-a456-426614174000',
+            })
+        )
     })
 
     it('should ignore unsupported headers but include event and uuid', () => {
@@ -756,14 +703,14 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            event: 'custom_event',
-            uuid: 'uuid-value',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({
+                token: 'test-token',
+                distinct_id: 'user-123',
+                event: 'custom_event',
+                uuid: 'uuid-value',
+            })
+        )
     })
 
     it('should handle empty event and uuid headers', () => {
@@ -775,13 +722,7 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            event: '',
-            uuid: '',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', event: '', uuid: '' }))
     })
 
     describe('now header parsing', () => {
@@ -825,13 +766,13 @@ describe('parseEventHeaders', () => {
                 },
             ]
             const result = parseEventHeaders(headers)
-            expect(result).toEqual({
-                token: 'test-token',
-                distinct_id: 'user-123',
-                now: new Date(isoDate),
-                force_disable_person_processing: false,
-                historical_migration: false,
-            })
+            expect(result).toEqual(
+                createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'user-123',
+                    now: new Date(isoDate),
+                })
+            )
         })
 
         it('should handle now header with milliseconds precision', () => {

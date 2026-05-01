@@ -42,7 +42,7 @@ class EventIngestionRestrictionConfig(UUIDTModel):
     """
 
     token = models.CharField(max_length=100)
-    restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
+    restriction_type = models.CharField(max_length=100, choices=RestrictionType)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     session_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     event_names = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)

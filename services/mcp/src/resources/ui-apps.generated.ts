@@ -13,6 +13,7 @@ export const EXPERIMENT_LIST_RESOURCE_URI = 'ui://posthog/experiment-list.html'
 export const EXPERIMENT_RESULTS_RESOURCE_URI = 'ui://posthog/experiment-results.html'
 export const FEATURE_FLAG_RESOURCE_URI = 'ui://posthog/feature-flag.html'
 export const FEATURE_FLAG_LIST_RESOURCE_URI = 'ui://posthog/feature-flag-list.html'
+export const INSIGHT_ACTORS_RESOURCE_URI = 'ui://posthog/insight-actors.html'
 export const LLM_COSTS_RESOURCE_URI = 'ui://posthog/llm-costs.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
@@ -37,6 +38,7 @@ export type UiAppKey =
     | 'experiment-results'
     | 'feature-flag'
     | 'feature-flag-list'
+    | 'insight-actors'
     | 'llm-costs'
     | 'query-results'
     | 'session-recording'
@@ -61,6 +63,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'experiment-results': EXPERIMENT_RESULTS_RESOURCE_URI,
     'feature-flag': FEATURE_FLAG_RESOURCE_URI,
     'feature-flag-list': FEATURE_FLAG_LIST_RESOURCE_URI,
+    'insight-actors': INSIGHT_ACTORS_RESOURCE_URI,
     'llm-costs': LLM_COSTS_RESOURCE_URI,
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
@@ -155,6 +158,12 @@ export const UI_APPS: Array<{
         uri: FEATURE_FLAG_LIST_RESOURCE_URI,
         description: 'Feature Flag List view',
         appDir: 'generated/feature-flag-list',
+    },
+    {
+        name: 'PostHog Insight Actors',
+        uri: INSIGHT_ACTORS_RESOURCE_URI,
+        description: 'Insight Actors detail view',
+        appDir: 'generated/insight-actors',
     },
     {
         name: 'PostHog Llm Costs',

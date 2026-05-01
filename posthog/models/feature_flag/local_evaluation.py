@@ -580,7 +580,12 @@ def _get_flags_response_for_local_evaluation_batch(
 
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
-    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
+    # nosemgrep: no-direct-persons-db-orm
+    for row in GroupTypeMapping.objects.db_manager(
+        READ_ONLY_DATABASE_FOR_PERSONS
+    ).filter(  # nosemgrep: no-direct-persons-db-orm
+        project_id__in=project_ids
+    ):  # nosemgrep: no-direct-persons-db-orm
         gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
 
     results: dict[int, dict[str, Any]] = {}
@@ -731,9 +736,10 @@ def verify_team_flag_definitions(
     """
     hypercache = flag_definitions_hypercache if include_cohorts else flag_definitions_without_cohorts_hypercache
 
-    # Get cached data - use pre-loaded batch data if available
+    # Get cached data - use pre-loaded batch data if available.
+    # The third tuple element (etag) is unused for flag-definitions verification.
     if cache_batch_data and team.id in cache_batch_data:
-        cached_data, source = cache_batch_data[team.id]
+        cached_data, source, _ = cache_batch_data[team.id]
     else:
         cached_data, source = hypercache.get_from_cache_with_source(team)
 

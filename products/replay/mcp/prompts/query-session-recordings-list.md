@@ -130,6 +130,16 @@ Each recording in results contains:
 }
 ```
 
+## Fetch specific recordings by session ID
+
+When you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:
+
+```json
+{
+  "session_ids": ["session-id-1", "session-id-2", "session-id-3"]
+}
+```
+
 # Reminders
 
 - Use `filter_test_accounts: true` by default to exclude internal users.

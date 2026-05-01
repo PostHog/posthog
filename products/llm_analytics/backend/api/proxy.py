@@ -12,6 +12,7 @@ from collections.abc import Callable, Generator
 from time import perf_counter
 from typing import Any
 
+from django.core.cache import cache
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
@@ -51,6 +52,22 @@ from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLM
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
+
+MODELS_CACHE_TIMEOUT_SECONDS = 60
+
+
+def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
+    return f"llma:proxy:models:{provider_key_id}"
+
+
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "gemini": "Gemini",
+    "openrouter": "OpenRouter",
+    "fireworks": "Fireworks",
+    "azure_openai": "Azure OpenAI",
+}
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -388,9 +405,19 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
-                models = Client.list_models(provider_key.provider, api_key)
+                # Cache per provider key — list_models hits the provider's API, and the model picker
+                # can open many times per session. TTL is short enough that newly-added deployments
+                # surface within a minute.
+                cache_key = models_cache_key(provider_key.id)
+                models = cache.get(cache_key)
+                if models is None:
+                    models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
+                    # Only cache non-empty results — `list_models` swallows transient errors and returns
+                    # [], so caching that would persist a failure for the full TTL.
+                    if models:
+                        cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
                 recommended = Client.recommended_models(provider_key.provider)
-                provider_display = provider_key.provider.title()
+                provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 return Response(
                     [
                         ModelInfo(

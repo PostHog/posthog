@@ -24,6 +24,10 @@ import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/t
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
+    /** When the search query matched a value rather than a key, this is set to 'value'. Otherwise 'key' or omitted. */
+    matchedOn?: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn === 'value'. */
+    matchedValue?: string
 }
 
 export interface QuickFilterItem {
@@ -106,7 +110,10 @@ export interface TaxonomicFilterProps {
     minSearchQueryLength?: number
     /** Override the "Suggested filters" tab label for specific contexts. */
     suggestedFiltersLabel?: string
-    /** Hide the built-in search input (useful when an external input drives the search query). */
+    /** Hide the built-in search input when an external input drives the search query.
+     *  Note: the pill category-dropdown affordance lives inside the built-in input,
+     *  so when you hide it the host is responsible for rendering `CategoryDropdown` itself
+     *  (e.g. as the suffix of its external input, under a shared `taxonomicFilterLogicKey`). */
     hideSearchInput?: boolean
     /** Controlled search query — synced into the logic on each change. Use with hideSearchInput for external input control. */
     searchQuery?: string
@@ -316,3 +323,15 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
+
+export const CATEGORY_DROPDOWN_VARIANTS = ['control', 'pill'] as const
+
+export type CategoryDropdownVariant = (typeof CATEGORY_DROPDOWN_VARIANTS)[number]
+
+export function isCategoryDropdownVariant(value: unknown): value is CategoryDropdownVariant {
+    return typeof value === 'string' && (CATEGORY_DROPDOWN_VARIANTS as readonly string[]).includes(value)
+}
+
+export function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
+    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
+}
