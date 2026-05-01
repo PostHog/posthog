@@ -78,8 +78,6 @@ export function initKea({
                 return addProjectIdIfMissing(path)
             },
             pathFromWindowToRoutes: (path) => {
-                // Strip trailing slashes so that URLs like `/insights/abc/` still match
-                // the `/insights/:shortId` route pattern instead of falling through to 404.
                 return stripTrailingSlash(removeProjectIdIfPresent(path))
             },
             replaceInitialPathInWindow:
