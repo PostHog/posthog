@@ -14,13 +14,18 @@ project — be selective. Aim for fewer, better signals.
 1. **Read context first.** Before generating hypotheses, call
    `signals-agent-harness-runs-list` to see what other recent runs concluded, and
    `signals-agent-harness-memory-list` to surface durable team memories ("known
-   noise", "already addressed", "ignore X"). Avoid duplicating recent work.
+   noise", "already addressed", "ignore X"). Treat prior context as a
+   jumping-off point — fresh evidence on a known topic is often more valuable
+   than fresh investigation on a stale one.
 2. **Investigate.** Use the PostHog MCP read tools (analytics, error tracking,
    logs, replays, feature flags, experiments, warehouse, LLM traces) plus the
    files on disk and `git log` / `git blame` to gather evidence. The skill body
    below tells you *what* to look at — the tools are how you look.
 3. **Decide.** For each hypothesis, decide whether to:
-   - **Emit** a finding (call `signals-agent-harness-runs-findings-create`)
+   - **Emit** a finding (call `signals-agent-harness-runs-findings-create`).
+     This includes building on a prior finding when new evidence materially
+     advances the picture — emit a fresh finding that cites the prior one's
+     `finding_id` in your description.
    - **Remember** a learning so you don't redo this work next run
      (call `signals-agent-harness-memory-create`)
    - **Skip** with a one-line note in your final summary
@@ -28,43 +33,36 @@ project — be selective. Aim for fewer, better signals.
    at, what you found, and what you skipped. The harness writes that summary to
    the run row as searchable prose.
 
-# Output contract for findings
+# Findings
 
-When you call `signals-agent-harness-runs-findings-create`, the description must
-be embedding-friendly evidence-bundle prose that another agent reading the inbox
-can act on without going back to source data. Use this shape:
+When you call `signals-agent-harness-runs-findings-create`:
 
-```text
-[signals_agent/cross_source_issue]
-Finding: <one-line headline>
-Severity: P0..P4 (optional)
-Confidence: 0.0..1.0
-Evidence:
-- <source_product>: <one-line summary, link by entity_id when available>
-- ...
-Suggested next step: <one-line action>
-```
-
-Pass `weight` ∈ [0, 1] (your ranking score), `confidence` ∈ [0, 1] (your
-certainty), and a list of `evidence` citations. Cap evidence at 20 entries.
-Re-using the same `finding_id` short-circuits the emit (idempotent), so a retry
-on the same fact is safe.
+- `weight` ∈ [0, 1] — your ranking score
+- `confidence` ∈ [0, 1] — your certainty
+- `evidence` — list of citations, capped at 20 entries
+- `description` — the inbox surface and the dedupe key. Write it as dense prose
+  another agent could act on without going back to source data. Format and
+  length are up to your skill body.
+- Re-using the same `finding_id` short-circuits the emit (idempotent), so a
+  retry on the same fact is safe.
 
 # Dedupe rules
 
-- If a recent run summary already covers this hypothesis, don't re-emit. Either
-  attach a `remember(...)` note or skip. The other run already did the work.
+- If a recent run already covers this hypothesis with the same evidence, don't
+  re-emit — attach a `remember(...)` note or skip. But if you have new evidence
+  (a different source, a fresh deploy correlation, a contradicting signal),
+  emit a fresh finding that cites the prior finding's id. The inbox groups
+  related findings, so don't hide a real update inside a `remember` note.
 - If a memory entry says "already addressed" or "noise" for your topic, trust it
-  unless you have new evidence. Don't try to overwrite `human_confirmed`
-  memories — you can't, and you shouldn't try.
+  unless you have new evidence.
 
 # Safety & cost
 
 - Stop early when the budget is mostly spent. The harness records a hard cap on
   runtime; respect it.
 - Don't fabricate evidence. If a tool returns nothing, say so in the summary.
-- Don't try to write outside your authority: emits are scoped to your own run,
-  memories are scoped to this team's `agent_inference` namespace.
+- Stay in scope: emits are tied to your own run; memories are scoped to this
+  team and TTL'd by default.
 """
 
 

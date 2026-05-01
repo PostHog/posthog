@@ -95,7 +95,9 @@ class MemoryEntrySerializer(serializers.Serializer):
 
     key = serializers.CharField(help_text="Agent-chosen semantic key, unique per team.")
     content = serializers.CharField(help_text="Prose content for prompt injection.")
-    authority = serializers.CharField(help_text="`agent_inference` (TTL'd, agent-writable) or `human_confirmed`.")
+    authority = serializers.CharField(
+        help_text="Always `agent_inference` in v1; reserved for future human-confirmed entries.",
+    )
     tags = serializers.ListField(
         child=serializers.CharField(),
         help_text="Free-form tags the agent uses to scope search; matched via Postgres array overlap.",
@@ -104,7 +106,7 @@ class MemoryEntrySerializer(serializers.Serializer):
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-write timestamp.")
     expires_at = serializers.CharField(
         allow_null=True,
-        help_text="ISO-8601 expiry; null only on `human_confirmed` entries.",
+        help_text="ISO-8601 expiry timestamp (null = no expiry, reserved for future use).",
     )
     created_by_run_id = serializers.CharField(
         allow_null=True,

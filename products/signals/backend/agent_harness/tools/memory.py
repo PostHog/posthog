@@ -1,10 +1,10 @@
 """Durable memory tools: read/write `SignalMemory` entries for the team.
 
-Authority is split: `agent_inference` is agent-writable with a TTL, `human_confirmed`
-is human-only and never expires. The agent calls `remember`/`forget` via this module,
-which strictly enforces "agent can only touch its own authority class" — a misbehaving
-prompt cannot delete or overwrite human-confirmed memories. See spec body §
-"Memory authority" for the full rationale.
+The agent calls `remember`/`forget` via this module. All agent-written entries
+have authority `agent_inference` and are TTL'd. The schema reserves a
+`human_confirmed` authority class for a future human-in-the-loop flow; the
+guards here defensively reject agent attempts to overwrite or delete those
+rows if any exist (e.g. created via Django admin during dogfood).
 """
 
 from __future__ import annotations
@@ -19,10 +19,9 @@ from django.utils import timezone
 
 from products.signals.backend.models import SignalMemory
 
-# TTL bounds on `agent_inference` entries. The default of 7 days matches the spec.
-# A hard upper bound prevents an over-eager agent from creating effectively-permanent
-# rows under the wrong authority class — promote to `human_confirmed` if you want
-# permanence (which the agent cannot do).
+# TTL bounds on agent-written entries. The default of 7 days matches the spec;
+# a hard upper bound prevents an over-eager agent from creating effectively-
+# permanent rows.
 DEFAULT_MEMORY_TTL_DAYS = 7
 MAX_MEMORY_TTL_DAYS = 90
 
