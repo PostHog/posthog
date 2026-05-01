@@ -91,7 +91,7 @@ function PrimaryPropertyDetail({ definition }: { definition: EventDefinition }):
     const isBuiltIn = !!taxonomyPrimary
 
     return (
-        <div className="flex flex-col flex-1 min-w-0">
+        <div className="flex flex-col flex-1 basis-48 min-w-48">
             <h5>Primary property</h5>
             <b>
                 {effective ? (
@@ -321,9 +321,9 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
             <SceneDivider />
 
-            <div className="flex flex-wrap">
+            <div className="flex flex-wrap gap-4">
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             First seen{' '}
                             <Tooltip title="This is the first time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the earliest event.">
@@ -334,7 +334,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             Last seen{' '}
                             <Tooltip title="This is the last time this event was ingested. Event timestamps can be historical, so it may not match the timestamp of the latest event.">
@@ -345,7 +345,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
                 {isEvent && (
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
                             <Tooltip title="Number of times this event has been queried in the last 30 days">
@@ -362,35 +362,33 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     </div>
                 )}
 
-                <div className="flex flex-1 flex-wrap gap-4 min-w-0">
-                    {definitionStatus && (
-                        <div className="flex flex-col flex-1 min-w-0">
-                            <h5>Verification status</h5>
-                            <div>
-                                <LemonTag type={statusProps[definitionStatus].tagType}>
-                                    {statusProps[definitionStatus].icon}
-                                    {statusProps[definitionStatus].label}
-                                </LemonTag>
-                            </div>
-                            <p className="italic text-secondary text-xs mt-1 mb-0">
-                                {statusProps[definitionStatus].tooltip}
-                            </p>
+                {definitionStatus && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>Verification status</h5>
+                        <div>
+                            <LemonTag type={statusProps[definitionStatus].tagType}>
+                                {statusProps[definitionStatus].icon}
+                                {statusProps[definitionStatus].label}
+                            </LemonTag>
                         </div>
-                    )}
+                        <p className="italic text-secondary text-xs mt-1 mb-0">
+                            {statusProps[definitionStatus].tooltip}
+                        </p>
+                    </div>
+                )}
 
-                    {isProperty && (
-                        <div className="flex flex-col flex-1 min-w-0">
-                            <h5>Property type</h5>
-                            <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
-                        </div>
-                    )}
+                {isProperty && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>Property type</h5>
+                        <b>{(definition as PropertyDefinition).property_type ?? '-'}</b>
+                    </div>
+                )}
 
-                    {isEvent && (
-                        <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
-                            <PrimaryPropertyDetail definition={definition as EventDefinition} />
-                        </FlaggedFeature>
-                    )}
-                </div>
+                {isEvent && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT}>
+                        <PrimaryPropertyDetail definition={definition as EventDefinition} />
+                    </FlaggedFeature>
+                )}
             </div>
 
             <SceneDivider />
