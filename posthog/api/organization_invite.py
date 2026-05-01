@@ -435,7 +435,10 @@ class OrganizationInviteViewSet(
 
         try:
             return _DELEGATION_FLAG_EXECUTOR.submit(_eval).result(timeout=1.0)
-        except (concurrent.futures.TimeoutError, Exception):
+        except Exception:
+            # Includes concurrent.futures.TimeoutError, network errors, and any
+            # internal posthoganalytics exception. Fail open — delegation should not
+            # block on a degraded flag service.
             return None
 
     @extend_schema(
