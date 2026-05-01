@@ -280,12 +280,16 @@ impl storage::GroupStorage for FailingStorage {
         Err(self.error.clone())
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
         _team_id: i64,
         _group_type_index: i32,
         _group_key: &str,
-        _group_properties: &serde_json::Value,
+        _update_mask: &[String],
+        _group_properties: Option<&serde_json::Value>,
+        _properties_last_updated_at: Option<&serde_json::Value>,
+        _properties_last_operation: Option<&serde_json::Value>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::Group>> {
         Err(self.error.clone())
     }
@@ -609,12 +613,16 @@ impl storage::GroupStorage for SuccessStorage {
         })
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
         _team_id: i64,
         _group_type_index: i32,
         _group_key: &str,
-        _group_properties: &serde_json::Value,
+        _update_mask: &[String],
+        _group_properties: Option<&serde_json::Value>,
+        _properties_last_updated_at: Option<&serde_json::Value>,
+        _properties_last_operation: Option<&serde_json::Value>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::Group>> {
         Ok(None)
     }
@@ -970,12 +978,16 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         })
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
         _team_id: i64,
         _group_type_index: i32,
         _group_key: &str,
-        _group_properties: &serde_json::Value,
+        _update_mask: &[String],
+        _group_properties: Option<&serde_json::Value>,
+        _properties_last_updated_at: Option<&serde_json::Value>,
+        _properties_last_operation: Option<&serde_json::Value>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::Group>> {
         Ok(None)
     }

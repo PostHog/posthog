@@ -9,9 +9,8 @@ use metrics::{counter, histogram};
 use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse,
-    DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
     DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
@@ -29,9 +28,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, UpdateGroupPropertiesRequest, UpdateGroupPropertiesResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    PersonsResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
@@ -480,16 +478,11 @@ impl PersonHogRouter {
         call_backend!(self, "CreateGroup", create_group, request)
     }
 
-    pub async fn update_group_properties(
+    pub async fn update_group(
         &self,
-        request: UpdateGroupPropertiesRequest,
-    ) -> Result<UpdateGroupPropertiesResponse, Status> {
-        call_backend!(
-            self,
-            "UpdateGroupProperties",
-            update_group_properties,
-            request
-        )
+        request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
+        call_backend!(self, "UpdateGroup", update_group, request)
     }
 
     pub async fn delete_groups_batch_for_team(

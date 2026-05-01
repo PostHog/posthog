@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse,
-    DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
     DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
@@ -11,8 +10,8 @@ use personhog_proto::personhog::types::v1::{
     DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
     DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
@@ -21,9 +20,9 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, UpdateGroupPropertiesRequest,
-    UpdateGroupPropertiesResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
+    UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
 use tonic::Status;
@@ -306,12 +305,12 @@ impl PersonHogBackend for MockBackend {
         Ok(CreateGroupResponse { group: None })
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
-        _request: UpdateGroupPropertiesRequest,
-    ) -> Result<UpdateGroupPropertiesResponse, Status> {
+        _request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
         self.check_error()?;
-        Ok(UpdateGroupPropertiesResponse {
+        Ok(UpdateGroupResponse {
             group: None,
             updated: false,
         })

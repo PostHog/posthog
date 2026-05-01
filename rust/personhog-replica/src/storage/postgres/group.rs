@@ -421,6 +421,7 @@ impl GroupStorage for PostgresStorage {
                    detail_dashboard_id::bigint, created_at
             FROM posthog_grouptypemapping
             WHERE team_id = $1 AND detail_dashboard_id = $2
+            ORDER BY id
             LIMIT 1
             "#,
             team_id as i32,
@@ -478,19 +479,20 @@ impl GroupStorage for PostgresStorage {
         Ok(row)
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
         team_id: i64,
         group_type_index: i32,
         group_key: &str,
-        group_properties: &serde_json::Value,
+        update_mask: &[String],
+        group_properties: Option<&serde_json::Value>,
+        properties_last_updated_at: Option<&serde_json::Value>,
+        properties_last_operation: Option<&serde_json::Value>,
+        created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> StorageResult<Option<Group>> {
         let client = current_client_name();
         let labels = [
-            (
-                "operation".to_string(),
-                "update_group_properties".to_string(),
-            ),
+            ("operation".to_string(), "update_group".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
         ];
@@ -498,11 +500,18 @@ impl GroupStorage for PostgresStorage {
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
+        let mask_set: std::collections::HashSet<&str> =
+            update_mask.iter().map(|s| s.as_str()).collect();
+
         let row = sqlx::query_as!(
             Group,
             r#"
             UPDATE posthog_group
-            SET group_properties = $4
+            SET group_properties = CASE WHEN $4 THEN $5 ELSE group_properties END,
+                properties_last_updated_at = CASE WHEN $6 THEN $7 ELSE properties_last_updated_at END,
+                properties_last_operation = CASE WHEN $8 THEN $9 ELSE properties_last_operation END,
+                created_at = CASE WHEN $10 THEN $11 ELSE created_at END,
+                version = version + 1
             WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
             RETURNING id::bigint as "id!", team_id::bigint as "team_id!",
                       group_type_index, group_key, group_properties,
@@ -514,7 +523,14 @@ impl GroupStorage for PostgresStorage {
             team_id as i32,
             group_type_index,
             group_key,
-            group_properties
+            mask_set.contains("group_properties"),
+            group_properties,
+            mask_set.contains("properties_last_updated_at"),
+            properties_last_updated_at,
+            mask_set.contains("properties_last_operation"),
+            properties_last_operation,
+            mask_set.contains("created_at"),
+            created_at,
         )
         .fetch_optional(&mut *conn)
         .await?;

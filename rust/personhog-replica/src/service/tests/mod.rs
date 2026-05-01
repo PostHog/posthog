@@ -10,7 +10,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
     DeletePersonsBatchForTeamRequest, DeletePersonsRequest, GetGroupRequest, GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest, InsertCohortMembersRequest, ListCohortMemberIdsRequest,
-    UpdateGroupPropertiesRequest, UpdateGroupTypeMappingRequest,
+    UpdateGroupRequest, UpdateGroupTypeMappingRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -635,25 +635,27 @@ async fn test_create_group_success() {
 }
 
 // ============================================================
-// UpdateGroupProperties tests
+// UpdateGroup tests
 // ============================================================
 
 #[rstest]
 #[case::connection_error(FailingStorage::with_connection_error(), tonic::Code::Unavailable)]
 #[case::query_error(FailingStorage::with_query_error(), tonic::Code::Internal)]
 #[tokio::test]
-async fn test_update_group_properties_storage_error(
+async fn test_update_group_storage_error(
     #[case] storage: FailingStorage,
     #[case] expected_code: tonic::Code,
 ) {
     let service = PersonHogReplicaService::new(Arc::new(storage));
 
     let result = service
-        .update_group_properties(Request::new(UpdateGroupPropertiesRequest {
+        .update_group(Request::new(UpdateGroupRequest {
             team_id: 1,
             group_type_index: 0,
             group_key: "test-key".to_string(),
-            group_properties: b"{}".to_vec(),
+            update_mask: vec!["group_properties".to_string()],
+            group_properties: Some(b"{}".to_vec()),
+            ..Default::default()
         }))
         .await;
 
@@ -661,15 +663,17 @@ async fn test_update_group_properties_storage_error(
 }
 
 #[tokio::test]
-async fn test_update_group_properties_invalid_json() {
+async fn test_update_group_invalid_json() {
     let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
 
     let status = service
-        .update_group_properties(Request::new(UpdateGroupPropertiesRequest {
+        .update_group(Request::new(UpdateGroupRequest {
             team_id: 1,
             group_type_index: 0,
             group_key: "test-key".to_string(),
-            group_properties: b"bad".to_vec(),
+            update_mask: vec!["group_properties".to_string()],
+            group_properties: Some(b"bad".to_vec()),
+            ..Default::default()
         }))
         .await
         .unwrap_err();
@@ -678,15 +682,35 @@ async fn test_update_group_properties_invalid_json() {
 }
 
 #[tokio::test]
-async fn test_update_group_properties_success() {
+async fn test_update_group_invalid_mask_field() {
     let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
 
-    let result = service
-        .update_group_properties(Request::new(UpdateGroupPropertiesRequest {
+    let status = service
+        .update_group(Request::new(UpdateGroupRequest {
             team_id: 1,
             group_type_index: 0,
             group_key: "test-key".to_string(),
-            group_properties: b"{}".to_vec(),
+            update_mask: vec!["nonexistent_field".to_string()],
+            ..Default::default()
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn test_update_group_success() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let result = service
+        .update_group(Request::new(UpdateGroupRequest {
+            team_id: 1,
+            group_type_index: 0,
+            group_key: "test-key".to_string(),
+            update_mask: vec!["group_properties".to_string()],
+            group_properties: Some(b"{}".to_vec()),
+            ..Default::default()
         }))
         .await;
 

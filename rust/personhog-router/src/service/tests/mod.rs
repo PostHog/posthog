@@ -8,7 +8,7 @@ use personhog_proto::personhog::types::v1::{
     ConsistencyLevel, CreateGroupRequest, DeleteGroupTypeMappingRequest,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupsBatchForTeamRequest,
     DeletePersonsRequest, GetPersonByDistinctIdRequest, GetPersonRequest, Person, ReadOptions,
-    UpdateGroupPropertiesRequest, UpdateGroupTypeMappingRequest,
+    UpdateGroupRequest, UpdateGroupTypeMappingRequest,
 };
 use tonic::{Request, Status};
 
@@ -227,40 +227,44 @@ async fn test_create_group_error_passthrough() {
 }
 
 // ============================================================
-// UpdateGroupProperties tests
+// UpdateGroup tests
 // ============================================================
 
 #[tokio::test]
-async fn test_update_group_properties_routes_to_replica() {
+async fn test_update_group_routes_to_replica() {
     let mock = MockBackend::new();
     let service = create_service_with_mock(mock);
 
-    let request = Request::new(UpdateGroupPropertiesRequest {
+    let request = Request::new(UpdateGroupRequest {
         team_id: 1,
         group_type_index: 0,
         group_key: "test-group".to_string(),
-        group_properties: b"{}".to_vec(),
+        update_mask: vec!["group_properties".to_string()],
+        group_properties: Some(b"{}".to_vec()),
+        ..Default::default()
     });
 
-    let response = service.update_group_properties(request).await.unwrap();
+    let response = service.update_group(request).await.unwrap();
     assert!(!response.get_ref().updated);
 }
 
 #[tokio::test]
-async fn test_update_group_properties_error_passthrough() {
+async fn test_update_group_error_passthrough() {
     let mock = MockBackend::new();
     mock.set_error(Status::unavailable("backend unavailable"));
 
     let service = create_service_with_mock(mock);
 
-    let request = Request::new(UpdateGroupPropertiesRequest {
+    let request = Request::new(UpdateGroupRequest {
         team_id: 1,
         group_type_index: 0,
         group_key: "test-group".to_string(),
-        group_properties: b"{}".to_vec(),
+        update_mask: vec!["group_properties".to_string()],
+        group_properties: Some(b"{}".to_vec()),
+        ..Default::default()
     });
 
-    let result = service.update_group_properties(request).await;
+    let result = service.update_group(request).await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().code(), tonic::Code::Unavailable);
 }
@@ -279,10 +283,7 @@ async fn test_delete_groups_batch_for_team_routes_to_replica() {
         batch_size: 1000,
     });
 
-    let response = service
-        .delete_groups_batch_for_team(request)
-        .await
-        .unwrap();
+    let response = service.delete_groups_batch_for_team(request).await.unwrap();
     assert_eq!(response.get_ref().deleted_count, 0);
 }
 

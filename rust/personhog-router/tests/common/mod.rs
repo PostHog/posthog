@@ -17,9 +17,8 @@ use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHo
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse,
-    DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
     DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
@@ -37,10 +36,9 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, UpdateGroupPropertiesRequest,
-    UpdateGroupPropertiesResponse, UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    PersonsByDistinctIdsResponse, PersonsResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use personhog_router::backend::{
     LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
@@ -363,11 +361,11 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(CreateGroupResponse { group: None }))
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
-        _request: Request<UpdateGroupPropertiesRequest>,
-    ) -> Result<Response<UpdateGroupPropertiesResponse>, Status> {
-        Ok(Response::new(UpdateGroupPropertiesResponse {
+        _request: Request<UpdateGroupRequest>,
+    ) -> Result<Response<UpdateGroupResponse>, Status> {
+        Ok(Response::new(UpdateGroupResponse {
             group: None,
             updated: false,
         }))

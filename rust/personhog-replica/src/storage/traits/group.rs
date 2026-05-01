@@ -41,12 +41,16 @@ pub trait GroupStorage: Send + Sync {
         created_at: chrono::DateTime<chrono::Utc>,
     ) -> StorageResult<Group>;
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
         team_id: i64,
         group_type_index: i32,
         group_key: &str,
-        group_properties: &serde_json::Value,
+        update_mask: &[String],
+        group_properties: Option<&serde_json::Value>,
+        properties_last_updated_at: Option<&serde_json::Value>,
+        properties_last_operation: Option<&serde_json::Value>,
+        created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> StorageResult<Option<Group>>;
 
     async fn delete_groups_batch_for_team(

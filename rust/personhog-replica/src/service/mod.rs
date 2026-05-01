@@ -34,7 +34,7 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, PersonDistinctIds, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId, UpdateGroupPropertiesRequest, UpdateGroupPropertiesResponse,
+    PersonsResponse, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
     UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
     UpsertHashKeyOverridesResponse,
 };
@@ -857,14 +857,16 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<CreateGroupResponse>, Status> {
         let req = request.into_inner();
 
-        let created_at = chrono::DateTime::from_timestamp_millis(req.created_at).ok_or_else(|| {
-            Status::invalid_argument(format!("Invalid created_at timestamp: {}", req.created_at))
-        })?;
-
-        let group_properties: serde_json::Value =
-            serde_json::from_slice(&req.group_properties).map_err(|e| {
-                Status::invalid_argument(format!("Invalid group_properties JSON: {e}"))
+        let created_at =
+            chrono::DateTime::from_timestamp_millis(req.created_at).ok_or_else(|| {
+                Status::invalid_argument(format!(
+                    "Invalid created_at timestamp: {}",
+                    req.created_at
+                ))
             })?;
+
+        let group_properties: serde_json::Value = serde_json::from_slice(&req.group_properties)
+            .map_err(|e| Status::invalid_argument(format!("Invalid group_properties JSON: {e}")))?;
 
         let group = self
             .storage
@@ -883,29 +885,71 @@ impl PersonHogReplica for PersonHogReplicaService {
         }))
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
-        request: Request<UpdateGroupPropertiesRequest>,
-    ) -> Result<Response<UpdateGroupPropertiesResponse>, Status> {
+        request: Request<UpdateGroupRequest>,
+    ) -> Result<Response<UpdateGroupResponse>, Status> {
         let req = request.into_inner();
 
-        let group_properties: serde_json::Value =
-            serde_json::from_slice(&req.group_properties).map_err(|e| {
-                Status::invalid_argument(format!("Invalid group_properties JSON: {e}"))
+        let valid_fields = [
+            "group_properties",
+            "properties_last_updated_at",
+            "properties_last_operation",
+            "created_at",
+        ];
+        for field in &req.update_mask {
+            if !valid_fields.contains(&field.as_str()) {
+                return Err(Status::invalid_argument(format!(
+                    "Invalid update_mask field: {field}"
+                )));
+            }
+        }
+
+        let group_properties: Option<serde_json::Value> = req
+            .group_properties
+            .as_ref()
+            .map(|b| serde_json::from_slice(b))
+            .transpose()
+            .map_err(|e| Status::invalid_argument(format!("Invalid group_properties JSON: {e}")))?;
+
+        let properties_last_updated_at: Option<serde_json::Value> = req
+            .properties_last_updated_at
+            .as_ref()
+            .map(|b| serde_json::from_slice(b))
+            .transpose()
+            .map_err(|e| {
+                Status::invalid_argument(format!("Invalid properties_last_updated_at JSON: {e}"))
             })?;
+
+        let properties_last_operation: Option<serde_json::Value> = req
+            .properties_last_operation
+            .as_ref()
+            .map(|b| serde_json::from_slice(b))
+            .transpose()
+            .map_err(|e| {
+                Status::invalid_argument(format!("Invalid properties_last_operation JSON: {e}"))
+            })?;
+
+        let created_at = req
+            .created_at
+            .map(|ts| chrono::DateTime::from_timestamp_micros(ts).unwrap_or_default());
 
         let group = self
             .storage
-            .update_group_properties(
+            .update_group(
                 req.team_id,
                 req.group_type_index,
                 &req.group_key,
-                &group_properties,
+                &req.update_mask,
+                group_properties.as_ref(),
+                properties_last_updated_at.as_ref(),
+                properties_last_operation.as_ref(),
+                created_at,
             )
             .await
-            .map_err(|e| log_and_convert_error(e, "update_group_properties"))?;
+            .map_err(|e| log_and_convert_error(e, "update_group"))?;
 
-        Ok(Response::new(UpdateGroupPropertiesResponse {
+        Ok(Response::new(UpdateGroupResponse {
             group: group.as_ref().map(|g| g.clone().into()),
             updated: group.is_some(),
         }))
@@ -944,7 +988,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<UpdateGroupTypeMappingResponse>, Status> {
         let req = request.into_inner();
 
-        let valid_fields = ["name_singular", "name_plural", "detail_dashboard_id", "default_columns"];
+        let valid_fields = [
+            "name_singular",
+            "name_plural",
+            "detail_dashboard_id",
+            "default_columns",
+        ];
         for field in &req.update_mask {
             if !valid_fields.contains(&field.as_str()) {
                 return Err(Status::invalid_argument(format!(
@@ -1014,12 +1063,10 @@ impl PersonHogReplica for PersonHogReplicaService {
             .storage
             .delete_group_type_mappings_batch_for_team(req.team_id, req.batch_size)
             .await
-            .map_err(|e| {
-                log_and_convert_error(e, "delete_group_type_mappings_batch_for_team")
-            })?;
+            .map_err(|e| log_and_convert_error(e, "delete_group_type_mappings_batch_for_team"))?;
 
-        Ok(Response::new(
-            DeleteGroupTypeMappingsBatchForTeamResponse { deleted_count },
-        ))
+        Ok(Response::new(DeleteGroupTypeMappingsBatchForTeamResponse {
+            deleted_count,
+        }))
     }
 }

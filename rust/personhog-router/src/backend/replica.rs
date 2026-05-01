@@ -2,9 +2,8 @@ use async_trait::async_trait;
 use personhog_proto::personhog::replica::v1::person_hog_replica_client::PersonHogReplicaClient;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse,
-    DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
     DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
     DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
@@ -22,9 +21,8 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, UpdateGroupPropertiesRequest, UpdateGroupPropertiesResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    PersonsResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -354,11 +352,11 @@ impl PersonHogBackend for ReplicaBackend {
         retry_call!(self, create_group, request)
     }
 
-    async fn update_group_properties(
+    async fn update_group(
         &self,
-        request: UpdateGroupPropertiesRequest,
-    ) -> Result<UpdateGroupPropertiesResponse, Status> {
-        retry_call!(self, update_group_properties, request)
+        request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
+        retry_call!(self, update_group, request)
     }
 
     async fn delete_groups_batch_for_team(

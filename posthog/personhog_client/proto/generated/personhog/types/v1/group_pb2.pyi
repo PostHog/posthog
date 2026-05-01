@@ -299,26 +299,47 @@ class CreateGroupResponse(_message.Message):
 
     def __init__(self, group: _Optional[_Union[Group, _Mapping]] = ...) -> None: ...
 
-class UpdateGroupPropertiesRequest(_message.Message):
-    __slots__ = ("team_id", "group_type_index", "group_key", "group_properties")
+class UpdateGroupRequest(_message.Message):
+    __slots__ = (
+        "team_id",
+        "group_type_index",
+        "group_key",
+        "update_mask",
+        "group_properties",
+        "properties_last_updated_at",
+        "properties_last_operation",
+        "created_at",
+    )
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     GROUP_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
     GROUP_KEY_FIELD_NUMBER: _ClassVar[int]
+    UPDATE_MASK_FIELD_NUMBER: _ClassVar[int]
     GROUP_PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    PROPERTIES_LAST_UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
+    PROPERTIES_LAST_OPERATION_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
     team_id: int
     group_type_index: int
     group_key: str
+    update_mask: _containers.RepeatedScalarFieldContainer[str]
     group_properties: bytes
+    properties_last_updated_at: bytes
+    properties_last_operation: bytes
+    created_at: int
 
     def __init__(
         self,
         team_id: _Optional[int] = ...,
         group_type_index: _Optional[int] = ...,
         group_key: _Optional[str] = ...,
+        update_mask: _Optional[_Iterable[str]] = ...,
         group_properties: _Optional[bytes] = ...,
+        properties_last_updated_at: _Optional[bytes] = ...,
+        properties_last_operation: _Optional[bytes] = ...,
+        created_at: _Optional[int] = ...,
     ) -> None: ...
 
-class UpdateGroupPropertiesResponse(_message.Message):
+class UpdateGroupResponse(_message.Message):
     __slots__ = ("group", "updated")
     GROUP_FIELD_NUMBER: _ClassVar[int]
     UPDATED_FIELD_NUMBER: _ClassVar[int]

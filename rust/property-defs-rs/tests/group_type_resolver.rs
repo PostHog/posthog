@@ -243,10 +243,10 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<CreateGroupResponse>, Status> {
         Err(Status::unimplemented(""))
     }
-    async fn update_group_properties(
+    async fn update_group(
         &self,
-        _: Request<UpdateGroupPropertiesRequest>,
-    ) -> Result<Response<UpdateGroupPropertiesResponse>, Status> {
+        _: Request<UpdateGroupRequest>,
+    ) -> Result<Response<UpdateGroupResponse>, Status> {
         Err(Status::unimplemented(""))
     }
     async fn delete_groups_batch_for_team(

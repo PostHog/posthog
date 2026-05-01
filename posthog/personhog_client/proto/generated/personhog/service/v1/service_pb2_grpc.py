@@ -201,10 +201,10 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupResponse.FromString,
             _registered_method=True,
         )
-        self.UpdateGroupProperties = channel.unary_unary(
-            "/personhog.service.v1.PersonHogService/UpdateGroupProperties",
-            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupPropertiesRequest.SerializeToString,
-            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupPropertiesResponse.FromString,
+        self.UpdateGroup = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/UpdateGroup",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupResponse.FromString,
             _registered_method=True,
         )
         self.DeleteGroupsBatchForTeam = channel.unary_unary(
@@ -418,7 +418,7 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
-    def UpdateGroupProperties(self, request, context):
+    def UpdateGroup(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
@@ -609,10 +609,10 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupResponse.SerializeToString,
         ),
-        "UpdateGroupProperties": grpc.unary_unary_rpc_method_handler(
-            servicer.UpdateGroupProperties,
-            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupPropertiesRequest.FromString,
-            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupPropertiesResponse.SerializeToString,
+        "UpdateGroup": grpc.unary_unary_rpc_method_handler(
+            servicer.UpdateGroup,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupResponse.SerializeToString,
         ),
         "DeleteGroupsBatchForTeam": grpc.unary_unary_rpc_method_handler(
             servicer.DeleteGroupsBatchForTeam,
@@ -1471,7 +1471,7 @@ class PersonHogService:
         )
 
     @staticmethod
-    def UpdateGroupProperties(
+    def UpdateGroup(
         request,
         target,
         options=(),
@@ -1486,9 +1486,9 @@ class PersonHogService:
         return grpc.experimental.unary_unary(
             request,
             target,
-            "/personhog.service.v1.PersonHogService/UpdateGroupProperties",
-            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupPropertiesRequest.SerializeToString,
-            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupPropertiesResponse.FromString,
+            "/personhog.service.v1.PersonHogService/UpdateGroup",
+            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupResponse.FromString,
             options,
             channel_credentials,
             insecure,
