@@ -46,7 +46,7 @@ export function AnnotationsLayer({
             },
             _metasets: [{ data: points }],
         }
-    }, [labels, scales.x, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter])
+    }, [labels, scales.x, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter, scales])
 
     if (chartLike.scales.x.ticks.length < 2) {
         return null
