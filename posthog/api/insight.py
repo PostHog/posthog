@@ -48,6 +48,7 @@ from posthog.api.insight_metadata import generate_insight_metadata
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.api.monitoring import Feature, monitor
+from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -1671,28 +1672,8 @@ Background calculation can be tracked using the `query_status` response field.""
 Only if loading an insight in the context of a dashboard: The relevant dashboard's ID.
 When set, the specified dashboard's filters and date range override will be applied.""",
             ),
-            OpenApiParameter(
-                name="variables_override",
-                type=OpenApiTypes.STR,
-                description=(
-                    "JSON object to override the insight's HogQL variables for this request only (not persisted). "
-                    'Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", '
-                    '"value": <new_value>}}. Each entry must include `code_name` — partial entries are silently '
-                    "dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from "
-                    "the response's query variables, and mutate `value`. Top-level keys replace; nested values are "
-                    "not deep-merged. Ignored when accessed via a sharing token."
-                ),
-            ),
-            OpenApiParameter(
-                name="filters_override",
-                type=OpenApiTypes.STR,
-                description=(
-                    "JSON object to override the insight's filters for this request only (not persisted). "
-                    "Top-level keys replace; nested values are not deep-merged — pass the complete value for any "
-                    "key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, "
-                    "`date_to`, `properties`). Ignored when accessed via a sharing token."
-                ),
-            ),
+            make_variables_override_param(subject_label="the insight's HogQL", tool_name="insight-get"),
+            make_filters_override_param(subject_label="the insight's"),
         ],
     )
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="GET")
