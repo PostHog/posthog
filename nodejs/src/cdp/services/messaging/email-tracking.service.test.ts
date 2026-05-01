@@ -11,6 +11,7 @@ import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
 import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
@@ -28,6 +29,7 @@ describe('EmailTrackingService', () => {
         team = await getFirstTeam(hub.postgres)
 
         mockFetch.mockClear()
+        mockProducerObserver.resetKafkaProducer()
     })
 
     afterEach(async () => {
@@ -54,11 +56,11 @@ describe('EmailTrackingService', () => {
             server.close()
         })
 
-        // Metrics are tracked via SES webhooks, not the direct pixel/redirect handlers,
-        // to avoid double counting. These tests verify the handlers still serve correct
-        // responses without recording metrics.
+        // In production, opens/clicks come from SES webhooks. In dev/test (which jest runs as)
+        // there is no SES, so the pixel/redirect handlers themselves emit the metric — these
+        // tests run in test env and exercise that path.
         describe('handleEmailTrackingRedirect', () => {
-            it('should redirect to the target url without recording metrics', async () => {
+            it('should redirect to the target url and record an email_link_clicked metric', async () => {
                 const phId = generateEmailTrackingCode({
                     functionId: hogFunction.id,
                     id: invocationId,
@@ -68,8 +70,15 @@ describe('EmailTrackingService', () => {
                 expect(res.status).toBe(302)
                 expect(res.headers.location).toBe('https://example.com')
 
-                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                expect(messages).toHaveLength(0)
+                await waitForExpect(() => {
+                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(messages).toHaveLength(1)
+                    expect(messages[0].value).toMatchObject({
+                        team_id: team.id,
+                        metric_name: 'email_link_clicked',
+                        metric_kind: 'email',
+                    })
+                })
             })
 
             it('should return 404 if the target is not provided', async () => {
@@ -80,11 +89,14 @@ describe('EmailTrackingService', () => {
                 })
                 const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}`)
                 expect(res.status).toBe(404)
+
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(messages).toHaveLength(0)
             })
         })
 
         describe('email tracking pixel', () => {
-            it('should return a gif image without recording metrics', async () => {
+            it('should return a gif image and record an email_opened metric', async () => {
                 const phId = generateEmailTrackingCode({
                     functionId: hogFunction.id,
                     id: invocationId,
@@ -95,8 +107,15 @@ describe('EmailTrackingService', () => {
                 expect(res.headers['content-type']).toBe('image/gif')
                 expect(res.body).toEqual(PIXEL_GIF)
 
-                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                expect(messages).toHaveLength(0)
+                await waitForExpect(() => {
+                    const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    expect(messages).toHaveLength(1)
+                    expect(messages[0].value).toMatchObject({
+                        team_id: team.id,
+                        metric_name: 'email_opened',
+                        metric_kind: 'email',
+                    })
+                })
             })
 
             it('should return a 200 even if the tracking code is invalid', async () => {

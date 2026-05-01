@@ -503,22 +503,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-workflows',
-        title: 'Workflows',
-        group: 'Products',
-        settings: [
-            {
-                id: 'workflows-engagement-events',
-                title: 'Engagement events',
-                description:
-                    'When enabled, messaging engagement activity (sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events alongside existing app metrics. This lets you build insights, funnels, and dashboards from messaging data.',
-                component: <WorkflowsEngagementEventsSettings />,
-                keywords: ['workflows', 'messaging', 'email', 'engagement', 'events', 'capture', 'tracking'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
         id: 'environment-error-tracking',
         title: 'Error tracking',
         group: 'Products',
@@ -1222,6 +1206,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-workflows',
+        title: 'Workflows',
+        group: 'Products',
+        settings: [
+            {
+                id: 'workflows-engagement-events',
+                title: 'Engagement events',
+                description:
+                    'When enabled, messaging engagement activity (sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events alongside existing app metrics. This lets you build insights, funnels, and dashboards from messaging data.',
+                component: <WorkflowsEngagementEventsSettings />,
+                keywords: ['workflows', 'messaging', 'email', 'engagement', 'events', 'capture', 'tracking'],
             },
         ],
     },

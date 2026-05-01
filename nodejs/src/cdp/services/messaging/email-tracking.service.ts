@@ -4,6 +4,7 @@ import express from 'ultimate-express'
 import { ModifiedRequest } from '~/api/router'
 import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
+import { isDevEnv, isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../../utils/logger'
@@ -268,16 +269,22 @@ export class EmailTrackingService {
     }
 
     // NOTE: this is somewhat naieve. We should expand with UA checking for things like apple's tracking prevention etc.
-    // Metrics are not recorded here because SES webhooks already track opens.
-    // Recording here would double-count. The pixel is still served so email
-    // clients that load it get a valid response.
-    public handleEmailTrackingPixel(_req: ModifiedRequest, res: express.Response): void {
+    // In production, opens are tracked via SES webhooks — recording here would double-count.
+    // In dev/test (where maildev replaces SES and no webhooks come back), we fire the
+    // engagement event from the pixel handler so local testing produces real events.
+    public handleEmailTrackingPixel(req: ModifiedRequest, res: express.Response): void {
         res.status(200).set('Content-Type', 'image/gif').send(PIXEL_GIF)
+
+        if (isDevEnv() || isTestEnv()) {
+            const params = this.parseTrackingParams(req.query as Record<string, any>)
+            void this.trackMetric({ ...params, metricName: 'email_opened', source: 'direct' }).catch((error) => {
+                logger.error('[EmailTrackingService] handleEmailTrackingPixel: trackMetric failed', { error })
+            })
+        }
     }
 
-    // Metrics are not recorded here because SES webhooks already track clicks.
-    // Recording here would double-count. The redirect still works so users
-    // reach their destination.
+    // Same rationale as handleEmailTrackingPixel: skip in production (SES webhooks own
+    // click tracking), but emit in dev/test where maildev never produces webhooks.
     public handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): void {
         const { target } = req.query
 
@@ -287,5 +294,12 @@ export class EmailTrackingService {
         }
 
         res.redirect(target as string)
+
+        if (isDevEnv() || isTestEnv()) {
+            const params = this.parseTrackingParams(req.query as Record<string, any>)
+            void this.trackMetric({ ...params, metricName: 'email_link_clicked', source: 'direct' }).catch((error) => {
+                logger.error('[EmailTrackingService] handleEmailTrackingRedirect: trackMetric failed', { error })
+            })
+        }
     }
 }
