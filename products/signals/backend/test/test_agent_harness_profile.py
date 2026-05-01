@@ -12,18 +12,22 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from posthog.models.insight import Insight, InsightViewed
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.signals.backend.agent_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
 from products.signals.backend.agent_harness.profile.builders import (
     _existing_inbox_reports,
     _external_data_sources,
     _integrations,
+    _popular_insights,
     _product_intents,
     _products_in_use,
     _project_context,
+    _recent_dashboards,
     _signal_source_configs,
 )
 from products.signals.backend.agent_harness.tools.profile import (
@@ -181,6 +185,87 @@ class TestExistingInboxReports(BaseTest):
         assert result["total"] == 0
 
 
+class TestRecentDashboards(BaseTest):
+    def test_orders_by_last_accessed_desc(self) -> None:
+        old = Dashboard.objects.create(team=self.team, name="old")
+        new = Dashboard.objects.create(team=self.team, name="new")
+        Dashboard.objects.filter(id=old.id).update(last_accessed_at=timezone.now() - timedelta(hours=2))
+        Dashboard.objects.filter(id=new.id).update(last_accessed_at=timezone.now())
+        result = _recent_dashboards(self.team)
+        assert [r["name"] for r in result] == ["new", "old"]
+
+    def test_excludes_deleted(self) -> None:
+        live = Dashboard.objects.create(team=self.team, name="live")
+        gone = Dashboard.objects.create(team=self.team, name="gone", deleted=True)
+        Dashboard.objects.filter(id=live.id).update(last_accessed_at=timezone.now())
+        Dashboard.objects.filter(id=gone.id).update(last_accessed_at=timezone.now())
+        result = _recent_dashboards(self.team)
+        assert [r["name"] for r in result] == ["live"]
+
+    def test_excludes_never_accessed(self) -> None:
+        # last_accessed_at null = never opened — surfacing it as "recent" would lie.
+        accessed = Dashboard.objects.create(team=self.team, name="accessed")
+        Dashboard.objects.filter(id=accessed.id).update(last_accessed_at=timezone.now())
+        Dashboard.objects.create(team=self.team, name="never")  # last_accessed_at = null
+        result = _recent_dashboards(self.team)
+        assert [r["name"] for r in result] == ["accessed"]
+
+    def test_team_isolated(self) -> None:
+        other = self.organization.teams.create(name="other")
+        d = Dashboard.objects.create(team=other, name="other-team")
+        Dashboard.objects.filter(id=d.id).update(last_accessed_at=timezone.now())
+        result = _recent_dashboards(self.team)
+        assert result == []
+
+
+class TestPopularInsights(BaseTest):
+    def test_orders_by_distinct_viewer_count_desc(self) -> None:
+        # Two insights with distinct viewers; popular has more.
+        popular = Insight.objects.create(team=self.team, name="popular")
+        niche = Insight.objects.create(team=self.team, name="niche")
+        u1 = self._create_user("u1@example.com")
+        u2 = self._create_user("u2@example.com")
+        u3 = self._create_user("u3@example.com")
+        # 3 viewers on `popular`, 1 on `niche`.
+        for user in (u1, u2, u3):
+            InsightViewed.objects.create(team=self.team, user=user, insight=popular, last_viewed_at=timezone.now())
+        InsightViewed.objects.create(team=self.team, user=u1, insight=niche, last_viewed_at=timezone.now())
+        result = _popular_insights(self.team)
+        assert [r["name"] for r in result] == ["popular", "niche"]
+        assert result[0]["viewer_count"] == 3
+        assert result[1]["viewer_count"] == 1
+
+    def test_excludes_never_viewed_insights(self) -> None:
+        # An insight with no `InsightViewed` rows is filtered out — useless orientation.
+        seen = Insight.objects.create(team=self.team, name="seen")
+        Insight.objects.create(team=self.team, name="unseen")
+        u1 = self._create_user("u1@example.com")
+        InsightViewed.objects.create(team=self.team, user=u1, insight=seen, last_viewed_at=timezone.now())
+        result = _popular_insights(self.team)
+        assert [r["name"] for r in result] == ["seen"]
+
+    def test_falls_back_to_derived_name_when_name_blank(self) -> None:
+        insight = Insight.objects.create(team=self.team, name=None, derived_name="Auto-named")
+        u1 = self._create_user("u1@example.com")
+        InsightViewed.objects.create(team=self.team, user=u1, insight=insight, last_viewed_at=timezone.now())
+        result = _popular_insights(self.team)
+        assert result[0]["name"] == "Auto-named"
+
+    def test_excludes_deleted_insights(self) -> None:
+        live = Insight.objects.create(team=self.team, name="live")
+        deleted = Insight.objects.create(team=self.team, name="dead", deleted=True)
+        u1 = self._create_user("u1@example.com")
+        for ins in (live, deleted):
+            InsightViewed.objects.create(team=self.team, user=u1, insight=ins, last_viewed_at=timezone.now())
+        result = _popular_insights(self.team)
+        assert [r["name"] for r in result] == ["live"]
+
+    def _create_user(self, email: str):
+        from posthog.models.user import User
+
+        return User.objects.create(email=email, distinct_id=email)
+
+
 class TestBuildInventory(BaseTest):
     def test_returns_all_inventory_keys(self) -> None:
         inventory = build_inventory(self.team)
@@ -192,6 +277,8 @@ class TestBuildInventory(BaseTest):
             "external_data_sources",
             "signal_source_configs",
             "existing_inbox_reports",
+            "recent_dashboards",
+            "popular_insights",
             "top_events",
         }
 

@@ -341,6 +341,52 @@ class ExistingInboxReportsSerializer(serializers.Serializer):
     )
 
 
+class RecentDashboardEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_dashboards`."""
+
+    id = serializers.IntegerField(help_text="Dashboard ID — pass to `dashboard-get` to pull the full payload.")
+    name = serializers.CharField(allow_blank=True, help_text="Dashboard name (may be blank if unnamed).")
+    last_accessed_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp of the most recent view in the PostHog UI.",
+    )
+    last_refresh = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recent data refresh. Distinct from access — "
+            "a dashboard can be refreshed without anyone viewing it."
+        ),
+    )
+    created_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp the dashboard was created.",
+    )
+
+
+class PopularInsightEntrySerializer(serializers.Serializer):
+    """One row in `inventory.popular_insights`."""
+
+    short_id = serializers.CharField(help_text="Insight short_id — pass to `insight-get` to pull the full query.")
+    name = serializers.CharField(
+        allow_blank=True,
+        help_text=("Insight name when human-set, otherwise the auto-derived name. Same fallback the UI uses."),
+    )
+    viewer_count = serializers.IntegerField(
+        help_text=(
+            "Distinct users (`COUNT(DISTINCT user_id)` over `InsightViewed`) — popularity, "
+            "not raw view total. A real measure of how many separate humans have looked at it."
+        ),
+    )
+    last_viewed_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp of the most recent view across any user.",
+    )
+    last_modified_at = serializers.CharField(
+        allow_null=True,
+        help_text="ISO-8601 timestamp of the most recent edit.",
+    )
+
+
 class TopEventEntrySerializer(serializers.Serializer):
     """One row in `inventory.top_events`."""
 
@@ -432,6 +478,23 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     )
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
+    )
+    recent_dashboards = serializers.ListField(
+        child=RecentDashboardEntrySerializer(),
+        help_text=(
+            "Up to 20 dashboards on this team sorted by `last_accessed_at` desc — "
+            "what the team is currently looking at, not necessarily the most-trafficked. "
+            "We don't have per-dashboard view counts in Postgres, only the timestamp of "
+            "the most recent access."
+        ),
+    )
+    popular_insights = serializers.ListField(
+        child=PopularInsightEntrySerializer(),
+        help_text=(
+            "Up to 20 insights ranked by distinct viewer count (real popularity, "
+            "not raw view total), with the most-recent view as tiebreaker. "
+            "Insights no one has ever viewed are filtered out."
+        ),
     )
     top_events = serializers.ListField(
         child=TopEventEntrySerializer(),

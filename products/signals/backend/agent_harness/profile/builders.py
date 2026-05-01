@@ -17,14 +17,18 @@ import logging
 from collections import Counter
 from typing import Any
 
+from django.db.models import Count, Max
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 
@@ -43,6 +47,12 @@ TOP_EVENTS_LOOKBACK_DAYS = 7
 TOP_EVENTS_RECENT_DAYS = 1
 TOP_EVENTS_LIMIT = 50
 
+# Dashboard / insight surfacing limits. Both are bounded by name-only orientation —
+# the agent can `dashboard-get` / `insight-get` on a specific id once the profile
+# tells it what's worth pulling.
+RECENT_DASHBOARDS_LIMIT = 20
+POPULAR_INSIGHTS_LIMIT = 20
+
 
 def build_inventory(team: Team) -> dict[str, Any]:
     """Aggregate the deterministic inventory layer for a team.
@@ -60,6 +70,8 @@ def build_inventory(team: Team) -> dict[str, Any]:
         "external_data_sources": _external_data_sources(team),
         "signal_source_configs": _signal_source_configs(team),
         "existing_inbox_reports": _existing_inbox_reports(team),
+        "recent_dashboards": _recent_dashboards(team),
+        "popular_insights": _popular_insights(team),
         "top_events": _top_events(team),
     }
 
@@ -180,6 +192,67 @@ def _existing_inbox_reports(team: Team) -> dict[str, Any]:
     counter: Counter[str] = Counter(qs)
     by_status = [{"status": status, "count": count} for status, count in sorted(counter.items())]
     return {"total": sum(counter.values()), "by_status": by_status}
+
+
+def _recent_dashboards(team: Team) -> list[dict[str, Any]]:
+    """Most recently accessed dashboards on this team.
+
+    Sorted by `Dashboard.last_accessed_at` desc — recency, not popularity. We don't
+    have a per-dashboard view *count* in Postgres (the `viewed dashboard` event would
+    give us counts but only for PostHog-internal teams via project 2), so this surfaces
+    "what's the team currently looking at" rather than "what's most trafficked." The
+    name reflects what we actually have.
+    """
+    rows = (
+        Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False)
+        .order_by("-last_accessed_at")[:RECENT_DASHBOARDS_LIMIT]
+        .values("id", "name", "last_accessed_at", "last_refresh", "created_at")
+    )
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"] or "",
+            "last_accessed_at": row["last_accessed_at"].isoformat() if row["last_accessed_at"] else None,
+            "last_refresh": row["last_refresh"].isoformat() if row["last_refresh"] else None,
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+        for row in rows
+    ]
+
+
+def _popular_insights(team: Team) -> list[dict[str, Any]]:
+    """Insights ranked by distinct viewer count, with the most-recent-view as tiebreaker.
+
+    `viewer_count` is `COUNT(DISTINCT user_id)` from the `InsightViewed` table — a real
+    popularity signal (how many separate humans have ever opened this insight), not a
+    raw view total. Ties broken by `last_viewed_at` so a popular-and-fresh insight beats
+    a popular-and-stale one.
+
+    Insights with zero viewer rows are filtered out — they exist but no one has ever
+    looked at them, which isn't useful orientation.
+    """
+    rows = (
+        Insight.objects.filter(team=team, deleted=False)
+        .annotate(
+            viewer_count=Count("insightviewed__user", distinct=True),
+            last_viewed_at=Max("insightviewed__last_viewed_at"),
+        )
+        .filter(viewer_count__gt=0)
+        .order_by("-viewer_count", "-last_viewed_at")[:POPULAR_INSIGHTS_LIMIT]
+        .values("short_id", "name", "derived_name", "viewer_count", "last_viewed_at", "last_modified_at")
+    )
+    return [
+        {
+            "short_id": row["short_id"],
+            # `name` is human-set; `derived_name` is auto-generated from the query.
+            # Surface name when set, otherwise the derived one — same fallback the UI uses.
+            "name": (row["name"] or row["derived_name"] or "").strip(),
+            "viewer_count": row["viewer_count"],
+            "last_viewed_at": row["last_viewed_at"].isoformat() if row["last_viewed_at"] else None,
+            "last_modified_at": row["last_modified_at"].isoformat() if row["last_modified_at"] else None,
+        }
+        for row in rows
+    ]
 
 
 def _top_events(team: Team) -> list[dict[str, Any]] | None:
