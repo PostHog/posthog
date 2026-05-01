@@ -47,6 +47,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "sccid",  # snapchat
     "irclid",  # impact
     "_kx",  # klaviyo
+    "ph_keyword",  # posthog keyword
 ]
 
 PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
@@ -58,6 +59,7 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$browser_version",
     "$device_type",
     "$current_url",
+    "$host",
     "$pathname",
     "$os",
     "$os_version",
@@ -65,6 +67,7 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$referrer",
     "$screen_height",
     "$screen_width",
+    "$search_engine",
     "$viewport_height",
     "$viewport_width",
     "$raw_user_agent",
@@ -97,6 +100,7 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "sccid",
     "irclid",
     "_kx",
+    "ph_keyword",
 }
 
 SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS = {
@@ -394,6 +398,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$sdk_debug_replay_full_snapshots": {
             "label": "Replay full snapshots debug info",
             "description": "Debug information about full snapshots in the replay session.",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_rrweb_error": {
+            "label": "Replay rrweb error",
+            "description": "An error reported by the rrweb session recording library while capturing the replay.",
             "used_for_debug": True,
         },
         "$sdk_debug_recording_script_not_loaded": {
@@ -786,6 +795,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Exception fingerprint",
             "description": "A fingerprint used to group issues, can be set clientside.",
         },
+        "$exception_fingerprint_record": {
+            "label": "Exception fingerprint record",
+            "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
+        },
         "$exception_proposed_fingerprint": {
             "label": "Exception proposed fingerprint",
             "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
@@ -857,6 +870,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Event type",
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": ["click", "submit", "change"],
+        },
+        "$external_click_url": {
+            "label": "External click URL",
+            "description": "The URL of an external link that was clicked during autocapture. External meaning the URL points to a different host than the page the user was on.",
+            "examples": ["https://example.com/some-article"],
         },
         "$insert_id": {
             "label": "Insert ID",
@@ -1279,6 +1297,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.",
             "examples": ["2023-05-20T15:31:00Z"],
         },
+        "$event_time_override_provided": {
+            "label": "Event time override provided",
+            "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
+            "system": True,
+            "used_for_debug": True,
+        },
+        "$event_time_override_system_time": {
+            "label": "Event time override system time",
+            "description": "The system time that the SDK fell back to when overriding the event timestamp.",
+            "system": True,
+            "used_for_debug": True,
+        },
         "$browser": {
             "label": "Browser",
             "description": "Name of the browser the user has used.",
@@ -1467,6 +1497,33 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Feature flag version",
             "description": "The version of the feature flag that was called.",
             "examples": ["3"],
+        },
+        "$feature_flag_id": {
+            "label": "Feature flag ID",
+            "description": "The numeric identifier of the feature flag that was called.",
+            "examples": ["1234"],
+        },
+        "$feature_flag_bootstrapped_response": {
+            "label": "Feature flag bootstrapped response",
+            "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+        },
+        "$feature_flag_bootstrapped_payload": {
+            "label": "Feature flag bootstrapped payload",
+            "description": "The payload value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+        },
+        "$feature_flag_original_response": {
+            "label": "Feature flag original response",
+            "description": "The original feature flag response from PostHog, before any local override was applied.",
+        },
+        "$feature_flag_error": {
+            "label": "Feature flag error",
+            "description": "The error encountered while evaluating the feature flag, if any.",
+            "system": True,
+        },
+        "$override_feature_flags": {
+            "label": "Override feature flags",
+            "description": "Locally overridden feature flag values, typically set via the toolbar or SDK override APIs.",
+            "system": True,
         },
         "$survey_response": {
             "label": "Survey response",
@@ -1697,6 +1754,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "ttclid",
             "description": "TikTok Click ID",
         },
+        "ph_keyword": {
+            "label": "ph_keyword",
+            "description": "PostHog keyword tracking parameter.",
+        },
         "$is_identified": {
             "label": "Is identified",
             "description": "Client-side property set by posthog-js indicating whether the user has been previously identified on the device.",
@@ -1877,6 +1938,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$dead_click_selection_changed_timeout": {
             "label": "Dead click selection changed timeout",
             "description": "whether the dead click autocapture passed the threshold for waiting for a text selection change event",
+            "system": True,
+        },
+        "$dead_click_visibility_changed_delay_ms": {
+            "label": "Dead click visibility changed delay in milliseconds",
+            "description": "The delay between a click and the next visibility change event",
+            "system": True,
+        },
+        "$dead_click_visibility_changed_timeout": {
+            "label": "Dead click visibility changed timeout",
+            "description": "whether the dead click autocapture passed the threshold for waiting for a visibility change event",
             "system": True,
         },
         # AI
@@ -2530,6 +2601,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "End pathname",
             "description": "The last pathname visited in this session.",
             "examples": ["/interesting-article?parameter=true"],
+            "type": "String",
+        },
+        "$entry_hostname": {
+            "label": "Entry hostname",
+            "description": "The hostname of the first URL visited in this session.",
+            "examples": ["example.com"],
+            "type": "String",
+        },
+        "$end_hostname": {
+            "label": "End hostname",
+            "description": "The hostname of the last URL visited in this session.",
+            "examples": ["example.com"],
             "type": "String",
         },
         "$exit_current_url": {
