@@ -1913,6 +1913,7 @@ def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> Non
         ("/", True),
         ("/insights/abc123", True),
         ("/dashboard/42", True),
+        ("/project/2/insights", True),
         ("/api/projects/@current/feature_flags/", False),
     ]
 )
