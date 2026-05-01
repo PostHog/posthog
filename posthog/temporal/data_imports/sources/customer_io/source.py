@@ -204,13 +204,13 @@ class CustomerIOSource(
 
     def webhook_inputs_updated(
         self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
-    ) -> None:
+    ) -> tuple[bool, str | None]:
         # The webhook is created in a disabled state so Customer.io doesn't fire
         # events at PostHog before we can verify them with the signing secret.
         # Now that the user has provided the secret, enable the webhook.
         if not inputs.get("signing_secret"):
-            return
-        api_client.enable_webhook(config.app_api_key, config.region, webhook_url)
+            return True, None
+        return api_client.enable_webhook(config.app_api_key, config.region, webhook_url)
 
     def get_external_webhook_info(
         self, config: CustomerIOSourceConfig, webhook_url: str, team_id: int
