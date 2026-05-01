@@ -27,9 +27,32 @@ class Migration(migrations.Migration):
                 ),
                 ("github_comment_id", models.BigIntegerField(db_index=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "comment",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.comment",
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
+                (
+                    "ticket",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="conversations.ticket"),
+                ),
             ],
             options={
                 "db_table": "posthog_conversations_github_comment_mapping",
+                "constraints": [
+                    models.UniqueConstraint(
+                        fields=("github_comment_id", "team"),
+                        name="unique_github_comment_per_team",
+                    ),
+                ],
             },
         ),
         migrations.AddField(
@@ -82,33 +105,6 @@ class Migration(migrations.Migration):
                 fields=("team", "github_repo", "github_issue_number"),
                 condition=models.Q(github_repo__isnull=False, github_issue_number__isnull=False),
                 name="posthog_con_github_issue_uniq",
-            ),
-        ),
-        migrations.AddField(
-            model_name="githubcommentmapping",
-            name="comment",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                to="posthog.comment",
-            ),
-        ),
-        migrations.AddField(
-            model_name="githubcommentmapping",
-            name="team",
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
-        ),
-        migrations.AddField(
-            model_name="githubcommentmapping",
-            name="ticket",
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="conversations.ticket"),
-        ),
-        migrations.AddConstraint(
-            model_name="githubcommentmapping",
-            constraint=models.UniqueConstraint(
-                fields=("github_comment_id", "team"),
-                name="unique_github_comment_per_team",
             ),
         ),
     ]
