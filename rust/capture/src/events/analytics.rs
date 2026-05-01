@@ -1862,4 +1862,155 @@ mod tests {
         assert_eq!(captured.len(), 1);
         assert!(!captured[0].metadata.skip_heatmap_processing);
     }
+
+    /// End-to-end pipeline-to-kafka contract for the heatmap redirect: an
+    /// event with `$heatmap_data` produces two kafka records — the stripped
+    /// original on the events topic with the `skip_heatmap_processing`
+    /// header, and a `$$heatmap` redirect on the heatmaps topic carrying the
+    /// heatmap properties. Pre-refactor the events branch was the sole
+    /// extractor of heatmap data; this test pins the new contract that the
+    /// heatmaps branch is now the sole extractor and the events branch sees
+    /// a pre-stripped payload it must skip.
+    #[tokio::test]
+    async fn e2e_heatmap_redirect_strips_original_and_routes_redirect() {
+        let now = Utc::now();
+        let context = create_test_context(now, None);
+        let event = create_event_with_heatmap_data();
+        let original_uuid = event.uuid.unwrap();
+        let events = vec![event];
+
+        let producer = MockKafkaProducer::new();
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        process_events(
+            sink,
+            dropper,
+            None,
+            historical_cfg,
+            None,
+            None,
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let records = producer.get_records();
+        assert_eq!(
+            records.len(),
+            2,
+            "should produce original + heatmap redirect"
+        );
+
+        let original = records
+            .iter()
+            .find(|r| r.topic == "events_plugin_ingestion")
+            .expect("original event should land on the main events topic");
+        let redirect = records
+            .iter()
+            .find(|r| r.topic == "heatmaps")
+            .expect("redirect should land on the heatmaps topic");
+
+        // ---- original on events topic ----
+        assert_eq!(
+            original.headers.skip_heatmap_processing,
+            Some(true),
+            "original must carry skip_heatmap_processing=true so the events pipeline skips extraction"
+        );
+        assert_eq!(
+            original.headers.event.as_deref(),
+            Some("$pageview"),
+            "original keeps its event name"
+        );
+        assert_eq!(
+            original.headers.uuid.as_deref(),
+            Some(original_uuid.to_string().as_str()),
+            "original keeps its uuid"
+        );
+
+        let original_captured: CapturedEvent =
+            serde_json::from_str(&original.payload).expect("payload should be a CapturedEvent");
+        let original_raw: RawEvent = serde_json::from_str(&original_captured.data)
+            .expect("data field should be a serialized RawEvent");
+        assert!(
+            !original_raw.properties.contains_key("$heatmap_data"),
+            "$heatmap_data must be stripped from the original on the events topic"
+        );
+        // Other heatmap-adjacent properties must remain — web analytics queries depend on them.
+        assert!(original_raw.properties.contains_key("$current_url"));
+        assert!(original_raw.properties.contains_key("$viewport_height"));
+        assert!(original_raw.properties.contains_key("$viewport_width"));
+        assert!(original_raw.properties.contains_key("$session_id"));
+        // Unrelated user properties must also remain on the original.
+        assert_eq!(
+            original_raw.properties.get("other_prop"),
+            Some(&json!("should_not_appear_in_redirect")),
+        );
+
+        // ---- redirect on heatmaps topic ----
+        assert_eq!(
+            redirect.headers.skip_heatmap_processing, None,
+            "redirect must NOT set skip_heatmap_processing — the heatmaps pipeline is the consumer"
+        );
+        assert_eq!(
+            redirect.headers.event.as_deref(),
+            Some("$$heatmap"),
+            "redirect must be renamed to $$heatmap"
+        );
+        assert_ne!(
+            redirect.headers.uuid.as_deref(),
+            Some(original_uuid.to_string().as_str()),
+            "redirect must have a fresh uuid so it doesn't dedupe against the original"
+        );
+
+        let redirect_captured: CapturedEvent =
+            serde_json::from_str(&redirect.payload).expect("payload should be a CapturedEvent");
+        assert_eq!(redirect_captured.event, "$$heatmap");
+        let redirect_raw: RawEvent = serde_json::from_str(&redirect_captured.data)
+            .expect("data field should be a serialized RawEvent");
+        assert_eq!(redirect_raw.event, "$$heatmap");
+        // The redirect carries the heatmap properties the pipeline reads.
+        assert_eq!(
+            redirect_raw.properties.get("$heatmap_data"),
+            Some(&json!({
+                "https://example.com": [{
+                    "x": 100,
+                    "y": 200,
+                    "target_fixed": false,
+                    "type": "click",
+                }]
+            })),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$viewport_height"),
+            Some(&json!(900)),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$viewport_width"),
+            Some(&json!(1440)),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$session_id"),
+            Some(&json!("session-abc")),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$current_url"),
+            Some(&json!("https://example.com")),
+        );
+        // distinct_id is required for routing-key generation.
+        assert_eq!(
+            redirect_raw.properties.get("distinct_id"),
+            Some(&json!("test_user")),
+        );
+        // The redirect must NOT carry unrelated user properties — only what the heatmap pipeline reads.
+        assert!(
+            !redirect_raw.properties.contains_key("other_prop"),
+            "redirect must only carry heatmap properties"
+        );
+    }
 }
