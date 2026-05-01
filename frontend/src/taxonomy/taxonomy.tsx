@@ -72,6 +72,8 @@ export const CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS = [
     'billing_period_end',
     'billing_period_start',
     'current_total_amount_usd',
+    'projected_total_amount_usd',
+    'projected_total_amount_usd_with_limit',
     'customer_deactivated',
     'has_billing_plan',
     'is_demo_project',

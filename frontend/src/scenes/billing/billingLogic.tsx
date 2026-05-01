@@ -992,6 +992,8 @@ export const billingLogic = kea<billingLogicType>([
                     free_trial_until: values.billing.free_trial_until?.toISOString(),
                     customer_deactivated: values.billing.deactivated,
                     current_total_amount_usd: values.billing.current_total_amount_usd,
+                    projected_total_amount_usd: values.billing.projected_total_amount_usd,
+                    projected_total_amount_usd_with_limit: values.billing.projected_total_amount_usd_with_limit,
                 }
                 if (values.billing.custom_limits_usd) {
                     for (const product of Object.keys(values.billing.custom_limits_usd)) {
