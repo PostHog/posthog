@@ -1648,18 +1648,22 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_has_heatmap_data_with_heatmap_data_property() {
-        let event = create_event_with_heatmap_data();
-        assert!(has_heatmap_data(&event));
-    }
-
-    #[test]
-    fn test_has_heatmap_data_with_scroll_depth_properties() {
+    #[rstest]
+    #[case::heatmap_data_present(&["$heatmap_data"], true)]
+    #[case::scroll_depth_pair(&["$prev_pageview_pathname", "$current_url"], true)]
+    #[case::heatmap_data_with_scroll_depth(
+        &["$heatmap_data", "$prev_pageview_pathname", "$current_url"],
+        true,
+    )]
+    #[case::only_prev_pageview_pathname(&["$prev_pageview_pathname"], false)]
+    #[case::only_current_url(&["$current_url"], false)]
+    #[case::no_heatmap_properties(&[], false)]
+    fn test_has_heatmap_data(#[case] property_keys: &[&str], #[case] expected: bool) {
         let mut properties = HashMap::new();
         properties.insert("distinct_id".to_string(), json!("test_user"));
-        properties.insert("$prev_pageview_pathname".to_string(), json!("/old"));
-        properties.insert("$current_url".to_string(), json!("https://example.com/new"));
+        for key in property_keys {
+            properties.insert((*key).to_string(), json!("anything"));
+        }
 
         let event = RawEvent {
             uuid: Some(uuid_v7()),
@@ -1672,13 +1676,8 @@ mod tests {
             set_once: None,
             token: Some("test_token".to_string()),
         };
-        assert!(has_heatmap_data(&event));
-    }
 
-    #[test]
-    fn test_has_heatmap_data_without_heatmap_properties() {
-        let event = create_test_event(None, None, None);
-        assert!(!has_heatmap_data(&event));
+        assert_eq!(has_heatmap_data(&event), expected);
     }
 
     #[test]
