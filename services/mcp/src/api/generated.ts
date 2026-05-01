@@ -31733,6 +31733,28 @@ export namespace Schemas {
     }
 
     /**
+     * One row in `inventory.popular_insights`.
+     */
+    export interface PopularInsightEntry {
+      /** Insight short_id — pass to `insight-get` to pull the full query. */
+      short_id: string;
+      /** Insight name when human-set, otherwise the auto-derived name. Same fallback the UI uses. */
+      name: string;
+      /** Distinct users (`COUNT(DISTINCT user_id)` over `InsightViewed`) — popularity, not raw view total. A real measure of how many separate humans have looked at it. */
+      viewer_count: number;
+      /**
+       * ISO-8601 timestamp of the most recent view across any user.
+       * @nullable
+       */
+      last_viewed_at: string | null;
+      /**
+       * ISO-8601 timestamp of the most recent edit.
+       * @nullable
+       */
+      last_modified_at: string | null;
+    }
+
+    /**
      * One row in `inventory.product_intents`.
      */
     export interface ProductIntentEntry {
@@ -32610,6 +32632,31 @@ export namespace Schemas {
     }
 
     /**
+     * One row in `inventory.recent_dashboards`.
+     */
+    export interface RecentDashboardEntry {
+      /** Dashboard ID — pass to `dashboard-get` to pull the full payload. */
+      id: number;
+      /** Dashboard name (may be blank if unnamed). */
+      name: string;
+      /**
+       * ISO-8601 timestamp of the most recent view in the PostHog UI.
+       * @nullable
+       */
+      last_accessed_at: string | null;
+      /**
+       * ISO-8601 timestamp of the most recent data refresh. Distinct from access — a dashboard can be refreshed without anyone viewing it.
+       * @nullable
+       */
+      last_refresh: string | null;
+      /**
+       * ISO-8601 timestamp the dashboard was created.
+       * @nullable
+       */
+      created_at: string | null;
+    }
+
+    /**
      * One row in `inventory.top_events`.
      */
     export interface TopEventEntry {
@@ -32657,6 +32704,10 @@ export namespace Schemas {
       signal_source_configs: SignalSourceConfigsBuckets;
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
+      /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
+      recent_dashboards: RecentDashboardEntry[];
+      /** Up to 20 insights ranked by distinct viewer count (real popularity, not raw view total), with the most-recent view as tiebreaker. Insights no one has ever viewed are filtered out. */
+      popular_insights: PopularInsightEntry[];
       /**
        * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
        * @nullable
