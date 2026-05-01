@@ -26,15 +26,16 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from opentelemetry import trace
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
-from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.event_usage import get_event_source, get_mcp_properties
+from posthog.event_usage import EventSource, get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
@@ -382,6 +383,11 @@ class CHQueries:
             if request_id := structlog.get_context(self.logger).get("request_id"):
                 tag_queries(http_request_id=uuid.UUID(request_id))
 
+        source = get_event_source(request)
+        # MCP-originated requests can't tag queries themselves (no `tags.scene` or
+        # per-tool product/feature plumbing yet), so default both here. View-level
+        # `@monitor` decorators still override `feature` per endpoint.
+        mcp_defaults: dict = {"product": Product.MCP, "feature": Feature.QUERY} if source == EventSource.MCP else {}
         tag_queries(
             user_id=user.pk,
             kind="request",
@@ -392,7 +398,8 @@ class CHQueries:
             session_id=self._get_param(request, "session_id"),
             http_referer=request.headers.get("referer"),
             http_user_agent=request.headers.get("user-agent"),
-            source=get_event_source(request),
+            source=source,
+            **mcp_defaults,
             **get_mcp_properties(request),
         )
 
@@ -467,6 +474,18 @@ class QueryTimeCountingMiddleware:
         parts = [f"{key};dur={round(value)}" for key, value in durations_ms.items()]
         parts += [f'{key};desc="{value}"' for key, value in counts.items()]
         return ", ".join(parts)
+
+
+class TraceIdResponseHeaderMiddleware:
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        response = self.get_response(request)
+        ctx = trace.get_current_span().get_span_context()
+        if ctx.trace_id and ctx.trace_flags & trace.TraceFlags.SAMPLED:
+            response.headers["X-Trace-Id"] = f"{ctx.trace_id:032x}"
+        return response
 
 
 def shortcircuitmiddleware(f):

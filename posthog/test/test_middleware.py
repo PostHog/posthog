@@ -1793,3 +1793,32 @@ def test_query_time_counting_middleware_emits_durations_in_milliseconds() -> Non
     assert "pg_max;dur=1200" in header
     assert 'pg_count;desc="17"' in header
     assert 'pg_slow;desc="2"' in header
+
+
+def _trace_id_middleware_with_span(trace_id: int, trace_flags: int):
+    from django.http import HttpResponse
+
+    from posthog.middleware import TraceIdResponseHeaderMiddleware
+
+    middleware = TraceIdResponseHeaderMiddleware(get_response=lambda r: HttpResponse("ok"))
+    fake_span = MagicMock()
+    fake_span.get_span_context.return_value = MagicMock(trace_id=trace_id, trace_flags=trace_flags)
+    with patch("posthog.middleware.trace.get_current_span", return_value=fake_span):
+        return middleware(MagicMock())
+
+
+@parameterized.expand(
+    [
+        ("emits_when_sampled", 0xDEADBEEF1234567890ABCDEF12345678, 0x01, "deadbeef1234567890abcdef12345678"),
+        ("skips_when_not_sampled", 0xDEADBEEF1234567890ABCDEF12345678, 0x00, None),
+        ("skips_when_no_active_span", 0, 0x00, None),
+    ]
+)
+def test_trace_id_response_header_middleware(
+    _name: str, trace_id: int, trace_flags: int, expected_header: str | None
+) -> None:
+    response = _trace_id_middleware_with_span(trace_id=trace_id, trace_flags=trace_flags)
+    if expected_header is None:
+        assert "X-Trace-Id" not in response.headers
+    else:
+        assert response.headers["X-Trace-Id"] == expected_header
